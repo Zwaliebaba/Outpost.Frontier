@@ -13,20 +13,22 @@ flowchart BT
     NC["NeuronCore<br/><i>engine primitives, zero game semantics</i>"]
     GL["GameLogic<br/><i>deterministic planar sim + game wire schemas</i>"] --> NC
     NS["NeuronServer<br/><i>ServerHost, sessions, tick orchestration</i>"] --> NC
-    NS --> GL
     NCL["NeuronClient<br/><i>render, input, camera, HUD, audio, interpolation</i>"] --> NC
-    NCL --> GL
-    EXE["Outpost.exe<br/><i>composition root</i>"] --> NS
+    EXE["Outpost.exe<br/><i>composition root — the only project that knows both</i>"] --> NS
     EXE --> NCL
+    EXE --> GL
     TGL["Tests/GameLogicTests"] --> GL
     TNC["Tests/NeuronCoreTests"] --> NC
     TNS["Tests/NeuronServerTests"] --> NS
     TNCL["Tests/NeuronClientTests"] --> NCL
 ```
 
-Rules (hard, from the brief, unchanged): GameLogic depends **only** on NeuronCore. GameLogic
-never references NeuronServer/NeuronClient. Nothing depends on the executable. Client and
-server never depend on each other.
+Rules (hard): GameLogic depends **only** on NeuronCore. GameLogic never references
+NeuronServer/NeuronClient. Nothing depends on the executable. Client and server never depend on
+each other. **The engine libraries never reference GameLogic** — `Outpost.exe` is the only
+project that knows both, and the seam is dependency inversion (ADR-014). The brief permitted
+`NeuronClient`/`NeuronServer` to depend on GameLogic; that permission is deliberately declined,
+because `Neuron*` is a shared engine serving a second game in the sibling repository.
 
 ## Rulings made this session (refinements, not bends)
 
@@ -34,11 +36,11 @@ server never depend on each other.
    Snapshot and order payloads *are* game semantics; NeuronCore's charter forbids them.
    NeuronCore owns only the semantics-free layer: byte IO, JSON, framing, handshake/ping
    messages, transport. *(ADR-004.)*
-2. **NeuronClient links GameLogic from day one** — not "later for prediction". Load-bearing
-   uses now: shared `ValidateOrder` + reason codes (BounceParity), shared `SolveFormation`
-   (real footprint preview), wire schemas, class table. The brief's "may depend" is exercised
-   deliberately; any client use of GameLogic beyond these pure/read-only surfaces (e.g.
-   mutating a world) is out of contract.
+2. ~~NeuronClient links GameLogic from day one.~~ **Overturned by ADR-014.** The client needs
+   GameLogic *code* (BounceParity's `ValidateOrder`, the footprint's `SolveFormation`) but not
+   a GameLogic *dependency*: it declares `Neuron::WorldView`, GameLogic implements it, and
+   `Outpost.exe` injects it. Same function, same reason codes, same bounce — reached through an
+   interface rather than a link-time symbol.
 3. **The client never constructs an authoritative `World`.** It applies snapshots to a
    `ReplicatedView` (GameLogic type, quantised fields). When prediction arrives it will run a
    *separate* GameLogic world instance — never a reference to the server's. *(ADR-007 §5.)*
@@ -89,21 +91,23 @@ headers, no rendering, no sockets, no clock, no file IO.
 | Test hooks | `WorldHash.h` (FNV over state) | Replay determinism harness |
 
 ### NeuronServer — hosting the authority (static lib)
-Allowed deps: NeuronCore, GameLogic.
+Allowed deps: **NeuronCore only** (ADR-014). It hosts *a* simulation, not *this* one.
 
 | Area | Files | Notes |
 |---|---|---|
-| Host | `ServerHost.h` (`Start/Stop/Join`) `ServerConfig.h` (plain struct, assembled by the exe) | The future OutpostServer.exe API, verbatim (ADR-008) |
+| Seam | `Simulation.h` (`AdvanceTick`, `ApplyOrderBytes`, `WriteSnapshot`, `SchemaHash`, `ContentHash`) | Engine-declared, GameLogic-implemented, exe-injected (ADR-014 §2) |
+| Host | `ServerHost.h` (`Start/Stop/Join`, takes a `Simulation&`) `ServerConfig.h` (plain struct, assembled by the exe) | The future OutpostServer.exe API, verbatim (ADR-008) |
 | Sessions | `Session.h` (per-connection state, handshake, order seq/ack bookkeeping) | Session *table*; empty server keeps ticking |
 | Replication | `SnapshotSender.h` (emit → datagram per client) | Per-client path; interest/delta land here later |
 
 ### NeuronClient — the player's machine (static lib)
-Allowed deps: NeuronCore, GameLogic, Windows SDK (D3D12, DXGI, DirectXMath, DirectWrite for
-the atlas bake, **XAudio2 + X3DAudio**).
+Allowed deps: **NeuronCore only**, plus the Windows SDK (D3D12, DXGI, DirectXMath, DirectWrite
+for the atlas bake, **XAudio2 + X3DAudio**). No GameLogic (ADR-014).
 
 | Area | Files | Notes |
 |---|---|---|
-| App | `ClientApp.h` (`Run`) `ClientConfig.h` (plain struct) `Window.h` | Frame loop on Main thread (ADR-007) |
+| Seam | `WorldView.h` (`ApplySnapshot`, `BuildScene`, `PreCheck`, `SolvePreview`, `EncodeOrder`) + the neutral types it speaks: `RenderScene`, `OrderIntent`, `FormationPreview` | Engine-declared, GameLogic-implemented, exe-injected; BounceParity runs the same function through it (ADR-014 §2–3) |
+| App | `ClientApp.h` (`Run`, takes a `WorldView&`) `ClientConfig.h` (plain struct) `Window.h` | Frame loop on Main thread (ADR-007) |
 | Net/state | `ClientConnection.h` (handshake, ping) `SnapshotBuffer.h` (ring, interp/extrap ≤250 ms, STALE) | Feeds Extract only |
 | Extract | `RenderWorld.h` (`InstanceRecord`, overlay lists, HUD state) | The future Game/Render thread seam |
 | GPU | `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuPasses.h` (Clear/Opaque/OverlayWorld/Ui) `GpuPipelines.h` | Fixed pass list w/ reserved slots (ADR-006) |
@@ -141,10 +145,12 @@ Each test project depends on its library under test plus that library's allowed 
 
 - **Flat project folders**, no code subdirectories; IDE grouping via `.vcxproj.filters`.
 - **File names are unique repo-wide** — the tables above are the registry; check before adding.
-- `$(SolutionDir)` is the single additional include root, so cross-project includes are
-  project-qualified: `#include "NeuronCore/Json.h"`, `#include "GameLogic/Snapshot.h"`.
-  Within a project, plain `#include "Json.h"`.
-  *(Owner action: the vcxprojs currently list each project folder individually; switching to
-  `$(SolutionDir)` alone enables the qualified form.)*
+- **Each project lists the libraries it uses as `$(SolutionDir)<Project>` include paths**
+  (owner decision, already configured), so includes are unqualified: `#include "Json.h"`
+  reaches NeuronCore from anywhere entitled to it. Uniqueness is what keeps this unambiguous,
+  which makes the registry above load-bearing rather than advisory: a duplicate file name
+  silently resolves to whichever path comes first.
+- The include path is *not* the dependency rule. NeuronClient can see NeuronCore's headers
+  because it lists them; it must not list GameLogic (ADR-014).
 - A project's non-exported headers are simply those no other project includes; there is no
   `Public/` folder split (dropped by ADR-013).

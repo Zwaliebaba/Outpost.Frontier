@@ -9,7 +9,9 @@ reference corpus these documents align with.
 **Supersessions to be aware of when reading older ADRs:** ADR-012 replaces ADR-008's command
 line (there is no argv) and ADR-009's line-oriented universe format (it is JSON); ADR-010
 deletes the `NeuronCore/Math.h` the Dependency Map originally planned; ADR-013 replaces every
-subdirectory path used illustratively in earlier documents with flat file names.
+subdirectory path used illustratively in earlier documents with flat file names; **ADR-014
+overturns Dependency Map ruling #2** — the engine libraries do not link GameLogic, and reach it
+through injected interfaces instead.
 
 ## Decisions at a glance
 
@@ -27,7 +29,8 @@ subdirectory path used illustratively in earlier documents with flat file names.
 | [010](ADR/ADR-010-math-directxmath.md) | Math *(owner directive)* | **DirectXMath used natively** — no wrapper classes, functions, or aliases; `XMFLOAT*` stored / `XMVECTOR` computed; NeuronCore's math header deleted; `XM*Est` banned in GameLogic |
 | [011](ADR/ADR-011-audio.md) | Audio *(owner directive)* | **XAudio2 graph + X3DAudio**; master + 5 submixes, pooled voices, mono 3D assets; **listener at the camera focus raised by zoom**; Doppler off; JSON sound bank |
 | [012](ADR/ADR-012-configuration-and-json.md) | Configuration *(owner directive)* | **JSON config files only — no argv, no environment**; custom NeuronCore parser (exact `int64`, iterative, diagnostics) also serving universe + banks; settings persist to a LocalAppData user layer |
-| [013](ADR/ADR-013-source-layout.md) | Source layout *(owner directive)* | **Flat project folders**, grouping via `.vcxproj.filters`; repo-wide unique file names; `$(SolutionDir)`-qualified cross-project includes |
+| [013](ADR/ADR-013-source-layout.md) | Source layout *(owner directive)* | **Flat project folders**, grouping via `.vcxproj.filters`; repo-wide unique file names; per-project include roots with unqualified includes |
+| [014](ADR/ADR-014-engine-game-separation.md) | Engine/game split *(owner ruling)* | **`Neuron*` never references GameLogic** — the engine declares `Simulation` and `WorldView`, GameLogic implements them, `Outpost.exe` injects them; neutral `EntityRecord` for replication |
 
 ## Coding standard
 
@@ -56,13 +59,15 @@ moves between the trees without a rename pass. Three things it changed in these 
 
 1. **Test projects aren't wired yet:** the four `Tests/*` vcxprojs (added on main) contain no
    `ProjectReference` to the libraries they test and no include paths — they'll need both
-   before the S2/S6 suites can exist.
-1b. **Include root:** projects currently list each project folder individually
-   (`$(SolutionDir)NeuronCore;$(SolutionDir)NeuronClient;…`). ADR-013 recommends
-   `$(SolutionDir)` alone, which enables project-qualified includes
-   (`#include "NeuronCore/Json.h"`) and removes the ambiguity a flat layout invites.
-1c. **Filters:** the generated `Source Files`/`Header Files` filters should be replaced with
+   before the S2/S6 suites can exist. Following ADR-014, each references **only** its library
+   and that library's own dependencies: `NeuronCoreTests` → NeuronCore; `GameLogicTests` →
+   GameLogic (+NeuronCore); `NeuronServerTests` → NeuronServer (+NeuronCore);
+   `NeuronClientTests` → NeuronClient (+NeuronCore). The engine test projects stay
+   engine-only — they test the seam with a stub `Simulation`/`WorldView`, not with GameLogic.
+1b. **Filters:** the generated `Source Files`/`Header Files` filters should be replaced with
    the semantic taxonomy in ADR-013 §5 — that file is now the only place code grouping lives.
+1c. **Include roots stay per-project** (owner decision) — the qualified-include alternative was
+   considered and declined; ADR-013 §4 records what that puts on the uniqueness rule.
 2. ~~Content gap: Fighter/Cruiser meshes missing.~~ **Resolved by ADR-009 §6:** the meshes in
    `GameData/Meshes` *are* the standard ship set (8 ships + `Structure` for stations);
    `HullClass` keeps the 11-value closed taxonomy with **Fighter and Cruiser as reserved,

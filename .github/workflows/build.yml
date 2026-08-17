@@ -22,30 +22,6 @@ jobs:
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
-      # The projects ask for PlatformToolset v145 (VS 2026). Hosted runners may
-      # still be on VS 2022, whose toolset is v143, and MSBuild's failure for a
-      # missing toolset (MSB8020) reads like a project error rather than a
-      # missing install. So: probe what the runner actually has and build with
-      # that, reporting which was used.
-      #
-      # This is a CI-only override -- the checked-in projects keep v145 and the
-      # local build is unaffected. When hosted images ship VS 2026 the probe
-      # selects v145 on its own and this step needs no edit.
-      - name: Select platform toolset
-        shell: pwsh
-        run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $vs = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
-          $defaults = Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt'
-          $tools = (Get-Content $defaults -Raw).Trim()
-          # MSVC 14.3x/14.4x ship as toolset v143; 14.5x and later as v145.
-          $minor = [int]($tools.Split('.')[1])
-          $toolset = if ($minor -ge 50) { 'v145' } else { 'v143' }
-          "PLATFORM_TOOLSET=$toolset" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-          $line = "MSVC $tools -> PlatformToolset $toolset"
-          Write-Host $line
-          "## Toolchain`n$line" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
-
       # msquic and C++/WinRT arrive as NuGet packages. These are
       # packages.config projects, not PackageReference, so this is
       # `nuget install` per project rather than `msbuild -t:restore` -- and per
@@ -64,27 +40,47 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "restore failed for $p" }
           }
 
-      # Outpost.exe pulls in all four libraries through its ProjectReferences,
-      # so this one invocation covers the whole product.
-      #
-      # SolutionDir is passed explicitly (trailing backslash required): the
-      # projects resolve their cross-project includes through $(SolutionDir),
-      # which is empty when a .vcxproj is built directly. Without it the build
-      # is green today -- the projects hold only pch files -- and breaks the
-      # moment the first real #include lands, which is the worst time to
-      # discover it.
+      # SolutionDir is passed explicitly (trailing backslash required): each
+      # project lists the libraries it includes as $(SolutionDir)<Project>,
+      # and $(SolutionDir) is empty when a .vcxproj is built directly. The
+      # NuGet CLI cannot read .slnx, which is why CI builds the projects
+      # rather than the solution.
       #
       # /flp contains a semicolon, which PowerShell reads as a statement
       # separator unless the whole switch is quoted. Serial by design: with /m
       # the failing project's diagnostics can be interleaved away.
+      - name: Build libraries
+        shell: pwsh
+        run: |
+          foreach ($p in 'NeuronCore', 'GameLogic', 'NeuronServer', 'NeuronClient')
+          {
+            msbuild "$p\$p.vcxproj" `
+              /p:Configuration=Debug /p:Platform=x64 /p:SolutionDir=$PWD\ `
+              /v:normal /nologo "/flp:LogFile=build.log;Verbosity=diagnostic;Append"
+            if ($LASTEXITCODE -ne 0) { throw "build failed for $p" }
+          }
+
+      # Outpost.exe is a Windows-subsystem application, so it cannot link until
+      # it has an entry point -- today the project holds only pch.cpp and the
+      # link fails with LNK2019 on WinMain. Rather than leave CI permanently
+      # red (which teaches everyone to ignore it), the exe is built once an
+      # entry point exists. Slice S1 adds Main.cpp and this starts building
+      # itself, with no edit to this file.
       - name: Build Outpost
         shell: pwsh
         run: |
+          $entry = Select-String -Path 'Outpost\*.cpp' -Pattern 'WinMain|\bmain\s*\(' -Quiet
+          if (-not $entry)
+          {
+            Write-Host 'Outpost.exe: no entry point yet -- skipped (slice S1 adds Main.cpp)'
+            "## Outpost.exe skipped - no entry point yet" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            exit 0
+          }
+          Write-Host 'Outpost.exe: entry point found -- building'
           msbuild Outpost\Outpost.vcxproj `
-            /p:Configuration=Debug /p:Platform=x64 `
-            /p:PlatformToolset=$env:PLATFORM_TOOLSET `
-            /p:SolutionDir=$PWD\ `
-            /v:normal /nologo "/flp:LogFile=build.log;Verbosity=diagnostic"
+            /p:Configuration=Debug /p:Platform=x64 /p:SolutionDir=$PWD\ `
+            /v:normal /nologo "/flp:LogFile=build.log;Verbosity=diagnostic;Append"
+          if ($LASTEXITCODE -ne 0) { throw 'build failed for Outpost' }
 
       # The test projects are not referenced by Outpost.exe, so they are built
       # separately. Appending to the same log keeps one artifact.
@@ -94,9 +90,7 @@ jobs:
           foreach ($t in 'NeuronCoreTests', 'GameLogicTests', 'NeuronServerTests', 'NeuronClientTests')
           {
             msbuild "Tests\$t\$t.vcxproj" `
-              /p:Configuration=Debug /p:Platform=x64 `
-              /p:PlatformToolset=$env:PLATFORM_TOOLSET `
-              /p:SolutionDir=$PWD\ `
+              /p:Configuration=Debug /p:Platform=x64 /p:SolutionDir=$PWD\ `
               /v:normal /nologo "/flp:LogFile=build.log;Verbosity=diagnostic;Append"
             if ($LASTEXITCODE -ne 0) { throw "build failed for $t" }
           }

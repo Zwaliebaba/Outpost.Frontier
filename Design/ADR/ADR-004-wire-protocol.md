@@ -74,7 +74,8 @@ overhead anyway.
 7. `OrderSubmit{ u32 orderSeq /*client monotonic*/, u8 kind /*Move only in MVP*/, u8 formationId,
    u8 queueMode /*replace|append*/, u16 shipCount, u16 shipIds[], Leg target{ i32 xCm, i32 yCm,
    u16 facing } }`.
-   - The client pre-checks with the **same GameLogic validation function** the server runs
+   - The client pre-checks with the **same GameLogic validation function** the server runs,
+     reached through `WorldView::PreCheck` rather than a link-time dependency (ADR-014),
      (same reason-code enum, defined in GameLogic) against its latest snapshot; a local refusal
      renders the same bounce as a server `OrderAck{rejected}` — BounceParity by construction,
      not by discipline. Server verdict remains the only authority (pre-check runs on stale

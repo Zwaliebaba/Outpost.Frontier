@@ -73,6 +73,15 @@ stability across reorderings that shouldn't matter and change on ones that shoul
 anchor+local reconstruction property test; the client's rendered scene comes from the file
 (edit a station position → it moves, no rebuild).
 
+### S5c — The engine/game seams
+`Neuron::Simulation` (NeuronServer) and `Neuron::WorldView` (NeuronClient) declared, with the
+neutral types they speak — `EntityRecord` (NeuronCore), `RenderScene`, `OrderIntent`,
+`FormationPreview`; stub implementations in the test projects; `ServerHost` and `ClientApp`
+take them by reference; `Outpost.exe` constructs the GameLogic-backed ones (ADR-014).
+**Accept:** `NeuronServerTests` and `NeuronClientTests` drive their library against a **stub**
+simulation/world view with no GameLogic in sight — the proof the engine is game-free;
+`Outpost.exe` is the only project referencing GameLogic (grep rule on the vcxprojs).
+
 ### S6 — GameLogic sim + replay determinism
 World tables, `ShipClassTable` (11-value enum, 9 with content — Fighter/Cruiser reserved),
 `Steering/Integrate` (seek-with-arrival, accel + turn-rate clamps), scripted-order harness,
@@ -98,7 +107,8 @@ Ray∩plane picking; click / shift-click / box-select; OverlayWorld pass: select
 manual: rings occlude behind a Carrier hull but bars never do (`overlay-pass.png` rule).
 
 ### S9 — Move orders end-to-end 🏁 **M1**
-Right-drag order puck (plane point + facing), client pre-check via GameLogic `ValidateOrder`,
+Right-drag order puck (plane point + facing), client pre-check via `WorldView::PreCheck`
+(GameLogic's `ValidateOrder` behind the seam, ADR-014),
 PENDING ghost, `OrderSubmit` → server validate (same function) → `OrderGroup` + station solve
 (Line only) → steering to stations → promotion via snapshot order-state; `OrderAck` bounce +
 reason on the failure paths (out-of-bounds, empty selection).
@@ -166,6 +176,9 @@ out attenuates, voice pool never exceeds its cap under a 200-ship stress scene.
 - Rendering (S5) precedes sim (S6) so every sim-side slice after S7 is *visible* — but S6's
   determinism harness exists **before** the first networked ship moves, so replication bugs
   never masquerade as sim bugs.
+- The seams (S5c) land before the sim and before anything crosses them: `Simulation` is needed
+  by S7's snapshots and `WorldView` by S9's orders, and an interface retrofitted after its
+  callers exist is an interface shaped by its first caller.
 - The universe definition (S5b) lands before the sim so the world is authored content from the
   first ship that moves — a hardcoded scene would be thrown away and would let sim code form
   habits around coordinates the universe model forbids.

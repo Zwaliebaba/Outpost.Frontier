@@ -104,8 +104,9 @@ much determinism to buy, at what float-handling cost.
   wire round-trip, and replay-equality suites from the first sim slice onward.
 - Adding a component in MVP = adding an array + touching EmitSnapshot + schema string —
   deliberate, visible friction that keeps replication honest.
-- Client links GameLogic from day one (types, validation, formation solve). This is the
-  refined dependency ruling (see Dependency Map): allowed by the charter, now load-bearing.
+- The client reaches GameLogic through the engine's `WorldView` seam (validation, formation
+  solve, order encoding), never by linking it — ADR-014 overturned the earlier ruling. The
+  parity guarantee is unaffected: it is the same function, reached through an interface.
 - No avoidance/pathfinding in MVP: open-space plane, station-seeking only. Obstacle avoidance
   (the corpus's "obstructed footprint" open item) lands later inside Steering without
   structural change.

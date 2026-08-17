@@ -43,15 +43,17 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
 
    If a genuine collision ever appears, the **newer** file is renamed to a more specific type name; the
    table above is the registry to check first.
-4. **Include style:** `$(SolutionDir)` is the single additional include root, so cross-project
-   includes are project-qualified and unambiguous:
-   `#include "NeuronCore/Json.h"`, `#include "GameLogic/Snapshot.h"`. Within a project,
-   plain `#include "Json.h"`. Project folders are project roots, not code subdirectories — the
-   directive is satisfied.
-   *(Owner action: the vcxprojs currently list each project folder individually as an include
-   directory, e.g. `$(SolutionDir)NeuronCore;$(SolutionDir)NeuronClient;…`. Switching to
-   `$(SolutionDir)` alone gives the qualified form above and keeps a project's own headers
-   reachable unqualified. Both work given rule 3; qualified is the recommendation.)*
+4. **Include style — per-project include roots, unqualified includes** (owner decision, and
+   already how the projects are configured): each `.vcxproj` lists the libraries it is
+   entitled to as `$(SolutionDir)<Project>`, so `#include "Json.h"` reaches NeuronCore and
+   `#include "Transport.h"` reaches it too. Project-qualified includes
+   (`#include "NeuronCore/Json.h"`) were considered and **not** adopted.
+   The trade this accepts: **rule 3 carries the whole weight.** With several roots on the
+   search path, a duplicate file name resolves to whichever root comes first, silently and
+   with no diagnostic. Adding a name to the registry before creating the file is therefore not
+   bookkeeping — it is the only thing preventing a wrong-header build.
+   Note this makes `$(SolutionDir)` load-bearing for any build that is not launched from the
+   solution: CI passes `/p:SolutionDir=` explicitly for exactly this reason.
 5. **Filter taxonomy per project** (the intended tree — filters are owner-maintained along
    with the rest of the project files):
    - **NeuronCore:** Foundation · Memory · Tasking · Telemetry · Serialization · Json ·
@@ -86,9 +88,10 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
   projects include, not by folder membership.
 - **Long compound names instead of filters** (`Neuron_Core_Json_Parser.h`) — filters exist
   precisely so names don't have to carry the tree. Rejected.
-- **Per-project include roots with unqualified cross-project includes** — works only while
-  names never collide, and fails confusingly when they do (silently picking the wrong header).
-  Qualified includes are the belt to rule 3's braces.
+- **Project-qualified cross-project includes** (`#include "NeuronCore/Json.h"` off a single
+  `$(SolutionDir)` root) — proof against name collisions, and rejected by the owner: the
+  projects already carry per-library include paths and the qualification buys little once
+  rule 3 is enforced. The residual risk is recorded in §4 rather than argued again.
 
 ## Consequences
 

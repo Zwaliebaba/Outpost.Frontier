@@ -177,7 +177,9 @@ Two rules the config cannot express, and that a reviewer therefore has to carry:
 
 Dependency rules are in [Design/Dependency-Map.md](Design/Dependency-Map.md) and are hard:
 GameLogic depends only on NeuronCore; client and server never depend on each other; nothing
-depends on the executable.
+depends on the executable; and **the engine libraries never reference GameLogic** — `Neuron*`
+is a shared engine (the sibling repository runs a different game on it), so the game is reached
+through engine-declared interfaces that `Outpost.exe` injects (ADR-014).
 
 ---
 
@@ -188,8 +190,12 @@ depends on the executable.
 - **File names are unique repo-wide.** The tables in
   [Design/Dependency-Map.md](Design/Dependency-Map.md) are the registry; check it *before*
   creating a file, and add the name when you do.
-- **Cross-project includes are project-qualified**: `#include "NeuronCore/Json.h"`. Within a
-  project, plain `#include "Json.h"`.
+- **Includes are unqualified**: `#include "Json.h"`. Each project lists the libraries it is
+  entitled to as `$(SolutionDir)<Project>` include paths. Because several roots sit on the
+  search path, a duplicate file name silently resolves to the wrong header — which is why the
+  registry is checked *before* a file is created, not after.
+- **The include path is not the dependency rule.** `NeuronClient` and `NeuronServer` must not
+  list `GameLogic`: the engine libraries never depend on the game (ADR-014).
 - **Every added, removed or renamed file updates both** the `.vcxproj` and the
   `.vcxproj.filters` of its project, in the same commit.
 
@@ -263,11 +269,12 @@ optimised-only breakage becomes a real risk.
 Two things CI does that a local build does not, and that are easy to trip over:
 
 - It builds the `.vcxproj` files directly (the NuGet CLI cannot read `.slnx`), so it passes
-  **`/p:SolutionDir=`** explicitly. Anything resolving through `$(SolutionDir)` — every
-  cross-project include — depends on it.
-- It **probes the installed MSVC** and builds with `v143` when the runner has no `v145`. The
-  checked-in projects keep `v145`; do not "fix" them to match CI. If your change depends on a
-  toolset-specific feature, say so, because CI may be compiling it with the older one.
+  **`/p:SolutionDir=`** explicitly. Every project's include paths are written as
+  `$(SolutionDir)<Project>`, so without it no cross-project include resolves.
+- **`Outpost.exe` is built only once it has an entry point.** It is a Windows-subsystem
+  application, so until `Main.cpp` exists the link fails on `WinMain`; the step detects this
+  and skips rather than leaving CI permanently red. It starts building itself when slice S1
+  lands, with no edit to the workflow.
 
 Headless checks (no GPU needed) run by launching the executable from a directory whose
 `Outpost.json` sets `"mode": "headless"` and `"selfTest": true` — there are no flags to pass

@@ -28,10 +28,13 @@ flowchart LR
     EXE -.->|"headless mode proves it today"| FUT
 ```
 
-Both halves link **GameLogic**: the server as the authority; the client for the shared order
-validation, formation solve, and wire schemas (the parity the HUD's ghost/bounce design
-requires). Neither half ever touches the other's world — single-writer ownership, enforced by
-debug asserts (ADR-007).
+**Only `Outpost.exe` links GameLogic** (ADR-014). `Neuron*` is a shared engine — the sibling
+repository runs a different game on it — so the server hosts *a* `Simulation` and the client
+renders *a* `WorldView`, both engine-declared interfaces that GameLogic implements and the
+composition root injects. The client still runs the game's own validation and formation solve
+(the parity the HUD's ghost/bounce design requires); it reaches them through the seam rather
+than through a link. Neither half ever touches the other's world — single-writer ownership,
+enforced by debug asserts (ADR-007).
 
 ## The one data flow
 
@@ -124,7 +127,7 @@ corpus debug HUD's budget rows; `AUDIO` joins them as a fifth.
 |---|---|
 | Combat, abilities, stances | Order kinds beyond `Move`; ability rack renders disabled. |
 | Delta compression, interest mgmt | `Snapshot.baselineTick` field; per-client emit path (ADR-004). |
-| Client prediction | Client links GameLogic; snapshots carry tick + order acks (ADR-002). |
+| Client prediction | The `WorldView` seam already carries order encode/pre-check; snapshots carry tick + order acks (ADR-002, ADR-014). |
 | msquic in the first slices | `Transport` is QUIC-shaped; spike slice S13 (ADR-003). |
 | HDR, bloom, nebula, GPU cull | Reserved pass slots in the fixed pass list (ADR-006). |
 | Multi-client, matchmaking | ServerHost session *table* (not a singleton session); `mode: "client"`. |
