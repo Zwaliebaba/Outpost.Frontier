@@ -1,0 +1,11 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="GameLogic/GameLogic.vcxproj" Id="90a55bb8-cc26-46db-85f3-61540ab6506d" />
+  <Project Path="NeuronClient/NeuronClient.vcxproj" Id="33c61640-cc8c-43bb-b071-e728ae1c6d71" />
+  <Project Path="NeuronCore/NeuronCore.vcxproj" Id="8ef8956e-dda2-4723-8184-47ae36c6f5fd" />
+  <Project Path="NeuronServer/NeuronServer.vcxproj" Id="2b8f9017-9ec9-43c6-8611-79b92b3be9f2" />
+  <Project Path="Outpost/Outpost.vcxproj" Id="cd0b2e1d-0934-43a9-b163-9e95268f3ddd" />
+</Solution>
