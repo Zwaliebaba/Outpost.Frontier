@@ -17,9 +17,9 @@ flowchart LR
             CA["ClientApp<br/>(NeuronClient)"] --> RW["Extract →<br/>RenderWorld"] --> GPU["DX12 passes<br/>Clear·Opaque·Overlay·Ui (ADR-006)"]
         end
         subgraph SIMT["Sim thread (ADR-007)"]
-            SH["ServerHost<br/>(NeuronServer)"] --> W["game::World<br/>authoritative (ADR-005)"]
+            SH["ServerHost<br/>(NeuronServer)"] --> W["Game::World<br/>authoritative (ADR-005)"]
         end
-        CA <-- "UDP 127.0.0.1:7777<br/>ITransport (ADR-003)" --> SH
+        CA <-- "UDP 127.0.0.1:7777<br/>Transport (ADR-003)" --> SH
     end
     subgraph FUT["Packaging change, later"]
         OS["OutpostServer.exe = same ServerHost"]
@@ -97,7 +97,7 @@ boots from the universe definition rather than a hardcoded scene.
 
 | Project | One-line charter |
 |---|---|
-| **NeuronCore** | Engine primitives, zero game semantics: time, logging, telemetry lanes, ByteReader/Writer, **JSON parser/writer**, PCG32, task pool, `ITransport` + UDP/QUIC implementations, framing wire messages. No math layer — DirectXMath is used natively (ADR-010). |
+| **NeuronCore** | Engine primitives, zero game semantics: time, logging, telemetry lanes, ByteReader/Writer, **JSON parser/writer**, PCG32, task pool, `Transport` + UDP/QUIC implementations, framing wire messages. No math layer — DirectXMath is used natively (ADR-010). |
 | **GameLogic** | The deterministic planar sim: world tables, ship classes, orders/groups, formation solve, validation + reason codes, game wire schemas, snapshot emit/apply, universe definition + parsing. |
 | **NeuronServer** | `ServerHost`: session table, tick-loop orchestration, connection handling, snapshot fan-out. |
 | **NeuronClient** | `ClientApp`: window/device, frame loop, snapshot buffering + interpolation, Extract, passes, camera, picking, HUD, audio (XAudio2 + X3DAudio), order pre-check UX. |
@@ -109,7 +109,7 @@ boots from the universe definition rather than a hardcoded scene.
 **Sim thread, every 50 ms** (waitable timer, absolute schedule, snap-forward past 250 ms debt):
 `Poll transport → Ingest validated orders → GroupAdvance → Steering → Integrate → EmitSnapshot
 → Send (≤1,152 B datagram/client)`. Budget: the tick must fit 50 ms with 1,024 entities; at
-MVP scale it is microseconds. `tick_overrun` is a release counter.
+MVP scale it is microseconds. `tickOverrun` is a release counter.
 
 **Main thread, every frame** (vsync or free):
 `Pump Win32 → Poll transport → Buffer snapshots → Extract (interpolate → InstanceRecords +
@@ -125,7 +125,7 @@ corpus debug HUD's budget rows; `AUDIO` joins them as a fifth.
 | Combat, abilities, stances | Order kinds beyond `Move`; ability rack renders disabled. |
 | Delta compression, interest mgmt | `Snapshot.baselineTick` field; per-client emit path (ADR-004). |
 | Client prediction | Client links GameLogic; snapshots carry tick + order acks (ADR-002). |
-| msquic in the first slices | `ITransport` is QUIC-shaped; spike slice S13 (ADR-003). |
+| msquic in the first slices | `Transport` is QUIC-shaped; spike slice S13 (ADR-003). |
 | HDR, bloom, nebula, GPU cull | Reserved pass slots in the fixed pass list (ADR-006). |
 | Multi-client, matchmaking | ServerHost session *table* (not a singleton session); `mode: "client"`. |
 | Persistence, accounts | Session-surfaces flow is post-MVP; schema-hash handshake already speaks `UpdateRequired`. |

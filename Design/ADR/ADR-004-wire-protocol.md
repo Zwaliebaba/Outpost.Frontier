@@ -22,9 +22,9 @@ overhead anyway.
    primitives in NeuronCore. Each message is a POD-ish struct with `Write(w)`/`Read(r)`
    free functions colocated with its definition. No reflection, no macros beyond a
    trivial `NEURON_WIRE_CHECK` for read-underrun.
-2. **Message schemas for game state live in GameLogic** (`game::wire`), because snapshot and
+2. **Message schemas for game state live in GameLogic** (`Game`), because snapshot and
    order payloads *are* game semantics and NeuronCore must have none (fixed charter). Transport
-   framing, handshake, and ping messages live in NeuronCore (`neuron::wire`). The client gets
+   framing, handshake, and ping messages live in NeuronCore (`Neuron`). The client gets
    game message types by linking GameLogic — the dependency rules explicitly allow this, and
    BounceParity independently forces the client to link GameLogic anyway (shared validation).
    *Recorded as a dependency-rule refinement in the Dependency Map.*
@@ -55,14 +55,14 @@ overhead anyway.
      u32 lastOrderSeqProcessed }` — `baselineTick` is reserved so delta-vs-acked-baseline
      (Quake-3 model) slots in later without a format break; `lastOrderSeqProcessed` closes the
      order feedback loop even if an `OrderAck` is delayed.
-   - `ShipRecord{ u16 id, u8 class, u8 flags, i32 posX_cm, i32 posY_cm, i16 velX_cms,
-     i16 velY_cms, u16 heading_turns16, u8 hull_pct, u8 shield_pct }` = **20 B**.
+   - `ShipRecord{ u16 id, u8 class, u8 flags, i32 posXCm, i32 posYCm, i16 velXCmPerSec,
+     i16 velYCmPerSec, u16 headingTurns16, u8 hullPct, u8 shieldPct }` = **20 B**.
      Quantisation: position cm (±21,474 km range — covers any grid), velocity cm/s (±327 m/s;
      ship top speeds sit far below), heading 1/65,536 turn. Quantised values are what *all*
      clients see; the server sim keeps full float internally (ADR-005 owns the parity rule
      for client-side pre-checks).
    - `OrderStateRecord{ u32 serverOrderId, u16 groupSeq, u8 state, u8 legIndex, u8 legCount,
-     Leg[≤4]{ i32 x_cm, i32 y_cm, u16 facing, u16 etaTicks } }` — drives ghost→underway
+     Leg[≤4]{ i32 xCm, i32 yCm, u16 facing, u16 etaTicks } }` — drives ghost→underway
      promotion and per-leg ETAs exactly as drawn (`puck-and-wheel.png` §4, 4-leg queue cap
      from `strategic-map.png`).
    - Budget: header 16 B + 41 ships × 20 B + a few order records ≈ **~900 B** — one datagram.
@@ -72,7 +72,7 @@ overhead anyway.
 
 ### Orders (C→S)
 7. `OrderSubmit{ u32 orderSeq /*client monotonic*/, u8 kind /*Move only in MVP*/, u8 formationId,
-   u8 queueMode /*replace|append*/, u16 shipCount, u16 shipIds[], Leg target{ i32 x_cm, i32 y_cm,
+   u8 queueMode /*replace|append*/, u16 shipCount, u16 shipIds[], Leg target{ i32 xCm, i32 yCm,
    u16 facing } }`.
    - The client pre-checks with the **same GameLogic validation function** the server runs
      (same reason-code enum, defined in GameLogic) against its latest snapshot; a local refusal

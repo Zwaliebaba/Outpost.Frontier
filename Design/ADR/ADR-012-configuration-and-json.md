@@ -109,6 +109,17 @@ balancing constant owned by ADR-002, not a deployment knob.
     balancing constants (`ShipClassTable`, tick rate) stay in code; if any of them later
     becomes authored data, it adopts the same hash-guarded pattern.
 
+## Prior art worth reading first
+
+The sibling repository **Outpost.Warzone** already has a hand-written `Neuron::Json`
+(`NeuronCore/Json.{h,cpp}`) with a `std::expected<Json, Error> Parse(std::string_view)`
+surface and a `Kind` enum. Read it before writing ours; it shares the naming convention
+(AGENTS.md §1), so agreement is cheap. Two Frontier requirements to check it against before
+adopting wholesale: **exact `int64`** (§C7 — universe coordinates need it, and an `AsInt()`
+returning `int` does not provide it) and the **iterative parse with a depth cap** (§C6). If
+those are missing, extend rather than fork, and consider pushing the improvement back to the
+sibling.
+
 ## Alternatives rejected
 
 - **A command line** — the previous decision; overturned by directive. It also had a real

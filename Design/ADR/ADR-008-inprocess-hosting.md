@@ -14,14 +14,14 @@ programmatic shape that a standalone server binary will reuse verbatim.
 ## Decision
 
 ### Shape
-1. **`neuron::server::ServerHost`** (NeuronServer) is a self-contained service object:
+1. **`Neuron::ServerHost`** (NeuronServer) is a self-contained service object:
    `ServerHost(ServerConfig) → Start() → [Stop() → Join()]`. `Start` binds the listener
    transport, spawns the Sim thread (ADR-007), and returns once the server is *listening* —
-   so a caller may connect immediately. It owns the authoritative `game::World`, session/
+   so a caller may connect immediately. It owns the authoritative `Game::World`, session/
    connection table, and tick loop. It has **zero knowledge of any client**, including the
    in-process one: a client disconnect returns the session to "empty server ticking along",
    never a shutdown (multi-client future depends on this posture).
-2. **`neuron::client::ClientApp`** (NeuronClient) is likewise self-contained:
+2. **`Neuron::ClientApp`** (NeuronClient) is likewise self-contained:
    `ClientApp(ClientConfig) → Run()` — creates window + device, connects its transport to
    `ClientConfig.serverEndpoint` (always `127.0.0.1:<port>` in MVP), runs the Main-thread frame
    loop until quit, returns an exit code. It reaches the server **only** through that endpoint.

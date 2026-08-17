@@ -1,10 +1,10 @@
 # Dependency Map & Public Interfaces
 
 **Status:** Session output 2026-08-17 · refines the fixed dependency rules from the brief.
-Header-level contracts only — signatures live in code. Namespaces: `neuron::core`,
-`neuron::server`, `neuron::client`, `game`. File names are flat per ADR-013 (no code
-subdirectories); the tables below are also the **file-name registry** that keeps names unique
-repo-wide.
+Header-level contracts only — signatures live in code. Namespaces: **`Neuron`** for the three
+engine libraries and **`Game`** for GameLogic ([AGENTS.md](../AGENTS.md) §1 F9). File names are
+flat per ADR-013 (no code subdirectories); the tables below are also the **file-name registry**
+that keeps names unique repo-wide.
 
 ## The graph
 
@@ -30,7 +30,7 @@ server never depend on each other.
 
 ## Rulings made this session (refinements, not bends)
 
-1. **Game wire schemas live in GameLogic** (`WireSnapshot.h`, `WireOrder.h`), not NeuronCore.
+1. **Game wire schemas live in GameLogic** (`Snapshot.h`, `OrderMessages.h`), not NeuronCore.
    Snapshot and order payloads *are* game semantics; NeuronCore's charter forbids them.
    NeuronCore owns only the semantics-free layer: byte IO, JSON, framing, handshake/ping
    messages, transport. *(ADR-004.)*
@@ -71,8 +71,8 @@ library. C++/WinRT only where genuinely useful (none identified in MVP).
 | Telemetry | `Telemetry.h` (`NEURON_COUNTER`, `NEURON_SPAN`, lane registry) | Per-lane SPSC rings, owner-drained |
 | Serialization | `ByteReader.h` `ByteWriter.h` | Bounds-checked, little-endian |
 | JSON | `Json.h` (flat-node DOM, iterative parse, `int64`-exact numbers, diagnostics) `JsonWriter.h` (strict output) | Config + universe + sound banks (ADR-012 §C) |
-| Transport | `Transport.h` (`ITransport`, `Connection`, `Listener`, `Stats`) `UdpTransport.h` `QuicTransport.h` | QUIC-shaped contract, `Poll()` delivery, 1,152 B datagram cap (ADR-003) |
-| Wire (semantics-free) | `WireCore.h` (framing, `Hello/Welcome/UpdateRequired/Refuse/Ping/Pong/Goodbye`) | Schema-hash mechanism lives here; game payloads do not |
+| Transport | `Transport.h` (`Transport`, `Connection`, `Listener`, `Stats`) `UdpTransport.h` `QuicTransport.h` | QUIC-shaped contract, `Poll()` delivery, 1,152 B datagram cap (ADR-003) |
+| Wire (semantics-free) | `Wire.h` (framing, `Hello/Welcome/UpdateRequired/Refuse/Ping/Pong/Goodbye`) | Schema-hash mechanism lives here; game payloads do not |
 
 ### GameLogic — deterministic sim (static lib)
 Allowed deps: **NeuronCore only**, plus DirectXMath as toolchain (ruling 5). No Windows
@@ -85,7 +85,7 @@ headers, no rendering, no sockets, no clock, no file IO.
 | World | `World.h` (authoritative tables + `Tick(orders[])`) `ReplicatedView.h` (quantised client view + `ApplySnapshot`) | Single-writer; owner asserts in debug; state stored as `XMFLOAT2` (ADR-010 §3) |
 | Orders | `Orders.h` (`OrderSubmit`, `OrderGroup`, 4-leg queue) `Validate.h` (`ValidateOrder`, `ReasonCode`) | Validation consumes wire-quantised values only (ADR-005 §4) |
 | Formations | `Formation.h` (`FormationId{Line,Wedge,Claw}`, `SolveFormation`) | Pure; client footprint preview calls this exact function |
-| Wire | `WireSnapshot.h` `WireOrder.h` `WireSchemaHash.h` | Message structs + Read/Write + schema string (ADR-004) |
+| Wire | `Snapshot.h` `OrderMessages.h` `SchemaHash.h` | Message structs + Read/Write + schema string (ADR-004) |
 | Test hooks | `WorldHash.h` (FNV over state) | Replay determinism harness |
 
 ### NeuronServer — hosting the authority (static lib)
@@ -108,7 +108,7 @@ the atlas bake, **XAudio2 + X3DAudio**).
 | Extract | `RenderWorld.h` (`InstanceRecord`, overlay lists, HUD state) | The future Game/Render thread seam |
 | GPU | `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuPasses.h` (Clear/Opaque/OverlayWorld/Ui) `GpuPipelines.h` | Fixed pass list w/ reserved slots (ADR-006) |
 | Assets | `ObjMesh.h` (loader → submesh ranges) `GlyphAtlas.h` (DWrite bake) | Boot-time, TaskPool |
-| Camera/input | `CamIso.h` (ortho 30°, yaw snap, zoom) `Picking.h` (`XMPlaneIntersectLine` + 2D tests) `InputMap.h` | Client-only state |
+| Camera/input | `IsoCamera.h` (ortho 30°, yaw snap, zoom) `Picking.h` (`XMPlaneIntersectLine` + 2D tests) `InputMap.h` | Client-only state |
 | HUD | `HudLayout.h` `HudRoster.h` (context bar, ability rack stub, toasts) `OrderPuck.h` (drag/facing/ghost lifecycle) | Prints are the spec |
 | Audio | `AudioSystem.h` (XAudio2 graph, voice pool) `AudioListener.h` (focus/zoom listener model) `AudioBank.h` (JSON bank + RIFF WAV) | 5 submixes; `AudioUpdate` stage after Extract (ADR-011) |
 
@@ -142,7 +142,7 @@ Each test project depends on its library under test plus that library's allowed 
 - **Flat project folders**, no code subdirectories; IDE grouping via `.vcxproj.filters`.
 - **File names are unique repo-wide** — the tables above are the registry; check before adding.
 - `$(SolutionDir)` is the single additional include root, so cross-project includes are
-  project-qualified: `#include "NeuronCore/Json.h"`, `#include "GameLogic/WireSnapshot.h"`.
+  project-qualified: `#include "NeuronCore/Json.h"`, `#include "GameLogic/Snapshot.h"`.
   Within a project, plain `#include "Json.h"`.
   *(Owner action: the vcxprojs currently list each project folder individually; switching to
   `$(SolutionDir)` alone enables the qualified form.)*

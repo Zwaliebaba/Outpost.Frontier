@@ -40,7 +40,7 @@ function call.
 
 ## Decision
 
-1. **`ITransport` lives in NeuronCore** (per the fixed library charter) and is **QUIC-shaped**:
+1. **`Transport` lives in NeuronCore** (per the fixed library charter) and is **QUIC-shaped**:
    - `Listener` (server): accepts `Connection`s.
    - `Connection`: exactly **one reliable-ordered bidirectional message channel** (maps to a
      QUIC stream; carries handshake, orders, acks) and **unreliable unordered datagrams**
@@ -84,6 +84,17 @@ function call.
   packaging-change guarantee. Not considered.
 - **Adopting the OS inbox msquic.dll** — Schannel-only *and* OS-versioned with no app-servicing
   story (brief already rules it out). NuGet package stands.
+
+## Prior art worth reading first
+
+The sibling repository **Outpost.Warzone** already ships msquic behind a `Neuron::Transport`
+seam, with `NeuronCore/HostCertificate.{h,cpp}` doing exactly the self-signed-certificate job
+§3 describes (no CA, no name to certify, clients told not to validate) and `tools/stubs/`
+carrying msquic header stubs for non-Windows checking. Read those before writing
+`QuicTransport` — the naming convention is shared (AGENTS.md §1), so the code is close to
+liftable. It lowers R3 from "integration unknown" to "port a working integration"; the spike
+(S13) stays scheduled, because their transport is peer-to-peer session-oriented and ours is
+client/server with datagram state, so the *shape* differs even where the plumbing does not.
 
 ## Consequences
 

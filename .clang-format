@@ -1,0 +1,103 @@
+# Outpost: Frontier — C++ layout (AGENTS.md §4).
+#
+# Conformance authority: AGENTS.md. clang-format owns WHITESPACE; /.clang-tidy owns NAMING and
+# semantics. The two never overlap: clang-tidy has no check that reports a wrong brace position
+# or an over-long line, and clang-format cannot see that a parameter is missing its `_`. Asking
+# either to do the other's job is how a repository ends up with neither.
+#
+# The values are adopted from the sibling repository Outpost.Warzone, where they were measured
+# against ~223,000 lines, so that code moves between the two trees without reflowing. Unlike that
+# tree, this one is greenfield: format everything you write, and a whole-tree run should be a
+# no-op rather than an unreviewable rewrite.
+#
+# ── Status: no CI step runs this yet ───────────────────────────────────────────────────────
+#
+# Until one exists, it is enforced by review and by editors that pick the file up. Keep
+# ColumnLimit and IndentWidth in step with /.editorconfig; if you change one, change the other in
+# the same commit or they start lying to each other.
+#
+# ── Deliberate choices ─────────────────────────────────────────────────────────────────────
+#
+# LineEnding is left at its default (DeriveLF) ON PURPOSE. Working trees are CRLF on Windows and
+# LF in Linux containers, so deriving per file means the same command is a no-op in both places.
+#
+# AlignConsecutive{Assignments,Declarations} are OFF: clang-format cannot express "align this
+# short run but not that one", and switching them on aligns unrelated statements across whole
+# blocks.
+#
+# ReflowComments is OFF so that the block comments explaining a decision keep the line breaks
+# their author chose.
+
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: Latest
+
+ColumnLimit: 140
+IndentWidth: 2
+TabWidth: 2
+UseTab: Never
+ContinuationIndentWidth: 2
+
+# Allman: every brace on its own line.
+BreakBeforeBraces: Allman
+
+# `namespace Neuron` does not indent its contents — the whole file would be one level in for no
+# information gained.
+NamespaceIndentation: None
+
+# -2, matching IndentWidth: `public:` sits flush with the `class`, its members one step in.
+AccessModifierOffset: -2
+IndentAccessModifiers: false
+IndentCaseLabels: false
+
+IndentPPDirectives: AfterHash
+PPIndentWidth: 3
+
+# ID3D12Device* _device, not ID3D12Device *_device.
+PointerAlignment: Left
+ReferenceAlignment: Left
+DerivePointerAlignment: false
+
+# Control flow never folds onto one line; an empty body may.
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortBlocksOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortLambdasOnASingleLine: All
+
+BreakConstructorInitializers: BeforeColon
+ConstructorInitializerIndentWidth: 2
+PackConstructorInitializers: Never
+
+# A `requires` clause goes on its own line, indented under the template head — the constraint is
+# part of the declaration's contract and reads as such.
+SpaceBeforeParens: Custom
+SpaceBeforeParensOptions:
+  AfterControlStatements: true
+  AfterRequiresInClause: true
+  AfterRequiresInExpression: false
+RequiresClausePosition: OwnLine
+IndentRequiresClause: true
+
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None
+AlignAfterOpenBracket: Align
+AlignEscapedNewlines: Left
+AlignTrailingComments: true
+
+# Include order is load-bearing and grouped by hand (AGENTS.md §4): pch.h, then windows.h before
+# any D3D12/DXGI/XAudio2 header (with WIN32_LEAN_AND_MEAN and NOMINMAX already defined), then the
+# rest of the SDK, then project headers, then the standard library. A formatter reordering these
+# behind a change's back is a correctness risk, not a style preference.
+SortIncludes: Never
+IncludeBlocks: Preserve
+
+BinPackArguments: true
+BinPackParameters: true
+Cpp11BracedListStyle: true
+FixNamespaceComments: true
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+SpacesBeforeTrailingComments: 1
+ReflowComments: false

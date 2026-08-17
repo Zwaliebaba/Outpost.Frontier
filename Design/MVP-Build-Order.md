@@ -38,13 +38,13 @@ layer is ignored with a warning; **no argv or environment reads anywhere** (grep
 
 ### S3 — ServerHost skeleton + headless mode
 `ServerHost{Start/Stop/Join}` with Sim thread, 20 Hz waitable-timer loop (absolute schedule,
-snap-forward rule), tick counter + `tick_overrun` telemetry; `Outpost.exe` with `mode: "headless"` runs it
+snap-forward rule), tick counter + `tickOverrun` telemetry; `Outpost.exe` with `mode: "headless"` runs it
 under console logging until Ctrl-C.
 **Accept:** `NeuronServerTests` start/stop/join ×100 no leak/hang; headless 60 s: mean period
 50 ms ± 0.5, no overruns on an idle machine.
 
 ### S4 — Transport + handshake + heartbeat 🏁 **M0**
-`ITransport` + `UdpTransport` (non-blocking Winsock, 1,152 B datagram cap, minimal control-
+`Transport` + `UdpTransport` (non-blocking Winsock, 1,152 B datagram cap, minimal control-
 channel reliability); `Hello/Welcome/UpdateRequired` with schema hash (and `universeHash` +
 `worldMeta` once S5b lands); `Ping/Pong`; client half connects in-process; NET stats
 (RTT/loss) logged both sides.
@@ -141,7 +141,7 @@ loopback. Friction findings feed Risk R3 disposition (stay Schannel vs flag Open
 
 ### S14 — Debug strip, selftest, polish 🏁 **MVP**
 Tier-1 counters strip (frame/GAME/EXTRACT/UI ms, net RTT/loss/jitter, snap age/drift ticks,
-`tick_overrun`, drops) behind a toggle; `selfTest` aggregates: schema self-check, both-
+`tickOverrun`, drops) behind a toggle; `selfTest` aggregates: schema self-check, both-
 transport handshake, replay determinism run, wire round-trips — exit-code CI gate; polish:
 4× MSAA offscreen + resolve, cosmetic banking/hover from velocity, STALE marker visual.
 **Accept:** MVP playable definition demonstrated end-to-end — select fleet, issue queued

@@ -27,22 +27,25 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
    `Source Files`/`Header Files` filters are replaced by semantic ones, since a flat directory
    makes "all headers in one bucket" useless at this scale.
 3. **File names are unique repo-wide** — with a flat layout and project roots on the include
-   path, uniqueness is what keeps includes unambiguous. Achieved by area prefixes rather than
-   by ceremony:
+   path, uniqueness is what keeps includes unambiguous. Identifier and file *naming* is
+   governed by [AGENTS.md](../../AGENTS.md) §1 (PascalCase, named for the primary type or type
+   family — R7); this ADR adds only the uniqueness requirement and the registry. Names are
+   made unique by naming the type well, not by decorating the file: `GpuDevice`, `HudRoster`
+   and `AudioSystem` are genuine type names that happen to disambiguate.
 
-   | Project | Prefixes | Examples |
+   | Project | Naming | Files |
    |---|---|---|
-   | NeuronCore | *(area)* | `Log.h` `Time.h` `Hash.h` `Random.h` `Arena.h` `RingBuffer.h` `TaskPool.h` `Telemetry.h` `ByteReader.h` `ByteWriter.h` `Json.h` `JsonWriter.h` `Transport.h` `UdpTransport.h` `QuicTransport.h` `WireCore.h` |
-   | GameLogic | `Wire*`, `Universe*` | `Ids.h` `ShipClass.h` `World.h` `ReplicatedView.h` `Orders.h` `Validate.h` `Formation.h` `WorldHash.h` `WireSnapshot.h` `WireOrder.h` `WireSchemaHash.h` `Universe.h` `UniverseParse.h` |
-   | NeuronServer | `Server*`, `Session*` | `ServerHost.h` `ServerConfig.h` `Session.h` `SnapshotSender.h` |
-   | NeuronClient | `Gpu*`, `Hud*`, `Cam*`, `Audio*` | `ClientApp.h` `Window.h` `ClientConnection.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuPasses.h` `GpuPipelines.h` `ObjMesh.h` `GlyphAtlas.h` `CamIso.h` `Picking.h` `InputMap.h` `HudLayout.h` `HudRoster.h` `OrderPuck.h` `AudioSystem.h` `AudioBank.h` `AudioListener.h` |
+   | NeuronCore | plain area names | `Log.h` `Time.h` `Hash.h` `Random.h` `Arena.h` `RingBuffer.h` `TaskPool.h` `Telemetry.h` `ByteReader.h` `ByteWriter.h` `Json.h` `JsonWriter.h` `Transport.h` `UdpTransport.h` `QuicTransport.h` `Wire.h` |
+   | GameLogic | type + family names | `Ids.h` `ShipClass.h` `World.h` `ReplicatedView.h` `Orders.h` `Validate.h` `Formation.h` `WorldHash.h` `Snapshot.h` `OrderMessages.h` `SchemaHash.h` `Universe.h` `UniverseParse.h` |
+   | NeuronServer | type names | `ServerHost.h` `ServerConfig.h` `Session.h` `SnapshotSender.h` |
+   | NeuronClient | type names (`Gpu`, `Hud`, `Audio` read as domain words, R4) | `ClientApp.h` `Window.h` `ClientConnection.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuPasses.h` `GpuPipelines.h` `ObjMesh.h` `GlyphAtlas.h` `IsoCamera.h` `Picking.h` `InputMap.h` `HudLayout.h` `HudRoster.h` `OrderPuck.h` `AudioSystem.h` `AudioBank.h` `AudioListener.h` |
    | Outpost | — | `Main.cpp` `AppConfig.h` `AppConfig.cpp` `ConfigLoad.h` `ConfigLoad.cpp` |
 
-   If a genuine collision ever appears, the **newer** file takes a library tag prefix; the
+   If a genuine collision ever appears, the **newer** file is renamed to a more specific type name; the
    table above is the registry to check first.
 4. **Include style:** `$(SolutionDir)` is the single additional include root, so cross-project
    includes are project-qualified and unambiguous:
-   `#include "NeuronCore/Json.h"`, `#include "GameLogic/WireSnapshot.h"`. Within a project,
+   `#include "NeuronCore/Json.h"`, `#include "GameLogic/Snapshot.h"`. Within a project,
    plain `#include "Json.h"`. Project folders are project roots, not code subdirectories — the
    directive is satisfied.
    *(Owner action: the vcxprojs currently list each project folder individually as an include
@@ -72,7 +75,7 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
    keep their subdirectories — the directive is about source layout. `Tests/*` projects are
    their own project roots and are flat internally, same rules.
 7. **Namespaces do not follow directories** (there are none) and remain as the Dependency Map
-   defines: `neuron::core`, `neuron::server`, `neuron::client`, `game`.
+   defines: `Neuron` (engine libraries) and `Game` (GameLogic).
 
 ## Alternatives rejected
 

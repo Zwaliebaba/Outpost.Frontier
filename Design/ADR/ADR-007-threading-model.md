@@ -40,7 +40,7 @@ must not paint over those seams — but also must not build 23 threads for a dem
    partitioning story (ADR-005 §5) and a profile justifying it.
 
 ### Ownership & crossing rules (normative, all builds)
-5. **Single-writer worlds.** The authoritative `game::World` is owned by the Sim thread; the
+5. **Single-writer worlds.** The authoritative `Game::World` is owned by the Sim thread; the
    client's replicated view + render state by the Main thread. There is *no shared world*, no
    "read the server's arrays from the client while it isn't ticking".
 6. **The only data path between client and server halves is the transport** — a real loopback
