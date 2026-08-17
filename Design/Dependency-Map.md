@@ -71,7 +71,8 @@ rendering, no sockets, no clock.
 
 | Area | Headers | Notes |
 |---|---|---|
-| Identity | `Ids.h` (`ShipId`, `WingId`, `OrderId`) `ShipClass.h` (11-class closed set + movement params) | Icon-sheet taxonomy is the enum, `HullClass` order = wire order |
+| Identity | `Ids.h` (`ShipId`, `WingId`, `OrderId`, `SystemId`, `CelestialId`, `StationId`, `GateId`) `ShipClass.h` (11-class closed set + movement params) | Icon-sheet taxonomy is the enum, `HullClass` order = wire order; Fighter/Cruiser are reserved ids (ADR-009 §6) |
+| Universe | `Universe.h` (`UniversePos{i64,i64}`, `UniverseDef`, region/system/celestial/station/gate tables, `GridAnchor`) `UniverseParse.h` (bytes → `UniverseDef`, pure) | Exact integer metres; parsing is pure — file IO stays in hosts (ADR-009 §7) |
 | World | `World.h` (authoritative tables + `Tick(orders[]) `) `ReplicatedView.h` (quantised client view + `ApplySnapshot`) | Single-writer; owner asserts in debug |
 | Orders | `Orders.h` (`OrderSubmit`, `OrderGroup`, 4-leg queue) `Validate.h` (`ValidateOrder`, `ReasonCode`) | Validation consumes wire-quantised values only (ADR-005 §4) |
 | Formations | `Formation.h` (`FormationId{Line,Wedge,Claw}`, `SolveFormation`) | Pure; client footprint preview calls this exact function |
@@ -110,7 +111,8 @@ driver. **Nothing else.** Nothing depends on it.
 Each test project depends on its library under test plus that library's allowed deps.
 `GameLogicTests` carries the heavyweight suites: replay determinism (double-run hash
 equality), wire round-trip/fuzz-underrun, formation geometry, validation parity (quantised
-inputs). `NeuronCoreTests`: byte IO, ring buffers, UDP loopback handshake (real socket).
+inputs), universe parse round-trip + rejection, `universeHash` stability, and anchor+local
+position reconstruction. `NeuronCoreTests`: byte IO, ring buffers, UDP loopback handshake (real socket).
 `NeuronServerTests`: ServerHost start/stop/join, session handshake against a raw core-level
 client. `NeuronClientTests`: interpolation/extrapolation timeline, picking math, OBJ parser —
 **no D3D device in unit tests**; GPU smoke lives in `Outpost.exe --selftest`-adjacent manual

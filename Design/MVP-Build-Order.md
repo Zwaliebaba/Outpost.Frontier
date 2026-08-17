@@ -35,27 +35,41 @@ under console logging until Ctrl-C.
 
 ### S4 — Transport + handshake + heartbeat 🏁 **M0**
 `ITransport` + `UdpTransport` (non-blocking Winsock, 1,152 B datagram cap, minimal control-
-channel reliability); `Hello/Welcome/UpdateRequired` with schema hash; `Ping/Pong`; client
-half connects in-process; NET stats (RTT/loss) logged both sides.
+channel reliability); `Hello/Welcome/UpdateRequired` with schema hash (and `universeHash` +
+`worldMeta` once S5b lands); `Ping/Pong`; client half connects in-process; NET stats
+(RTT/loss) logged both sides.
 **Accept:** *window opens, swapchain presents, server ticks, heartbeat crosses the loopback* —
 the brief's milestone, demonstrably. `NeuronCoreTests` handshake over real loopback socket;
 schema-hash mismatch produces `UpdateRequired` + refusal (test forces a bad hash).
 `--selftest` covers handshake + ping.
 
 ### S5 — Meshes, atlas, opaque pass, camera
-OBJ/MTL loader → submesh ranges (9 classes); DirectWrite glyph-atlas bake (TaskPool); opaque
-instanced pass (flat shading, 5 materials, emissive accents); ortho camera 30° elevation, yaw
-orbit + 45° snaps, zoom clamp, plane pan. A locally-faked parked fleet renders — no net yet.
+OBJ/MTL loader → submesh ranges (8 ship classes + Structure); DirectWrite glyph-atlas bake
+(TaskPool); opaque instanced pass (flat shading, 5 materials, emissive accents); ortho camera
+30° elevation, yaw orbit + 45° snaps, zoom clamp, plane pan. A locally-faked parked fleet
+renders — no net yet.
 **Accept:** `NeuronClientTests` OBJ parser (counts/ranges vs known meshes); visual checkpoint
 vs `tactical-hud.png` vibe (dark space, green accents, silhouettes readable at min zoom);
 frame time < 2 ms at 41 instances.
 
+### S5b — Universe definition & Vesta-3
+`UniversePos`/`UniverseDef` types + pure text parser in GameLogic (ADR-009); `GameData/
+Universe/` authored with Vesta-3 (star, two planets, one station); `universeHash`; hosts read
+the file via NeuronCore and both halves load it; grid anchored at the station; station renders
+with the `Structure` mesh, celestials as distant backdrop.
+**Accept:** `GameLogicTests` parse round-trip, malformed-input rejection, `universeHash`
+stability across reorderings that shouldn't matter and change on ones that should,
+anchor+local reconstruction property test; the client's rendered scene comes from the file
+(edit a station position → it moves, no rebuild).
+
 ### S6 — GameLogic sim + replay determinism
-World tables, `ShipClassTable` (11 classes), `Steering/Integrate` (seek-with-arrival, accel +
-turn-rate clamps), scripted-order harness, `WorldHash`.
+World tables, `ShipClassTable` (11-value enum, 9 with content — Fighter/Cruiser reserved),
+`Steering/Integrate` (seek-with-arrival, accel + turn-rate clamps), scripted-order harness,
+`WorldHash`.
 **Accept:** `GameLogicTests`: double-run replay hash equality (1,000 ticks, scripted orders);
 movement envelope (top speed, turn radius, arrival overshoot < tolerance); zero clock/RNG
-imports outside the seeded PCG32 (grep-able rule, asserted in review).
+imports outside the seeded PCG32 (grep-able rule, asserted in review); no `UniversePos` in
+per-tick sim math (grep rule, ADR-009 §2).
 
 ### S7 — Snapshots over the wire → moving ships on screen
 `EmitSnapshot` (full, quantised) → datagram → `ReplicatedView.ApplySnapshot` →
@@ -132,6 +146,9 @@ green on a GPU-less runner; counters strip numbers plausible vs `debug-hud.png` 
 - Rendering (S5) precedes sim (S6) so every sim-side slice after S7 is *visible* — but S6's
   determinism harness exists **before** the first networked ship moves, so replication bugs
   never masquerade as sim bugs.
+- The universe definition (S5b) lands before the sim so the world is authored content from the
+  first ship that moves — a hardcoded scene would be thrown away and would let sim code form
+  habits around coordinates the universe model forbids.
 - The order pipeline (S9) is deliberately after selection/overlay (S8): the ghost/bounce UX
   needs somewhere to draw.
 - msquic (S13) sits after the protocol stabilises (S12) but before MVP-complete, per ADR-003 —

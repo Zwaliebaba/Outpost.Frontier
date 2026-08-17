@@ -2,7 +2,7 @@
 
 **Status:** Accepted · 2026-08-17
 **Depends on:** — (root decision)
-**Feeds:** every other ADR
+**Feeds:** every other ADR · extended by ADR-009 (universe coordinates)
 
 ## Context
 
@@ -65,9 +65,10 @@ without touching the core model. Do not pre-pay.
    - Render space: `world = (sim.x, h_cosmetic, sim.y)`, +Y up. Mesh forward axis is −Z (as
      authored in `GameData/Meshes`); model yaw maps heading onto −Z.
    - One play area ("grid") per session for MVP: 40 km × 40 km centred on origin. `float32`
-     gives ~5 mm resolution at that extent — ample. Galaxy-scale later = many grids, each with
-     a local origin (per `strategic-map.png`, systems/regions are graph nodes, not one
-     continuous space), so planar float32 grids do not block MMO scale.
+     gives ~5 mm resolution at that extent — ample. Galaxy-scale later = many grids, each
+     anchored at an exact `int64` universe position; see **ADR-009**, which makes this
+     concrete (universe plane in integer metres, systems as graph nodes). Planar float32
+     grids therefore do not block MMO scale.
 4. **Everything that targets space targets the plane:** move orders are plane points + arrival
    facing; picking is a cursor-ray ∩ plane point followed by 2D proximity tests; formation
    stations are 2D offsets; AoE later is 2D discs.

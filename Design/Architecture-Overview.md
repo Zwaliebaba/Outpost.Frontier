@@ -79,12 +79,26 @@ the MVP flow assumes locality.
 | `t_render` | Client | `t_est − 2 ticks`; interpolation target. |
 | Wall clock | Neither sim | Logging/telemetry only. GameLogic reading a clock is a determinism bug (ADR-005). |
 
+## Space
+
+Two levels, one plane (ADR-001 + ADR-009). The **universe** is addressed in exact `int64`
+metres (`UniversePos`) — systems, planets, stations, gates, and grid anchors are all persistent
+integer placements, giving ±975 ly of headroom that content can grow into without a coordinate
+migration. The **tactical grid** is local float32 metres (≈40 km, mm precision) anchored at a
+`UniversePos`; the sim, the wire (cm-quantised), and the renderer only ever see local space.
+Absolute position is `anchor + local`, exactly reconstructible. Inter-system travel is a graph
+of gates, not flown space, so distances between systems are map layout, not navigation input.
+
+MVP content is one authored system (Vesta-3: star, two planets, one station) loaded from
+`GameData/Universe/` by both halves and guarded by a `universeHash` in the handshake — the MVP
+boots from the universe definition rather than a hardcoded scene.
+
 ## Library responsibilities (summary — see [Dependency-Map.md](Dependency-Map.md))
 
 | Project | One-line charter |
 |---|---|
 | **NeuronCore** | Engine primitives, zero game semantics: math, time, logging, telemetry lanes, ByteReader/Writer, PCG32, task pool, `ITransport` + UDP/QUIC implementations, framing wire messages. |
-| **GameLogic** | The deterministic planar sim: world tables, ship classes, orders/groups, formation solve, validation + reason codes, game wire schemas, snapshot emit/apply. |
+| **GameLogic** | The deterministic planar sim: world tables, ship classes, orders/groups, formation solve, validation + reason codes, game wire schemas, snapshot emit/apply, universe definition + parsing. |
 | **NeuronServer** | `ServerHost`: session table, tick-loop orchestration, connection handling, snapshot fan-out. |
 | **NeuronClient** | `ClientApp`: window/device, frame loop, snapshot buffering + interpolation, Extract, passes, camera, picking, HUD, order pre-check UX. |
 | **Outpost.exe** | Composition root: args → configs → `ServerHost.Start()` → `ClientApp.Run()` → ordered shutdown. |
@@ -114,6 +128,7 @@ corpus debug HUD's budget rows.
 | HDR, bloom, nebula, GPU cull | Reserved pass slots in the fixed pass list (ADR-006). |
 | Multi-client, matchmaking | ServerHost session *table* (not a singleton session); `--connect`. |
 | Persistence, accounts | Session-surfaces flow is post-MVP; schema-hash handshake already speaks `UpdateRequired`. |
+| Gates, docking, multi-system | Universe definition already models systems/gates/stations; MVP authors one system and anchors one grid (ADR-009 §9). |
 | Audio | NeuronClient charter slot; nothing depends on its absence. |
 
 ## Alignment with the screen-print corpus

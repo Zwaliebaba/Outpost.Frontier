@@ -16,6 +16,7 @@ them. `ScreenPrints/` is the pre-existing reference corpus these documents align
 | [006](ADR/ADR-006-renderer.md) | Renderer | **Fixed forward pass list (no frame graph), ortho at 30°** (the 2:1 ring spec), instanced flat-shading, DWrite glyph atlas, plane-picking |
 | [007](ADR/ADR-007-threading-model.md) | Threading | **Two owning threads (Main, Sim)**; single-writer worlds; transport-only crossings; lane registry + Extract seam from day one |
 | [008](ADR/ADR-008-inprocess-hosting.md) | Hosting | **Composition-root exe; `ServerHost` service object**; `--headless` proves the split continuously; normative shutdown order |
+| [009](ADR/ADR-009-universe-model.md) | Universe *(owner directive, session follow-up)* | **`int64 × int64` metre universe plane**; systems with planets and 1–2 stations, gates as graph edges; grids anchored at exact universe positions with local float32 sim; authored `GameData/Universe/`, hash-guarded |
 
 ## Deliverables
 
@@ -32,8 +33,10 @@ them. `ScreenPrints/` is the pre-existing reference corpus these documents align
 1. **Test projects aren't wired yet:** the four `Tests/*` vcxprojs (added on main) contain no
    `ProjectReference` to the libraries they test and no include paths — they'll need both
    before the S2/S6 suites can exist.
-2. **Content gap:** the icon taxonomy fixes an 11-class closed set; `GameData/Meshes` has 9 —
-   **Fighter** and **Cruiser** meshes are missing.
+2. ~~Content gap: Fighter/Cruiser meshes missing.~~ **Resolved by ADR-009 §6:** the meshes in
+   `GameData/Meshes` *are* the standard ship set (8 ships + `Structure` for stations);
+   `HullClass` keeps the 11-value closed taxonomy with **Fighter and Cruiser as reserved,
+   unused ids** so wire, icons, and palettes never renumber when content arrives.
 3. **Package hygiene (harmless, trimmable):** every project references the msquic *and*
    C++/WinRT NuGet packages; by the dependency map only NeuronCore needs msquic, and no MVP
    code needs C++/WinRT.
