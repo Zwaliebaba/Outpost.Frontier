@@ -55,7 +55,8 @@ without touching the core model. Do not pre-pay.
 ## Decision
 
 1. **The authoritative simulation is 2D.** GameLogic state is positions/velocities in a plane
-   (`float2 pos`, `float2 vel`, `float heading`). There is no simulated altitude.
+   (`XMFLOAT2 pos`, `XMFLOAT2 vel`, `float heading` — DirectXMath storage types per ADR-010).
+   There is no simulated altitude.
 2. **Presentation is 3D.** The client renders true 3D meshes on that plane and may add
    *cosmetic* vertical offsets (per-class hover height, banking roll into turns, idle bob).
    Cosmetic z is derived client-side from replicated planar state and is never replicated,

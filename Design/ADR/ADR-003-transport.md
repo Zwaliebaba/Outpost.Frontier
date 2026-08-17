@@ -62,7 +62,7 @@ function call.
    the minimal control-channel reliability described above and a 3-way hello for "connection".
 3. **msquic is validated by an early spike, not deferred to the end.** Build-order slice S13
    (before MVP-complete, after the protocol stabilises) brings up `QuicTransport` behind the
-   same interface with `--transport=quic`: ALPN **`opf/1`**, self-signed server cert created
+   same interface with `server.transport: "quic"`: ALPN **`opf/1`**, self-signed server cert created
    in-memory via `CertCreateSelfSignCertificate` + `QUIC_CREDENTIAL_TYPE_CERTIFICATE_CONTEXT`
    (the Schannel-flavour package cannot load PEM/PKCS12 files), client using
    `NO_CERTIFICATE_VALIDATION` on loopback (pinning comes with real deployment, out of MVP).
@@ -70,7 +70,7 @@ function call.
    the client. The spike's exit criterion: the full MVP protocol runs unmodified over both
    transports, toggled by flag.
 4. **Both transports ship in NeuronCore permanently.** UDP remains the debug/localhost fallback
-   (plaintext = Wireshark-able), QUIC is the product path. CI-style self-test (`--selftest`)
+   (plaintext = Wireshark-able), QUIC is the product path. CI-style self-test (`selfTest`)
    runs the handshake over both.
 
 ## Alternatives rejected

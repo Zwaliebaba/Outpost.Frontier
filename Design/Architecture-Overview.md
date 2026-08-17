@@ -1,6 +1,6 @@
 # Outpost: Frontier — Architecture Overview (MVP)
 
-**Status:** Session output 2026-08-17 · governed by [ADR-001…008](ADR/)
+**Status:** Session output 2026-08-17 · governed by [ADR-001…013](ADR/)
 
 One Windows x64 executable hosts an authoritative game server and a DX12 client that talk
 exclusively over a UDP loopback socket behind a QUIC-shaped transport. The simulation is a 2D
@@ -23,9 +23,9 @@ flowchart LR
     end
     subgraph FUT["Packaging change, later"]
         OS["OutpostServer.exe = same ServerHost"]
-        RC["Remote Outpost.exe --connect, QUIC"]
+        RC["Remote Outpost.exe (mode: client) + QUIC"]
     end
-    EXE -.->|"--headless proves it today"| FUT
+    EXE -.->|"headless mode proves it today"| FUT
 ```
 
 Both halves link **GameLogic**: the server as the authority; the client for the shared order
@@ -97,11 +97,11 @@ boots from the universe definition rather than a hardcoded scene.
 
 | Project | One-line charter |
 |---|---|
-| **NeuronCore** | Engine primitives, zero game semantics: math, time, logging, telemetry lanes, ByteReader/Writer, PCG32, task pool, `ITransport` + UDP/QUIC implementations, framing wire messages. |
+| **NeuronCore** | Engine primitives, zero game semantics: time, logging, telemetry lanes, ByteReader/Writer, **JSON parser/writer**, PCG32, task pool, `ITransport` + UDP/QUIC implementations, framing wire messages. No math layer — DirectXMath is used natively (ADR-010). |
 | **GameLogic** | The deterministic planar sim: world tables, ship classes, orders/groups, formation solve, validation + reason codes, game wire schemas, snapshot emit/apply, universe definition + parsing. |
 | **NeuronServer** | `ServerHost`: session table, tick-loop orchestration, connection handling, snapshot fan-out. |
-| **NeuronClient** | `ClientApp`: window/device, frame loop, snapshot buffering + interpolation, Extract, passes, camera, picking, HUD, order pre-check UX. |
-| **Outpost.exe** | Composition root: args → configs → `ServerHost.Start()` → `ClientApp.Run()` → ordered shutdown. |
+| **NeuronClient** | `ClientApp`: window/device, frame loop, snapshot buffering + interpolation, Extract, passes, camera, picking, HUD, audio (XAudio2 + X3DAudio), order pre-check UX. |
+| **Outpost.exe** | Composition root: `Outpost.json` → config structs → `ServerHost.Start()` → `ClientApp.Run()` → ordered shutdown. No argv, no environment (ADR-012). |
 | **Tests/**\* | VS CppUnitTestFramework per-library suites; replay determinism and wire round-trips live in `GameLogicTests`. |
 
 ## Frame and tick anatomy
@@ -113,9 +113,10 @@ MVP scale it is microseconds. `tick_overrun` is a release counter.
 
 **Main thread, every frame** (vsync or free):
 `Pump Win32 → Poll transport → Buffer snapshots → Extract (interpolate → InstanceRecords +
-overlay lists + HUD state) → Record (4 PSOs, one direct queue) → Present (flip, 2 in flight)`.
+overlay lists + HUD state) → AudioUpdate (retire/start voices, X3DAudio from the same
+interpolated state) → Record (4 PSOs, one direct queue) → Present (flip, 2 in flight)`.
 The `GAME/EXTRACT/RENDER/UI` stage timings are measured from the first slice — they are the
-corpus debug HUD's budget rows.
+corpus debug HUD's budget rows; `AUDIO` joins them as a fifth.
 
 ## Deliberate MVP omissions and their reserved seams
 
@@ -126,10 +127,19 @@ corpus debug HUD's budget rows.
 | Client prediction | Client links GameLogic; snapshots carry tick + order acks (ADR-002). |
 | msquic in the first slices | `ITransport` is QUIC-shaped; spike slice S13 (ADR-003). |
 | HDR, bloom, nebula, GPU cull | Reserved pass slots in the fixed pass list (ADR-006). |
-| Multi-client, matchmaking | ServerHost session *table* (not a singleton session); `--connect`. |
+| Multi-client, matchmaking | ServerHost session *table* (not a singleton session); `mode: "client"`. |
 | Persistence, accounts | Session-surfaces flow is post-MVP; schema-hash handshake already speaks `UpdateRequired`. |
 | Gates, docking, multi-system | Universe definition already models systems/gates/stations; MVP authors one system and anchors one grid (ADR-009 §9). |
-| Audio | NeuronClient charter slot; nothing depends on its absence. |
+| Sound design, ducking, reverb, streaming | The XAudio2 graph, X3DAudio listener model, voice pool, and JSON sound bank are decided (ADR-011); slice S15 lands the thin proof. |
+
+## Platform & toolchain decisions
+
+| Area | Decision | ADR |
+|---|---|---|
+| Math | **DirectXMath natively** — no wrapper types, functions, or aliases; `XMFLOAT*` stored, `XMVECTOR` computed. NeuronCore has no math header. | [010](ADR/ADR-010-math-directxmath.md) |
+| Audio | **XAudio2** graph (master + 5 submixes, pooled voices) with **X3DAudio**; listener at the camera focus raised by zoom, mono 3D assets. | [011](ADR/ADR-011-audio.md) |
+| Configuration | **JSON files only** — no argv, no environment variables; custom NeuronCore parser also serving universe content and sound banks; settings persist to a user layer in LocalAppData. | [012](ADR/ADR-012-configuration-and-json.md) |
+| Source layout | **Flat project folders**, grouping via `.vcxproj.filters`, repo-wide unique file names, `$(SolutionDir)`-qualified cross-project includes. | [013](ADR/ADR-013-source-layout.md) |
 
 ## Alignment with the screen-print corpus
 

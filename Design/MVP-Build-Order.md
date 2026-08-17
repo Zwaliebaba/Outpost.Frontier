@@ -1,13 +1,13 @@
 # MVP Build Order — Vertical Slices
 
 **Status:** Session output 2026-08-17 · Each slice is independently testable, lands green
-(`Tests/` + `--selftest` where applicable), and is sized at "a few days" or less. Order
+(`Tests/` + `selfTest` where applicable), and is sized at "a few days" or less. Order
 matters — later slices assume earlier ones. Milestones: **M0** = the brief's named first
 milestone; **M1** = first commanded fleet; **MVP** = playable definition met.
 
 Test placement follows the Dependency Map: sim logic proves itself in `GameLogicTests`,
 transport/foundation in `NeuronCoreTests`, host lifecycle in `NeuronServerTests`, client math
-in `NeuronClientTests`, and anything needing the real loopback or GPU in `--selftest` /
+in `NeuronClientTests`, and anything needing the real loopback or GPU in `selfTest` /
 manual checkpoints.
 
 ---
@@ -19,16 +19,26 @@ shutdown; debug layer clean.
 **Accept:** runs 5 min without debug-layer messages; PresentMon shows flip model; close exits 0.
 
 ### S2 — NeuronCore foundations
-`Assert/Log/Time(QPC)/Hash(FNV)/Random(PCG32)`, `float2..mat4` + plane-ray math,
-`ByteReader/Writer`, SPSC/MPSC rings, telemetry lane registry + `NEURON_SPAN/COUNTER`,
-`TaskPool`.
+`Assert/Log/Time(QPC)/Hash(FNV)/Random(PCG32)`, `ByteReader/Writer`, SPSC/MPSC rings,
+telemetry lane registry + `NEURON_SPAN/COUNTER`, `TaskPool`. **No math layer** — DirectXMath
+is called natively at use sites (ADR-010).
 **Accept:** `NeuronCoreTests`: byte IO round-trip + underrun bounds, ring stress (2 threads),
-math cases, PCG32 vectors, span timing sanity. *(Test projects need their ProjectReferences
-wired — owner task, see README.)*
+PCG32 vectors, span timing sanity, `XMVerifyCPUSupport` gate. *(Test projects need their
+ProjectReferences wired — owner task, see README.)*
 
-### S3 — ServerHost skeleton + `--headless`
+### S2b — JSON parser & configuration
+`Json.h/.cpp` (iterative parse, flat-node DOM, exact `int64`, comments + trailing commas,
+diagnostics with line/column) and `JsonWriter`; `ConfigLoad` in the exe (cwd → exe-dir
+resolution, LocalAppData user layer, deep merge) producing `ServerConfig`/`ClientConfig`;
+S1's window/renderer values move out of code into `Outpost.json`; `mode` honoured.
+**Accept:** `NeuronCoreTests` JSON corpus — valid/invalid cases, `int64` exactness at and past
+2⁵³, depth-cap rejection, duplicate-key rejection, `\uXXXX` surrogate decoding, writer
+round-trip stability; missing base config exits fatally with file/line/column; a corrupt user
+layer is ignored with a warning; **no argv or environment reads anywhere** (grep rule).
+
+### S3 — ServerHost skeleton + headless mode
 `ServerHost{Start/Stop/Join}` with Sim thread, 20 Hz waitable-timer loop (absolute schedule,
-snap-forward rule), tick counter + `tick_overrun` telemetry; `Outpost.exe --headless` runs it
+snap-forward rule), tick counter + `tick_overrun` telemetry; `Outpost.exe` with `mode: "headless"` runs it
 under console logging until Ctrl-C.
 **Accept:** `NeuronServerTests` start/stop/join ×100 no leak/hang; headless 60 s: mean period
 50 ms ± 0.5, no overruns on an idle machine.
@@ -41,7 +51,7 @@ channel reliability); `Hello/Welcome/UpdateRequired` with schema hash (and `univ
 **Accept:** *window opens, swapchain presents, server ticks, heartbeat crosses the loopback* —
 the brief's milestone, demonstrably. `NeuronCoreTests` handshake over real loopback socket;
 schema-hash mismatch produces `UpdateRequired` + refusal (test forces a bad hash).
-`--selftest` covers handshake + ping.
+`selfTest` covers handshake + ping.
 
 ### S5 — Meshes, atlas, opaque pass, camera
 OBJ/MTL loader → submesh ranges (8 ship classes + Structure); DirectWrite glyph-atlas bake
@@ -53,8 +63,9 @@ vs `tactical-hud.png` vibe (dark space, green accents, silhouettes readable at m
 frame time < 2 ms at 41 instances.
 
 ### S5b — Universe definition & Vesta-3
-`UniversePos`/`UniverseDef` types + pure text parser in GameLogic (ADR-009); `GameData/
-Universe/` authored with Vesta-3 (star, two planets, one station); `universeHash`; hosts read
+`UniversePos`/`UniverseDef` types + pure JSON-backed parse in GameLogic (ADR-009 + ADR-012,
+using S2b's parser); `GameData/Universe/` authored with Vesta-3 (star, two planets, one
+station); `universeHash` over canonical parsed content; hosts read
 the file via NeuronCore and both halves load it; grid anchored at the station; station renders
 with the `Structure` mesh, celestials as distant backdrop.
 **Accept:** `GameLogicTests` parse round-trip, malformed-input rejection, `universeHash`
@@ -123,19 +134,28 @@ queued-chain rendering matches `puck-and-wheel.png` §4.
 ### S13 — msquic behind the same interface ⚡ spike
 `QuicTransport`: ALPN `opf/1`, in-memory self-signed cert (`CertCreateSelfSignCertificate` +
 `CERTIFICATE_CONTEXT`), client `NO_CERTIFICATE_VALIDATION` (loopback), stream 0 = control,
-DATAGRAM = state; `--transport=quic`.
-**Accept:** the *unmodified* game runs over QUIC on loopback; `--selftest` runs the full
+DATAGRAM = state; `server.transport: "quic"`.
+**Accept:** the *unmodified* game runs over QUIC on loopback; `selfTest` runs the full
 handshake+order+snapshot loop over **both** transports; measured added latency < 1 ms
 loopback. Friction findings feed Risk R3 disposition (stay Schannel vs flag OpenSSL flavour).
 
 ### S14 — Debug strip, selftest, polish 🏁 **MVP**
 Tier-1 counters strip (frame/GAME/EXTRACT/UI ms, net RTT/loss/jitter, snap age/drift ticks,
-`tick_overrun`, drops) behind a toggle; `--selftest` aggregates: schema self-check, both-
+`tick_overrun`, drops) behind a toggle; `selfTest` aggregates: schema self-check, both-
 transport handshake, replay determinism run, wire round-trips — exit-code CI gate; polish:
 4× MSAA offscreen + resolve, cosmetic banking/hover from velocity, STALE marker visual.
 **Accept:** MVP playable definition demonstrated end-to-end — select fleet, issue queued
-formation moves, watch execution with status + feedback — over both transports; `--selftest`
+formation moves, watch execution with status + feedback — over both transports; `selfTest`
 green on a GPU-less runner; counters strip numbers plausible vs `debug-hud.png` rows.
+
+### S15 — Audio thin slice *(post-MVP-core; must not displace S1–S14)*
+XAudio2 device + mastering voice + five submixes with gains from config; pooled source
+voices; RIFF WAV loader; JSON sound bank; X3DAudio listener at camera focus raised by zoom
+(ADR-011 §4) with mono emitters at render positions; one 2D UI cue (order rejected) and one
+3D engine loop; `AudioUpdate` stage timed as the fifth budget row.
+**Accept:** `NeuronClientTests` listener/emitter math + bank parsing headless; no audio device
+⇒ client logs, disables audio, runs on; manual check: panning moves the audio frame, zooming
+out attenuates, voice pool never exceeds its cap under a 200-ship stress scene.
 
 ---
 
@@ -153,3 +173,8 @@ green on a GPU-less runner; counters strip numbers plausible vs `debug-hud.png` 
   needs somewhere to draw.
 - msquic (S13) sits after the protocol stabilises (S12) but before MVP-complete, per ADR-003 —
   late enough to test the real protocol, early enough that friction has schedule to land.
+- Config (S2b) lands second because everything downstream reads it, and because the moment a
+  value is hardcoded it acquires callers; S1 is the only slice allowed to hardcode, and S2b
+  takes those values back.
+- Audio (S15) is deliberately after the MVP: it is absent from the playable definition, and
+  its architecture (ADR-011) is fixed so nothing before it has to guess.

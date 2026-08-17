@@ -30,7 +30,7 @@ overhead anyway.
    *Recorded as a dependency-rule refinement in the Dependency Map.*
 3. **Schema hash:** `SchemaHash = FNV-1a64` over a compile-time string that concatenates every
    message's name, field names, types, and quantisation constants (maintained next to the
-   definitions; a `--selftest` check catches drift). Exchanged in `Hello`; mismatch ⇒
+   definitions; a `selfTest` check catches drift). Exchanged in `Hello`; mismatch ⇒
    `UpdateRequired` + close (the corpus's guaranteed post-patch screen, an MVP log line).
 
 ### Framing

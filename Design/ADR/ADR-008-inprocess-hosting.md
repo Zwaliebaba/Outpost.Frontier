@@ -1,7 +1,7 @@
 # ADR-008 — In-Process Hosting: Composition Root, Lifecycle, Headless Proof
 
-**Status:** Accepted · 2026-08-17
-**Depends on:** ADR-003 (transport), ADR-007 (threads/ownership)
+**Status:** Accepted · 2026-08-17 · **§4–§5, §8 amended by ADR-012 (JSON config, no argv)**
+**Depends on:** ADR-003 (transport), ADR-007 (threads/ownership), ADR-012 (configuration)
 **Feeds:** Build Order S3/S4, future OutpostServer.exe
 
 ## Context
@@ -30,23 +30,29 @@ programmatic shape that a standalone server binary will reuse verbatim.
    `ClientApp.Run()` (blocks) → orderly shutdown. No game, net, or render logic lives in the
    exe. Libraries never read `argv`/env/registry — config structs are assembled here only.
 
-### Command line (MVP, complete)
-4. `--port=7777` (default; 0 = ephemeral, client reads the bound port from ServerHost —
-   loopback-only convenience that dies with the split),
-   `--headless` (ServerHost only, console logging, runs until Ctrl-C — **this flag is the
-   standing proof that the server has no client dependency**; it is a build-order slice, not
-   an afterthought),
-   `--transport=udp|quic` (ADR-003),
-   `--selftest` (headless: wire round-trips, schema-hash self-check, transport handshake
-   over loopback, GameLogic replay-determinism run; exit code ≠ 0 on failure — CI-able on a
-   GPU-less machine, complementing the `Tests/` unit-test projects),
-   `--connect=<host:port>` (client-only mode, skips hosting; exists so the *packaging change*
-   is demonstrably trivial, but only loopback is exercised/supported in MVP).
+### Configuration (MVP, complete) — *amended by ADR-012*
+4. **There is no command line and no environment variable.** `wWinMain` ignores its arguments;
+   every knob comes from `Outpost.json` (resolution order and full schema in ADR-012 §A/§B).
+   The keys that drive this ADR:
+   - `mode` — `"host"` (ServerHost + ClientApp, the MVP default), `"headless"` (ServerHost
+     only, console logging, runs until Ctrl-C — **this mode is the standing proof that the
+     server has no client dependency**; it is a build-order slice, not an afterthought), or
+     `"client"` (skips hosting and connects to `client.connect`, so the *packaging change* is
+     demonstrably trivial — only loopback is exercised in MVP).
+   - `server.port` (0 = ephemeral; in `host` mode the client reads the bound port back from
+     `ServerHost` in-process — a loopback-only convenience that dies with the split),
+     `server.transport` = `"udp" | "quic"` (ADR-003).
+   - `selfTest` — with `mode: "headless"`, runs wire round-trips, the schema-hash self-check,
+     a transport handshake over loopback, and a GameLogic replay-determinism run, then exits
+     (non-zero on failure). CI selects it by launching from a directory whose `Outpost.json`
+     sets it — GPU-less and complementary to the `Tests/` unit-test projects.
 
 ### Lifecycle & shutdown ordering (normative)
-5. **Boot:** logging → lane registry → `ServerHost.Start()` → `ClientApp` ctor →
-   `ClientApp.Run()`. A `Start()` failure (port bound, transport init) is a fatal, logged,
-   user-visible exit — no client without a server unless `--connect`.
+5. **Boot:** load + merge config (fatal on missing/invalid base, ADR-012 §A4) → logging →
+   lane registry → `ServerHost.Start()` → `ClientApp` ctor → `ClientApp.Run()`. A `Start()`
+   failure (port bound, transport init) is a fatal, logged, user-visible exit — no client
+   without a server unless `mode: "client"`. Config loading is the *first* thing that happens
+   and the only file reading the composition root does on behalf of the libraries.
 6. **Orderly shutdown (window close / quit):**
    1. ClientApp leaves its frame loop, sends `Goodbye`, gives the transport ≤ 250 ms to drain,
       then closes its connection;
@@ -63,12 +69,12 @@ programmatic shape that a standalone server binary will reuse verbatim.
 
 ### The future standalone server
 8. `OutpostServer.exe` = the same `ServerHost` behind a service `main()` (console/Ctrl-C in
-   dev, Windows service wrapper when needed): construct config from args/file →
-   `Start() → WaitForStopSignal() → Stop() → Join()`. Because `--headless` runs exactly this
-   code path inside `Outpost.exe` from the first server slice onward, the standalone binary
-   is a new vcxproj + a `main()` — the promised packaging change. Client-side, the split is
-   `--connect=<remote>` + QUIC transport (ADR-003) + real cert validation; no architectural
-   work remains by construction.
+   dev, Windows service wrapper when needed): load its own `OutpostServer.json` →
+   `Start() → WaitForStopSignal() → Stop() → Join()`. Because `mode: "headless"` runs exactly
+   this code path inside `Outpost.exe` from the first server slice onward, the standalone
+   binary is a new vcxproj + a `main()` — the promised packaging change. Client-side, the
+   split is `mode: "client"` with a remote `client.connect` + QUIC transport (ADR-003) + real
+   cert validation; no architectural work remains by construction.
 
 ## Alternatives rejected
 
