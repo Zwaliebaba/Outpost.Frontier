@@ -255,6 +255,20 @@ msbuild Outpost.slnx /p:Configuration=Release /p:Platform=x64
 vstest.console.exe Tests\GameLogicTests\x64\Debug\GameLogicTests.dll
 ```
 
+**CI** ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds **Debug|x64 only**
+on every push and runs all four test projects. Release is not built — x64 is the only platform
+and, this early, a Release job would double the wall clock to catch almost nothing. Add it when
+optimised-only breakage becomes a real risk.
+
+Two things CI does that a local build does not, and that are easy to trip over:
+
+- It builds the `.vcxproj` files directly (the NuGet CLI cannot read `.slnx`), so it passes
+  **`/p:SolutionDir=`** explicitly. Anything resolving through `$(SolutionDir)` — every
+  cross-project include — depends on it.
+- It **probes the installed MSVC** and builds with `v143` when the runner has no `v145`. The
+  checked-in projects keep `v145`; do not "fix" them to match CI. If your change depends on a
+  toolset-specific feature, say so, because CI may be compiling it with the older one.
+
 Headless checks (no GPU needed) run by launching the executable from a directory whose
 `Outpost.json` sets `"mode": "headless"` and `"selfTest": true` — there are no flags to pass
 (ADR-012).

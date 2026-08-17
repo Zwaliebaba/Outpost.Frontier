@@ -1,0 +1,169 @@
+name: Build
+
+# Debug|x64 only. Release is deliberately not built: x64 is the only platform
+# (Outpost.slnx declares no other), and while the tree is this young a Release
+# build would double the CI time to catch almost nothing Debug does not. Add it
+# when optimised-only breakage becomes a real risk -- /O2 codegen differences,
+# or the NDEBUG-only paths in the wire layer.
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Debug|x64
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      # The projects ask for PlatformToolset v145 (VS 2026). Hosted runners may
+      # still be on VS 2022, whose toolset is v143, and MSBuild's failure for a
+      # missing toolset (MSB8020) reads like a project error rather than a
+      # missing install. So: probe what the runner actually has and build with
+      # that, reporting which was used.
+      #
+      # This is a CI-only override -- the checked-in projects keep v145 and the
+      # local build is unaffected. When hosted images ship VS 2026 the probe
+      # selects v145 on its own and this step needs no edit.
+      - name: Select platform toolset
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -property installationPath
+          $defaults = Join-Path $vs 'VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt'
+          $tools = (Get-Content $defaults -Raw).Trim()
+          # MSVC 14.3x/14.4x ship as toolset v143; 14.5x and later as v145.
+          $minor = [int]($tools.Split('.')[1])
+          $toolset = if ($minor -ge 50) { 'v145' } else { 'v143' }
+          "PLATFORM_TOOLSET=$toolset" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          $line = "MSVC $tools -> PlatformToolset $toolset"
+          Write-Host $line
+          "## Toolchain`n$line" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      # msquic and C++/WinRT arrive as NuGet packages. These are
+      # packages.config projects, not PackageReference, so this is
+      # `nuget install` per project rather than `msbuild -t:restore` -- and per
+      # project rather than for the solution because CI builds the vcxproj
+      # directly and Outpost.slnx is the new solution format, which the NuGet
+      # CLI does not read. -OutputDirectory must match the ..\packages\ that
+      # the vcxproj files import, or EnsureNuGetPackageBuildImports fails.
+      #
+      # The Tests projects have no packages.config and need nothing here.
+      - name: Restore NuGet packages
+        shell: pwsh
+        run: |
+          foreach ($p in 'NeuronCore', 'GameLogic', 'NeuronServer', 'NeuronClient', 'Outpost')
+          {
+            nuget install "$p\packages.config" -OutputDirectory packages -NonInteractive
+            if ($LASTEXITCODE -ne 0) { throw "restore failed for $p" }
+          }
+
+      # Outpost.exe pulls in all four libraries through its ProjectReferences,
+      # so this one invocation covers the whole product.
+      #
+      # SolutionDir is passed explicitly (trailing backslash required): the
+      # projects resolve their cross-project includes through $(SolutionDir),
+      # which is empty when a .vcxproj is built directly. Without it the build
+      # is green today -- the projects hold only pch files -- and breaks the
+      # moment the first real #include lands, which is the worst time to
+      # discover it.
+      #
+      # /flp contains a semicolon, which PowerShell reads as a statement
+      # separator unless the whole switch is quoted. Serial by design: with /m
+      # the failing project's diagnostics can be interleaved away.
+      - name: Build Outpost
+        shell: pwsh
+        run: |
+          msbuild Outpost\Outpost.vcxproj `
+            /p:Configuration=Debug /p:Platform=x64 `
+            /p:PlatformToolset=$env:PLATFORM_TOOLSET `
+            /p:SolutionDir=$PWD\ `
+            /v:normal /nologo "/flp:LogFile=build.log;Verbosity=diagnostic"
+
+      # The test projects are not referenced by Outpost.exe, so they are built
+      # separately. Appending to the same log keeps one artifact.
+      - name: Build tests
+        shell: pwsh
+        run: |
+          foreach ($t in 'NeuronCoreTests', 'GameLogicTests', 'NeuronServerTests', 'NeuronClientTests')
+          {
+            msbuild "Tests\$t\$t.vcxproj" `
+              /p:Configuration=Debug /p:Platform=x64 `
+              /p:PlatformToolset=$env:PLATFORM_TOOLSET `
+              /p:SolutionDir=$PWD\ `
+              /v:normal /nologo "/flp:LogFile=build.log;Verbosity=diagnostic;Append"
+            if ($LASTEXITCODE -ne 0) { throw "build failed for $t" }
+          }
+
+      # Located through vswhere rather than assumed on PATH: vstest.console.exe
+      # lives inside the VS install and its path carries the VS version.
+      - name: Run tests
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $vstest = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\TestWindow\vstest.console.exe'
+          if (-not (Test-Path $vstest)) { throw "vstest.console.exe not found under $vs" }
+
+          $dlls = Get-ChildItem -Recurse -Filter '*Tests.dll' |
+            Where-Object { $_.FullName -notmatch '\\packages\\' } |
+            Select-Object -ExpandProperty FullName
+          if (-not $dlls) { throw 'no test assemblies were produced' }
+
+          $dlls | ForEach-Object { Write-Host "testing $_" }
+          & $vstest $dlls /Platform:x64 /Logger:console`;verbosity=minimal
+          if ($LASTEXITCODE -ne 0) { throw 'tests failed' }
+
+      # MSBuild can exit non-zero with the failure only in the file log, so
+      # surface it rather than leaving the job with no explanation.
+      - name: Show failures from build log
+        if: failure()
+        shell: pwsh
+        run: |
+          if (Test-Path build.log)
+          {
+            Select-String -Path build.log -Pattern 'error |fatal error|Build FAILED|Error\(s\)|LNK' |
+              Select-Object -Last 60 | ForEach-Object { $_.Line }
+          }
+          else { Write-Host 'no build.log produced' }
+
+      # MSBuild repeats a warning once per referencing project, so the raw
+      # count is misleading; these are deduplicated and repo-relative.
+      - name: Summarise warnings
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path build.log)) { Write-Host 'no build.log produced'; exit 0 }
+          $root = [regex]::Escape((Get-Location).Path + '\')
+          $warnings = Select-String -Path build.log -Pattern ': warning [A-Z]+[0-9]+:' |
+            ForEach-Object { $_.Line.Trim() -replace $root, '' -replace ' \[[^\]]*\.vcxproj\]$', '' } |
+            Sort-Object -Unique
+          $header = "## Debug|x64 - $($warnings.Count) unique warning(s)"
+          Write-Host $header
+          $header | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          if ($warnings.Count -gt 0)
+          {
+            $shown = $warnings | Select-Object -First 200
+            '```' | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            $shown | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            if ($warnings.Count -gt 200)
+            {
+              "... and $($warnings.Count - 200) more" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            }
+            '```' | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            $shown | ForEach-Object { Write-Host $_ }
+          }
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-debug-x64
+          path: build.log
+          if-no-files-found: ignore
