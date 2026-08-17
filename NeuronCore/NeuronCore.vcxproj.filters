@@ -2,11 +2,62 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
+    <ClCompile Include="Assert.cpp">
+      <Filter>Foundation</Filter>
+    </ClCompile>
+    <ClCompile Include="Log.cpp">
+      <Filter>Foundation</Filter>
+    </ClCompile>
+    <ClCompile Include="Time.cpp">
+      <Filter>Foundation</Filter>
+    </ClCompile>
+    <ClCompile Include="EntityRecord.cpp">
+      <Filter>Serialization</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="Assert.h">
+      <Filter>Foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="Log.h">
+      <Filter>Foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="Time.h">
+      <Filter>Foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="Hash.h">
+      <Filter>Foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="Random.h">
+      <Filter>Foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="Arena.h">
+      <Filter>Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="RingBuffer.h">
+      <Filter>Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="ByteReader.h">
+      <Filter>Serialization</Filter>
+    </ClInclude>
+    <ClInclude Include="ByteWriter.h">
+      <Filter>Serialization</Filter>
+    </ClInclude>
+    <ClInclude Include="EntityRecord.h">
+      <Filter>Serialization</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <Filter Include="Foundation">
+      <UniqueIdentifier>{9d5f4d34-ab5f-4c51-b9d7-1357cda4793f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Memory">
+      <UniqueIdentifier>{aed4b368-18e9-4f25-9bf1-b38e9705a03d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Serialization">
+      <UniqueIdentifier>{acbee4ba-8057-4b3f-8686-3303043c7b48}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Project Files">
       <UniqueIdentifier>{da20d678-fc4e-4961-828d-8d6d6b28fe00}</UniqueIdentifier>
     </Filter>

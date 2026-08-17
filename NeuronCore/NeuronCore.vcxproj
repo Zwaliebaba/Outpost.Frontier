@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="..\packages\Microsoft.Windows.CppWinRT.3.0.260715.1\build\native\Microsoft.Windows.CppWinRT.props" Condition="Exists('..\packages\Microsoft.Windows.CppWinRT.3.0.260715.1\build\native\Microsoft.Windows.CppWinRT.props')" />
   <ItemGroup Label="ProjectConfigurations">
@@ -19,9 +19,23 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="Assert.cpp" />
+    <ClCompile Include="EntityRecord.cpp" />
+    <ClCompile Include="Log.cpp" />
+    <ClCompile Include="Time.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="Arena.h" />
+    <ClInclude Include="Assert.h" />
+    <ClInclude Include="ByteReader.h" />
+    <ClInclude Include="ByteWriter.h" />
+    <ClInclude Include="EntityRecord.h" />
+    <ClInclude Include="Hash.h" />
+    <ClInclude Include="Log.h" />
+    <ClInclude Include="Random.h" />
+    <ClInclude Include="RingBuffer.h" />
+    <ClInclude Include="Time.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
