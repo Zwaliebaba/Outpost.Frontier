@@ -1,7 +1,6 @@
 <Solution>
   <Configurations>
     <Platform Name="x64" />
-    <Platform Name="x86" />
   </Configurations>
   <Project Path="GameLogic/GameLogic.vcxproj" Id="90a55bb8-cc26-46db-85f3-61540ab6506d" />
   <Project Path="NeuronClient/NeuronClient.vcxproj" Id="33c61640-cc8c-43bb-b071-e728ae1c6d71" />
