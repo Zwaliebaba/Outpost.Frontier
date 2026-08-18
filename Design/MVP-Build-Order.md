@@ -97,6 +97,55 @@ the handshake and a forced hash mismatch producing `UpdateRequired`.
 **Outstanding:** the visible half of M0 — window open, swapchain presenting, heartbeat live —
 still needs a person at a machine. The engine half is green in CI.
 
+---
+
+## 🏁 M0 — status as of 2026-08-18
+
+**Everything M0 asks for that a machine can check is done and green. One item remains, and it
+is the visual one.**
+
+The slices M0 rests on are S1–S4. Their acceptance criteria, and how each stands:
+
+| Criterion | Slice | How it is verified | Status |
+|---|---|---|---|
+| Byte IO round-trip + underrun bounds | S2 | `NeuronCoreTests` | ✅ |
+| Ring stress, two threads (SPSC) | S2 | `NeuronCoreTests` | ✅ |
+| MPSC stress, four producers, per-producer ordering | S2 | `NeuronCoreTests` | ✅ |
+| PCG32 vectors | S2 | `NeuronCoreTests` | ✅ |
+| Span timing sanity | S2 | `NeuronCoreTests` | ✅ |
+| `XMVerifyCPUSupport` gate | S2 | `NeuronCoreTests`, and `wWinMain` before it computes | ✅ |
+| JSON corpus: `int64` past 2⁵³, depth cap, duplicate keys, surrogates, writer round-trip | S2b | `NeuronCoreTests` (21 cases) | ✅ |
+| No `argv` or environment reads anywhere | S2b | grep rule over every source file | ✅ |
+| Start/stop/join ×100, no leak or hang | S3 | `NeuronServerTests` | ✅ |
+| Server ticks at 20 Hz | S3 | `NeuronServerTests`, and `selfTest` reports the mean period | ✅ |
+| Handshake over a real loopback socket | S4 | `NeuronCoreTests` + `NeuronServerTests` | ✅ |
+| Schema-hash mismatch ⇒ `UpdateRequired` + refusal | S4 | `NeuronServerTests` (forces a bad hash) | ✅ |
+| Datagram cap enforced (1,152 B) | S4 | `NeuronCoreTests` | ✅ |
+| Heartbeat crosses the loopback and returns | S4 | `NeuronServerTests` + `selfTest` | ✅ |
+| NET stats (RTT/loss) logged both sides | S4 | both loops log on a 5 s cadence | ✅ |
+| `selfTest` covers handshake + ping | S4 | 15 checks, exit code 0 or 3 | ✅ |
+| Engine libraries never reference GameLogic | ADR-014 | include paths declared per project; no engine source includes a GameLogic header or names `Game::` | ✅ |
+| **Window opens, swapchain presents** | S1, S4 | **a person, at a machine with a GPU** | ⏳ **outstanding** |
+| 5 min with no debug-layer messages | S1 | manual | ⏳ outstanding |
+| PresentMon shows flip model | S1 | manual (`DXGI_SWAP_EFFECT_FLIP_DISCARD` + waitable object are in the code) | ⏳ outstanding |
+| Close exits 0 | S1 | manual | ⏳ outstanding |
+| Headless 60 s: mean period 50 ms ± 0.5, no overruns | S3 | `selfTest` measures and reports it; the ± 0.5 bound needs an **idle** machine | ⏳ outstanding |
+
+**How to close the rest** — one run, on a machine with a GPU:
+
+1. `"selfTest": true` in `Outpost.json`, run the exe, read `Outpost.log`. Exit code 0 and
+   `self test: PASSED` closes the cadence measurement and re-proves the whole M0 exchange on
+   real hardware rather than a CI runner. The log line to read is
+   `N ticks in M ms -- mean period X ms`.
+2. `"selfTest": false`, `"mode": "host"`, run it. A window that opens, clears to the animated
+   near-black blue, and logs `first pong: server tick N, round trip X ms` is M0's visible half.
+   Leave it five minutes, watch the debug-layer output, close it, check the exit code.
+
+Everything else is signed off by CI, which at the time of writing runs **82 tests across four
+assemblies with zero unique warnings** on every push.
+
+---
+
 ### S5 — Meshes, atlas, opaque pass, camera
 OBJ/MTL loader → submesh ranges (8 ship classes + Structure); DirectWrite glyph-atlas bake
 (TaskPool); opaque instanced pass (flat shading, 5 materials, emissive accents); ortho camera
