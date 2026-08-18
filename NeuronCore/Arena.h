@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Assert.h"
+#include "Debug.h"
 
 #include <cstddef>
 #include <cstdint>

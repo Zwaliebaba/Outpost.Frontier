@@ -1,14 +1,14 @@
 #include "pch.h"
 
-#include "Time.h"
+#include "Clock.h"
 
 namespace Neuron
 {
 
-std::int64_t Time::sm_frequency = 0;
-std::int64_t Time::sm_startCounter = 0;
+std::int64_t Clock::sm_frequency = 0;
+std::int64_t Clock::sm_startCounter = 0;
 
-void Time::Initialise() noexcept
+void Clock::Initialise() noexcept
 {
   LARGE_INTEGER frequency{};
   QueryPerformanceFrequency(&frequency);
@@ -19,14 +19,14 @@ void Time::Initialise() noexcept
   sm_startCounter = counter.QuadPart;
 }
 
-std::int64_t Time::Counter() noexcept
+std::int64_t Clock::Counter() noexcept
 {
   LARGE_INTEGER counter{};
   QueryPerformanceCounter(&counter);
   return counter.QuadPart;
 }
 
-std::int64_t Time::Frequency() noexcept
+std::int64_t Clock::Frequency() noexcept
 {
   if (sm_frequency == 0)
   {
@@ -35,17 +35,17 @@ std::int64_t Time::Frequency() noexcept
   return sm_frequency;
 }
 
-double Time::SecondsBetween(std::int64_t _from, std::int64_t _to) noexcept
+double Clock::SecondsBetween(std::int64_t _from, std::int64_t _to) noexcept
 {
   return static_cast<double>(_to - _from) / static_cast<double>(Frequency());
 }
 
-double Time::MillisecondsBetween(std::int64_t _from, std::int64_t _to) noexcept
+double Clock::MillisecondsBetween(std::int64_t _from, std::int64_t _to) noexcept
 {
   return SecondsBetween(_from, _to) * 1000.0;
 }
 
-double Time::SecondsSinceStart() noexcept
+double Clock::SecondsSinceStart() noexcept
 {
   if (sm_frequency == 0)
   {
@@ -54,7 +54,7 @@ double Time::SecondsSinceStart() noexcept
   return SecondsBetween(sm_startCounter, Counter());
 }
 
-std::int64_t Time::MicrosecondsSinceStart() noexcept
+std::int64_t Clock::MicrosecondsSinceStart() noexcept
 {
   if (sm_frequency == 0)
   {
@@ -90,7 +90,7 @@ WaitableTimer::~WaitableTimer() noexcept
 
 bool WaitableTimer::WaitUntil(std::int64_t _deadlineCounter) noexcept
 {
-  const std::int64_t now = Time::Counter();
+  const std::int64_t now = Clock::Counter();
   if (now >= _deadlineCounter)
   {
     return true; // Already late: the caller decides whether to catch up or drop the debt.
@@ -98,13 +98,13 @@ bool WaitableTimer::WaitUntil(std::int64_t _deadlineCounter) noexcept
 
   if (m_handle == nullptr)
   {
-    const double milliseconds = Time::MillisecondsBetween(now, _deadlineCounter);
+    const double milliseconds = Clock::MillisecondsBetween(now, _deadlineCounter);
     Sleep(static_cast<DWORD>(milliseconds > 0.0 ? milliseconds : 0.0));
     return true;
   }
 
   // Negative means relative, in 100 ns units.
-  const double seconds = Time::SecondsBetween(now, _deadlineCounter);
+  const double seconds = Clock::SecondsBetween(now, _deadlineCounter);
   LARGE_INTEGER due{};
   due.QuadPart = -static_cast<LONGLONG>(seconds * 10000000.0);
   if (due.QuadPart >= 0)

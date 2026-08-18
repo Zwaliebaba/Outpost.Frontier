@@ -1,6 +1,6 @@
 #include "pch.h"
 
-#include "Assert.h"
+#include "Debug.h"
 
 #include "Log.h"
 

@@ -19,23 +19,25 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="Assert.cpp" />
+    <ClCompile Include="Debug.cpp" />
     <ClCompile Include="EntityRecord.cpp" />
+    <ClCompile Include="Json.cpp" />
     <ClCompile Include="Log.cpp" />
-    <ClCompile Include="Time.cpp" />
+    <ClCompile Include="Clock.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="Arena.h" />
-    <ClInclude Include="Assert.h" />
+    <ClInclude Include="Debug.h" />
     <ClInclude Include="ByteReader.h" />
     <ClInclude Include="ByteWriter.h" />
     <ClInclude Include="EntityRecord.h" />
     <ClInclude Include="Hash.h" />
+    <ClInclude Include="Json.h" />
     <ClInclude Include="Log.h" />
     <ClInclude Include="Random.h" />
     <ClInclude Include="RingBuffer.h" />
-    <ClInclude Include="Time.h" />
+    <ClInclude Include="Clock.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>

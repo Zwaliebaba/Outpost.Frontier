@@ -187,9 +187,12 @@ through engine-declared interfaces that `Outpost.exe` injects (ADR-014).
 
 - **Flat project directories.** All of a project's `.h`/`.cpp` sit directly in its folder.
   No code subdirectories — grouping lives in `.vcxproj.filters` only (ADR-013).
-- **File names are unique repo-wide.** The tables in
-  [Design/Dependency-Map.md](Design/Dependency-Map.md) are the registry; check it *before*
-  creating a file, and add the name when you do.
+- **File names are unique repo-wide**, and also unique against the CRT, the STL and the
+  Windows SDK — **case-insensitively**. A header named `Time.h` or `Assert.h` shadows
+  `<time.h>` or `<assert.h>` for every translation unit that can see this folder, and the
+  errors land inside the STL with nothing pointing at you. CI fails the build on a collision.
+  The tables in [Design/Dependency-Map.md](Design/Dependency-Map.md) are the registry; check
+  it *before* creating a file, and add the name when you do.
 - **Includes are unqualified**: `#include "Json.h"`. Each project lists the libraries it is
   entitled to as `$(SolutionDir)<Project>` include paths. Because several roots sit on the
   search path, a duplicate file name silently resolves to the wrong header — which is why the

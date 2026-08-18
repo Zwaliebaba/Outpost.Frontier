@@ -3,6 +3,9 @@
 /*
  * Assertions.
  *
+ * Named Debug.h rather than Assert.h, which would shadow the CRT's <assert.h>
+ * on a case-insensitive filesystem once this folder is on the include path.
+ *
  * NEURON_ASSERT is debug-only and states an invariant the code believes. It is
  * not input validation: anything reading a file, a socket or a config reports a
  * diagnostic instead and keeps going (AGENTS.md §5) -- an assert on hostile

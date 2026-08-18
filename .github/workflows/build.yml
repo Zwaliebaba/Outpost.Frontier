@@ -40,6 +40,33 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "restore failed for $p" }
           }
 
+      # A header whose name matches a CRT or C++ standard header shadows it on a
+      # case-insensitive filesystem, because every project folder is on the
+      # include path. NeuronCore/Time.h did exactly this: <ctime> found it
+      # instead of <time.h> and every time symbol vanished from the global
+      # namespace, 24 errors deep inside the STL with nothing pointing at us.
+      # Cheap to check, miserable to diagnose.
+      - name: Check header names against the CRT
+        shell: pwsh
+        run: |
+          $reserved = @('assert','ctype','errno','fenv','float','inttypes','iso646','limits','locale','math',
+                        'setjmp','signal','stdalign','stdarg','stdatomic','stdbool','stddef','stdint','stdio',
+                        'stdlib','stdnoreturn','string','tgmath','threads','time','uchar','wchar','wctype',
+                        'complex','new','memory','vector','string_view','span','bit','chrono','thread','mutex')
+          $bad = @()
+          foreach ($dir in 'NeuronCore', 'GameLogic', 'NeuronServer', 'NeuronClient', 'Outpost')
+          {
+            Get-ChildItem -Path $dir -Filter *.h -ErrorAction SilentlyContinue | ForEach-Object {
+              if ($reserved -contains $_.BaseName.ToLower()) { $bad += "$dir/$($_.Name)" }
+            }
+          }
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_ shadows a standard header of the same name" }
+            throw 'rename these headers'
+          }
+          Write-Host 'no header shadows a standard header'
+
       # SolutionDir is passed explicitly (trailing backslash required): each
       # project lists the libraries it includes as $(SolutionDir)<Project>,
       # and $(SolutionDir) is empty when a .vcxproj is built directly. The

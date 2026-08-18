@@ -8,7 +8,7 @@
 #include "Hash.h"
 #include "Random.h"
 #include "RingBuffer.h"
-#include "Time.h"
+#include "Clock.h"
 
 #include <chrono>
 #include <cstdint>
@@ -354,28 +354,28 @@ TEST_CLASS(TimeTests)
 public:
   TEST_METHOD(CounterAdvancesMonotonically)
   {
-    Time::Initialise();
-    Assert::IsTrue(Time::Frequency() > 0);
+    Clock::Initialise();
+    Assert::IsTrue(Clock::Frequency() > 0);
 
-    const std::int64_t first = Time::Counter();
+    const std::int64_t first = Clock::Counter();
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    const std::int64_t second = Time::Counter();
+    const std::int64_t second = Clock::Counter();
 
     Assert::IsTrue(second > first);
-    const double elapsed = Time::MillisecondsBetween(first, second);
+    const double elapsed = Clock::MillisecondsBetween(first, second);
     Assert::IsTrue(elapsed >= 1.0 && elapsed < 500.0);
   }
 
   TEST_METHOD(WaitableTimerSleepsRoughlyTheRequestedTime)
   {
-    Time::Initialise();
+    Clock::Initialise();
     WaitableTimer timer;
 
-    const std::int64_t start = Time::Counter();
-    const std::int64_t deadline = start + Time::Frequency() / 50; // 20 ms
+    const std::int64_t start = Clock::Counter();
+    const std::int64_t deadline = start + Clock::Frequency() / 50; // 20 ms
     Assert::IsTrue(timer.WaitUntil(deadline));
 
-    const double slept = Time::MillisecondsBetween(start, Time::Counter());
+    const double slept = Clock::MillisecondsBetween(start, Clock::Counter());
     // Generous upper bound: a shared CI runner is not a real-time system.
     Assert::IsTrue(slept >= 15.0, L"woke far too early");
     Assert::IsTrue(slept < 250.0, L"woke far too late");
@@ -383,11 +383,11 @@ public:
 
   TEST_METHOD(APastDeadlineReturnsImmediately)
   {
-    Time::Initialise();
+    Clock::Initialise();
     WaitableTimer timer;
-    const std::int64_t start = Time::Counter();
-    Assert::IsTrue(timer.WaitUntil(start - Time::Frequency()));
-    Assert::IsTrue(Time::MillisecondsBetween(start, Time::Counter()) < 50.0);
+    const std::int64_t start = Clock::Counter();
+    Assert::IsTrue(timer.WaitUntil(start - Clock::Frequency()));
+    Assert::IsTrue(Clock::MillisecondsBetween(start, Clock::Counter()) < 50.0);
   }
 };
 

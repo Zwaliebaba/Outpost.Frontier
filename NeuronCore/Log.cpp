@@ -2,7 +2,7 @@
 
 #include "Log.h"
 
-#include "Time.h"
+#include "Clock.h"
 
 #include <cstdarg>
 #include <cstdio>

@@ -2,13 +2,16 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
-    <ClCompile Include="Assert.cpp">
+    <ClCompile Include="Json.cpp">
+      <Filter>Json</Filter>
+    </ClCompile>
+    <ClCompile Include="Debug.cpp">
       <Filter>Foundation</Filter>
     </ClCompile>
     <ClCompile Include="Log.cpp">
       <Filter>Foundation</Filter>
     </ClCompile>
-    <ClCompile Include="Time.cpp">
+    <ClCompile Include="Clock.cpp">
       <Filter>Foundation</Filter>
     </ClCompile>
     <ClCompile Include="EntityRecord.cpp">
@@ -17,13 +20,16 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
-    <ClInclude Include="Assert.h">
+    <ClInclude Include="Json.h">
+      <Filter>Json</Filter>
+    </ClInclude>
+    <ClInclude Include="Debug.h">
       <Filter>Foundation</Filter>
     </ClInclude>
     <ClInclude Include="Log.h">
       <Filter>Foundation</Filter>
     </ClInclude>
-    <ClInclude Include="Time.h">
+    <ClInclude Include="Clock.h">
       <Filter>Foundation</Filter>
     </ClInclude>
     <ClInclude Include="Hash.h">
@@ -57,6 +63,9 @@
     </Filter>
     <Filter Include="Serialization">
       <UniqueIdentifier>{acbee4ba-8057-4b3f-8686-3303043c7b48}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Json">
+      <UniqueIdentifier>{1b875160-d4b0-4c21-b6d2-50d806b52ecd}</UniqueIdentifier>
     </Filter>
     <Filter Include="Project Files">
       <UniqueIdentifier>{da20d678-fc4e-4961-828d-8d6d6b28fe00}</UniqueIdentifier>

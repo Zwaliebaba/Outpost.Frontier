@@ -67,7 +67,7 @@ library. C++/WinRT only where genuinely useful (none identified in MVP).
 
 | Area | Files | Notes |
 |---|---|---|
-| Foundation | `Assert.h` `Log.h` `Time.h` `Hash.h` (FNV-1a) `Random.h` (PCG32) | QPC wrappers; no game types anywhere below |
+| Foundation | `Debug.h` (asserts) `Log.h` `Clock.h` (QPC + `WaitableTimer`) `Hash.h` (FNV-1a) `Random.h` (PCG32) | Named to avoid shadowing `<assert.h>`/`<time.h>` (ADR-013 §3a); no game types anywhere below |
 | Memory/containers | `Arena.h` `RingBuffer.h` (SPSC/MPSC) | std containers allowed; arenas for frame/tick scratch |
 | Tasking | `TaskPool.h` (`Submit`, `WaitGroup`) | Boot bakes only in MVP (ADR-007 §4) |
 | Telemetry | `Telemetry.h` (`NEURON_COUNTER`, `NEURON_SPAN`, lane registry) | Per-lane SPSC rings, owner-drained |

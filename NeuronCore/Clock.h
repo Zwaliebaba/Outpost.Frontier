@@ -5,6 +5,10 @@
 /*
  * Wall clock and timing (ADR-002).
  *
+ * Named Clock, not Time: a header called Time.h shadows the CRT's <time.h> on a
+ * case-insensitive filesystem the moment this folder is on the include path,
+ * and every <ctime> symbol then vanishes from the global namespace.
+ *
  * QPC throughout: it is monotonic, and its frequency is fixed at boot, so a
  * span measured here does not move when the system clock does.
  *
@@ -15,7 +19,7 @@
 namespace Neuron
 {
 
-class Time
+class Clock
 {
 public:
   /// Reads the performance counter frequency once. Safe to call more than once.
@@ -60,7 +64,7 @@ public:
 
   [[nodiscard]] bool Valid() const noexcept { return m_handle != nullptr; }
 
-  /// Blocks until _deadlineCounter (a Time::Counter() value). Returns false only if waiting failed.
+  /// Blocks until _deadlineCounter (a Clock::Counter() value). Returns false only if waiting failed.
   bool WaitUntil(std::int64_t _deadlineCounter) noexcept;
 
 private:
