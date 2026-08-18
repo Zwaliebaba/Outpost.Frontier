@@ -178,7 +178,14 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
 12. Two frames in flight; waitable swapchain (latency 1 waitable, 2 buffers min 3 recommended
     — use 3 buffers); per-frame command allocator + one direct list; linear upload ring for
     constants/instances; one shader-visible CBV/SRV heap (atlas + per-frame tables); root
-    signature: frame CBV, pass CBV, draw root constants, one SRV table. Debug layer on in dev;
+    signature: frame CBV, pass CBV, draw root constants, one SRV table.
+    **Shaders are compiled into the executable**, not loaded: `fxc` builds
+    `Outpost/Shaders/*.hlsl` as part of `Outpost.vcxproj` into byte arrays, and the composition
+    root hands them to `GpuPipelines` as spans (owner directive, 2026-08-18; ADR-013 §1a). This
+    project builds pipeline states and has no opinion about which shaders go in them — the
+    engine ships around a second game, and a shader is exactly what the two differ on
+    (ADR-014). One vertex and one pixel file per pass, with what both stages must agree about
+    in a shared `.hlsli`, because that agreement is the link between them. Debug layer on in dev;
     `tick/frame/extract` timings feed the Tier-1 counters strip (`debug-hud.png`). No MSAA in
     first slices; a 4× MSAA offscreen target + resolve is a listed polish slice (flat-shaded
     silhouettes alias hard, and it's cheap here).

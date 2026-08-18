@@ -1,6 +1,7 @@
 # ADR-013 — Source Layout: Flat Project Directories, Grouping via VS Filters
 
-**Status:** Accepted · 2026-08-17 (owner directive)
+**Status:** Accepted · 2026-08-17 (owner directive) · amended 2026-08-18 (§1a, owner directive:
+shaders under `Outpost/Shaders`, compiled into `Outpost/CompiledShaders`)
 **Depends on:** the fixed project structure
 **Supersedes:** every subdirectory path used illustratively in earlier documents
 (`game/wire/Snapshot.h`, `wire/Order.h`, a possible `Public/` split) — those are rewritten
@@ -21,6 +22,25 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
 1. **Flat project directories.** All source for a project sits directly in that project's
    folder. No `Wire/`, no `Gpu/`, no `Public/`, no `Private/`. `pch.h`/`pch.cpp` stay at the
    root as the template has them.
+1a. **Two exceptions, both in `Outpost`, both owner directives** (2026-08-18): `Outpost/Shaders`
+   holds the HLSL, and `Outpost/CompiledShaders` holds the byte-array headers `fxc` generates
+   from it. Rule 1 is otherwise unchanged and applies to every other file in every project.
+
+   The directive that produced rule 1 says *no subdirectories in the code*, and the reading
+   that survives is the one where these are not that: `Shaders/` is HLSL rather than C++, and
+   `CompiledShaders/` is build output rather than source — it is in `.gitignore`, and a fresh
+   clone contains only the directory and the note explaining it. Neither is a subsystem folder
+   of the kind rule 1 exists to prevent, and neither takes a `.cpp` out of the project root.
+
+   Rules 3 and 3a still apply to the generated headers, which is not a formality:
+   `CompiledShaders` is on `Outpost`'s include path, so `OpaqueVS.h` shares a flat namespace
+   with every other header this project can reach. The names are the shader file names, so
+   uniqueness is bought the same way it is everywhere else — by naming the thing well.
+
+   The related move: shaders were `GameData/Shaders/*.hlsl`, compiled at boot by
+   `D3DCompileFromFile` under §6's "assets are the client's own business". They are built now.
+   §6 still holds for meshes, universe files and sound banks; shaders left the category.
+
 2. **Grouping is `.vcxproj.filters` only** — virtual folders, maintained per project, and
    allowed to nest freely (`Wire`, `Transport`, `Gpu\Passes`). Filters cost nothing at build
    time and are the directive's intended mechanism. The template's extension-driven
@@ -39,7 +59,9 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
    | GameLogic | type + family names | `Ids.h` `ShipClass.h` `World.h` `ReplicatedView.h` `Orders.h` `Validate.h` `Formation.h` `WorldHash.h` `Snapshot.h` `OrderMessages.h` `SchemaHash.h` `Universe.h` `UniverseParse.h` |
    | NeuronServer | type names | `Simulation.h` `ServerHost.h` `ServerConfig.h` `Session.h` `SnapshotSender.h` |
    | NeuronClient | type names (`Gpu`, `Hud`, `Audio` read as domain words, R4) | `ClientApp.h` `ClientConfig.h` `WorldView.h` `Window.h` `ClearColour.h` `ClientConnection.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuCom.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuMeshes.h` `GpuNebula.h` `GpuPasses.h` `GpuPipelines.h` `ObjMesh.h` `NebulaField.h` `GlyphAtlas.h` `IsoCamera.h` `Picking.h` `InputMap.h` `HudLayout.h` `HudRoster.h` `OrderPuck.h` `AudioSystem.h` `AudioBank.h` `AudioListener.h` |
-   | Outpost | — | `Main.cpp` `AppConfig.h` `AppConfig.cpp` `ConfigLoad.h` `ConfigLoad.cpp` `UniverseLoad.h` `UniverseLoad.cpp` `ReplicatedWorldView.h` `ReplicatedWorldView.cpp` `SelfTest.h` `SelfTest.cpp` |
+   | Outpost | — | `Main.cpp` `AppConfig.h` `AppConfig.cpp` `ConfigLoad.h` `ConfigLoad.cpp` `UniverseLoad.h` `UniverseLoad.cpp` `ReplicatedWorldView.h` `ReplicatedWorldView.cpp` `ShaderTable.h` `ShaderTable.cpp` `SelfTest.h` `SelfTest.cpp` |
+   | Outpost/Shaders | stage suffix on the pass name | `OpaqueVS.hlsl` `OpaquePS.hlsl` `NebulaVS.hlsl` `NebulaPS.hlsl` — plus `Opaque.hlsli` `Nebula.hlsli` `PassConstants.hlsli` for what two stages share |
+   | Outpost/CompiledShaders | generated; one per `.hlsl`, same stem | `OpaqueVS.h` `OpaquePS.h` `NebulaVS.h` `NebulaPS.h`, each defining `g_p<stem>` |
 
    If a genuine collision ever appears, the **newer** file is renamed to a more specific type name; the
    table above is the registry to check first.
@@ -83,7 +105,8 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
    </ItemGroup>
    ```
 6. **Non-code trees are unaffected.** `GameData/` (meshes, universe, audio) and `Design/`
-   keep their subdirectories — the directive is about source layout. `Tests/*` projects are
+   keep their subdirectories — the directive is about source layout. Shaders were in this
+   category and are not any more; see §1a. `Tests/*` projects are
    their own project roots and are flat internally, same rules.
 7. **Namespaces do not follow directories** (there are none) and remain as the Dependency Map
    defines: `Neuron` (engine libraries) and `Game` (GameLogic).
@@ -112,3 +135,7 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
   add names *before* creating files.
 - Any future move to CMake or another generator inherits a flat, unambiguous file set — one
   of the few upsides of this layout.
+- §1a's exception is a precedent, and the thing to watch. It is defensible because neither
+  directory holds C++ the flat rule was written about, and because `CompiledShaders` is not in
+  source control at all. A third subdirectory holding `.cpp` files would not be defensible on
+  either ground, and should be refused on this line.

@@ -126,7 +126,10 @@ Allowed deps: NeuronServer, NeuronClient, GameLogic (and transitively the rest).
 structs), `UniverseLoad.h/.cpp` (locate + read the universe definition, then hand the bytes to
 GameLogic's pure parser — file IO stays here so GameLogic stays OS-free, ADR-009 §7),
 boot/shutdown ordering (ADR-008), `SelfTest.h/.cpp` (the `selfTest` driver: server up,
-handshake, heartbeat, exit code). **Nothing else.** Nothing depends on it.
+handshake, heartbeat, exit code), `ShaderTable.h/.cpp` (the compiled shaders, from
+`Outpost/Shaders` via `fxc` into `Outpost/CompiledShaders` — the engine builds pipeline states
+and the game says which shaders go in them, ADR-013 §1a). **Nothing else.** Nothing depends on
+it.
 
 It is also the only place universe metres become render metres: it reads the authored
 placements, converts them into the tactical grid's local frame, and hands them to the world

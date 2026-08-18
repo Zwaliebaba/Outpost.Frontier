@@ -4,6 +4,7 @@
 #include "ConfigLoad.h"
 #include "ReplicatedWorldView.h"
 #include "SelfTest.h"
+#include "ShaderTable.h"
 #include "UniverseLoad.h"
 
 // GameLogic, reached only from here: the executable is the one project
@@ -93,8 +94,8 @@ void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigP
   NEURON_LOG_INFO("server: port %u, max sessions %u", static_cast<unsigned>(_config.server.port),
                   static_cast<unsigned>(_config.server.maxSessions));
   NEURON_LOG_INFO("universe: %s", _config.universeDefinition.c_str());
-  NEURON_LOG_INFO("content: %u meshes from %s, shaders from %s", static_cast<unsigned>(_config.content.meshes.size()),
-                  _config.content.meshDirectory.c_str(), _config.content.shaderDirectory.c_str());
+  NEURON_LOG_INFO("content: %u meshes from %s", static_cast<unsigned>(_config.content.meshes.size()),
+                  _config.content.meshDirectory.c_str());
   NEURON_LOG_INFO("window: %ux%u %s, vsync %s, ui scale %.2f", static_cast<unsigned>(_config.client.window.width),
                   static_cast<unsigned>(_config.client.window.height), _config.client.window.mode.c_str(),
                   _config.client.renderer.vsync ? "on" : "off", _config.client.ui.scale);
@@ -401,7 +402,6 @@ Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
   // opens the files, but it is told what to open -- the engine has no opinion
   // about which index is a Carrier (ADR-014).
   client.meshDirectory = _config.content.meshDirectory;
-  client.shaderDirectory = _config.content.shaderDirectory;
   client.meshFiles = _config.content.meshes;
   client.fontFamily = _config.client.ui.font;
 
@@ -550,7 +550,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
       Outpost::ReplicatedWorldView worldView{MakeWorldViewDesc(config, universe)};
 
       Neuron::ClientApp client;
-      if (!client.Initialise(clientConfig, worldView))
+      if (!client.Initialise(clientConfig, Outpost::ShaderTable(), worldView))
       {
         NEURON_LOG_ERROR("client failed to initialise");
         exitCode = 2;

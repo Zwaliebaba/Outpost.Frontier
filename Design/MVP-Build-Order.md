@@ -201,7 +201,8 @@ thing that owns the swapchain's size.
 `GlyphAtlas.h/.cpp` — DirectWrite bakes printable ASCII plus the box and marker glyphs into one
 R8 texture, one task per size on the boot `TaskPool`, packed and blitted single-threaded so the
 layout does not depend on the thread schedule. Baked but not yet drawn: the Ui pass is S11.
-`GameData/Shaders/Opaque.hlsl` — compiled at boot, so a shader is content like a mesh. Nine
+`GameData/Shaders/Opaque.hlsl` — compiled at boot, so a shader is content like a mesh.
+*(Superseded by S7a: shaders are built into the executable and this file no longer exists.)* Nine
 mesh file names move into `Outpost.json` under `content`, and their order *is* the `classId`
 order: the engine loads the list it is handed and has no opinion about which index is a Carrier
 (ADR-014).
@@ -307,7 +308,8 @@ offset, with nothing rebuilt.
 ### S5d — The Nebula node *(taken out of order, at the owner's request)*
 The reserved `Nebula` slot in ADR-006 §1, built: a CPU-baked periodic field
 (`NebulaField.h/.cpp`), its GPU upload (`GpuNebula.h/.cpp`), an additive full-screen pass after
-`Opaque`, `Nebula.hlsl`, and the parameters as content under `client.nebula`. The animated
+`Opaque`, `Nebula.hlsl` *(now `NebulaVS/PS.hlsl`, S7a)*, and the parameters as content under
+`client.nebula`. The animated
 clear colour S1 used to prove the loop was running is retired for a static near-black.
 **Accept:** `NeuronClientTests` covers the field without a device — determinism, sparseness,
 smoothness, seamless wrap, and that the settings do what they are named — plus the NDC→plane
@@ -532,6 +534,47 @@ other and nothing at all in between.
 **Outstanding:** the visual half. That motion *looks* smooth at 144 Hz, and that the induced
 stall reads as extrapolate-then-freeze rather than as a stutter, are judgements no test here
 makes — they need a GPU. The numbers say both hold.
+
+### S7a — Shaders are built, not loaded *(out of order, at the owner's request)*
+Owner directive: split each shader into a vertex and a pixel file, move them into
+`Outpost/Shaders`, and pre-compile them to headers under `Outpost/CompiledShaders` with the
+variable name `g_p<shader>`.
+**Built ✅ (code):**
+`Outpost/Shaders/OpaqueVS.hlsl` `OpaquePS.hlsl` `NebulaVS.hlsl` `NebulaPS.hlsl`, compiled by
+`fxc` as part of `Outpost.vcxproj` (`ShaderModel` 5.1, warnings as errors, `/Od /Zi` in Debug —
+the same flags `D3DCompileFromFile` was being handed) into `g_pOpaqueVS` and friends.
+`Outpost/ShaderTable.h/.cpp` — the one translation unit that includes the generated headers,
+and the only place their names appear. The arrays have internal linkage, so a second includer
+would put a second copy of every shader in the binary.
+
+**The split needed a third kind of file.** Two stages that used to be one file both declare
+`VertexOutput`, and the two declarations are what links them: a field added to one copy and not
+the other is a mismatch at PSO creation with a message naming neither file. So the shared
+declarations moved to `Opaque.hlsli`, `Nebula.hlsli` and `PassConstants.hlsli` rather than being
+copied — four copies of the `PassConstants` layout was the alternative, and there were already
+two with a comment asking whoever edited one to remember the other.
+
+**The engine stopped knowing where shaders come from.** `GpuPipelines::Create` took a directory
+and called `D3DCompileFromFile`; it takes `PipelineShaders` — four spans of bytes — and the
+composition root supplies them. This is not incidental to the move: `NeuronClient` may not
+include a header out of `Outpost/`, because that is the executable and the dependency points
+the other way (ADR-014). It is the same shape S5c gave the world, and it deletes the
+`d3dcompiler` dependency, `ToWide`, the error-blob printing and the `shaderDirectory` config key
+along the way.
+
+**What the trade actually is.** A shader edit is a rebuild now rather than a restart, which is
+the cost. In exchange a broken shader fails the build, in CI, on a machine with no GPU — where
+it used to fail at boot on a machine with one, which is a much later and much narrower place to
+find out. The `content.shaderDirectory` key is gone from `Outpost.json`; ADR-012's parser warns
+on unknown keys, so a stale user layer says so rather than being quietly ignored.
+**Verified:** the four suites still pass unchanged (195). The split itself is checked by
+expanding the includes and comparing declaration-for-declaration against the files as they were
+— every declaration preserved, none added, one entry point per file. There is no HLSL compiler
+outside Windows, so that textual check plus CI's `fxc` run is the whole of it.
+**Outstanding:** nothing renders differently, and that is the claim a GPU has to confirm. The
+bytes are compiled from the same source with the same flags to the same shader model, so a
+visible difference would be a surprise rather than a risk — but "should be identical" is not
+"was identical", and only a frame on screen settles it.
 
 ### S8 — Picking, selection, world-space overlay
 Ray∩plane picking; click / shift-click / box-select; OverlayWorld pass: selection ellipses

@@ -221,9 +221,8 @@ void ReadContent(const JsonValue& _root, ContentSettings& _settings, ConfigDiagn
   {
     return;
   }
-  WarnUnknownKeys(content, {"meshDirectory", "shaderDirectory", "meshes"}, "content", _diagnostics);
+  WarnUnknownKeys(content, {"meshDirectory", "meshes"}, "content", _diagnostics);
   ReadText(content, "meshDirectory", _settings.meshDirectory, "content", _diagnostics);
-  ReadText(content, "shaderDirectory", _settings.shaderDirectory, "content", _diagnostics);
   ReadTextList(content, "meshes", _settings.meshes, "content", _diagnostics);
 }
 

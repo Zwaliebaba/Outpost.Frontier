@@ -111,7 +111,6 @@ struct UiSettings
 struct ContentSettings
 {
   std::string meshDirectory = "GameData/Meshes";
-  std::string shaderDirectory = "GameData/Shaders";
   std::vector<std::string> meshes = {"Interceptor.obj", "Bomber.obj",  "Corvette.obj",   "Frigate.obj",  "Hauler.obj",
                                      "Miner.obj",       "Carrier.obj", "Battleship.obj", "Structure.obj"};
 };
