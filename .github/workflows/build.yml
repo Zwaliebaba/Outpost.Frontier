@@ -138,8 +138,30 @@ jobs:
           if (-not $dlls) { throw 'no test assemblies were produced' }
 
           $dlls | ForEach-Object { Write-Host "testing $_" }
-          & $vstest $dlls /Platform:x64 /Logger:console`;verbosity=minimal
-          if ($LASTEXITCODE -ne 0) { throw 'tests failed' }
+
+          # Captured as well as echoed: a failing assertion is the whole reason
+          # this step exists, and it must not be something you have to scroll a
+          # 1500-line log to find.
+          & $vstest $dlls /Platform:x64 /Logger:console`;verbosity=normal 2>&1 |
+            Tee-Object -FilePath test.log
+          $failed = $LASTEXITCODE -ne 0
+
+          if ($failed)
+          {
+            # A backtick-fenced here-string would be unreadable in PowerShell
+            # (a fence needs six backticks inside a double-quoted string), so
+            # the summary is assembled as lines and the fences are literals.
+            $detail = Select-String -Path test.log -Pattern 'Failed\s+[A-Za-z]|Error Message|Assert failed|Stack Trace' -Context 0,3 |
+              Select-Object -First 40 | ForEach-Object { $_.Line.Trim(); $_.Context.PostContext | ForEach-Object { '    ' + $_.Trim() } }
+            $totals = Select-String -Path test.log -Pattern '^(Failed|Passed)!' | ForEach-Object { $_.Line.Trim() }
+
+            Write-Host '--- failing tests ---'
+            $detail | ForEach-Object { Write-Host $_ }
+
+            $lines = @('## Tests failed', '```') + $totals + @('') + $detail + @('```')
+            $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            throw 'tests failed'
+          }
 
       # MSBuild can exit non-zero with the failure only in the file log, so
       # surface it rather than leaving the job with no explanation.
@@ -186,5 +208,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-log-debug-x64
-          path: build.log
+          path: |
+            build.log
+            test.log
           if-no-files-found: ignore

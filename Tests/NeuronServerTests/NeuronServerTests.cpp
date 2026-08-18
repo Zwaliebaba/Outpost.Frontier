@@ -133,14 +133,19 @@ public:
     Assert::IsTrue(host.Start(config, simulation));
 
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    const std::uint32_t ticks = simulation.Ticks();
 
+    // Every counter is read *after* the thread has stopped. Sampling one while
+    // the loop is still running and comparing it to another read after the join
+    // compares two different moments: CI caught exactly that, 10 against 11.
     host.Stop();
     host.Join();
 
-    // 500 ms at 20 Hz is ten ticks. The bounds are loose because a shared CI
-    // runner is not a real-time system; what is being checked is that the loop
-    // ticks at all and does not sprint.
+    const std::uint32_t ticks = simulation.Ticks();
+
+    // 500 ms at 20 Hz is ten ticks, plus the one or two the loop finishes while
+    // it notices the stop. The bounds are loose because a shared CI runner is
+    // not a real-time system; what is checked is that the loop ticks at all,
+    // does not sprint, and reports the same count the simulation actually saw.
     Assert::IsTrue(ticks >= 5, L"the tick loop ran far too slowly");
     Assert::IsTrue(ticks <= 40, L"the tick loop ran far too fast");
     Assert::AreEqual(ticks, host.TickCount());
