@@ -17,7 +17,7 @@ must not paint over those seams — but also must not build 23 threads for a dem
 
 ### Threads (MVP)
 1. **Main thread** — Win32 message pump + the *entire* client:
-   `Pump → Poll(clientTransport) → BufferSnapshots → Extract → Record → Present`.
+   `Pump → Poll(clientTransport) → BufferSnapshots → Extract → AudioUpdate → Record → Present`.
    Extract interpolates the replicated view (ADR-002) and emits `InstanceRecord`s + overlay
    draw lists (ADR-006); the stage names exist from day one so the four budget rows the debug
    sheet shows are measured, not retrofitted. Rendering on the pump thread is correct for a
@@ -30,13 +30,17 @@ must not paint over those seams — but also must not build 23 threads for a dem
    worker pool, already absorbed by the ADR-003 rule: *completions enqueue internally
    (MPSC), surface only via `Poll()` on the owning thread.* No game or render code ever runs
    on a transport thread.
+3a. **XAudio2 threads** — owned by XAudio2, registered as external lanes. Voice callbacks
+   push events into an SPSC ring and touch nothing else; all audio work happens in the
+   Main-thread `AudioUpdate` stage (ADR-011 §8–9). Same rule as transport: foreign threads
+   enqueue, owning threads act.
 4. **Boot task pool** — NeuronCore ships a minimal fixed pool (`Submit`, `WaitGroup`), used at
    startup for mesh/atlas bakes only. Sim tick and render frame are **single-threaded by
    rule** in MVP; the first parallel consumer inside a frame/tick must bring the deterministic
    partitioning story (ADR-005 §5) and a profile justifying it.
 
 ### Ownership & crossing rules (normative, all builds)
-5. **Single-writer worlds.** The authoritative `game::World` is owned by the Sim thread; the
+5. **Single-writer worlds.** The authoritative `Game::World` is owned by the Sim thread; the
    client's replicated view + render state by the Main thread. There is *no shared world*, no
    "read the server's arrays from the client while it isn't ticking".
 6. **The only data path between client and server halves is the transport** — a real loopback

@@ -21,9 +21,10 @@ much determinism to buy, at what float-handling cost.
    dense storage and stable ids:
    - `ShipId : u16` — stable per-session network id (also the wire id, ADR-04); id↔slot
      indirection table; dense slot arrays for state.
-   - MVP ship state (parallel arrays): `classId u8`, `wingId u8`, `pos float2`,
-     `heading float`, `vel float2`, `guidance {mode, groupRef, stationIndex}`,
-     `hull/shield u8` (static in MVP).
+   - MVP ship state (parallel arrays): `classId u8`, `wingId u8`, `pos XMFLOAT2`,
+     `heading float`, `vel XMFLOAT2`, `guidance {mode, groupRef, stationIndex}`,
+     `hull/shield u8` (static in MVP). Storage is `XMFLOAT2`; math loads into `XMVECTOR`
+     and stores back — never an `XMVECTOR` member or array (ADR-010 §3).
    - `ShipClassTable` — compiled-in registry of the **11-class closed set** from the icon sheet
      (Interceptor, Fighter, Bomber, Corvette, Frigate, Cruiser, Battleship, Carrier, Hauler,
      Miner, Structure): maxSpeed, accel, turnRate, pickRadius, formationSpacing. (Meshes exist
@@ -66,6 +67,11 @@ much determinism to buy, at what float-handling cost.
      NeuronCore) stored in world state.
    - `float32` arithmetic throughout; **/fp:precise** (default) on GameLogic, `/fp:fast`
      forbidden there; no per-file fp pragmas.
+   - **DirectXMath rules (ADR-010 §6):** its implementation is chosen at compile time, so one
+     binary has one path — matching this ADR's same-binary scope. `/arch` must not differ
+     between GameLogic and the rest of the solution, and **`XM*Est` estimate functions are
+     forbidden in GameLogic** (instruction-set-dependent accuracy). Swapping an exact call for
+     an `Est` one breaks the replay suite, which is the intended alarm.
    - Single-threaded tick (ADR-007); any future parallel-for must use deterministic
      partitioning + ordered writes, gated by the replay test.
 6. **Not required: cross-build / cross-platform bit determinism.** No custom transcendentals,
@@ -75,7 +81,7 @@ much determinism to buy, at what float-handling cost.
    and client prediction later reconciles against snapshots rather than requiring exactness.
 7. **The replay harness is a deliverable, not a hope:** `GameLogicTests` (VS
    CppUnitTestFramework, added on main) runs scripted order logs twice and asserts equal
-   FNV-1a world hashes per 20 ticks; the same harness runs in-exe via `--selftest`
+   FNV-1a world hashes per 20 ticks; the same harness runs in-exe via `selfTest`
    (ADR-008). Any PR that breaks replay equality is broken by definition.
 
 ## Alternatives rejected
@@ -98,8 +104,9 @@ much determinism to buy, at what float-handling cost.
   wire round-trip, and replay-equality suites from the first sim slice onward.
 - Adding a component in MVP = adding an array + touching EmitSnapshot + schema string —
   deliberate, visible friction that keeps replication honest.
-- Client links GameLogic from day one (types, validation, formation solve). This is the
-  refined dependency ruling (see Dependency Map): allowed by the charter, now load-bearing.
+- The client reaches GameLogic through the engine's `WorldView` seam (validation, formation
+  solve, order encoding), never by linking it — ADR-014 overturned the earlier ruling. The
+  parity guarantee is unaffected: it is the same function, reached through an interface.
 - No avoidance/pathfinding in MVP: open-space plane, station-seeking only. Obstacle avoidance
   (the corpus's "obstructed footprint" open item) lands later inside Steering without
   structural change.

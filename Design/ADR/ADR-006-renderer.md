@@ -34,6 +34,10 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
    varies across the view, and picking loses its uniform-direction ray. Ortho keeps scale
    uniform (tonnage stays readable — the icon sheet's size channel), makes zoom one number
    (ortho half-height), and matches the prints.
+3a. **Camera and picking use DirectXMath directly** (ADR-010): `XMMatrixOrthographicOffCenterRH`
+   + `XMMatrixLookAtRH` for view/projection, `XMPlaneIntersectLine` for the cursor-ray ∩
+   ground-plane test, `XMVectorLerp` for snapshot interpolation. Matrices are stored as
+   `XMFLOAT4X4`, instance positions as `XMFLOAT3`.
 4. **Elevation fixed at 30°**; this is normative because the corpus specifies selection rings
    as **2:1 plane ellipses** — an ortho ground circle projects at `sin(elevation)`, and
    `sin 30° = 0.5`. Yaw: free orbit about the focus point with 45° snap detents. Zoom:
@@ -46,7 +50,7 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
    per-face normals as authored — vertices are already duplicated per face, so plain vertex
    normals shade flat).
 6. **One opaque PSO.** Per-draw: instanced per ship class; per-instance data =
-   `InstanceRecord{ float3 posWorld, float heading, u8 teamColorId, u8 selectionAndLodBias,
+   `InstanceRecord{ XMFLOAT3 posWorld, float heading, u8 teamColorId, u8 selectionAndLodBias,
    u16 classId }` (field names deliberately match the corpus). Per-submesh root constants pick
    one of the **5 canonical materials** (albedo, emissive strength — `accent`/`thruster` carry
    emissive; `glass` is just dark). Lighting: one fixed directional + hemispherical ambient.

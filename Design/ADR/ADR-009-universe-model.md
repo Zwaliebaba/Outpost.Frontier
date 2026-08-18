@@ -59,13 +59,15 @@ without saying what anchors them. This ADR says it.
    exists.**
 
 ### Data & loading
-7. **`GameData/Universe/`** holds the authored universe definition: a plain, hand-parsed
-   line-oriented text format (`system … / star … / planet … / station … / gate …`, ids +
-   `UniversePos` + display names) — no external formats, per library policy. Parsing is a
-   **pure GameLogic function (bytes → `UniverseDef`)**; file IO stays in the hosts via
-   NeuronCore, so GameLogic stays OS-free (ADR-005 discipline).
+7. **`GameData/Universe/`** holds the authored universe definition. *(Format amended by
+   ADR-012: **JSON**, parsed by NeuronCore's custom parser — one format and one parser for
+   config, universe, and sound banks. The parser keeps integral tokens as exact `int64`,
+   which is what makes `UniversePos` authorable at all.)* Parsing is a **pure GameLogic
+   function (bytes → `UniverseDef`)**; file IO stays in the hosts, so GameLogic stays OS-free
+   (ADR-005 discipline).
 8. **Both halves load the identical definition** (F15: the client owns a full copy).
-   A `universeHash` (FNV-1a over the canonicalised definition) travels in `Hello`/`Welcome`
+   A `universeHash` (FNV-1a over the canonicalised *parsed content* — so comments, whitespace
+   and key order never affect it, ADR-012 §D) travels in `Hello`/`Welcome`
    beside the schema hash and **fails closed** on mismatch — same posture, same
    `UpdateRequired` path (ADR-004). `Welcome.worldMeta` is now concrete:
    `{ systemId, gridAnchor : UniversePos, universeHash }`.
@@ -97,7 +99,7 @@ without saying what anchors them. This ADR says it.
   later = anchor swap + local re-origin — exact and deterministic by construction.
 - The strategic map (post-MVP) reads real coordinates from the same `UniverseDef` the server
   simulates against; no second world description ever exists.
-- Universe content is hand-editable text under `GameData/`, hash-guarded end to end; a
+- Universe content is hand-editable JSON under `GameData/`, hash-guarded end to end; a
   content mismatch is caught at the door, not mid-session.
 - `GameLogicTests` gains: parser round-trip/rejection suites, universeHash stability, and an
   anchor+local reconstruction property test (no loss across quantisation).

@@ -2,11 +2,116 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
+    <ClCompile Include="UdpTransport.cpp">
+      <Filter>Transport</Filter>
+    </ClCompile>
+    <ClCompile Include="Wire.cpp">
+      <Filter>Wire</Filter>
+    </ClCompile>
+    <ClCompile Include="JsonWriter.cpp">
+      <Filter>Json</Filter>
+    </ClCompile>
+    <ClCompile Include="Json.cpp">
+      <Filter>Json</Filter>
+    </ClCompile>
+    <ClCompile Include="Debug.cpp">
+      <Filter>Foundation</Filter>
+    </ClCompile>
+    <ClCompile Include="TaskPool.cpp">
+      <Filter>Tasking</Filter>
+    </ClCompile>
+    <ClCompile Include="Telemetry.cpp">
+      <Filter>Telemetry</Filter>
+    </ClCompile>
+    <ClCompile Include="Log.cpp">
+      <Filter>Foundation</Filter>
+    </ClCompile>
+    <ClCompile Include="Clock.cpp">
+      <Filter>Foundation</Filter>
+    </ClCompile>
+    <ClCompile Include="EntityRecord.cpp">
+      <Filter>Serialization</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="Transport.h">
+      <Filter>Transport</Filter>
+    </ClInclude>
+    <ClInclude Include="UdpTransport.h">
+      <Filter>Transport</Filter>
+    </ClInclude>
+    <ClInclude Include="Wire.h">
+      <Filter>Wire</Filter>
+    </ClInclude>
+    <ClInclude Include="JsonWriter.h">
+      <Filter>Json</Filter>
+    </ClInclude>
+    <ClInclude Include="Json.h">
+      <Filter>Json</Filter>
+    </ClInclude>
+    <ClInclude Include="Debug.h">
+      <Filter>Foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="Log.h">
+      <Filter>Foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="Clock.h">
+      <Filter>Foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="Hash.h">
+      <Filter>Foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="Random.h">
+      <Filter>Foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="Arena.h">
+      <Filter>Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="TaskPool.h">
+      <Filter>Tasking</Filter>
+    </ClInclude>
+    <ClInclude Include="Telemetry.h">
+      <Filter>Telemetry</Filter>
+    </ClInclude>
+    <ClInclude Include="RingBuffer.h">
+      <Filter>Memory</Filter>
+    </ClInclude>
+    <ClInclude Include="ByteReader.h">
+      <Filter>Serialization</Filter>
+    </ClInclude>
+    <ClInclude Include="ByteWriter.h">
+      <Filter>Serialization</Filter>
+    </ClInclude>
+    <ClInclude Include="EntityRecord.h">
+      <Filter>Serialization</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <Filter Include="Foundation">
+      <UniqueIdentifier>{9d5f4d34-ab5f-4c51-b9d7-1357cda4793f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Memory">
+      <UniqueIdentifier>{aed4b368-18e9-4f25-9bf1-b38e9705a03d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Tasking">
+      <UniqueIdentifier>{4fef16d4-dfbf-4905-9c3b-aa074b2f55b8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Telemetry">
+      <UniqueIdentifier>{9ff275b5-1bb5-44e8-b7a4-8fe9923dd44b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Serialization">
+      <UniqueIdentifier>{acbee4ba-8057-4b3f-8686-3303043c7b48}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Json">
+      <UniqueIdentifier>{1b875160-d4b0-4c21-b6d2-50d806b52ecd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Transport">
+      <UniqueIdentifier>{eeda8f5e-0e13-46fd-bad4-d3fb87ce6b69}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Wire">
+      <UniqueIdentifier>{6d648ed2-906d-4c69-b2da-b6814967a398}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Project Files">
       <UniqueIdentifier>{da20d678-fc4e-4961-828d-8d6d6b28fe00}</UniqueIdentifier>
     </Filter>

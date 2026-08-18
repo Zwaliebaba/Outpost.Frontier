@@ -2,11 +2,59 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
+    <ClCompile Include="ClearColour.cpp">
+      <Filter>App</Filter>
+    </ClCompile>
+    <ClCompile Include="ClientConnection.cpp">
+      <Filter>App</Filter>
+    </ClCompile>
+    <ClCompile Include="ClientApp.cpp">
+      <Filter>App</Filter>
+    </ClCompile>
+    <ClCompile Include="Window.cpp">
+      <Filter>App</Filter>
+    </ClCompile>
+    <ClCompile Include="GpuDevice.cpp">
+      <Filter>Gpu</Filter>
+    </ClCompile>
+    <ClCompile Include="GpuSwapChain.cpp">
+      <Filter>Gpu</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="ClearColour.h">
+      <Filter>App</Filter>
+    </ClInclude>
+    <ClInclude Include="ClientConnection.h">
+      <Filter>App</Filter>
+    </ClInclude>
+    <ClInclude Include="ClientApp.h">
+      <Filter>App</Filter>
+    </ClInclude>
+    <ClInclude Include="ClientConfig.h">
+      <Filter>App</Filter>
+    </ClInclude>
+    <ClInclude Include="Window.h">
+      <Filter>App</Filter>
+    </ClInclude>
+    <ClInclude Include="GpuCom.h">
+      <Filter>Gpu</Filter>
+    </ClInclude>
+    <ClInclude Include="GpuDevice.h">
+      <Filter>Gpu</Filter>
+    </ClInclude>
+    <ClInclude Include="GpuSwapChain.h">
+      <Filter>Gpu</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <Filter Include="App">
+      <UniqueIdentifier>{6c656858-d46f-4fe8-8cd4-7db269133d8c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Gpu">
+      <UniqueIdentifier>{806ef438-7fec-40ef-b419-96b0e5ddb4e8}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Project Files">
       <UniqueIdentifier>{94ec7fe9-4de9-4296-9b13-285350279a6b}</UniqueIdentifier>
     </Filter>

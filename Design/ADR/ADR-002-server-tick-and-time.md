@@ -43,7 +43,7 @@ has no twitch input.
 2. **Server loop:** dedicated sim thread (ADR-007) drives `tick → snapshot → send` on a
    high-resolution waitable timer with an absolute schedule (`next += 50 ms`). If the loop
    falls behind by more than 5 ticks (250 ms), it **snaps forward** (drops the debt, logs, and
-   increments a `tick_overrun` counter) rather than death-spiralling. Catch-up bursts execute
+   increments a `tickOverrun` counter) rather than death-spiralling. Catch-up bursts execute
    at most 2 extra ticks per wake.
 3. **Snapshot cadence = tick cadence (MVP).** One snapshot datagram per tick per client. The
    header carries the tick, so cadence can be decimated per zoom tier / per client later
@@ -83,5 +83,5 @@ has no twitch input.
   connection flow must tolerate a ~100 ms warm-up (join screen covers it).
 - All sim constants tune against a fixed 50 ms dt; changing TickRate later is a *balancing*
   event, not a refactor (nothing outside GameLogic assumes 50 ms except via named constants).
-- Server CPU budget per tick is 50 ms hard ceiling; the `tick_overrun` counter is a release
+- Server CPU budget per tick is 50 ms hard ceiling; the `tickOverrun` counter is a release
   telemetry field from day one (`debug-hud.png` Tier 1).

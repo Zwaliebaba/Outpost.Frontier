@@ -1,0 +1,51 @@
+# Baseline whitespace, so an editor gets it right before clang-format runs.
+#
+# /.clang-format is the AUTHORITY for C++ layout (AGENTS.md §4). This file exists for the formats
+# clang-format does not cover — Python, shell, YAML, MSBuild XML, JSON content — and, for C++,
+# repeats only the two numbers an editor needs before the first save. Where the two disagree,
+# clang-format wins; keep IndentWidth and ColumnLimit in step with it.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Mirrors /.clang-format's IndentWidth and ColumnLimit.
+[*.{cpp,h}]
+indent_size = 2
+max_line_length = 140
+
+[*.{vcxproj,filters,slnx,props,targets}]
+indent_size = 2
+
+# Config and content authored by hand: Outpost.json, the universe definition, sound banks.
+[*.json]
+indent_size = 2
+
+# LF for the formats read by non-Windows tooling.
+[*.{yml,yaml}]
+end_of_line = lf
+indent_size = 2
+
+[*.py]
+end_of_line = lf
+indent_size = 2
+max_line_length = 100
+
+[*.sh]
+end_of_line = lf
+indent_size = 2
+
+[*.md]
+end_of_line = lf
+trim_trailing_whitespace = false
+
+# Meshes are exported by tools outside this repo; leave them exactly as-is.
+[GameData/Meshes/**]
+trim_trailing_whitespace = false
+insert_final_newline = false

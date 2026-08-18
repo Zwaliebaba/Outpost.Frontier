@@ -1,0 +1,214 @@
+name: Build
+
+# Debug|x64 only. Release is deliberately not built: x64 is the only platform
+# (Outpost.slnx declares no other), and while the tree is this young a Release
+# build would double the CI time to catch almost nothing Debug does not. Add it
+# when optimised-only breakage becomes a real risk -- /O2 codegen differences,
+# or the NDEBUG-only paths in the wire layer.
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Debug|x64
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      # msquic and C++/WinRT arrive as NuGet packages. These are
+      # packages.config projects, not PackageReference, so this is
+      # `nuget install` per project rather than `msbuild -t:restore` -- and per
+      # project rather than for the solution because CI builds the vcxproj
+      # directly and Outpost.slnx is the new solution format, which the NuGet
+      # CLI does not read. -OutputDirectory must match the ..\packages\ that
+      # the vcxproj files import, or EnsureNuGetPackageBuildImports fails.
+      #
+      # The Tests projects have no packages.config and need nothing here.
+      - name: Restore NuGet packages
+        shell: pwsh
+        run: |
+          foreach ($p in 'NeuronCore', 'GameLogic', 'NeuronServer', 'NeuronClient', 'Outpost')
+          {
+            nuget install "$p\packages.config" -OutputDirectory packages -NonInteractive
+            if ($LASTEXITCODE -ne 0) { throw "restore failed for $p" }
+          }
+
+      # A header whose name matches a CRT or C++ standard header shadows it on a
+      # case-insensitive filesystem, because every project folder is on the
+      # include path. NeuronCore/Time.h did exactly this: <ctime> found it
+      # instead of <time.h> and every time symbol vanished from the global
+      # namespace, 24 errors deep inside the STL with nothing pointing at us.
+      # Cheap to check, miserable to diagnose.
+      - name: Check header names against the CRT
+        shell: pwsh
+        run: |
+          $reserved = @('assert','ctype','errno','fenv','float','inttypes','iso646','limits','locale','math',
+                        'setjmp','signal','stdalign','stdarg','stdatomic','stdbool','stddef','stdint','stdio',
+                        'stdlib','stdnoreturn','string','tgmath','threads','time','uchar','wchar','wctype',
+                        'complex','new','memory','vector','string_view','span','bit','chrono','thread','mutex')
+          $bad = @()
+          foreach ($dir in 'NeuronCore', 'GameLogic', 'NeuronServer', 'NeuronClient', 'Outpost')
+          {
+            Get-ChildItem -Path $dir -Filter *.h -ErrorAction SilentlyContinue | ForEach-Object {
+              if ($reserved -contains $_.BaseName.ToLower()) { $bad += "$dir/$($_.Name)" }
+            }
+          }
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_ shadows a standard header of the same name" }
+            throw 'rename these headers'
+          }
+          Write-Host 'no header shadows a standard header'
+
+      # SolutionDir is passed explicitly (trailing backslash required): each
+      # project lists the libraries it includes as $(SolutionDir)<Project>,
+      # and $(SolutionDir) is empty when a .vcxproj is built directly. The
+      # NuGet CLI cannot read .slnx, which is why CI builds the projects
+      # rather than the solution.
+      #
+      # /flp contains a semicolon, which PowerShell reads as a statement
+      # separator unless the whole switch is quoted. Serial by design: with /m
+      # the failing project's diagnostics can be interleaved away.
+      - name: Build libraries
+        shell: pwsh
+        run: |
+          foreach ($p in 'NeuronCore', 'GameLogic', 'NeuronServer', 'NeuronClient')
+          {
+            msbuild "$p\$p.vcxproj" `
+              /p:Configuration=Debug /p:Platform=x64 /p:SolutionDir=$PWD\ `
+              /v:normal /nologo "/flp:LogFile=build.log;Verbosity=diagnostic;Append"
+            if ($LASTEXITCODE -ne 0) { throw "build failed for $p" }
+          }
+
+      # Outpost.exe is a Windows-subsystem application, so it cannot link until
+      # it has an entry point -- today the project holds only pch.cpp and the
+      # link fails with LNK2019 on WinMain. Rather than leave CI permanently
+      # red (which teaches everyone to ignore it), the exe is built once an
+      # entry point exists. Slice S1 adds Main.cpp and this starts building
+      # itself, with no edit to this file.
+      - name: Build Outpost
+        shell: pwsh
+        run: |
+          $entry = Select-String -Path 'Outpost\*.cpp' -Pattern 'WinMain|\bmain\s*\(' -Quiet
+          if (-not $entry)
+          {
+            Write-Host 'Outpost.exe: no entry point yet -- skipped (slice S1 adds Main.cpp)'
+            "## Outpost.exe skipped - no entry point yet" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            exit 0
+          }
+          Write-Host 'Outpost.exe: entry point found -- building'
+          msbuild Outpost\Outpost.vcxproj `
+            /p:Configuration=Debug /p:Platform=x64 /p:SolutionDir=$PWD\ `
+            /v:normal /nologo "/flp:LogFile=build.log;Verbosity=diagnostic;Append"
+          if ($LASTEXITCODE -ne 0) { throw 'build failed for Outpost' }
+
+      # The test projects are not referenced by Outpost.exe, so they are built
+      # separately. Appending to the same log keeps one artifact.
+      - name: Build tests
+        shell: pwsh
+        run: |
+          foreach ($t in 'NeuronCoreTests', 'GameLogicTests', 'NeuronServerTests', 'NeuronClientTests')
+          {
+            msbuild "Tests\$t\$t.vcxproj" `
+              /p:Configuration=Debug /p:Platform=x64 /p:SolutionDir=$PWD\ `
+              /v:normal /nologo "/flp:LogFile=build.log;Verbosity=diagnostic;Append"
+            if ($LASTEXITCODE -ne 0) { throw "build failed for $t" }
+          }
+
+      # Located through vswhere rather than assumed on PATH: vstest.console.exe
+      # lives inside the VS install and its path carries the VS version.
+      - name: Run tests
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $vstest = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\TestWindow\vstest.console.exe'
+          if (-not (Test-Path $vstest)) { throw "vstest.console.exe not found under $vs" }
+
+          $dlls = Get-ChildItem -Recurse -Filter '*Tests.dll' |
+            Where-Object { $_.FullName -notmatch '\\packages\\' } |
+            Select-Object -ExpandProperty FullName
+          if (-not $dlls) { throw 'no test assemblies were produced' }
+
+          $dlls | ForEach-Object { Write-Host "testing $_" }
+
+          # Captured as well as echoed: a failing assertion is the whole reason
+          # this step exists, and it must not be something you have to scroll a
+          # 1500-line log to find.
+          & $vstest $dlls /Platform:x64 /Logger:console`;verbosity=normal 2>&1 |
+            Tee-Object -FilePath test.log
+          $failed = $LASTEXITCODE -ne 0
+
+          if ($failed)
+          {
+            # A backtick-fenced here-string would be unreadable in PowerShell
+            # (a fence needs six backticks inside a double-quoted string), so
+            # the summary is assembled as lines and the fences are literals.
+            $detail = Select-String -Path test.log -Pattern 'Failed\s+[A-Za-z]|Error Message|Assert failed|Stack Trace' -Context 0,3 |
+              Select-Object -First 40 | ForEach-Object { $_.Line.Trim(); $_.Context.PostContext | ForEach-Object { '    ' + $_.Trim() } }
+            $totals = Select-String -Path test.log -Pattern '^(Failed|Passed)!' | ForEach-Object { $_.Line.Trim() }
+
+            Write-Host '--- failing tests ---'
+            $detail | ForEach-Object { Write-Host $_ }
+
+            $lines = @('## Tests failed', '```') + $totals + @('') + $detail + @('```')
+            $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            throw 'tests failed'
+          }
+
+      # MSBuild can exit non-zero with the failure only in the file log, so
+      # surface it rather than leaving the job with no explanation.
+      - name: Show failures from build log
+        if: failure()
+        shell: pwsh
+        run: |
+          if (Test-Path build.log)
+          {
+            Select-String -Path build.log -Pattern 'error |fatal error|Build FAILED|Error\(s\)|LNK' |
+              Select-Object -Last 60 | ForEach-Object { $_.Line }
+          }
+          else { Write-Host 'no build.log produced' }
+
+      # MSBuild repeats a warning once per referencing project, so the raw
+      # count is misleading; these are deduplicated and repo-relative.
+      - name: Summarise warnings
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path build.log)) { Write-Host 'no build.log produced'; exit 0 }
+          $root = [regex]::Escape((Get-Location).Path + '\')
+          $warnings = Select-String -Path build.log -Pattern ': warning [A-Z]+[0-9]+:' |
+            ForEach-Object { $_.Line.Trim() -replace $root, '' -replace ' \[[^\]]*\.vcxproj\]$', '' } |
+            Sort-Object -Unique
+          $header = "## Debug|x64 - $($warnings.Count) unique warning(s)"
+          Write-Host $header
+          $header | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          if ($warnings.Count -gt 0)
+          {
+            $shown = $warnings | Select-Object -First 200
+            '```' | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            $shown | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            if ($warnings.Count -gt 200)
+            {
+              "... and $($warnings.Count - 200) more" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            }
+            '```' | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            $shown | ForEach-Object { Write-Host $_ }
+          }
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-debug-x64
+          path: |
+            build.log
+            test.log
+          if-no-files-found: ignore
