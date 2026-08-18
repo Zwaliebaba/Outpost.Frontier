@@ -152,6 +152,18 @@ private:
   OrderDefaults m_orderDefaults;
 
   /*
+   * The parameters that kind accepts, and which one the next order will carry.
+   *
+   * The game's list, verbatim: numbers to send and names to show, neither
+   * interpreted here (ADR-014 §2c). `CycleParameter` steps the index; the
+   * command wheel's sub-ring will select from the same list in S11, which is
+   * why the client holds it rather than asking per order.
+   */
+  OrderOption m_orderOptions[MAX_ORDER_OPTIONS] = {};
+  std::uint32_t m_orderOptionCount = 0;
+  std::uint32_t m_orderOptionIndex = 0;
+
+  /*
    * The client's order counter, which the ack matches a ghost on.
    *
    * From 1, because zero means "not sent" everywhere it appears (`OrderIntent`,

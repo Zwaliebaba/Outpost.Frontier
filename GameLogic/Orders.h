@@ -54,6 +54,17 @@ enum class FormationId : std::uint8_t
   Claw = 2
 };
 
+/// All of them, in the order a command surface should offer them. An array
+/// rather than a count-and-loop, because "the values of an enum" is not
+/// something C++ will hand back and writing `0..FORMATION_COUNT` assumes a
+/// contiguity the wire does not promise to keep.
+inline constexpr FormationId FORMATION_IDS[] = {FormationId::Line, FormationId::Wedge, FormationId::Claw};
+
+/// What to call one on screen. Never null, for the same reason
+/// `OrderReasonText` is never null: a label with no text is a control the
+/// player cannot name.
+[[nodiscard]] const char* FormationName(FormationId _formation) noexcept;
+
 /*
  * Why an order was refused, or that it was not (ADR-005 §4).
  *

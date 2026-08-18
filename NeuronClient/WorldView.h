@@ -115,6 +115,24 @@ public:
   [[nodiscard]] virtual OrderDefaults DefaultOrder() const = 0;
 
   /*
+   * Which parameters a kind accepts, and what to call them.
+   *
+   * Writes at most `_outOptions.size()` and returns how many. The client offers
+   * the list -- a key that steps it now, the command wheel's formation
+   * sub-ring in S11 -- and copies the chosen number into `OrderIntent`.
+   *
+   * **This exists because the alternative is the client counting formations.**
+   * A client that cycled `parameter` from 0 to 2 would have learned how many
+   * formations this game has and that they are numbered contiguously; a client
+   * that hard-coded "Line/Wedge/Claw" would have learned their names. Both are
+   * game semantics arriving by the back door, and both break silently when a
+   * second game ships on this engine with four stances instead (ADR-014).
+   *
+   * An empty answer is legitimate and means the kind takes no parameter.
+   */
+  [[nodiscard]] virtual std::uint32_t OrderOptions(std::uint16_t _kind, std::span<OrderOption> _outOptions) const = 0;
+
+  /*
    * What the authority has decided about orders already sent.
    *
    * Read out of the newest snapshot, which is the game's to parse. The client
@@ -184,6 +202,8 @@ public:
   [[nodiscard]] bool EncodeOrder(const OrderIntent&, ByteWriter&) override { return false; }
 
   [[nodiscard]] OrderDefaults DefaultOrder() const override { return OrderDefaults{}; }
+
+  [[nodiscard]] std::uint32_t OrderOptions(std::uint16_t, std::span<OrderOption>) const override { return 0; }
 
   void PollOrderFeedback(OrderFeedback& _outFeedback) override { _outFeedback.Clear(); }
 

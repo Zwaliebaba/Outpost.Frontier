@@ -282,6 +282,31 @@ OrderDefaults ReplicatedWorldView::DefaultOrder() const
   return defaults;
 }
 
+std::uint32_t ReplicatedWorldView::OrderOptions(std::uint16_t _kind, std::span<OrderOption> _outOptions) const
+{
+  // Move's parameter is a formation. No other kind exists yet, and a kind that
+  // took no parameter would answer zero here rather than be special-cased at
+  // the client -- which is what makes "an empty answer is legitimate" a real
+  // path rather than a line in a comment.
+  if (_kind != static_cast<std::uint16_t>(Game::OrderKind::Move))
+  {
+    return 0;
+  }
+
+  std::uint32_t count = 0;
+  for (const Game::FormationId formation : Game::FORMATION_IDS)
+  {
+    if (count >= _outOptions.size())
+    {
+      break;
+    }
+    _outOptions[count].parameter = static_cast<std::uint16_t>(formation);
+    _outOptions[count].name = Game::FormationName(formation);
+    ++count;
+  }
+  return count;
+}
+
 void ReplicatedWorldView::PollOrderFeedback(OrderFeedback& _outFeedback)
 {
   static_assert(static_cast<std::uint32_t>(Game::MAX_ORDERS_PER_SNAPSHOT) <= Neuron::MAX_ORDER_PROGRESS,

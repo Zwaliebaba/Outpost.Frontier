@@ -170,6 +170,28 @@ struct OrderDefaults
 };
 
 /*
+ * One value `OrderIntent::parameter` may take, with a word for it.
+ *
+ * A formation, a stance, whatever the kind's parameter means -- the engine does
+ * not know, and this is what lets it offer the choice anyway. The number is
+ * copied into an intent and the name is drawn; neither is interpreted, which is
+ * the same arrangement `ReasonText` has and for the same reason (ADR-014 §2c).
+ *
+ * `name` points at storage the world view owns and is valid for its lifetime.
+ * In practice these are string literals compiled into the game.
+ */
+struct OrderOption
+{
+  std::uint16_t parameter = 0;
+  const char* name = nullptr;
+};
+
+/// How many options a client will ask for. Eight is the command wheel's sector
+/// count (`puck-and-wheel.png` §3), which is the surface these will be drawn on
+/// -- a game with more would need a different surface, not a bigger array.
+inline constexpr std::uint32_t MAX_ORDER_OPTIONS = 8;
+
+/*
  * One order the authority is still working on, as the client's ghost needs it.
  *
  * Every field is a number: two identities and three counters. `state` is the

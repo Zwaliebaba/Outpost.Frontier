@@ -59,8 +59,8 @@ moves between the trees without a rename pass. Three things it changed in these 
 
 ## Implementation state (2026-08-18)
 
-Slices S1, S2, S2b, S3, S4, S5, S5b, S5c, S5d, S6, S7, S8 and S9 are in the tree and green in
-CI. The per-slice detail — what was built, and what a "done" slice still owes — lives in
+Slices S1, S2, S2b, S3, S4, S5, S5b, S5c, S5d, S6, S7, S8, S9 and S10 are in the tree and green
+in CI. The per-slice detail — what was built, and what a "done" slice still owes — lives in
 [MVP-Build-Order.md](MVP-Build-Order.md); it is not repeated here.
 
 **Milestone M1 — first commanded fleet — is code-complete and awaiting its play test.** The lap
@@ -87,7 +87,7 @@ on the plane and are occluded by the hulls above them while gauge bars never do.
 **Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
 handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. The
-suite now stands at **331** — 163 client, 85 GameLogic, 73 core, 10 server. Its
+suite now stands at **339** — 165 client, 91 GameLogic, 73 core, 10 server. Its
 visible half — window open, swapchain presenting, heartbeat live — together with the four
 other criteria that need a GPU and a person (five minutes clean under the debug layer,
 PresentMon showing the flip model, a clean exit, and the 60-second tick cadence on an idle

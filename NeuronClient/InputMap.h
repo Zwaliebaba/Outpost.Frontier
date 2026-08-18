@@ -26,6 +26,13 @@
  * keeping them separate is what makes the binding table honest: a player who
  * moves "append to queue" off Shift must not silently take "add to selection"
  * with it.
+ *
+ * `CycleParameter` is a **stand-in for a surface**. The command wheel's
+ * formation sub-ring is what chooses a formation (`puck-and-wheel.png` §3), and
+ * it arrives with the Ui pass in S11; until then a key steps the same list the
+ * wheel will draw, so S10's formations are reachable without inventing a widget
+ * that S11 would have to take back. Named for what it does rather than for
+ * formations, because the list is whatever the game says the parameter means.
  */
 
 namespace Neuron
@@ -58,12 +65,13 @@ enum class InputAction : std::uint8_t
   ZoomIn,
   ZoomOut,
   ResetView,
-  Modifier,   // Alt: turns a middle-drag into an orbit.
-  SelectAdd,  // Shift: a click adjusts the selection instead of replacing it.
-  QueueOrder  // Shift: an order appends to the queue instead of replacing it.
+  Modifier,       // Alt: turns a middle-drag into an orbit.
+  SelectAdd,      // Shift: a click adjusts the selection instead of replacing it.
+  QueueOrder,     // Shift: an order appends to the queue instead of replacing it.
+  CycleParameter  // F: steps the order parameter the puck will send (S10's formations).
 };
 
-inline constexpr std::uint32_t INPUT_ACTION_COUNT = 12;
+inline constexpr std::uint32_t INPUT_ACTION_COUNT = 13;
 
 /// One frame of input, already reduced to logical state. Edges (`pressed`,
 /// `released`) are separate from levels (`down`) because a detent nudge must

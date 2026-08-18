@@ -66,6 +66,7 @@ public:
   void SolvePreview(const Neuron::OrderIntent& _intent, Neuron::OrderPreview& _outPreview) override;
   [[nodiscard]] bool EncodeOrder(const Neuron::OrderIntent& _intent, Neuron::ByteWriter& _writer) override;
   [[nodiscard]] Neuron::OrderDefaults DefaultOrder() const override;
+  [[nodiscard]] std::uint32_t OrderOptions(std::uint16_t _kind, std::span<Neuron::OrderOption> _outOptions) const override;
   void PollOrderFeedback(Neuron::OrderFeedback& _outFeedback) override;
   [[nodiscard]] const char* ReasonText(std::uint16_t _reasonCode) const override;
 

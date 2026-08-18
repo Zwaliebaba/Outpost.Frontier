@@ -49,6 +49,32 @@ much determinism to buy, at what float-handling cost.
    client calls **the same function** for the order-puck footprint preview — the corpus demands
    the footprint be "the real formation solve", one tick per ship, never decorative.
    MVP formation set: `Line`, `Wedge`, `Claw` (crescent — the one on the prints).
+
+3a. **What the three shapes are, and the two properties they share** (S10). Each is written in
+   the anchor's own axes — how far right of it, how far ahead of it — so the trigonometry
+   appears once and a shape is arithmetic on two numbers.
+
+   - **Line:** abreast across the facing, centred on the anchor.
+   - **Wedge:** an arrowhead. The first ship at the tip on the anchor, the rest falling back in
+     two arms that alternate, at 45° so a step back and a step out are the same number.
+   - **Claw:** a crescent whose arms reach *forward*, cupping the way the fleet will face, with
+     the middle of the arc on the anchor and a fixed 120° sweep.
+
+   **Every formation puts something on the anchor.** That is what keeps the puck honest across
+   a formation change: the player pointed at a place, and whichever shape is selected something
+   is there — so a single-ship order lands exactly where they pointed in all three.
+
+   **Adjacent stations are exactly one spacing apart.** §2 above spends this: there is no
+   inter-ship avoidance in the MVP *because* stations do not overlap by construction. It was
+   prose from S6 until S10 made it a test over every count and class mix. Two of the three
+   shapes needed care to hold it — a Wedge stepping a whole spacing on each axis puts its
+   ships 1.41× apart (wasteful rather than wrong), and a Claw whose radius is derived from arc
+   length puts them 0.83× apart at low counts, which is the failure this property exists to
+   forbid. The Claw's radius therefore comes from the **chord**: `R = spacing / 2·sin(Δθ/2)`.
+
+   *Not covered, and named so it is not mistaken for covered:* stations do not overlap **each
+   other**. They can still land inside a gate, a station, or another fleet.
+   `puck-and-wheel.png` §6 lists that under OPEN and it remains open.
 4. **Order validation is a pure function** in GameLogic:
    `ValidateOrder(ValidationView, OrderSubmit) → Accepted | reason` with the reason enum
    (`EmptySelection, NotOwned, UnknownShip, QueueFull, OutOfBounds, InvalidFormation,

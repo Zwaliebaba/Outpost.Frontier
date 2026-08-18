@@ -877,14 +877,60 @@ stable id→station assignment) + "preview equals outcome" (client-solve station
 final stations for same quantised inputs); fleet of 12 arrives in Claw matching the print's
 footprint pattern.
 
-**S9 took most of this.** Line is solved, `GroupAdvance` and the leg timeout are in `World`,
-the arrival facing is the puck's drag, and the footprint preview calls `SolveFormation` through
-the seam — so "preview equals outcome" is now structural rather than a test to write: the same
-function, the same quantised leg, the same sort by ascending `ShipId`. What is genuinely left
-is **Wedge and Claw** (named in the enum and refused as `InvalidFormation` until then, so a
-client sending one gets an answer rather than a silent Line), the per-leg re-solve, and the
-print's own open question — *what the puck should do when a station lands inside a gate or
-another fleet.* `puck-and-wheel.png` §6 lists that under OPEN and it is still open.
+**S9 took most of this.** Line was solved, `GroupAdvance` and the leg timeout were in `World`,
+the arrival facing was the puck's drag, and the footprint preview already called
+`SolveFormation` through the seam — so "preview equals outcome" became structural rather than a
+test to write: the same function, the same quantised leg, the same sort by ascending `ShipId`.
+The per-leg re-solve turned out to be there too; `ApplyLeg` runs on every leg advance.
+
+**Built ✅:**
+`Formation.cpp` — the **Wedge** and the **Claw**, and the Line rewritten alongside them so all
+three are one function over two numbers (how far right of the anchor, how far ahead of it)
+rather than three copies of the basis. Two properties hold across all three and both are
+asserted rather than argued:
+
+- **Every formation puts something on the point the player clicked.** A Line centres its rank
+  there, a Wedge its tip, a Claw the middle of its arc. So a single-ship order lands exactly
+  where they pointed whichever formation is selected, and the puck never marks a place the
+  fleet then avoids.
+- **Adjacent stations are exactly one spacing apart.** ADR-005 §2 buys the absence of any
+  inter-ship avoidance with "stations don't overlap by construction", and that claim had been
+  in the ADR since S6 and asserted nowhere. It is now a test over every count from 2 to 64 on a
+  mixed-class fleet, and it holds at exactly 1.00× spacing for all three shapes.
+
+**The Claw's radius comes from the chord, not the arc**, and that is the one number in this
+slice that is easy to get plausibly wrong. Solving `R = arcLength / sweep` reads correctly and
+puts adjacent ships a *chord* apart, which is shorter than the arc they were spaced along — at
+low counts by seventeen per cent. Deriving `R` from the chord requirement instead
+(`R = spacing / 2·sin(Δθ/2)`) makes adjacent separation exactly the spacing at every count. The
+mutation is in the suite: it fails with Carriers 355.6 m apart where the table asked for 430.
+
+`Validate.cpp` — all three accepted. The check stays rather than becoming a tautology, because
+`formation` arrives as a byte off the wire and a value outside the enum is reachable from any
+client.
+
+**A formation has to be selectable, and that needed a seam call.** The command wheel is S11, so
+S10 would otherwise have shipped two formations no player could reach. The client cannot cycle
+`parameter` itself — counting from zero to two would be the client learning how many formations
+this game has and that they are numbered contiguously — so `WorldView::OrderOptions(kind)`
+returns the parameters a kind accepts with a name for each, and a key steps them. The command
+wheel's formation sub-ring will be drawn from the same list, so this is the surface's data
+arriving one slice early rather than a stand-in S11 has to take back. The **key is** the
+stand-in, and it is named `CycleParameter` rather than `CycleFormation` for the same reason the
+list is asked for rather than assumed.
+
+**Verified:** `GameLogicTests` 85 → 91, `NeuronClientTests` 163 → 165. Mutation-tested: the
+Claw's radius from arc length instead of chord, the Wedge's arms leading its tip instead of
+trailing it, the Claw cupping backward, and the Wedge stepping a whole spacing on each axis
+each fail exactly the tests named for them.
+
+**Outstanding:** the print's own open question — *what the puck should do when a station lands
+inside a gate or another fleet.* `puck-and-wheel.png` §6 lists it under OPEN and it is still
+open; nothing in this slice makes it worse, because stations that do not overlap each other can
+still overlap the world. And the acceptance criterion that needs a person: **a fleet of twelve
+arriving in Claw matching the print's footprint pattern.** The geometry is measured and the
+separation is exact; whether the crescent *reads* as the sheet's crescent at tactical zoom is a
+frame, not a number.
 
 ### S11 — HUD v1
 Glyph-quad Ui pass: top bar (ships, net RTT bars, sim indicator), fleet roster with wing rows

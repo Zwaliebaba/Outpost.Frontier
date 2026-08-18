@@ -113,6 +113,25 @@ public:
   /// an intent and never learns what a 5 or a 9 is.
   [[nodiscard]] OrderDefaults DefaultOrder() const override { return OrderDefaults{DEFAULT_KIND, DEFAULT_PARAMETER}; }
 
+  /*
+   * Two options for its own kind and none for anything else, with parameters
+   * that are neither contiguous nor starting at zero.
+   *
+   * That is deliberate. A client that stepped `parameter` from 0 upward, or
+   * that assumed the default is the first entry, would pass against a game
+   * whose formations happen to be 0, 1, 2 and fail against this one.
+   */
+  [[nodiscard]] std::uint32_t OrderOptions(std::uint16_t _kind, std::span<OrderOption> _outOptions) const override
+  {
+    if (_kind != DEFAULT_KIND || _outOptions.size() < 2)
+    {
+      return 0;
+    }
+    _outOptions[0] = OrderOption{4, "loose"};
+    _outOptions[1] = OrderOption{DEFAULT_PARAMETER, "tight"};
+    return 2;
+  }
+
   /// One order running, invented the same way. A real view reads these out of
   /// the newest snapshot; the engine cannot tell the difference, and that is
   /// what the seam is for.
@@ -338,6 +357,49 @@ public:
     Assert::AreNotEqual<std::uint16_t>(0, defaults.kind, L"and neither is zero by luck");
   }
 
+  TEST_METHOD(TheGameListsWhatItsParameterMayBe)
+  {
+    /*
+     * What the formation control is driven from (S10), and what the command
+     * wheel's sub-ring will be drawn from (S11). The engine gets numbers to
+     * send and words to show; it learns neither how many formations exist nor
+     * what they are called, which is the same bargain `ReasonText` strikes.
+     *
+     * The stub's parameters are 4 and 9 rather than 0 and 1, so a client that
+     * counted from zero would fail here rather than in the game that ships.
+     */
+    StubWorldView view;
+    WorldView& seam = view;
+
+    OrderOption options[MAX_ORDER_OPTIONS] = {};
+    const std::uint32_t count = seam.OrderOptions(seam.DefaultOrder().kind, options);
+
+    Assert::AreEqual<std::uint32_t>(2, count, L"two options for this kind");
+    Assert::AreEqual<std::uint16_t>(4, options[0].parameter, L"the numbers are the game's");
+    Assert::AreEqual("loose", options[0].name, L"and so are the words");
+    Assert::AreEqual("tight", options[1].name);
+
+    // The default has to be findable in the list, or a client that starts on
+    // the game's default cannot line the two up.
+    Assert::AreEqual<std::uint16_t>(seam.DefaultOrder().parameter, options[1].parameter,
+                                    L"the default is one of the options, and not necessarily the first");
+
+    Assert::AreEqual<std::uint32_t>(0, seam.OrderOptions(9999, options), L"a kind it does not know offers nothing");
+  }
+
+  TEST_METHOD(AnOptionListSmallerThanTheGameWantsIsNotOverrun)
+  {
+    // The span is the client's buffer and the game writes at most its size.
+    // `MAX_ORDER_OPTIONS` is the engine's cap; a game with more has to answer
+    // with fewer rather than write past the end.
+    StubWorldView view;
+    WorldView& seam = view;
+
+    OrderOption one[1] = {};
+    Assert::AreEqual<std::uint32_t>(0, seam.OrderOptions(seam.DefaultOrder().kind, one),
+                                    L"this stub would rather offer nothing than half a list");
+  }
+
   TEST_METHOD(OrderProgressCrossesAsNumbersTheEngineDoesNotInterpret)
   {
     // The promotion path. The engine polls, copies six numbers, and compares
@@ -439,6 +501,8 @@ public:
     Assert::AreEqual<std::uint32_t>(0, feedback.lastOrderSeqProcessed, L"and no high-water mark either");
 
     Assert::AreEqual<std::uint16_t>(0, view.DefaultOrder().kind, L"there is no command to give");
+    OrderOption options[MAX_ORDER_OPTIONS] = {};
+    Assert::AreEqual<std::uint32_t>(0, view.OrderOptions(0, options), L"and no parameters to give it");
     Assert::IsNotNull(view.ReasonText(0), L"and still never a null string to draw");
 
     Assert::AreEqual<std::uint64_t>(0, view.SchemaHash());

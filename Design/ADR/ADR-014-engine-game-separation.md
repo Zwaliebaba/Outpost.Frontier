@@ -39,7 +39,7 @@ makes those libraries worth having.
      `BuildScene(renderTick, RenderScene&)`, `PreCheck(const OrderIntent&) → verdict`,
      `SolvePreview(const OrderIntent&, FormationPreview&)`, `EncodeOrder(const OrderIntent&,
      ByteWriter&)`. `ClientApp` owns window, device, passes, camera, picking and HUD; the game
-     supplies meaning. **S9 added three** — see §2c.
+     supplies meaning. **S9 added three and S10 a fourth** — see §2c.
 2a. **Who holds the vtable** (settled by S5c, because the ADR as written could not be
    implemented). §1 says GameLogic depends on **NeuronCore only**. §2 says **GameLogic
    implements** `Neuron::Simulation` and `Neuron::WorldView`. Those interfaces are declared in
@@ -100,6 +100,16 @@ makes those libraries worth having.
    `OrderVerdict::orderSeq` does (ADR-004 §7): the client allocates it because the client is
    what matches an ack to a ghost, and `EncodeOrder` places it inside a payload the engine
    frames and never parses.
+
+   **A fourth arrived with S10, and the reason is worth keeping.** `OrderOptions(kind) →
+   [{parameter, name}]` reports which values a kind's parameter may take. S10 added two
+   formations and the command wheel that would select one is S11, so without this the slice
+   would have shipped two shapes no player could reach. The tempting shortcut was a client that
+   cycles `parameter` from 0 upward — and that client would have learned how many formations
+   this game has and that they are numbered contiguously, which is game semantics arriving by
+   the back door and breaking silently against a second game with four stances. The engine's
+   binding is named `CycleParameter` rather than `CycleFormation` for the same reason: the list
+   is asked for, so the word for what is in it is asked for too.
 
 3. **BounceParity survives intact.** The client still runs the *identical* validation function
    — it is reached through an interface instead of a link-time symbol. Same code, same reason

@@ -5,6 +5,22 @@
 namespace Game
 {
 
+const char* FormationName(FormationId _formation) noexcept
+{
+  switch (_formation)
+  {
+  case FormationId::Line:
+    return "Line";
+  case FormationId::Wedge:
+    return "Wedge";
+  case FormationId::Claw:
+    return "Claw";
+  }
+  // As with the reason text: not a `default` label, so a new formation fails
+  // the switch's exhaustiveness warning here before it reaches a player.
+  return "unnamed formation";
+}
+
 const char* OrderReasonText(OrderReason _reason) noexcept
 {
   switch (_reason)

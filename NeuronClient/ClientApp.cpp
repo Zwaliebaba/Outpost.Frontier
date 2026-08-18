@@ -55,6 +55,19 @@ bool ClientApp::Initialise(const ClientConfig& _config, const PipelineShaders& _
   // is one command until the wheel exists, and asking every frame would be
   // asking a question whose answer is compiled in.
   m_orderDefaults = _worldView.DefaultOrder();
+  m_orderOptionCount = _worldView.OrderOptions(m_orderDefaults.kind, m_orderOptions);
+
+  // Start on the game's own default rather than on the list's first entry.
+  // They are the same today, and "the default is whatever happens to be first"
+  // is the kind of agreement that holds until someone reorders a menu.
+  for (std::uint32_t index = 0; index < m_orderOptionCount; ++index)
+  {
+    if (m_orderOptions[index].parameter == m_orderDefaults.parameter)
+    {
+      m_orderOptionIndex = index;
+      break;
+    }
+  }
 
   WindowDesc windowDesc;
   windowDesc.width = _config.windowWidth;
@@ -381,6 +394,16 @@ void ClientApp::UpdateOrders()
     return;
   }
 
+  if (m_input.Pressed(InputAction::CycleParameter) && m_orderOptionCount > 0)
+  {
+    // Stepped between gestures, not during one: the puck sampled its queue
+    // modifier at the press for the same reason, and an order that changed
+    // formation halfway through the drag would be an order the footprint had
+    // already lied about.
+    m_orderOptionIndex = (m_orderOptionIndex + 1) % m_orderOptionCount;
+    NEURON_LOG_INFO("formation: %s", m_orderOptions[m_orderOptionIndex].name);
+  }
+
   const auto cursorX = static_cast<float>(m_input.cursorX);
   const auto cursorY = static_cast<float>(m_input.cursorY);
 
@@ -416,7 +439,15 @@ void ClientApp::UpdateOrders()
 void ClientApp::CommitOrder(const PuckSample& _sample, double _nowSeconds)
 {
   const std::uint32_t orderSeq = m_nextOrderSeq++;
-  const OrderIntent intent = MakeOrderIntent(_sample, m_orderDefaults, m_selection.Ids(), orderSeq);
+
+  // The game's kind, and whichever of the game's parameters is selected. Both
+  // are numbers this client copies and never reads.
+  OrderDefaults chosen = m_orderDefaults;
+  if (m_orderOptionIndex < m_orderOptionCount)
+  {
+    chosen.parameter = m_orderOptions[m_orderOptionIndex].parameter;
+  }
+  const OrderIntent intent = MakeOrderIntent(_sample, chosen, m_selection.Ids(), orderSeq);
 
   // The footprint, from the game's own formation solve -- the real one, one
   // station per ship. Solved before the pre-check because a refused order still

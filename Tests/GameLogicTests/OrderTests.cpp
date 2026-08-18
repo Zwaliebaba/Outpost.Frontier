@@ -16,6 +16,7 @@
 
 #include <DirectXMath.h>
 
+#include <algorithm>
 #include <cmath>
 #include <array>
 #include <cstdint>
@@ -120,9 +121,12 @@ public:
     farOut.target.xCm = PLAY_AREA_HALF_EXTENT_CM + 1;
     Assert::IsTrue(ValidateOrder(ViewOf(ids), farOut).reason == OrderReason::OutOfBounds);
 
-    OrderSubmit wedge = Order({1}, 0.0f, 0.0f);
-    wedge.formation = FormationId::Wedge;
-    Assert::IsTrue(ValidateOrder(ViewOf(ids), wedge).reason == OrderReason::InvalidFormation);
+    // A byte off the wire that is not any formation. All three real ones are
+    // solved as of S10, so this check stopped being about unfinished work and
+    // is now about `formation` arriving as an untrusted `u8`.
+    OrderSubmit nonsense = Order({1}, 0.0f, 0.0f);
+    nonsense.formation = static_cast<FormationId>(200);
+    Assert::IsTrue(ValidateOrder(ViewOf(ids), nonsense).reason == OrderReason::InvalidFormation);
 
     OrderSubmit strange = Order({1}, 0.0f, 0.0f);
     strange.kind = static_cast<OrderKind>(77);
@@ -341,18 +345,15 @@ public:
     Assert::AreEqual(0.0f, FormationExtentMetres({}, XMFLOAT2{0, 0}), 1e-6f);
   }
 
-  TEST_METHOD(AFormationThisBuildCannotSolveSolvesNothing)
+  TEST_METHOD(NoShipsSolveNoStations)
   {
-    // Refused by ValidateOrder first, so this is the second line of defence:
-    // returning zero rather than a Line nobody asked for.
     ClassLookup table{{1}, {HullClass::Interceptor}};
-    const ShipId ids[] = {1};
     FormationStation stations[1] = {};
 
     Assert::AreEqual<std::uint32_t>(
-        0, SolveFormation(FormationId::Wedge, ids, &ClassLookup::Of, &table, XMFLOAT2{0, 0}, 0.0f, stations));
-    Assert::AreEqual<std::uint32_t>(
         0, SolveFormation(FormationId::Line, {}, &ClassLookup::Of, &table, XMFLOAT2{0, 0}, 0.0f, stations));
+    Assert::AreEqual<std::uint32_t>(0, SolveFormation(FormationId::Line, {}, nullptr, &table, XMFLOAT2{0, 0}, 0.0f, stations),
+                                    L"and no lookup solves none either, rather than calling through a null");
   }
 
   TEST_METHOD(MoreShipsThanStationsFillsWhatFits)
@@ -365,6 +366,200 @@ public:
 
     Assert::AreEqual<std::uint32_t>(
         2, SolveFormation(FormationId::Line, ids, &ClassLookup::Of, &table, XMFLOAT2{0, 0}, 0.0f, stations));
+  }
+};
+
+/*
+ * The three shapes (Build Order S10, ADR-005 §3).
+ *
+ * Geometry is asserted in the anchor's own axes -- facing +x, so "forward" is
+ * x and "right" is -y -- because a shape written that way is readable and a
+ * shape written in absolute coordinates is a table of numbers nobody can check.
+ *
+ * The load-bearing one is `StationsNeverOverlapInAnyFormationAtAnyCount`. ADR-005
+ * §2 buys the absence of inter-ship avoidance in the MVP with the claim that
+ * "stations don't overlap by construction", and that claim had been in the ADR
+ * since S6 and asserted nowhere. It is a property of all three formulas at once,
+ * so it is checked as one.
+ */
+TEST_CLASS(FormationShapeTests)
+{
+public:
+  TEST_METHOD(EveryFormationPutsSomethingOnThePointThatWasClicked)
+  {
+    // The rule that makes the puck honest: the player pointed at a place, and
+    // whichever formation is selected, something is there. A Line centres its
+    // rank, a Wedge puts its tip, a Claw the middle of its arc.
+    ClassLookup table{{5}, {HullClass::Corvette}};
+    const ShipId ids[] = {5};
+
+    for (const FormationId formation : FORMATION_IDS)
+    {
+      FormationStation stations[1] = {};
+      Assert::AreEqual<std::uint32_t>(
+          1, SolveFormation(formation, ids, &ClassLookup::Of, &table, XMFLOAT2{1234.0f, -567.0f}, 0.9f, stations));
+      Assert::AreEqual(1234.0f, stations[0].positionMetres.x, 1e-3f, L"a single ship lands on the anchor");
+      Assert::AreEqual(-567.0f, stations[0].positionMetres.y, 1e-3f, L"in every formation");
+    }
+  }
+
+  TEST_METHOD(AWedgeIsAnArrowheadWithItsTipOnTheAnchor)
+  {
+    // Facing +x: the tip on the anchor and both arms trailing *behind* it, so
+    // the shape points the way the fleet will be looking. An arrowhead whose
+    // arms led the tip would be a fleet flying backwards into its own point.
+    ClassLookup table{{1, 2, 3, 4, 5}, std::vector<HullClass>(5, HullClass::Corvette)};
+    const ShipId ids[] = {1, 2, 3, 4, 5};
+    const float spacing = ShipClass(HullClass::Corvette).formationSpacingMetres;
+
+    FormationStation stations[5] = {};
+    Assert::AreEqual<std::uint32_t>(
+        5, SolveFormation(FormationId::Wedge, ids, &ClassLookup::Of, &table, XMFLOAT2{0.0f, 0.0f}, 0.0f, stations));
+
+    Assert::AreEqual(0.0f, stations[0].positionMetres.x, 1e-3f, L"the tip is the anchor");
+    Assert::AreEqual(0.0f, stations[0].positionMetres.y, 1e-3f);
+
+    for (std::uint32_t index = 1; index < 5; ++index)
+    {
+      Assert::IsTrue(stations[index].positionMetres.x < -1.0f, L"every other ship trails the tip");
+    }
+
+    // Alternating arms, one rank at a time: 1 and 2 abreast, then 3 and 4.
+    Assert::AreEqual(stations[1].positionMetres.x, stations[2].positionMetres.x, 1e-3f, L"the first pair is abreast");
+    Assert::AreEqual(-stations[1].positionMetres.y, stations[2].positionMetres.y, 1e-3f, L"and on opposite sides");
+    Assert::IsTrue(stations[3].positionMetres.x < stations[1].positionMetres.x - 1.0f, L"the second pair is a rank further back");
+
+    // A step back and a step out are the same, which is what makes the arms 45
+    // degrees and consecutive ships in one arm exactly a spacing apart.
+    const float back = -stations[1].positionMetres.x;
+    const float out = std::fabs(stations[1].positionMetres.y);
+    Assert::AreEqual(back, out, 1e-3f, L"the arms lie at 45 degrees");
+    Assert::AreEqual(spacing, std::sqrt(back * back + out * out), 1e-2f, L"and the tip's neighbours are one spacing away");
+  }
+
+  TEST_METHOD(AClawCupsTheWayTheFleetWillFace)
+  {
+    // A crescent with its arms reaching *ahead* of the anchor, which is what
+    // makes it a claw rather than a bow. The middle of the arc is on the point.
+    ClassLookup table{{1, 2, 3, 4, 5, 6, 7}, std::vector<HullClass>(7, HullClass::Corvette)};
+    const ShipId ids[] = {1, 2, 3, 4, 5, 6, 7};
+
+    FormationStation stations[7] = {};
+    Assert::AreEqual<std::uint32_t>(
+        7, SolveFormation(FormationId::Claw, ids, &ClassLookup::Of, &table, XMFLOAT2{0.0f, 0.0f}, 0.0f, stations));
+
+    // Odd count, so the middle ship is exactly on the anchor.
+    Assert::AreEqual(0.0f, stations[3].positionMetres.x, 1e-3f, L"the middle of the arc is the anchor");
+    Assert::AreEqual(0.0f, stations[3].positionMetres.y, 1e-3f);
+
+    Assert::IsTrue(stations[0].positionMetres.x > 1.0f, L"one arm reaches forward");
+    Assert::IsTrue(stations[6].positionMetres.x > 1.0f, L"and so does the other");
+    Assert::AreEqual(stations[0].positionMetres.x, stations[6].positionMetres.x, 1e-3f, L"symmetrically");
+    Assert::AreEqual(-stations[0].positionMetres.y, stations[6].positionMetres.y, 1e-3f, L"on opposite sides");
+
+    // Monotonic: every ship from the middle out is further forward than the
+    // last, which is what makes it one arc rather than a zigzag.
+    for (std::uint32_t index = 3; index + 1 < 7; ++index)
+    {
+      Assert::IsTrue(stations[index + 1].positionMetres.x > stations[index].positionMetres.x, L"the arc curves one way");
+    }
+  }
+
+  TEST_METHOD(EveryFormationTurnsWithTheFacing)
+  {
+    /*
+     * The whole shape rotates with the arrival facing -- the degree of freedom
+     * the puck's drag chooses. A quarter turn CCW sends what was at +x to +y.
+     */
+    ClassLookup table{{1, 2, 3, 4}, std::vector<HullClass>(4, HullClass::Corvette)};
+    const ShipId ids[] = {1, 2, 3, 4};
+    const float quarter = 1.5707963f;
+
+    for (const FormationId formation : FORMATION_IDS)
+    {
+      FormationStation east[4] = {};
+      FormationStation north[4] = {};
+      SolveFormation(formation, ids, &ClassLookup::Of, &table, XMFLOAT2{0.0f, 0.0f}, 0.0f, east);
+      SolveFormation(formation, ids, &ClassLookup::Of, &table, XMFLOAT2{0.0f, 0.0f}, quarter, north);
+
+      for (std::uint32_t index = 0; index < 4; ++index)
+      {
+        Assert::AreEqual(-east[index].positionMetres.y, north[index].positionMetres.x, 1e-2f, L"x' = -y");
+        Assert::AreEqual(east[index].positionMetres.x, north[index].positionMetres.y, 1e-2f, L"y' = x");
+      }
+    }
+  }
+
+  TEST_METHOD(StationsNeverOverlapInAnyFormationAtAnyCount)
+  {
+    /*
+     * ADR-005 §2's unpaid bill. There is no inter-ship avoidance in the MVP,
+     * and the reason given is that stations do not overlap by construction --
+     * a claim about three separate formulas, made in prose in S6 and never
+     * checked. Every count the wire allows, against the spacing the class table
+     * asked for.
+     *
+     * The Claw is why this is worth running rather than reasoning about: its
+     * radius comes from the chord between adjacent ships, and the obvious
+     * alternative -- deriving it from the arc length -- puts them a fifth of a
+     * spacing too close at low counts while looking equally correct.
+     */
+    for (const FormationId formation : FORMATION_IDS)
+    {
+      for (std::uint16_t count = 2; count <= MAX_SHIPS_PER_ORDER; ++count)
+      {
+        ClassLookup table;
+        std::vector<ShipId> ids;
+        for (std::uint16_t index = 0; index < count; ++index)
+        {
+          const ShipId id = static_cast<ShipId>(index + 1);
+          ids.push_back(id);
+          table.ids.push_back(id);
+          // A mixed fleet, so the spacing under test is the largest member's
+          // rather than one class's everywhere.
+          table.classes.push_back(index % 3 == 0   ? HullClass::Interceptor
+                                  : index % 3 == 1 ? HullClass::Carrier
+                                                   : HullClass::Bomber);
+        }
+        const float spacing = ShipClass(HullClass::Carrier).formationSpacingMetres;
+
+        std::vector<FormationStation> stations(count);
+        Assert::AreEqual<std::uint32_t>(count, SolveFormation(formation, ids, &ClassLookup::Of, &table,
+                                                              XMFLOAT2{0.0f, 0.0f}, 0.37f, stations));
+
+        float closest = 1e30f;
+        for (std::uint16_t a = 0; a < count; ++a)
+        {
+          for (std::uint16_t b = static_cast<std::uint16_t>(a + 1); b < count; ++b)
+          {
+            const float dx = stations[a].positionMetres.x - stations[b].positionMetres.x;
+            const float dy = stations[a].positionMetres.y - stations[b].positionMetres.y;
+            closest = std::min(closest, std::sqrt(dx * dx + dy * dy));
+          }
+        }
+        // Equal, not merely greater: all three formulas are built so adjacent
+        // stations are exactly one spacing apart, and a formation that opened
+        // up to satisfy this would be wasting the plane.
+        Assert::AreEqual(spacing, closest, spacing * 0.01f, L"adjacent stations are one spacing apart");
+      }
+    }
+  }
+
+  TEST_METHOD(EveryFormationIsNamedAndAccepted)
+  {
+    // The two things a command surface needs of a formation: that validation
+    // takes it, and that there is a word to put on the control.
+    const ShipId ids[] = {1};
+    for (const FormationId formation : FORMATION_IDS)
+    {
+      const char* name = FormationName(formation);
+      Assert::IsTrue(name != nullptr && name[0] != '\0', L"a control the player cannot name is not a control");
+
+      OrderSubmit order = Order({1}, 100.0f, 100.0f);
+      order.formation = formation;
+      Assert::IsTrue(ValidateOrder(ViewOf(ids), order).accepted, L"and validation takes all three");
+    }
+    Assert::AreEqual<std::size_t>(3, std::size(FORMATION_IDS), L"the MVP set is Line, Wedge and Claw (ADR-005 §3)");
   }
 };
 
