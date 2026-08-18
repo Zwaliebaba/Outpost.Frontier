@@ -91,8 +91,9 @@ will be — the tight bound is a manual check by design, not by omission.
 ### S4 — Transport + handshake + heartbeat 🏁 **M0**
 `Transport` + `UdpTransport` (non-blocking Winsock, 1,152 B datagram cap, minimal control-
 channel reliability); `Hello/Welcome/UpdateRequired` with schema hash (and `universeHash` +
-`worldMeta` once S5b lands); `Ping/Pong`; client half connects in-process; NET stats
-(RTT/loss) logged both sides.
+`worldMeta`, which **landed with S5b** — the hash as `contentHash`, the rest as
+`worldId`/`anchorX`/`anchorY`; see ADR-009 §8 for why it is not carried twice); `Ping/Pong`;
+client half connects in-process; NET stats (RTT/loss) logged both sides.
 **Accept:** *window opens, swapchain presents, server ticks, heartbeat crosses the loopback* —
 the brief's milestone, demonstrably. `NeuronCoreTests` handshake over real loopback socket;
 schema-hash mismatch produces `UpdateRequired` + refusal (test forces a bad hash).
@@ -254,6 +255,51 @@ with the `Structure` mesh, celestials as distant backdrop.
 stability across reorderings that shouldn't matter and change on ones that should,
 anchor+local reconstruction property test; the client's rendered scene comes from the file
 (edit a station position → it moves, no rebuild).
+**Built ✅ (code):**
+`GameLogic/Ids.h` `Universe.h/.cpp` `UniverseParse.h/.cpp` — the first code GameLogic has ever
+carried. `UniversePos` is `int64` metres and **there is no float anywhere in the model**: that
+is what makes the hash exact, the equality meaningful and the reconstruction bit-perfect.
+`ParseUniverse` takes bytes rather than a path, so GameLogic stays OS-free and its tests need
+no filesystem; it reports *every* problem in one pass (ADR-012 §C8) with a line and a JSON path
+(`systems[0].stations[1].position.x`), and it refuses rather than rounds a coordinate written
+with a fraction — the reason ADR-012 §C7 demanded exact `int64` from the parser.
+`ComputeUniverseHash` walks entities **in id order, not file order**, so reformatting or moving
+a system up the array is not a content change while editing one is.
+`Outpost/UniverseLoad.h/.cpp` — locates and reads the file, exactly as `ConfigLoad` does, then
+hands the bytes over. `Main.cpp` loads it once and feeds both halves, and is the one place
+universe metres become the grid's local metres for the renderer.
+`GameData/Universe/Frontier.json` — Vesta-3: a star, two planets (Kessler and Halgren) and
+Vesta-3 Anchorage, in a Vesta Reach region, with the grid anchored at the station.
+`Welcome` gains `worldId`/`anchorX`/`anchorY` and `Simulation` gains `World()`, so a client in
+another process learns where it is; `CORE_SCHEMA_TEXT` changed with them, which is the
+mismatch mechanism working rather than a break.
+
+**Two departures from the ADR text, both recorded in ADR-009 §8.** The universe hash travels as
+the existing `contentHash` rather than a second copy inside `worldMeta` — two fields holding
+one number can disagree, and the one that decides whether to refuse a client would win
+silently. And the other two fields are named in engine terms (`worldId`, not `systemId`)
+because they live in `NeuronCore/Wire.h`, which has to stay plausible in an unrelated
+networked sim; the mapping is one-to-one and the engine never reads them.
+
+**Verified:** `GameLogicTests` is live for the first time — 15 cases covering the parse of every
+field, `int64` exactness past 2⁵³, comments and trailing commas, twelve malformed inputs each
+refused *with* a diagnostic, all-problems-in-one-pass, hash stability under reformatting and
+entity reordering, hash movement under six kinds of real edit, the start anchor, and the
+anchor+local reconstruction property over 121 positions, and — separately — the ends of the
+int64 plane, where an unguarded subtraction wraps a distant position into a false accept.
+`NeuronClientTests` covers the scenery path into the render scene. The wire change is covered
+at both ends: `NeuronCoreTests` round-trips a `Welcome` carrying a full-width negative anchor,
+and `NeuronServerTests` asserts the simulation's `WorldMeta` arrives intact at a raw
+core-level client.
+**Outstanding:** **celestials are parsed, hashed and loaded but not drawn.** Rendering them
+needs the backdrop that ADR-006 §1 reserves as the `Nebula` node — at tactical zoom a planet
+300 million kilometres away is a point, so a "distant backdrop" is a skybox-class pass, not a
+mesh in the opaque list. Faking it by scaling the `Structure` hull would put a wrong thing on
+screen and call the slice done. The data is in place for that pass to read.
+Also still owed, and needing a GPU: confirming on screen that moving the station in the file
+moves it in the world. The demonstration is to edit `stations[0].position` and restart — the
+logged grid anchor moves with it, and a second station added to the array appears at its
+offset, with nothing rebuilt.
 
 ### S5c — The engine/game seams
 `Neuron::Simulation` (NeuronServer) and `Neuron::WorldView` (NeuronClient) declared, with the

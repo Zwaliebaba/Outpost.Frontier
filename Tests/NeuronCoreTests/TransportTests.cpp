@@ -210,8 +210,15 @@ public:
     std::array<std::uint8_t, 512> buffer{};
     ByteWriter writer{buffer};
 
+    // The anchor is deliberately a large negative value: the universe plane is
+    // signed and runs to +/-9.2e18 metres (ADR-009 §1), so a field that was
+    // narrowed or made unsigned anywhere along the way folds here rather than
+    // in a session where a world quietly renders in the wrong place.
+    constexpr std::int64_t ANCHOR_X = -4611686018427387904ll;
+    constexpr std::int64_t ANCHOR_Y = 9223372036854775807ll;
+
     WriteWireType(writer, WireType::Welcome);
-    Write(writer, Welcome{7, 1234, 20, 0xaaaa, 0xbbbb});
+    Write(writer, Welcome{7, 1234, 20, 0xaaaa, 0xbbbb, 9, ANCHOR_X, ANCHOR_Y});
 
     ByteReader reader{writer.Written()};
     Assert::IsTrue(ReadWireType(reader) == WireType::Welcome);
@@ -222,6 +229,10 @@ public:
     Assert::AreEqual<std::uint32_t>(1234, welcome.tick);
     Assert::AreEqual<std::uint16_t>(20, welcome.tickRate);
     Assert::AreEqual<std::uint64_t>(0xaaaa, welcome.schemaHash);
+    Assert::AreEqual<std::uint64_t>(0xbbbb, welcome.contentHash);
+    Assert::AreEqual<std::uint16_t>(9, welcome.worldId);
+    Assert::AreEqual(ANCHOR_X, welcome.anchorX);
+    Assert::AreEqual(ANCHOR_Y, welcome.anchorY);
     Assert::IsTrue(reader.FullyConsumed());
   }
 

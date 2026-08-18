@@ -156,6 +156,13 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     welcome.schemaHash = m_simulation->SchemaHash();
     welcome.contentHash = m_simulation->ContentHash();
 
+    // Where the world is, so a client in another process can place a position
+    // before any snapshot arrives (ADR-009 §8).
+    const WorldMeta world = m_simulation->World();
+    welcome.worldId = world.worldId;
+    welcome.anchorX = world.anchorX;
+    welcome.anchorY = world.anchorY;
+
     WriteWireType(writer, WireType::Welcome);
     Write(writer, welcome);
     SendTo(_event.connection, TransportChannel::Control, writer);

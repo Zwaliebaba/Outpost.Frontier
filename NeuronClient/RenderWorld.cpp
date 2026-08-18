@@ -14,6 +14,24 @@ using namespace DirectX;
 
 } // namespace
 
+void AddScenery(std::span<const ScenePlacement> _placements, RenderScene& _outScene)
+{
+  _outScene.instances.reserve(_outScene.instances.size() + _placements.size());
+  for (const ScenePlacement& placement : _placements)
+  {
+    InstanceRecord instance;
+    // Local metres on the plane become render space directly: x east, y the
+    // cosmetic height, z north (ADR-001 §3). Authored scenery sits on the
+    // plane, so the height is zero and stays zero.
+    instance.posWorld = XMFLOAT3{placement.xMetres, 0.0f, placement.yMetres};
+    instance.heading = placement.headingRadians;
+    instance.teamColorId = 0;
+    instance.selectionAndLodBias = 0;
+    instance.classId = placement.classId;
+    _outScene.instances.push_back(instance);
+  }
+}
+
 void RenderScene::Clear() noexcept
 {
   // Capacity is kept on purpose: this runs once a frame, and the instance count
@@ -52,19 +70,6 @@ void BuildParkedFleet(const ParkedFleetDesc& _desc, std::span<const float> _clas
   if (classCount == 0)
   {
     return;
-  }
-
-  // The station sits at the grid anchor. S5b moves the anchor to wherever the
-  // universe file puts the station; until then the anchor is the origin.
-  if (_desc.structureClassId < classCount)
-  {
-    InstanceRecord station;
-    station.posWorld = XMFLOAT3{0.0f, 0.0f, 0.0f};
-    station.heading = 0.0f;
-    station.teamColorId = 0;
-    station.selectionAndLodBias = 0;
-    station.classId = static_cast<std::uint16_t>(_desc.structureClassId);
-    _outScene.instances.push_back(station);
   }
 
   const std::uint32_t wings = std::min(_desc.shipClassCount, classCount);

@@ -1,0 +1,78 @@
+// Outpost: Frontier -- the authored universe (ADR-009).
+//
+// Every position is an EXACT INTEGER METRE on the universe plane. They are
+// never rounded and never held as floating point: 1.2e11 written here would be
+// rejected by the parser, because a coordinate that has been through a double
+// has already lost digits (ADR-012 §C7). Write the digits you mean.
+//
+// Ids are authored, not assigned at load. They are what the wire and any future
+// save file say, so renumbering one is a content migration rather than an edit
+// (ADR-009 §5). Id 0 is reserved for "nothing".
+//
+// The MVP is one system (ADR-009 §9). Adding a second is authoring: another
+// entry in `systems`, gates between them, and nothing to rebuild.
+{
+  "name": "Frontier",
+
+  // Where a session begins. The tactical grid anchors at this station, so the
+  // whole 40 km play area is expressed relative to it.
+  "start": { "system": 1, "station": 1 },
+
+  "regions": [
+    { "id": 1, "name": "Vesta Reach" }
+  ],
+
+  "systems": [
+    {
+      "id": 1,
+      "region": 1,
+      "name": "Vesta-3",
+
+      // Distances between systems are laid out for map legibility, not physics
+      // (ADR-009 §3). Positions *within* a system are gameplay-real.
+      "centre": { "x": 4200000000, "y": -1750000000 },
+
+      // Landmarks, and later economy anchors. They are hundreds of millions of
+      // metres away -- far outside any tactical grid -- so they are backdrop
+      // rather than anything the fleet flies to.
+      "celestials": [
+        {
+          "id": 1,
+          "kind": "star",
+          "name": "Vesta",
+          "position": { "x": 4200000000, "y": -1750000000 },
+          "radiusMetres": 696000000
+        },
+        {
+          "id": 2,
+          "kind": "planet",
+          "name": "Kessler",
+          "position": { "x": 4310000000, "y": -1750000000 },
+          "radiusMetres": 6051000
+        },
+        {
+          "id": 3,
+          "kind": "planet",
+          "name": "Halgren",
+          "position": { "x": 3970000000, "y": -1670000000 },
+          "radiusMetres": 6371000
+        }
+      ],
+
+      // One station in the MVP (ADR-009 §9); the format and the loader both
+      // take two, which is the system cap. Move this position and the grid
+      // anchor moves with it -- the scene is read from here, not compiled in.
+      "stations": [
+        {
+          "id": 1,
+          "name": "Vesta-3 Anchorage",
+          "position": { "x": 4309400000, "y": -1749880000 }
+        }
+      ]
+
+      // No gates: the MVP has one system, and traversal is post-MVP. The key is
+      // optional, so leaving it out is not an omission the loader complains
+      // about.
+    }
+  ]
+}

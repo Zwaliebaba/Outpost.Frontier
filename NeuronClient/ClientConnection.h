@@ -70,6 +70,22 @@ public:
     return m_pongCount;
   }
 
+  /// Where the server says its world is anchored (ADR-009 §8). Meaningful only
+  /// once Joined; zero before that. In `mode: "client"` this is the only way
+  /// the client learns it, since it shares no configuration with the server.
+  [[nodiscard]] std::uint16_t WorldId() const noexcept
+  {
+    return m_worldId;
+  }
+  [[nodiscard]] std::int64_t AnchorX() const noexcept
+  {
+    return m_anchorX;
+  }
+  [[nodiscard]] std::int64_t AnchorY() const noexcept
+  {
+    return m_anchorY;
+  }
+
   /// Datagram counters for the HUD's NET readout. Loss on the reliable channel
   /// shows up as controlResends; on the unreliable one it is the gap between
   /// pings sent and pongs counted.
@@ -96,6 +112,9 @@ private:
   std::uint32_t m_clientId = 0;
   std::uint32_t m_serverTick = 0;
   std::uint16_t m_serverTickRate = 0;
+  std::uint16_t m_worldId = 0;
+  std::int64_t m_anchorX = 0;
+  std::int64_t m_anchorY = 0;
   double m_roundTripMs = 0.0;
   std::uint64_t m_pingCount = 0;
   std::uint64_t m_pongCount = 0;

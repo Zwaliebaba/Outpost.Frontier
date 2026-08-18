@@ -1,5 +1,7 @@
 #pragma once
 
+#include "RenderWorld.h"
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -50,6 +52,20 @@ struct ClientConfig
   /// A multiplier on HUD sizes, honoured from day one because the settings
   /// sheet makes 0.8-1.6x a requirement rather than a nicety.
   float uiScale = 1.0f;
+
+  /*
+   * The world the session plays in, read from the universe definition by the
+   * composition root (ADR-009). The engine is handed placements and an origin;
+   * it never learns that one of those placements is a station.
+   *
+   * `staticScenery` is in local metres relative to the anchor. The anchor is
+   * the grid's origin on the universe plane, in whole metres -- exact, and
+   * never held as a float, because that is the whole point of ADR-009 §1.
+   */
+  std::vector<ScenePlacement> staticScenery;
+  std::uint16_t worldId = 0;
+  std::int64_t gridAnchorXMetres = 0;
+  std::int64_t gridAnchorYMetres = 0;
 
   /// The game's message layout and authored content, as the simulation reports
   /// them. Compared at the handshake so mismatched builds refuse each other

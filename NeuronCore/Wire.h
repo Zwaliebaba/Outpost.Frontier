@@ -54,6 +54,24 @@ struct Hello
   std::string playerName;
 };
 
+/*
+ * The server's answer, and the first thing that tells a client where it is.
+ *
+ * `worldId` and the anchor are ADR-009 §8's `worldMeta`, named in engine terms
+ * on purpose: NeuronCore must stay plausible in an unrelated networked sim
+ * (Dependency Map ruling 4), so it carries "which world, and where is its
+ * origin" rather than "which solar system". The game's meaning of those numbers
+ * is GameLogic's, and the engine never reads them.
+ *
+ * They matter the moment the client is a separate process: `mode: "client"`
+ * connects to a server it shares no configuration with, and without an anchor
+ * it cannot place a single replicated position (ADR-009 §2).
+ *
+ * The universe hash is *not* repeated here. It already travels as
+ * `contentHash`, which is the field the handshake fails closed on; carrying it
+ * twice would create two values that can disagree, and the one that refuses the
+ * connection would win silently.
+ */
 struct Welcome
 {
   std::uint32_t clientId = 0;
@@ -61,6 +79,9 @@ struct Welcome
   std::uint16_t tickRate = 0;
   std::uint64_t schemaHash = 0;
   std::uint64_t contentHash = 0;
+  std::uint16_t worldId = 0;
+  std::int64_t anchorX = 0;
+  std::int64_t anchorY = 0;
 };
 
 struct UpdateRequired
@@ -120,7 +141,8 @@ void Write(ByteWriter& _writer, const Goodbye& _message) noexcept;
  * silently instead of refusing each other at the handshake.
  */
 inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,u64 schemaHash,u64 contentHash,str playerName}"
-                                                     "Welcome{u32 clientId,u32 tick,u16 tickRate,u64 schemaHash,u64 contentHash}"
+                                                     "Welcome{u32 clientId,u32 tick,u16 tickRate,u64 schemaHash,u64 contentHash,"
+                                                     "u16 worldId,i64 anchorX,i64 anchorY}"
                                                      "UpdateRequired{u64 serverSchemaHash,u64 serverContentHash}"
                                                      "Refuse{u16 reason}"
                                                      "Ping{u64 clientSendMicroseconds}"

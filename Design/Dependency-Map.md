@@ -83,7 +83,7 @@ headers, no rendering, no sockets, no clock, no file IO.
 | Area | Files | Notes |
 |---|---|---|
 | Identity | `Ids.h` (`ShipId`, `WingId`, `OrderId`, `SystemId`, `CelestialId`, `StationId`, `GateId`) `ShipClass.h` | 11-value closed taxonomy; Fighter/Cruiser reserved ids (ADR-009 §6) |
-| Universe | `Universe.h` (`UniversePos{i64,i64}`, `UniverseDef`, region/system/celestial/station/gate tables, `GridAnchor`) `UniverseParse.h` (JSON bytes → `UniverseDef`, pure) | Exact integer metres; `universeHash` over canonical parsed content (ADR-012 §D) |
+| Universe | `Ids.h` (`RegionId`/`SystemId`/`CelestialId`/`StationId`/`GateId`, all `u16`, authored not assigned) `Universe.h` (`UniversePos{i64,i64}`, `UniverseDef`, region/system/celestial/station/gate tables, `GridAnchor`, `LocalFromUniverse`/`UniverseFromLocal`) `UniverseParse.h` (JSON bytes → `UniverseDef`, pure) | Exact integer metres — **no float anywhere in the model**, which is what makes the hash and the reconstruction exact; `universeHash` over canonical parsed content, walked in id order so reordering a file is not a content change (ADR-012 §D) |
 | World | `World.h` (authoritative tables + `Tick(orders[])`) `ReplicatedView.h` (quantised client view + `ApplySnapshot`) | Single-writer; owner asserts in debug; state stored as `XMFLOAT2` (ADR-010 §3) |
 | Orders | `Orders.h` (`OrderSubmit`, `OrderGroup`, 4-leg queue) `Validate.h` (`ValidateOrder`, `ReasonCode`) | Validation consumes wire-quantised values only (ADR-005 §4) |
 | Formations | `Formation.h` (`FormationId{Line,Wedge,Claw}`, `SolveFormation`) | Pure; client footprint preview calls this exact function |
@@ -117,22 +117,34 @@ for the atlas bake, **XAudio2 + X3DAudio**). No GameLogic (ADR-014).
 | Audio | `AudioSystem.h` (XAudio2 graph, voice pool) `AudioListener.h` (focus/zoom listener model) `AudioBank.h` (JSON bank + RIFF WAV) | 5 submixes; `AudioUpdate` stage after Extract (ADR-011) |
 
 ### Outpost.exe — composition root
-Allowed deps: NeuronServer, NeuronClient (and transitively the rest). Files: `Main.cpp`
-(`wWinMain`, **arguments ignored**), `ConfigLoad.h/.cpp` (locate + parse + merge
+Allowed deps: NeuronServer, NeuronClient, GameLogic (and transitively the rest). Files:
+`Main.cpp` (`wWinMain`, **arguments ignored**), `ConfigLoad.h/.cpp` (locate + parse + merge
 `Outpost.json` and the user layer), `AppConfig.h/.cpp` (JSON → `ServerConfig`/`ClientConfig`
-structs), boot/shutdown ordering (ADR-008), `SelfTest.h/.cpp` (the `selfTest` driver: server
-up, handshake, heartbeat, exit code). **Nothing else.** Nothing depends on it.
+structs), `UniverseLoad.h/.cpp` (locate + read the universe definition, then hand the bytes to
+GameLogic's pure parser — file IO stays here so GameLogic stays OS-free, ADR-009 §7),
+boot/shutdown ordering (ADR-008), `SelfTest.h/.cpp` (the `selfTest` driver: server up,
+handshake, heartbeat, exit code). **Nothing else.** Nothing depends on it.
+
+It is also the only place universe metres become render metres: it reads the authored
+placements, converts them into the tactical grid's local frame, and hands the client a list of
+`ScenePlacement`. GameLogic owns the exact coordinates and the engine owns the drawing; the
+conversion belongs to the one thing that knows both (ADR-014).
 
 ### Tests/* — VS CppUnitTestFramework (added on main, 2026-08-17)
 Each test project depends on its library under test plus that library's allowed deps.
 - `GameLogicTests` — replay determinism (double-run hash equality), wire round-trip/underrun,
   formation geometry, validation parity (quantised inputs), universe JSON parse round-trip +
-  rejection, `universeHash` stability, anchor+local reconstruction.
+  rejection, `universeHash` stability, anchor+local reconstruction. **Live from S5b**: the
+  universe suite runs on text held in the test file, so it needs no filesystem and no fixtures
+  — the practical payoff of keeping file IO out of GameLogic.
 - `NeuronCoreTests` — byte IO, ring buffers, **JSON conformance corpus** (valid/invalid,
   `int64` exactness past 2⁵³, depth cap, duplicate keys, escapes/surrogates, writer
-  round-trip), UDP loopback handshake (real socket).
+  round-trip), UDP loopback handshake (real socket), `Welcome` round-trip over a full-width
+  negative anchor — a field narrowed anywhere in the chain folds there rather than in a
+  session where the world quietly renders somewhere else.
 - `NeuronServerTests` — `ServerHost` start/stop/join, session handshake against a raw
-  core-level client, config structs built in code (no files).
+  core-level client, the simulation's `WorldMeta` arriving intact in `Welcome`, config structs
+  built in code (no files).
 - `NeuronClientTests` — interpolation/extrapolation timeline, picking math, OBJ parser,
   camera projection and input mapping, extract layout, audio listener/emitter math,
   sound-bank parsing. **No D3D device and no audio device in unit tests**; GPU/audio smoke

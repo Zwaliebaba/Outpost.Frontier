@@ -2,11 +2,32 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
+    <ClCompile Include="Universe.cpp">
+      <Filter>Universe</Filter>
+    </ClCompile>
+    <ClCompile Include="UniverseParse.cpp">
+      <Filter>Universe</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="Ids.h">
+      <Filter>World</Filter>
+    </ClInclude>
+    <ClInclude Include="Universe.h">
+      <Filter>Universe</Filter>
+    </ClInclude>
+    <ClInclude Include="UniverseParse.h">
+      <Filter>Universe</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <Filter Include="World">
+      <UniqueIdentifier>{3f6b1c40-9d27-4a58-8b0e-2c7415d9e8a3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Universe">
+      <UniqueIdentifier>{b8e2074d-51ca-4f36-97a1-6d0e3b82fc19}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Project Files">
       <UniqueIdentifier>{82cd3cec-43b8-470b-bcd8-733fcb751dea}</UniqueIdentifier>
     </Filter>

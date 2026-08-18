@@ -30,6 +30,21 @@ struct OrderVerdict
   std::uint32_t serverOrderId = 0;
 };
 
+/*
+ * Where the simulation's world sits, for a client that must place itself before
+ * the first snapshot arrives (ADR-009 §8's `worldMeta`).
+ *
+ * Named in engine terms deliberately -- "world", not "solar system". The engine
+ * carries the numbers to the client and never reads them; what they mean is
+ * GameLogic's business (ADR-014).
+ */
+struct WorldMeta
+{
+  std::uint16_t worldId = 0;
+  std::int64_t anchorX = 0; // The tactical grid's origin, in whole world units.
+  std::int64_t anchorY = 0;
+};
+
 class Simulation
 {
 public:
@@ -53,6 +68,11 @@ public:
   /// The content the simulation was built from -- the universe definition and
   /// anything else authored. Same handshake, different failure.
   [[nodiscard]] virtual std::uint64_t ContentHash() const = 0;
+
+  /// Where this simulation's world is anchored. Defaulted rather than pure
+  /// because a simulation with no world is a real thing -- NullSimulation is
+  /// one -- but anything built from authored content must answer.
+  [[nodiscard]] virtual WorldMeta World() const { return {}; }
 };
 
 /*

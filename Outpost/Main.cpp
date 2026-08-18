@@ -3,6 +3,7 @@
 #include "AppConfig.h"
 #include "ConfigLoad.h"
 #include "SelfTest.h"
+#include "UniverseLoad.h"
 
 #include "ClientApp.h"
 #include "ClientConfig.h"
@@ -18,7 +19,9 @@
 #include <DirectXMath.h>
 
 #include <cstdio>
+#include <span>
 #include <string>
+#include <vector>
 
 /*
  * The composition root (ADR-008).
@@ -85,6 +88,107 @@ void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigP
                   _config.client.renderer.vsync ? "on" : "off", _config.client.ui.scale);
 }
 
+/*
+ * The simulation the server hosts until GameLogic supplies a real one (S5c).
+ *
+ * It advances nothing -- there is no world yet -- but it is emphatically not a
+ * NullSimulation, because it has authored content behind it. The universe hash
+ * is what the handshake fails closed on, and the grid anchor is what a client
+ * in another process needs before it can place a single position. Those two
+ * facts are exactly what S5b put in the tree, so the server has to be able to
+ * state them.
+ *
+ * `SchemaHash` stays zero on purpose: that field means "the layout of the
+ * *game's* wire types", and there are none until S6 writes snapshots. Returning
+ * something plausible would be worse than returning nothing.
+ */
+class UniverseSimulation final : public Neuron::Simulation
+{
+public:
+  UniverseSimulation(std::uint64_t _universeHash, Neuron::WorldMeta _world) noexcept
+    : m_universeHash(_universeHash),
+      m_world(_world)
+  {
+  }
+
+  void AdvanceTick(std::uint32_t _tick) override { m_lastTick = _tick; }
+  void WriteSnapshot(std::uint32_t, Neuron::ByteWriter&) override {}
+
+  [[nodiscard]] Neuron::OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t>) override
+  {
+    return Neuron::OrderVerdict{}; // Nothing to command yet.
+  }
+
+  [[nodiscard]] std::uint64_t SchemaHash() const override { return 0; }
+  [[nodiscard]] std::uint64_t ContentHash() const override { return m_universeHash; }
+  [[nodiscard]] Neuron::WorldMeta World() const override { return m_world; }
+
+private:
+  std::uint64_t m_universeHash = 0;
+  Neuron::WorldMeta m_world;
+  std::uint32_t m_lastTick = 0;
+};
+
+/// The universe's world meta, in the neutral terms the engine speaks
+/// (ADR-009 §8): which world, and where its tactical grid is anchored.
+Neuron::WorldMeta MakeWorldMeta(const Game::UniverseDef& _universe)
+{
+  const Game::GridAnchor anchor = _universe.StartAnchor();
+  return Neuron::WorldMeta{anchor.system, anchor.origin.x, anchor.origin.y};
+}
+
+/*
+ * Authored placements, converted into the grid's local frame for the renderer.
+ *
+ * This is the one place the universe's integer metres become the client's local
+ * floats, and it is deliberately in the composition root: GameLogic owns the
+ * exact coordinates, the engine owns the rendering, and the conversion between
+ * them belongs to the thing that knows both (ADR-014).
+ */
+std::vector<Neuron::ScenePlacement> BuildScenery(const Game::UniverseDef& _universe, std::uint16_t _structureClassId)
+{
+  std::vector<Neuron::ScenePlacement> scenery;
+
+  const Game::GridAnchor anchor = _universe.StartAnchor();
+  const Game::SolarSystem* system = _universe.FindSystem(anchor.system);
+  if (system == nullptr)
+  {
+    return scenery;
+  }
+
+  for (const Game::Station& station : system->stations)
+  {
+    Game::LocalOffsetCm local;
+    if (!Game::LocalFromUniverse(anchor.origin, station.position, local))
+    {
+      // Refused rather than wrapped (ADR-009 §2). A station further than the
+      // grid's half-extent from the anchor is a content error, and drawing it
+      // at a folded coordinate would hide that.
+      NEURON_LOG_WARNING("station '%s' is outside the tactical grid and was not placed", station.name.c_str());
+      continue;
+    }
+
+    Neuron::ScenePlacement placement;
+    placement.xMetres = static_cast<float>(local.x) * 0.01f;
+    placement.yMetres = static_cast<float>(local.y) * 0.01f;
+    placement.classId = _structureClassId;
+    scenery.push_back(placement);
+  }
+  return scenery;
+}
+
+void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
+{
+  const Game::GridAnchor anchor = _universe.universe.StartAnchor();
+  NEURON_LOG_INFO("universe: '%s' from %s (%u system(s), hash %016llx)", _universe.universe.name.c_str(), _universe.path.c_str(),
+                  static_cast<unsigned>(_universe.universe.systems.size()), static_cast<unsigned long long>(_universe.universeHash));
+
+  const Game::SolarSystem* system = _universe.universe.FindSystem(anchor.system);
+  NEURON_LOG_INFO("start: system %u '%s', grid anchored at (%lld, %lld)", static_cast<unsigned>(anchor.system),
+                  system != nullptr ? system->name.c_str() : "?", static_cast<long long>(anchor.origin.x),
+                  static_cast<long long>(anchor.origin.y));
+}
+
 /// The server takes the same treatment: a plain struct, assembled here.
 Neuron::ServerConfig MakeServerConfig(const Outpost::AppConfig& _config)
 {
@@ -96,7 +200,7 @@ Neuron::ServerConfig MakeServerConfig(const Outpost::AppConfig& _config)
 
 /// Maps the file's settings onto what the client library asks for. The client
 /// never sees AppConfig: libraries take plain structs from the composition root.
-Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
+Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config, const Outpost::UniverseLoadResult& _universe)
 {
   Neuron::ClientConfig client;
   client.windowWidth = _config.client.window.width;
@@ -119,6 +223,23 @@ Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
   client.cameraZoomMetres = static_cast<float>(_config.client.camera.zoomMetres);
   client.cameraYawSnapDegrees = static_cast<float>(_config.client.camera.yawSnapDegrees);
   client.uiScale = static_cast<float>(_config.client.ui.scale);
+
+  // The world, from the universe definition. The structure mesh is the last
+  // entry in the content list by convention (AppConfig.h), which is the only
+  // place that convention is spelled -- the engine just gets a classId.
+  const Game::GridAnchor anchor = _universe.universe.StartAnchor();
+  const auto structureClassId =
+      static_cast<std::uint16_t>(_config.content.meshes.empty() ? 0 : _config.content.meshes.size() - 1);
+  client.worldId = anchor.system;
+  client.gridAnchorXMetres = anchor.origin.x;
+  client.gridAnchorYMetres = anchor.origin.y;
+  client.staticScenery = BuildScenery(_universe.universe, structureClassId);
+
+  // Both halves load the identical definition, so the client hashes what it
+  // read rather than being told (ADR-009 §8). In `mode: "client"` that is the
+  // whole safety property: a client whose content drifted is refused at the
+  // door instead of rendering a world the server is not simulating.
+  client.contentHash = _universe.universeHash;
 #if defined(_DEBUG)
   client.enableDebugLayer = true; // Every debug run gets the validation layer.
 #endif
@@ -164,10 +285,31 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   }
   LogResolvedConfig(config, paths);
 
+  // The universe, read here and parsed by GameLogic (ADR-009 §7). Both halves
+  // load the identical definition, so this happens once and feeds both -- and
+  // it happens before anything starts, because a universe that will not parse
+  // is not a degraded mode, it is a refusal to run.
+  Outpost::UniverseLoadResult universe;
+  std::vector<std::string> universeErrors;
+  if (!Outpost::LoadUniverse(config.universeDefinition, universe, universeErrors))
+  {
+    Outpost::ConfigDiagnostics universeDiagnostics;
+    universeDiagnostics.errors = universeErrors;
+    for (const std::string& error : universeErrors)
+    {
+      NEURON_LOG_ERROR("%s", error.c_str());
+    }
+    ReportStartupFailure(universeDiagnostics);
+    Neuron::Log::Shutdown();
+    return 1;
+  }
+  LogResolvedUniverse(universe);
+
   // GameLogic implements Simulation and the composition root injects it
-  // (ADR-014 §2). Until that exists, the server hosts a simulation that does
-  // nothing -- which is enough to prove the loop, the sessions and the wire.
-  Neuron::NullSimulation simulation;
+  // (ADR-014 §2). Until it does (S5c), the server hosts one that advances
+  // nothing but knows its content hash and where its world is anchored -- which
+  // is enough to prove the loop, the sessions, the wire and the handshake.
+  UniverseSimulation simulation{universe.universeHash, MakeWorldMeta(universe.universe)};
 
   // Before anything opens a window: the self test is a diagnostic, and its
   // answer is an exit code (Build Order S4).
@@ -201,7 +343,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     case Outpost::HostMode::Host:
     case Outpost::HostMode::Client:
     {
-      Neuron::ClientConfig clientConfig = MakeClientConfig(config);
+      Neuron::ClientConfig clientConfig = MakeClientConfig(config, universe);
       if (config.mode == Outpost::HostMode::Host)
       {
         // Port 0 asked the OS to choose, so the client is told what it chose.
@@ -209,10 +351,11 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
         // the only thing the two halves share besides the socket.
         clientConfig.serverHost = "127.0.0.1";
         clientConfig.serverPort = server.BoundPort();
-        // The handshake compares these against the simulation's own values, and
-        // in one process there is exactly one simulation to ask.
+        // The schema hash is the simulation's to state, and in one process
+        // there is exactly one simulation to ask. The content hash is not taken
+        // from it: the client hashes the universe it loaded itself, so hosting
+        // exercises the same comparison a separate client would (ADR-009 §8).
         clientConfig.schemaHash = simulation.SchemaHash();
-        clientConfig.contentHash = simulation.ContentHash();
       }
 
       Neuron::ClientApp client;

@@ -246,13 +246,24 @@ void ClientApp::UpdateCamera(float _deltaSeconds)
 
 void ClientApp::ExtractScene()
 {
-  // The locally-faked parked fleet (Build Order S5). S7 replaces this whole
-  // function with the interpolated replicated world; the call it replaces is
-  // this one, which is why the fake is a free function with no state.
+  // Two sources, and the difference between them is the point of S5b.
+  //
+  // The ships are still invented here (Build Order S5) and S7 replaces them
+  // with the interpolated replicated world. The scenery is not invented: it is
+  // the universe definition, read from GameData by the composition root and
+  // converted into this grid's local frame. Move the station in that file and
+  // it moves here, with nothing rebuilt.
   ParkedFleetDesc fleet;
   fleet.shipClassCount = m_meshes.Count() > 0 ? m_meshes.Count() - 1 : 0;
-  fleet.structureClassId = fleet.shipClassCount;
   BuildParkedFleet(fleet, m_meshes.ClassRadii(), m_scene);
+
+  AddScenery(m_config.staticScenery, m_scene);
+
+  // BuildParkedFleet leaves its own scene sorted -- it is a standalone fake
+  // with standalone tests -- so this re-sorts a merged array rather than an
+  // unsorted one. Forty-odd instances make that free, and the alternative is a
+  // producer whose output is only valid if you remember to finish it.
+  m_scene.SortByClass(m_meshes.Count());
 }
 
 FrameConstants ClientApp::BuildFrameConstants() const

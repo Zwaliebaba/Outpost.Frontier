@@ -30,6 +30,9 @@
     <ClCompile Include="ConfigLoad.cpp">
       <Filter>Config</Filter>
     </ClCompile>
+    <ClCompile Include="UniverseLoad.cpp">
+      <Filter>Config</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -40,6 +43,9 @@
       <Filter>Config</Filter>
     </ClInclude>
     <ClInclude Include="ConfigLoad.h">
+      <Filter>Config</Filter>
+    </ClInclude>
+    <ClInclude Include="UniverseLoad.h">
       <Filter>Config</Filter>
     </ClInclude>
   </ItemGroup>

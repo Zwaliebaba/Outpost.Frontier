@@ -71,6 +71,22 @@ without saying what anchors them. This ADR says it.
    beside the schema hash and **fails closed** on mismatch — same posture, same
    `UpdateRequired` path (ADR-004). `Welcome.worldMeta` is now concrete:
    `{ systemId, gridAnchor : UniversePos, universeHash }`.
+
+   **As built (S5b), with two deliberate departures:**
+   - **The hash is not carried twice.** `Hello`/`Welcome` already had a `contentHash` field,
+     and it is the field the handshake refuses on. The universe hash *is* that value, rather
+     than a second copy inside `worldMeta`: two fields carrying the same number are two fields
+     that can disagree, and the one that decides whether to refuse would win silently.
+   - **The remaining two are named in engine terms** — `worldId`, `anchorX`, `anchorY` — because
+     they live in `NeuronCore/Wire.h`, which must stay plausible in an unrelated networked sim
+     (Dependency Map ruling 4). "Which world, and where is its origin" is generic; "which solar
+     system" is not. The mapping is one-to-one: `worldId` is the `SystemId`, and the anchor is
+     the `GridAnchor`'s `UniversePos`. The engine carries them and never reads them, which is
+     ADR-014's rule holding at the one place it was most tempting to bend.
+
+   `worldMeta` earns its place in the wire now rather than at S5c because `mode: "client"`
+   already exists: a client in another process shares no configuration with the server, so
+   without the anchor it cannot place a single replicated position.
 9. **MVP content:** one authored system — **Vesta-3** (the system on the prints): star, two
    planets, one station. The MVP tactical grid is anchored at the station; the fleet flies
    there; the station (Structure mesh) is on-grid scenery/landmark, celestials render as

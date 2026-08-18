@@ -65,28 +65,51 @@ struct RenderScene
 };
 
 /*
+ * Something the world places on the grid, in local metres relative to the
+ * anchor (S5b).
+ *
+ * This is how authored content reaches the renderer: the composition root reads
+ * the universe definition, converts each placement into the grid's local frame,
+ * and hands the engine a list of "draw mesh N here". The engine has no idea one
+ * of them is a station -- it is told a classId and a position (ADR-014).
+ */
+struct ScenePlacement
+{
+  float xMetres = 0.0f;
+  float yMetres = 0.0f;
+  float headingRadians = 0.0f;
+  std::uint16_t classId = 0;
+};
+
+/// Appends placements to a scene. The caller re-sorts once everything is in.
+void AddScenery(std::span<const ScenePlacement> _placements, RenderScene& _outScene);
+
+/*
  * The locally-faked parked fleet (Build Order S5).
  *
- * S5 renders before there is anything to replicate, so the scene is authored
- * here: one structure at the anchor and eight wings around it, one wing per
- * ship class, so every mesh in GameData is on screen the first time the pass
- * runs. Frame time is measured against this at 41 instances.
+ * Ships only. S5 rendered a station here too; from S5b the station is authored
+ * content and arrives through AddScenery, because a scene that is half read
+ * from a file and half invented is a scene where "did my edit work?" has no
+ * clean answer.
+ *
+ * Eight wings, one per ship class, so every ship mesh in GameData is on screen
+ * the first time the pass runs. Frame time is measured against this plus the
+ * station at 41 instances.
  *
  * S7 deletes it. It is deliberately one function with no state, so deleting it
  * is deleting a call.
  */
 struct ParkedFleetDesc
 {
-  std::uint32_t shipClassCount = 8;   // classId 0..7 are ships...
-  std::uint32_t structureClassId = 8; // ...and the station is the ninth mesh.
-  std::uint32_t shipsPerWing = 5;     // 8 wings x 5 + 1 station = 41 instances.
+  std::uint32_t shipClassCount = 8; // classId 0..7 are ships; 8 is the structure.
+  std::uint32_t shipsPerWing = 5;   // 8 wings x 5 + 1 authored station = 41 instances.
   float wingRadiusMetres = 1400.0f;
   float wingSpacingMultiplier = 3.0f; // Of the class's own radius, so a Carrier
                                       // wing is not parked at Interceptor spacing.
 };
 
 /// _classRadiiMetres is indexed by classId -- the mesh bounds the loader
-/// produced, so station spacing follows the hull that is actually being parked.
+/// produced, so wing spacing follows the hull that is actually being parked.
 void BuildParkedFleet(const ParkedFleetDesc& _desc, std::span<const float> _classRadiiMetres, RenderScene& _outScene);
 
 } // namespace Neuron
