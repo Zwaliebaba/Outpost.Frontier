@@ -11,8 +11,13 @@
 
 #include "PassConstants.hlsli"
 
-// Must match UiInstance in GpuPasses.cpp.
+// Must match UiDrawList.h.
 #define UI_FLAG_GLYPH 1u
+
+// Sweep the quad along `axis` rather than aligning it to the screen: `rect`
+// then means centre and (length, thickness). This is what lets the pass draw a
+// dashed lane at an angle, which ADR-006 §8a says a quad around a point cannot.
+#define UI_FLAG_ORIENTED 2u
 
 Texture2D<float> g_glyphAtlas : register(t0);
 SamplerState g_clampSampler : register(s1);
@@ -29,6 +34,7 @@ struct UiInstanceInput
   float4 uv : UI_UV;       // Zero for a panel.
   float4 colour : UI_COLOUR;
   uint flags : UI_FLAGS;
+  float2 axis : UI_AXIS;   // Unit direction; read only for UI_FLAG_ORIENTED.
 };
 
 struct UiVertexOutput

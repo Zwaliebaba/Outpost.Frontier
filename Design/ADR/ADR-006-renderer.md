@@ -206,6 +206,29 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
    Neither defect is visible to a device-free test: the mark builder's arithmetic was right,
    the shader's arithmetic was right, and the product of the two was wrong. That is the whole
    argument for §8's manual acceptance criteria being criteria rather than polish.
+
+   **8c. (B) arrived in S11c, and the sentence above turned out to be a requirement rather
+   than a description.** "A dashed lane between two points is not a quad around one" is exactly
+   what the Ui pass could not draw: its instance is a top-left and a size, and a lane at 45°
+   is neither. So the pass grew an **oriented quad** — `UI_FLAG_ORIENTED`, under which `rect`
+   means centre and (length, thickness) and the corners sweep along a unit axis. The
+   axis-aligned branch is left byte-identical rather than expressed as a special case of the
+   sweep, because every panel and every glyph in the HUD goes through it and "the general form
+   reduces to the old one" is a claim no test on a machine without a GPU can check.
+
+   It is one primitive for a class, not a special case for a feature: `overlay-pass.png`'s
+   mechanism-B list is waypoint polylines, engagement arcs and off-screen indicators, and
+   every one of them is oriented. The alternative considered and rejected was square dots
+   along the line, which needs no GPU change at all and reads as a dotted route rather than a
+   dashed one — cheaper, and a different picture from the one the sheet draws.
+
+   **The lane is screen-space and therefore never occluded**, which is the sheet's decision and
+   not a shortcut: `overlay-pass.png`'s retirement matrix carries the order ghost as
+   `MECH B · UIDRAWLIST` with no OCCLUDES badge, unlike the formation footprint listed beside
+   it. A route that the hull you are flying around can hide is a route you cannot follow. It
+   is also why the lane is built *before* the HUD's panels — the pass has one pipeline and no
+   sort, so build order is draw order, and §1's "panels and toasts always composite over
+   world-space marks" is implemented by nothing more than that ordering.
 9. **Text = DirectWrite-baked glyph atlas** at boot (ASCII + box glyphs, one monospace face,
    2–3 sizes), rendered as instanced quads in the Ui pass. This keeps one graphics API in the
    frame. **Rejected:** D3D11On12/D2D interop — a second device, wrapped-resource sync, and

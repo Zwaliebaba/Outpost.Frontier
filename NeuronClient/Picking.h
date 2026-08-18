@@ -56,6 +56,22 @@ namespace Neuron
 [[nodiscard]] DirectX::XMFLOAT2 PixelsToNdc(float _x, float _y, std::uint32_t _viewportWidth,
                                             std::uint32_t _viewportHeight) noexcept;
 
+/*
+ * NDC back to client-area pixels -- the exact inverse of `PixelsToNdc`.
+ *
+ * The fourth corner of ADR-006 §11's "one code path". Three callers turn pixels
+ * into a plane point; the ghost's lane goes the other way, taking two plane
+ * points to two pixel positions so a dashed line between them can be a run of
+ * screen-space quads. A private flip in that file would be the fourth place the
+ * y-axis is negated, and the first three exist here precisely so there is no
+ * fourth.
+ *
+ * A zero-size viewport maps everything to its top-left corner, which is what
+ * the forward function's centre maps back to.
+ */
+[[nodiscard]] DirectX::XMFLOAT2 NdcToPixels(const DirectX::XMFLOAT2& _ndc, std::uint32_t _viewportWidth,
+                                            std::uint32_t _viewportHeight) noexcept;
+
 /// NDC to a plane point, which is `PlaneMapping`'s own definition applied:
 /// `origin + rightPerNdc * ndc.x + upPerNdc * ndc.y`.
 [[nodiscard]] DirectX::XMFLOAT2 NdcToPlane(const PlaneMapping& _mapping, const DirectX::XMFLOAT2& _ndc) noexcept;

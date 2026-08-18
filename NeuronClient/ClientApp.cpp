@@ -36,6 +36,11 @@ constexpr std::uint32_t TEXT_DISABLED_COLOUR = 0x80303030u;  // A control with n
 constexpr std::uint32_t ROW_SELECTED_COLOUR = 0x40206020u;   // The roster's highlight.
 constexpr std::uint32_t BAR_TRACK_COLOUR = 0x60202020u;      // What an empty strip looks like.
 
+/// The drag box's wash. The selection cyan at low alpha, with its border drawn
+/// in the same colour the selection rings use -- a box and the rings it is
+/// about to produce must obviously be the same gesture.
+constexpr std::uint32_t DRAG_BOX_FILL_COLOUR = 0x28ffc864u;
+
 /// The roster's strips, and the same two colours the world-space gauge bars
 /// use (`OverlayTuning`): a wing's row and its ships' bars must not disagree
 /// about which one is hull.
@@ -659,6 +664,40 @@ void ClientApp::BuildHud()
   const float pad = m_uiTuning.padding * layout.scale;
   const float cell = 8.0f * layout.scale; // The monospace grid, near enough for
                                           // placement; the pass measures glyphs.
+
+  /*
+   * --- world-space marks, first so the panels cover them -------------------
+   *
+   * `overlay-pass.png` §1: panels and toasts always composite over world-space
+   * marks, and the context bar is never occluded by one. The Ui pass has one
+   * pipeline and no sort, so build order *is* draw order and putting these
+   * first is the whole of that rule's implementation.
+   */
+  GhostLaneView laneView;
+  laneView.mapping = m_camera.PlaneMappingForNdc();
+  laneView.viewportWidth = m_input.viewportWidth;
+  laneView.viewportHeight = m_input.viewportHeight;
+  laneView.worldRect = layout.world;
+  laneView.cellPixels = cell;
+  laneView.scale = layout.scale;
+  BuildGhostLanes(m_ghosts.Ghosts(), laneView, m_overlayTuning, m_laneTuning, nowSeconds, m_ui);
+
+  /*
+   * The drag rectangle S8 deferred here.
+   *
+   * A screen-space quad and never a world mark: the box is axis-aligned in
+   * *pixels* and an arbitrary parallelogram on the plane, which is the same
+   * reason `PickBox` tests ships in screen space rather than mapping four
+   * corners onto the plane (ADR-006 §11). Drawn only once the gesture has left
+   * the click slop, so a click never flashes a box.
+   */
+  if (m_selection.DragIsBox())
+  {
+    const UiRect box = UiRect::FromCorners(m_selection.DragStartX(), m_selection.DragStartY(), m_selection.DragCurrentX(),
+                                           m_selection.DragCurrentY());
+    m_ui.AddQuad(box, DRAG_BOX_FILL_COLOUR);
+    m_ui.AddBorder(box, 1.0f, m_overlayTuning.ringColourRgba);
+  }
 
   // --- the top status row -------------------------------------------------
   //

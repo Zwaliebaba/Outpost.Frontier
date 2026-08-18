@@ -5,6 +5,7 @@
 #include "UiDrawList.h"
 #include "UiLayout.h"
 
+#include <cmath>
 #include <cstdint>
 #include <string>
 
@@ -439,6 +440,138 @@ public:
     toasts.Clear();
     Assert::IsTrue(toasts.Empty());
     Assert::AreEqual<std::size_t>(0, toasts.SuppressedCount());
+  }
+};
+
+TEST_CLASS(DragRectangleTests)
+{
+public:
+  TEST_METHOD(ADragInAnyDirectionGivesThePositiveRectangle)
+  {
+    /*
+     * The selection box S8 deferred, and the whole of what it needed.
+     *
+     * A drag up-and-left is as ordinary as one down-and-right, and the naive
+     * `{startX, startY, currentX - startX, currentY - startY}` gives it a
+     * negative width. `AddQuad` declines a non-positive size, so the box would
+     * simply not draw on half the gestures people make -- which is why the
+     * companion test below asserts that a collapsed box costs no instance:
+     * that refusal is the behaviour this one depends on.
+     */
+    const UiRect expected{10.0f, 20.0f, 90.0f, 60.0f};
+    const float corners[][4] = {{10.0f, 20.0f, 100.0f, 80.0f},  // down-right
+                                {100.0f, 80.0f, 10.0f, 20.0f},  // up-left
+                                {100.0f, 20.0f, 10.0f, 80.0f},  // down-left
+                                {10.0f, 80.0f, 100.0f, 20.0f}}; // up-right
+    for (const auto& corner : corners)
+    {
+      const UiRect box = UiRect::FromCorners(corner[0], corner[1], corner[2], corner[3]);
+      Assert::AreEqual(expected.x, box.x, 0.001f);
+      Assert::AreEqual(expected.y, box.y, 0.001f);
+      Assert::AreEqual(expected.width, box.width, 0.001f);
+      Assert::AreEqual(expected.height, box.height, 0.001f);
+      Assert::IsTrue(box.width >= 0.0f && box.height >= 0.0f);
+    }
+  }
+
+  TEST_METHOD(AZeroSizeDragIsStillAWellFormedRectangle)
+  {
+    // The first frame of a drag, before the cursor has moved at all. Zero-size
+    // rather than inverted, and `AddQuad` then declines to add it.
+    const UiRect box = UiRect::FromCorners(50.0f, 50.0f, 50.0f, 50.0f);
+    Assert::AreEqual(0.0f, box.width, 0.001f);
+    Assert::AreEqual(0.0f, box.height, 0.001f);
+
+    UiDrawList list;
+    list.AddQuad(box, 0xffffffffu);
+    Assert::AreEqual<std::size_t>(0, list.Quads().size(), L"a collapsed box costs no instance");
+  }
+};
+
+TEST_CLASS(OrientedQuadTests)
+{
+public:
+  TEST_METHOD(ASegmentBecomesACentreALengthAndAUnitAxis)
+  {
+    /*
+     * The contract the vertex shader reads, and the one thing about the Ui
+     * pass that cannot be run on this machine. `rect` stops meaning
+     * top-left-and-size: for an oriented quad it is centre-and-(length,
+     * thickness), swept along a unit axis.
+     */
+    UiDrawList list;
+    list.AddSegment(100.0f, 100.0f, 100.0f, 200.0f, 3.0f, 0xff00ff00u);
+
+    Assert::AreEqual<std::size_t>(1, list.Quads().size());
+    const UiQuad& quad = list.Quads()[0];
+    Assert::IsTrue(quad.oriented);
+    Assert::AreEqual(100.0f, quad.rect.x, 0.001f, L"x of the centre");
+    Assert::AreEqual(150.0f, quad.rect.y, 0.001f, L"y of the centre, halfway along");
+    Assert::AreEqual(100.0f, quad.rect.width, 0.001f, L"width is the length");
+    Assert::AreEqual(3.0f, quad.rect.height, 0.001f, L"height is the thickness");
+    Assert::AreEqual(0.0f, quad.axisX, 0.001f);
+    Assert::AreEqual(1.0f, quad.axisY, 0.001f);
+  }
+
+  TEST_METHOD(ASegmentDrawnBackwardsIsTheSameSegment)
+  {
+    // The centre is the anchor and neither end is privileged, so the only
+    // difference a reversal can make is the sign of the axis -- and a quad
+    // swept from -0.5 to +0.5 covers the same pixels either way.
+    UiDrawList forward;
+    UiDrawList backward;
+    forward.AddSegment(10.0f, 10.0f, 90.0f, 50.0f, 2.0f, 0xffffffffu);
+    backward.AddSegment(90.0f, 50.0f, 10.0f, 10.0f, 2.0f, 0xffffffffu);
+
+    const UiQuad& a = forward.Quads()[0];
+    const UiQuad& b = backward.Quads()[0];
+    Assert::AreEqual(a.rect.x, b.rect.x, 0.001f);
+    Assert::AreEqual(a.rect.y, b.rect.y, 0.001f);
+    Assert::AreEqual(a.rect.width, b.rect.width, 0.001f);
+    Assert::AreEqual(a.axisX, -b.axisX, 0.001f);
+    Assert::AreEqual(a.axisY, -b.axisY, 0.001f);
+  }
+
+  TEST_METHOD(TheAxisIsAlwaysUnitLength)
+  {
+    // A non-unit axis draws the quad at the wrong size, because the shader
+    // multiplies it by half the length rather than normalising.
+    const float ends[][4] = {{0.0f, 0.0f, 1000.0f, 3.0f}, {0.0f, 0.0f, 3.0f, 1000.0f}, {5.0f, 5.0f, 6.0f, 6.0f}};
+    for (const auto& end : ends)
+    {
+      UiDrawList list;
+      list.AddSegment(end[0], end[1], end[2], end[3], 2.0f, 0xffffffffu);
+      const UiQuad& quad = list.Quads()[0];
+      const float length = std::sqrt(quad.axisX * quad.axisX + quad.axisY * quad.axisY);
+      Assert::AreEqual(1.0f, length, 0.0001f);
+    }
+  }
+
+  TEST_METHOD(ADegenerateSegmentAddsNothing)
+  {
+    // A dash that landed exactly on the end of a lane is a rounding result and
+    // not a mark. There is no direction to give it, and normalising would
+    // divide by zero.
+    UiDrawList list;
+    list.AddSegment(50.0f, 50.0f, 50.0f, 50.0f, 2.0f, 0xffffffffu);
+    list.AddSegment(0.0f, 0.0f, 100.0f, 0.0f, 0.0f, 0xffffffffu);
+    Assert::AreEqual<std::size_t>(0, list.Quads().size());
+  }
+
+  TEST_METHOD(APlainQuadIsNotOriented)
+  {
+    // The default, and what every panel and every glyph in the HUD relies on:
+    // the shader's axis-aligned branch is the one they go through, and a stray
+    // `oriented` would send a panel through the sweep with a zero axis.
+    UiDrawList list;
+    list.AddQuad(UiRect{0.0f, 0.0f, 10.0f, 10.0f}, 0xffffffffu);
+    list.AddBorder(UiRect{0.0f, 0.0f, 40.0f, 40.0f}, 1.0f, 0xffffffffu);
+    for (const UiQuad& quad : list.Quads())
+    {
+      Assert::IsFalse(quad.oriented);
+      Assert::AreEqual(0.0f, quad.axisX, 0.0f);
+      Assert::AreEqual(0.0f, quad.axisY, 0.0f);
+    }
   }
 };
 

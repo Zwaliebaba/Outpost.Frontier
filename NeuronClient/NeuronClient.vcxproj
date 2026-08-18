@@ -26,6 +26,7 @@
     <ClCompile Include="GpuSwapChain.cpp" />
     <ClCompile Include="Window.cpp" />
     <ClCompile Include="GlyphAtlas.cpp" />
+    <ClCompile Include="GhostLane.cpp" />
     <ClCompile Include="GpuMeshes.cpp" />
     <ClCompile Include="GpuNebula.cpp" />
     <ClCompile Include="GpuPasses.cpp" />
@@ -78,6 +79,7 @@
     <ClInclude Include="RenderWorld.h" />
     <ClInclude Include="ToastStack.h" />
     <ClInclude Include="UiDrawList.h" />
+    <ClInclude Include="GhostLane.h" />
     <ClInclude Include="HudRoster.h" />
     <ClInclude Include="UiLayout.h" />
   </ItemGroup>

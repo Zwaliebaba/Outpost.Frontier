@@ -374,6 +374,7 @@ bool GpuPipelines::CreateUiPipeline(ID3D12Device* _device, const PipelineShaders
   static_assert(offsetof(UiInstance, uv) == 16, "UI_UV at offset 16");
   static_assert(offsetof(UiInstance, colourRgba) == 32, "UI_COLOUR at offset 32");
   static_assert(offsetof(UiInstance, flags) == 36, "UI_FLAGS at offset 36");
+  static_assert(offsetof(UiInstance, axis) == 40, "UI_AXIS at offset 40 -- appended, so nothing above it moved");
 
   // The colour is packed rather than four floats, the same as `OverlayMark`'s:
   // a HUD is thousands of glyph quads a frame and twelve bytes each of them
@@ -383,6 +384,7 @@ bool GpuPipelines::CreateUiPipeline(ID3D12Device* _device, const PipelineShaders
       {"UI_UV", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
       {"UI_COLOUR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
       {"UI_FLAGS", 0, DXGI_FORMAT_R32_UINT, 0, 36, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+      {"UI_AXIS", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
   };
 
   D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};

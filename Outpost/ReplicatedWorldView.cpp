@@ -2,6 +2,7 @@
 
 #include "ReplicatedWorldView.h"
 
+#include "Eta.h"
 #include "Formation.h"
 #include "OrderMessages.h"
 #include "SchemaHash.h"
@@ -12,6 +13,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstdio>
 #include <limits>
 #include <utility>
 
@@ -260,6 +263,48 @@ void ReplicatedWorldView::SolvePreview(const OrderIntent& _intent, OrderPreview&
     }
   }
   _outPreview.extentMetres = Game::FormationExtentMetres(std::span<const Game::FormationStation>{stations, count}, anchor);
+
+  /*
+   * The ghost's label, in the game's own words and by the game's own movement
+   * model. Both halves are here because the engine may compute neither: `MOVE`
+   * is a kind and `CLAW` is a formation (ADR-014 §2b), and seconds-to-arrive
+   * needs acceleration curves that live in the class table.
+   *
+   * The ETA is **each ship's journey to its own station**, not the group's
+   * centre to the anchor. Those differ by the formation's radius, which for a
+   * Line of twelve is most of a kilometre -- and it is the far end of the line
+   * that decides when the leg completes.
+   */
+  Game::TravelLeg legs[Neuron::MAX_ORDER_PREVIEW_MARKS];
+  std::uint32_t legCount = 0;
+  for (std::uint32_t index = 0; index < count; ++index)
+  {
+    const auto found = std::find_if(m_sampled.begin(), m_sampled.end(), [&stations, index](const Game::ReplicatedShip& _ship) {
+      return _ship.id == stations[index].shipId;
+    });
+    if (found == m_sampled.end())
+    {
+      continue; // Despawned between the selection and this solve.
+    }
+
+    // Off the wire, so bounds-checked rather than cast. An unknown class here
+    // is a build mismatch that the handshake should already have refused; what
+    // it must not do is index the table with it.
+    Game::HullClass hullClass = Game::HullClass::Interceptor;
+    if (!Game::TryShipClass(found->classId, hullClass))
+    {
+      continue;
+    }
+
+    const float dx = stations[index].positionMetres.x - found->positionMetres.x;
+    const float dy = stations[index].positionMetres.y - found->positionMetres.y;
+    legs[legCount] = Game::TravelLeg{hullClass, std::sqrt(dx * dx + dy * dy)};
+    ++legCount;
+  }
+  _outPreview.etaSeconds = Game::GroupTravelSeconds(std::span<const Game::TravelLeg>{legs, legCount});
+
+  std::snprintf(_outPreview.label, sizeof(_outPreview.label), "%s - %s", Game::OrderKindName(order.kind),
+                Game::FormationName(order.formation));
 }
 
 bool ReplicatedWorldView::EncodeOrder(const OrderIntent& _intent, ByteWriter& _writer)

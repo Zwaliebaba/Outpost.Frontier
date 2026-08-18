@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "CppUnitTest.h"
 
+#include "Eta.h"
 #include "Formation.h"
 #include "OrderMessages.h"
 #include "Orders.h"
@@ -21,6 +22,7 @@
 #include <array>
 #include <cstdint>
 #include <span>
+#include <string_view>
 #include <vector>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -1141,6 +1143,226 @@ public:
     Assert::IsTrue(MAX_SHIPS_PER_SNAPSHOT >= 41);
     Assert::IsTrue(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES);
     Assert::IsTrue(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT + 1, MAX_ORDERS_PER_SNAPSHOT) > SNAPSHOT_BUDGET_BYTES);
+  }
+};
+
+/*
+ * The travel-time model behind the ghost's `ETA 41s` (S11c).
+ *
+ * Asserted against the *simulation* wherever it can be: the point of the model
+ * is that it predicts what `World::Tick` will actually do, and the cheapest way
+ * to know is to run the world and count the ticks.
+ */
+TEST_CLASS(EtaTests)
+{
+public:
+  TEST_METHOD(ThePredictionMatchesTheSimulationItPredicts)
+  {
+    /*
+     * The load-bearing test, and the only one that could catch a model that is
+     * self-consistent and wrong. Fly a ship a known distance and compare the
+     * ticks it took against what `TravelSeconds` promised.
+     *
+     * The bound is 3 %, and it is measured rather than guessed: across three
+     * hulls and three distances the worst straight-run error is 0.4 %. Three
+     * leaves room for float variation and still fails loudly on the mistake
+     * this is really guarding -- dropping the `v/a` ramp term, which costs 4 %
+     * on a Battleship's longest leg and 46 % on its shortest.
+     *
+     * Straight run only: the ship is spawned already pointing at its target.
+     * The turning case is `TheEstimateIsOptimisticWhenTheFleetMustTurn` below,
+     * and it is a different claim with a different bound.
+     */
+    for (const HullClass hull : {HullClass::Interceptor, HullClass::Corvette, HullClass::Battleship})
+    {
+      // 120 m is well inside every hull's ramp distance and 18.4 km is well
+      // past it, so the sweep exercises both halves of the profile. The short
+      // end is the one that matters: at 900 m the two formulas differ by half a
+      // per cent, and a build that dropped the triangular case entirely would
+      // sail through a sweep that started there.
+      for (const float distance : {120.0f, 900.0f, 4000.0f, 18400.0f})
+      {
+        World world;
+        world.Reset(5);
+
+        ShipSpawn spawn;
+        spawn.hullClass = hull;
+        spawn.xMetres = 0.0f;
+        spawn.yMetres = 0.0f;
+        spawn.headingRadians = 0.0f; // Already pointing at +x, which is where it is sent.
+        const ShipId ship = world.Spawn(spawn);
+
+        OrderSubmit move;
+        move.orderSeq = 1;
+        Assert::IsTrue(move.AddShip(ship));
+        move.target.xCm = Neuron::MetresToCentimetres(distance);
+        Assert::IsTrue(world.SubmitOrder(move).accepted);
+
+        const float predicted = TravelSeconds(hull, distance);
+        Assert::IsTrue(predicted > 0.0f);
+
+        std::uint32_t tick = 0;
+        const auto cap = static_cast<std::uint32_t>(predicted * 4.0f / World::TICK_SECONDS) + 200u;
+        while (tick < cap)
+        {
+          ++tick;
+          world.Tick(tick);
+          const float remaining = distance - world.Positions()[0].x;
+          if (std::fabs(remaining) <= World::ARRIVAL_TOLERANCE_METRES)
+          {
+            break;
+          }
+        }
+        Assert::IsTrue(tick < cap, L"the ship never arrived, so there is nothing to compare");
+
+        const float actual = static_cast<float>(tick) * World::TICK_SECONDS;
+        const float error = std::fabs(actual - predicted) / actual;
+        Assert::IsTrue(error < 0.03f, L"the estimate and the simulation disagree by more than a rounding");
+      }
+    }
+  }
+
+  TEST_METHOD(TheEstimateIsOptimisticWhenTheFleetMustTurn)
+  {
+    /*
+     * The model's one known blind spot, pinned down rather than left as a
+     * caveat in a comment.
+     *
+     * `World`'s steering scales desired speed by how well the ship is aligned
+     * and caps it by the turn radius, and this estimate does neither. So a
+     * fleet ordered to reverse course arrives *later* than promised -- 33 % for
+     * a Battleship turned right around on a short hop, which is the worst case
+     * across the table.
+     *
+     * The assertion is the **direction**, not the magnitude. A prediction that
+     * ran late would be the dangerous one: a player who is told 40 seconds and
+     * gets 30 is early, and one told 40 who gets 53 has planned around a
+     * number that was never achievable. This is what stops a future "improve
+     * the model" change from overshooting.
+     */
+    World world;
+    world.Reset(9);
+
+    ShipSpawn spawn;
+    spawn.hullClass = HullClass::Battleship;
+    spawn.headingRadians = XM_PI; // Pointing at -x; the target is at +x.
+    const ShipId ship = world.Spawn(spawn);
+
+    const float distance = 900.0f;
+    OrderSubmit move;
+    move.orderSeq = 1;
+    Assert::IsTrue(move.AddShip(ship));
+    move.target.xCm = Neuron::MetresToCentimetres(distance);
+    Assert::IsTrue(world.SubmitOrder(move).accepted);
+
+    std::uint32_t tick = 0;
+    while (tick < 4000)
+    {
+      ++tick;
+      world.Tick(tick);
+      if (std::fabs(distance - world.Positions()[0].x) <= World::ARRIVAL_TOLERANCE_METRES)
+      {
+        break;
+      }
+    }
+    Assert::IsTrue(tick < 4000, L"the ship never arrived");
+
+    const float actual = static_cast<float>(tick) * World::TICK_SECONDS;
+    const float predicted = TravelSeconds(HullClass::Battleship, distance);
+    Assert::IsTrue(predicted < actual, L"a turning fleet must never beat its own estimate");
+    Assert::IsTrue(predicted > actual * 0.5f, L"and the estimate must still be in the right country");
+  }
+
+  TEST_METHOD(AShortHopIsNotInstant)
+  {
+    // `distance / maxSpeed` would call a forty-metre nudge a fifth of a second
+    // for an Interceptor, when it never gets near top speed and takes over a
+    // second. Station-keeping nudges are the *common* order, so the triangular
+    // case is the one that shows most.
+    const ShipClassInfo& info = ShipClass(HullClass::Interceptor);
+    const float shortHop = 40.0f;
+    Assert::IsTrue(shortHop < info.maxSpeedMetresPerSec * info.maxSpeedMetresPerSec / info.accelMetresPerSecSq,
+                   L"this distance has to be inside the ramp for the test to mean anything");
+
+    /*
+     * Asserted against the triangular closed form rather than against a loose
+     * "bigger than distance/speed" bound. The loose version passes for the
+     * *trapezoid* too -- `d/v + v/a` is even larger -- so it would have proved
+     * nothing about which branch ran.
+     */
+    const float reach = shortHop - World::ARRIVAL_TOLERANCE_METRES;
+    const float triangular = 2.0f * std::sqrt(reach / info.accelMetresPerSecSq);
+    const float trapezoid = reach / info.maxSpeedMetresPerSec + info.maxSpeedMetresPerSec / info.accelMetresPerSecSq;
+    Assert::IsTrue(trapezoid > triangular * 1.5f, L"the two branches have to differ here or this proves nothing");
+    Assert::AreEqual(triangular, TravelSeconds(HullClass::Interceptor, shortHop), 0.001f);
+  }
+
+  TEST_METHOD(TheTwoProfilesAgreeWhereTheyMeet)
+  {
+    // Trapezoid and triangle meet at `v^2/a` and both give `2v/a` there. A
+    // discontinuity would show up as an ETA that jumped while the player
+    // dragged the puck across one particular radius, which is the kind of thing
+    // that gets reported as "the number flickers" and never reproduced.
+    for (const HullClass hull : {HullClass::Interceptor, HullClass::Bomber, HullClass::Corvette, HullClass::Frigate,
+                                 HullClass::Battleship, HullClass::Carrier, HullClass::Hauler, HullClass::Miner})
+    {
+      const ShipClassInfo& info = ShipClass(hull);
+      const float meeting = info.maxSpeedMetresPerSec * info.maxSpeedMetresPerSec / info.accelMetresPerSecSq;
+      const float below = TravelSeconds(hull, meeting + World::ARRIVAL_TOLERANCE_METRES - 0.5f);
+      const float above = TravelSeconds(hull, meeting + World::ARRIVAL_TOLERANCE_METRES + 0.5f);
+      Assert::IsTrue(std::fabs(above - below) < 0.02f, L"the estimate jumps at the boundary between its two cases");
+    }
+  }
+
+  TEST_METHOD(AStationCannotMakeTheJourneyAndSaysSo)
+  {
+    // Not slow -- unable. Returning a huge number would read as an answer and
+    // put `ETA 99999s` under a ghost; returning zero would read as "already
+    // there". Negative is the only honest third thing.
+    Assert::IsTrue(TravelSeconds(HullClass::Structure, 5000.0f) < 0.0f);
+
+    // And already-there is genuinely zero, at any class.
+    Assert::AreEqual(0.0f, TravelSeconds(HullClass::Interceptor, 0.0f));
+    Assert::AreEqual(0.0f, TravelSeconds(HullClass::Structure, 0.0f));
+  }
+
+  TEST_METHOD(AGroupWaitsForItsSlowestMember)
+  {
+    /*
+     * A leg completes when *every* member is within tolerance (ADR-005 §2), so
+     * the arrival that matters is the last one. An average would promise a
+     * fleet of Interceptors with one Battleship in it the Interceptors' time --
+     * wrong at exactly the moment the player is counting on it.
+     */
+    const TravelLeg legs[] = {{HullClass::Interceptor, 6000.0f}, {HullClass::Interceptor, 6000.0f},
+                              {HullClass::Battleship, 6000.0f}};
+    const float group = GroupTravelSeconds(legs);
+    Assert::AreEqual(TravelSeconds(HullClass::Battleship, 6000.0f), group, 0.001f, L"the Battleship decides");
+    Assert::IsTrue(group > TravelSeconds(HullClass::Interceptor, 6000.0f) * 1.5f);
+  }
+
+  TEST_METHOD(AStationInTheGroupDoesNotSilenceTheRest)
+  {
+    // A selection with a station in it should still report when its ships get
+    // there. Only a group that is *entirely* immobile has nothing to say.
+    const TravelLeg mixed[] = {{HullClass::Structure, 3000.0f}, {HullClass::Corvette, 3000.0f}};
+    Assert::AreEqual(TravelSeconds(HullClass::Corvette, 3000.0f), GroupTravelSeconds(mixed), 0.001f);
+
+    const TravelLeg stations[] = {{HullClass::Structure, 3000.0f}};
+    Assert::IsTrue(GroupTravelSeconds(stations) < 0.0f);
+    Assert::IsTrue(GroupTravelSeconds({}) < 0.0f, L"an empty group has no ETA either");
+  }
+
+  TEST_METHOD(TheOrderAndFormationBothHaveNames)
+  {
+    // The `MOVE - CLAW` half of the ghost's label. The engine may name neither
+    // (ADR-014 §2b), so a null here is a ghost with no caption.
+    Assert::IsNotNull(OrderKindName(OrderKind::Move));
+    for (const FormationId formation : FORMATION_IDS)
+    {
+      Assert::IsNotNull(FormationName(formation));
+      Assert::IsTrue(std::string_view{FormationName(formation)}.size() > 0);
+    }
   }
 };
 

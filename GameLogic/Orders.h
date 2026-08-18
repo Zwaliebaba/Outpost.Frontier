@@ -65,6 +65,12 @@ inline constexpr FormationId FORMATION_IDS[] = {FormationId::Line, FormationId::
 /// player cannot name.
 [[nodiscard]] const char* FormationName(FormationId _formation) noexcept;
 
+/// And what to call the command itself -- the `MOVE` half of the ghost's
+/// `MOVE - CLAW` label (`tactical-hud.png`). Here beside `FormationName`
+/// because a label naming one and not the other would be half a sentence, and
+/// because the engine is allowed to name neither (ADR-014 §2b).
+[[nodiscard]] const char* OrderKindName(OrderKind _kind) noexcept;
+
 /*
  * Why an order was refused, or that it was not (ADR-005 §4).
  *

@@ -135,6 +135,8 @@ struct OrderPreview
   {
     markCount = 0;
     extentMetres = 0.0f;
+    etaSeconds = -1.0f;
+    label[0] = '\0';
   }
 
   /// Appends a mark, or reports that the preview is full. Returning false
@@ -151,6 +153,43 @@ struct OrderPreview
     ++markCount;
     return true;
   }
+
+  /*
+   * How long the whole arrangement takes to form, in seconds, or negative when
+   * the game will not say.
+   *
+   * The ghost's lane label is `18.4 km - ETA 41s` (`tactical-hud.png`), and the
+   * engine can compute the kilometres from two points it already holds. It
+   * cannot compute the seconds: that needs a movement model, and a movement
+   * model is exactly the game semantics NeuronCore is charted not to have
+   * (ADR-004 ruling 4). So the number crosses.
+   *
+   * **A prediction, not a replicated fact,** and the distinction is load-
+   * bearing rather than pedantic. `overlay-pass.png` §2 puts the whole
+   * client-authored draw list on the pre-check rather than on replication, so
+   * the label can exist before the order has been sent -- which is the point of
+   * previewing it. S12 replicates the authority's own per-leg ETA in the order
+   * state; when it does, the ghost prefers that and this stays as what the
+   * preview says before there is an authority to ask.
+   */
+  float etaSeconds = -1.0f;
+
+  /*
+   * What to call this order, for the ghost's label -- `MOVE - CLAW`.
+   *
+   * A buffer rather than a `const char*`, which is what `OrderOption::name` and
+   * `RosterRow::name` are. Those are read and drawn inside the frame that asked
+   * for them, so pointing at storage the world view owns is safe. A preview is
+   * **kept by the ghost**, for as long as the order is in flight, and a pointer
+   * into the world view would by then be describing whatever order was previewed
+   * next.
+   *
+   * The engine copies these bytes and never parses them. It cannot: `MOVE` is a
+   * kind and `CLAW` is a formation, and ADR-014 §2b is the rule that the engine
+   * may name neither.
+   */
+  static constexpr std::uint32_t LABEL_CAPACITY = 32;
+  char label[LABEL_CAPACITY] = {};
 };
 
 /*

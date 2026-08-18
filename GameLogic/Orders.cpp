@@ -21,6 +21,19 @@ const char* FormationName(FormationId _formation) noexcept
   return "unnamed formation";
 }
 
+const char* OrderKindName(OrderKind _kind) noexcept
+{
+  switch (_kind)
+  {
+  case OrderKind::Move:
+    return "Move";
+  }
+  // One kind today, and the switch is still written this way on purpose: Attack
+  // and the ability kinds are S13+, and each must fail the exhaustiveness
+  // warning here rather than appear on a ghost as "unnamed order".
+  return "unnamed order";
+}
+
 const char* OrderReasonText(OrderReason _reason) noexcept
 {
   switch (_reason)

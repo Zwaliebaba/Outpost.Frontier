@@ -321,6 +321,15 @@ void UiPass::Record(const FrameContext& _context)
     instance.rect[2] = quad.rect.width;
     instance.rect[3] = quad.rect.height;
     instance.colourRgba = quad.colourRgba;
+    if (quad.oriented)
+    {
+      // `rect` already carries centre and (length, thickness) -- `AddSegment`
+      // wrote it that way, so nothing is converted here. The axis and the flag
+      // are what tell the shader to read it that way.
+      instance.flags = UI_FLAG_ORIENTED;
+      instance.axis[0] = quad.axisX;
+      instance.axis[1] = quad.axisY;
+    }
     m_instances.push_back(instance);
   }
   m_panelCount = static_cast<std::uint32_t>(m_instances.size());

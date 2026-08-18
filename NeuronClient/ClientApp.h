@@ -11,6 +11,7 @@
 #include "GpuPasses.h"
 #include "GpuPipelines.h"
 #include "GpuSwapChain.h"
+#include "GhostLane.h"
 #include "GpuUploadRing.h"
 #include "HudRoster.h"
 #include "InputMap.h"
@@ -192,6 +193,7 @@ private:
    */
   UiDrawList m_ui;
   UiTuning m_uiTuning;
+  GhostLaneTuning m_laneTuning;
   ToastStack m_toasts;
 
   /// The roster's rows, asked of the game once a frame. A fixed array because

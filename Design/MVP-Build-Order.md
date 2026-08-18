@@ -1041,9 +1041,65 @@ bounds check: a `WingId` cannot index past a table with an entry per `WingId`. T
 then had to bound on the *name list* rather than the table, and that pairing is load-bearing —
 getting it wrong segfaults, which is how the harness caught it.
 
+**Built ✅ (S11c — the drag rectangle and the ghost's lane):** the two items S8 and S9 both
+deferred to this pass, and the second turned out to be the interesting one.
+
+`UiRect::FromCorners` and six lines in `BuildHud` are the whole **drag rectangle**. A
+screen-space quad and never a world mark, for the reason `PickBox` already gives: the box is
+axis-aligned in *pixels* and an arbitrary parallelogram on the plane. The only arithmetic worth
+a test is corner normalisation — the naive `{startX, startY, currentX - startX, ...}` gives a
+drag up-and-left a negative width, and `AddQuad` declines a non-positive size, so the box would
+simply not draw on half the gestures people make.
+
+**The lane needed a new primitive, and ADR-006 had already said so.** "A dashed lane between
+two points is not a quad around one" (§8a) reads as a filing decision and is actually a
+requirement: the Ui instance was a top-left and a size, and a lane at 45° is neither. So the
+pass grew an **oriented quad** — `rect` becomes centre and (length, thickness), swept along a
+unit axis, under `UI_FLAG_ORIENTED`. The axis-aligned branch is left byte-identical rather than
+rewritten as a special case of the sweep: every panel and glyph in the HUD goes through it, and
+"the general form reduces to the old one" is a claim no test here can check. The instance grew
+40 → 48 bytes with the axis **appended**, so every existing field keeps the offset the input
+layout already declares. One primitive for a class rather than a special case for a feature —
+`overlay-pass.png`'s mechanism-B list is polylines, engagement arcs and off-screen indicators,
+all oriented. The alternative, square dots along the line, needs no GPU change at all and draws
+a dotted route rather than a dashed one.
+
+`GhostLane.h/.cpp` projects, clips and dashes. Three decisions worth keeping:
+- **Clipped to the world zone for cost, not looks** — the panels already cover anything outside
+  it. A target 40 km off with the camera zoomed in is a lane megapixels long, and dashing all
+  of it is tens of thousands of quads nobody sees.
+- **Dashes are phased off the lane's own origin, not the clip point.** The clip point moves as
+  the camera pans, so the other way round makes every dash crawl along the lane while the
+  player scrolls — motion that reads as the *order* doing something.
+- **Screen-space, therefore never occluded**, which is the sheet's ruling: `overlay-pass.png`
+  carries the order ghost as `MECH B · UIDRAWLIST` with no OCCLUDES badge, unlike the footprint
+  beside it. A route a hull can hide is a route you cannot follow.
+
+**The ETA is the game's answer, not the client's.** The label reads `18.4 km - ETA 41s`; the
+engine can measure the kilometres from two points it already holds and can compute neither the
+seconds nor the words. So `OrderPreview` gained `etaSeconds` and a `label` buffer, and
+`GameLogic/Eta.h` gained the model — a trapezoid matching what `World::Integrate` actually
+does, since its `ArrivalSpeed` is the braking leg of exactly that profile. Measured against the
+simulation it predicts: **0.4 % worst on a straight run**, 4.7 % after a ninety-degree turn,
+33 % for a Battleship turned right around on a short hop — and every one of them *optimistic*,
+because a player told forty seconds who gets thirty is early and one told forty who gets
+fifty-three planned around a number that was never achievable. It lives in GameLogic rather
+than in the composition root because S12's authority needs the same function for the replicated
+per-leg ETA, and one function is what stops the number changing when the source does.
+
+`overlay-pass.png` §2 is what settles that this may be a client-side answer at all: mechanism
+B's content "comes from the client pre-check ... **not from replication**".
+
+**Verified:** `GameLogicTests` 93 → 101, `NeuronClientTests` 129 → 158. Mutation-tested — ten
+on the lane and the oriented quad (an un-normalised axis, a top-left where the centre belongs,
+a drag rectangle that keeps its sign, an unflipped y, dashes phased off the clip point, an
+under-way lane drawn dashed, an unclipped lane, a distance measured in pixels, a bounce that
+does not retract, a label drawn for an off-screen footprint) and three on the seam glue (the
+fastest member's ETA instead of the slowest, distances from the anchor instead of each ship's
+own station, a label that names the kind twice). Each fails exactly the test named for it.
+
 **Outstanding for S11:** the command row with MOVE and FORMATION live and ATTACK/STANCE/
-ABILITIES rendered disabled. Plus the two world-space items S8 and S9 left here: the selection
-drag rectangle and the ghost's dashed lane with per-leg ETA labels.
+ABILITIES rendered disabled.
 
 **Four things were queued for this pass, and none of them is a widget** — worth listing
 so S11 is scoped against them rather than surprised by them. All four are screen-space quads or

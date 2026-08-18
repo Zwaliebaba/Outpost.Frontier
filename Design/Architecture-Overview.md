@@ -52,12 +52,15 @@ Input → order → server tick → snapshot → render. Everything the MVP does
 loop; every future feature (combat, economy, prediction) widens a station on it rather than
 adding a second loop.
 
-**As of S9 the diagram below is a description rather than a plan** — the lap runs end to end in
-code. Two arrows are drawn as the corpus specifies them and are not yet: the bounce *toast* and
-the per-leg *ETA* are text, so they arrive with the Ui pass (S11) and are log lines today. The
-bounce itself is not — a refused ghost retracts toward the fleet over 150 ms whether the local
-pre-check or the server said no, which is the half of BounceParity that had to be in the world
-rather than in a panel. What is still owed beyond that is what a unit test cannot see: that the
+**As of S11c the diagram below is a description rather than a plan** — the lap runs end to end
+in code and every arrow on it is drawn. The two that were text rather than geometry, and so
+waited for the Ui pass, arrived with it: the bounce *toast* in S11a and the ghost's dashed lane
+with its per-leg *ETA* in S11c. The bounce itself never waited — a refused ghost retracts
+toward the fleet over 150 ms whether the local pre-check or the server said no, which is the
+half of BounceParity that had to be in the world rather than in a panel. The ETA is a
+*prediction* rather than a replicated fact until S12 puts the authority's own per-leg figure in
+the order state; it comes from the client pre-check, which is where `overlay-pass.png` §2 says
+the whole client-authored draw list comes from. What is still owed beyond that is what a unit test cannot see: that the
 promotion lands within 100 ms on screen, and that the two refusals are genuinely
 indistinguishable to a person watching.
 
