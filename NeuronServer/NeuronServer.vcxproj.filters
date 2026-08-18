@@ -2,11 +2,29 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
+    <ClCompile Include="ServerHost.cpp">
+      <Filter>Host</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="ServerHost.h">
+      <Filter>Host</Filter>
+    </ClInclude>
+    <ClInclude Include="ServerConfig.h">
+      <Filter>Host</Filter>
+    </ClInclude>
+    <ClInclude Include="Simulation.h">
+      <Filter>Seam</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <Filter Include="Host">
+      <UniqueIdentifier>{dc166e8a-49b3-46b5-81aa-aa0e5e998c25}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Seam">
+      <UniqueIdentifier>{c9aaed31-cd05-4fb0-bb12-827d86fc4015}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Project Files">
       <UniqueIdentifier>{5d1335cd-641b-4838-927e-4b9a58d9ed42}</UniqueIdentifier>
     </Filter>

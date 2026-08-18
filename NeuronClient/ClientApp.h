@@ -2,6 +2,7 @@
 
 #include "ClearColour.h"
 #include "ClientConfig.h"
+#include "ClientConnection.h"
 #include "GpuCom.h"
 #include "GpuDevice.h"
 #include "GpuSwapChain.h"
@@ -40,11 +41,13 @@ public:
 
 private:
   [[nodiscard]] bool CreateFrameResources();
+  void PollNetwork();
   void RenderFrame();
   void HandleResize();
 
   ClientConfig m_config;
   Window m_window;
+  ClientConnection m_connection;
   GpuDevice m_device;
   GpuSwapChain m_swapChain;
 
@@ -53,6 +56,7 @@ private:
   std::uint64_t m_frameFenceValues[GpuSwapChain::BufferCount] = {};
 
   std::uint64_t m_frameCount = 0;
+  std::int64_t m_lastNetLogCounter = 0;
   bool m_initialised = false;
 };
 

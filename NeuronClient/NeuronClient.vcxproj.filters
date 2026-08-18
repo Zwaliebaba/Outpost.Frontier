@@ -5,6 +5,9 @@
     <ClCompile Include="ClearColour.cpp">
       <Filter>App</Filter>
     </ClCompile>
+    <ClCompile Include="ClientConnection.cpp">
+      <Filter>App</Filter>
+    </ClCompile>
     <ClCompile Include="ClientApp.cpp">
       <Filter>App</Filter>
     </ClCompile>
@@ -21,6 +24,9 @@
   <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="ClearColour.h">
+      <Filter>App</Filter>
+    </ClInclude>
+    <ClInclude Include="ClientConnection.h">
       <Filter>App</Filter>
     </ClInclude>
     <ClInclude Include="ClientApp.h">

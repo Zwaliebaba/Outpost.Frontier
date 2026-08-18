@@ -2,6 +2,12 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
+    <ClCompile Include="UdpTransport.cpp">
+      <Filter>Transport</Filter>
+    </ClCompile>
+    <ClCompile Include="Wire.cpp">
+      <Filter>Wire</Filter>
+    </ClCompile>
     <ClCompile Include="JsonWriter.cpp">
       <Filter>Json</Filter>
     </ClCompile>
@@ -23,6 +29,15 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="Transport.h">
+      <Filter>Transport</Filter>
+    </ClInclude>
+    <ClInclude Include="UdpTransport.h">
+      <Filter>Transport</Filter>
+    </ClInclude>
+    <ClInclude Include="Wire.h">
+      <Filter>Wire</Filter>
+    </ClInclude>
     <ClInclude Include="JsonWriter.h">
       <Filter>Json</Filter>
     </ClInclude>
@@ -72,6 +87,12 @@
     </Filter>
     <Filter Include="Json">
       <UniqueIdentifier>{1b875160-d4b0-4c21-b6d2-50d806b52ecd}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Transport">
+      <UniqueIdentifier>{eeda8f5e-0e13-46fd-bad4-d3fb87ce6b69}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Wire">
+      <UniqueIdentifier>{6d648ed2-906d-4c69-b2da-b6814967a398}</UniqueIdentifier>
     </Filter>
     <Filter Include="Project Files">
       <UniqueIdentifier>{da20d678-fc4e-4961-828d-8d6d6b28fe00}</UniqueIdentifier>

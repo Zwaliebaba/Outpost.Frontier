@@ -42,6 +42,15 @@ bool ClientApp::Initialise(const ClientConfig& _config)
     return false;
   }
 
+  // After the device: a network failure should not arrive dressed as a
+  // graphics one, and the window is worth having either way.
+  if (!m_connection.Connect(_config.serverHost, _config.serverPort, _config.schemaHash, _config.contentHash, _config.playerName))
+  {
+    NEURON_LOG_ERROR("could not open a connection to %s:%u", _config.serverHost.c_str(),
+                     static_cast<unsigned>(_config.serverPort));
+    return false;
+  }
+
   m_initialised = true;
   NEURON_LOG_INFO("client initialised (%s, vsync %s)", m_device.AdapterName(), _config.vsync ? "on" : "off");
   return true;
@@ -93,12 +102,28 @@ int ClientApp::Run()
       continue;
     }
 
+    PollNetwork();
     m_swapChain.WaitForFrameLatency();
     RenderFrame();
   }
 
   NEURON_LOG_INFO("frame loop ended after %llu frames", static_cast<unsigned long long>(m_frameCount));
   return 0;
+}
+
+void ClientApp::PollNetwork()
+{
+  m_connection.Poll();
+
+  // Once a second, and only while joined: enough to see the link is alive in a
+  // log, not enough to bury anything else in it.
+  const std::int64_t now = Clock::Counter();
+  if (m_connection.State() == ClientLinkState::Joined && Clock::MillisecondsBetween(m_lastNetLogCounter, now) >= 1000.0)
+  {
+    m_lastNetLogCounter = now;
+    NEURON_LOG_DEBUG("net: server tick %u, rtt %.3f ms, %llu pongs", m_connection.ServerTick(), m_connection.RoundTripMs(),
+                     static_cast<unsigned long long>(m_connection.PongCount()));
+  }
 }
 
 void ClientApp::HandleResize()
@@ -180,6 +205,7 @@ void ClientApp::Shutdown()
     allocator = nullptr;
   }
 
+  m_connection.Disconnect(); // Say goodbye before the socket goes.
   m_swapChain.Destroy();
   m_device.Destroy();
   m_window.Destroy();

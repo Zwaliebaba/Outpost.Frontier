@@ -6,6 +6,10 @@
 #include "ClientApp.h"
 #include "ClientConfig.h"
 
+#include "ServerConfig.h"
+#include "ServerHost.h"
+#include "Simulation.h"
+
 #include "Clock.h"
 #include "Log.h"
 
@@ -23,6 +27,18 @@
 
 namespace
 {
+
+volatile bool g_stopRequested = false;
+
+BOOL WINAPI ConsoleHandler(DWORD _type)
+{
+  if (_type == CTRL_C_EVENT || _type == CTRL_CLOSE_EVENT || _type == CTRL_BREAK_EVENT)
+  {
+    g_stopRequested = true; // Let the loop unwind rather than dying mid-tick.
+    return TRUE;
+  }
+  return FALSE;
+}
 
 /// Before the log file exists, a fatal problem still has to reach a person.
 void ReportStartupFailure(const Outpost::ConfigDiagnostics& _diagnostics)
@@ -58,6 +74,16 @@ void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigP
                   _config.client.renderer.vsync ? "on" : "off", _config.client.ui.scale);
 }
 
+/// The server takes the same treatment: a plain struct, assembled here.
+Neuron::ServerConfig MakeServerConfig(const Outpost::AppConfig& _config)
+{
+  Neuron::ServerConfig server;
+  server.port = _config.server.port;
+  server.transport = _config.server.transport;
+  server.maxSessions = _config.server.maxSessions;
+  return server;
+}
+
 /// Maps the file's settings onto what the client library asks for. The client
 /// never sees AppConfig: libraries take plain structs from the composition root.
 Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
@@ -82,6 +108,7 @@ Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
 int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
 {
   Neuron::Clock::Initialise();
+  SetConsoleCtrlHandler(&ConsoleHandler, TRUE);
 
   Outpost::AppConfig config;
   Outpost::ConfigPaths paths;
@@ -103,27 +130,71 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   // Boot order is normative (ADR-008 §5): the server starts before the client,
   // and the client is torn down first. ServerHost arrives in slice S3, so today
   // only the client half of that order exists.
+  // GameLogic implements Simulation and the composition root injects it
+  // (ADR-014 §2). Until that exists, the server hosts a simulation that does
+  // nothing -- which is enough to prove the loop, the sessions and the wire.
+  Neuron::NullSimulation simulation;
+  Neuron::ServerHost server;
+
   int exitCode = 0;
+  const bool hostsServer = config.mode != Outpost::HostMode::Client;
+  if (hostsServer && !server.Start(MakeServerConfig(config), simulation))
+  {
+    NEURON_LOG_ERROR("server failed to start");
+    Neuron::Log::Shutdown();
+    return 2;
+  }
+
   switch (config.mode)
   {
     case Outpost::HostMode::Host:
     case Outpost::HostMode::Client:
     {
+      Neuron::ClientConfig clientConfig = MakeClientConfig(config);
+      if (config.mode == Outpost::HostMode::Host)
+      {
+        // Port 0 asked the OS to choose, so the client is told what it chose.
+        // This convenience dies with the split, which is the point of it being
+        // the only thing the two halves share besides the socket.
+        clientConfig.serverHost = "127.0.0.1";
+        clientConfig.serverPort = server.BoundPort();
+        // The handshake compares these against the simulation's own values, and
+        // in one process there is exactly one simulation to ask.
+        clientConfig.schemaHash = simulation.SchemaHash();
+        clientConfig.contentHash = simulation.ContentHash();
+      }
+
       Neuron::ClientApp client;
-      if (!client.Initialise(MakeClientConfig(config)))
+      if (!client.Initialise(clientConfig))
       {
         NEURON_LOG_ERROR("client failed to initialise");
-        Neuron::Log::Shutdown();
-        return 2;
+        exitCode = 2;
+        break;
       }
       exitCode = client.Run();
+      // Client first, always: it must never render against a server that has
+      // already gone (ADR-008 §6).
       client.Shutdown();
       break;
     }
 
     case Outpost::HostMode::Headless:
-      NEURON_LOG_INFO("headless mode: server only (slice S3)");
+    {
+      NEURON_LOG_INFO("headless: serving on port %u until Ctrl-C", static_cast<unsigned>(server.BoundPort()));
+      // The standing proof that the server needs no client at all.
+      while (server.Running() && !g_stopRequested)
+      {
+        Sleep(100);
+      }
       break;
+    }
+  }
+
+  if (hostsServer)
+  {
+    server.Stop();
+    server.Join();
+    NEURON_LOG_INFO("server ran %u ticks (%u overruns)", server.TickCount(), server.OverrunCount());
   }
 
   NEURON_LOG_INFO("Outpost: Frontier exiting cleanly (%d)", exitCode);

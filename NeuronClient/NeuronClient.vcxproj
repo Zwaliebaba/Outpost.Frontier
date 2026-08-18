@@ -21,6 +21,7 @@
     </ClCompile>
     <ClCompile Include="ClearColour.cpp" />
     <ClCompile Include="ClientApp.cpp" />
+    <ClCompile Include="ClientConnection.cpp" />
     <ClCompile Include="GpuDevice.cpp" />
     <ClCompile Include="GpuSwapChain.cpp" />
     <ClCompile Include="Window.cpp" />
@@ -30,6 +31,7 @@
     <ClInclude Include="ClearColour.h" />
     <ClInclude Include="ClientApp.h" />
     <ClInclude Include="ClientConfig.h" />
+    <ClInclude Include="ClientConnection.h" />
     <ClInclude Include="GpuCom.h" />
     <ClInclude Include="GpuDevice.h" />
     <ClInclude Include="GpuSwapChain.h" />
