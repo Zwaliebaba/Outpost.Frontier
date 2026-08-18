@@ -97,6 +97,10 @@ listed in R14 and the S4 notes was found by pushing and reading the log.
    unused ids** so wire, icons, and palettes never renumber when content arrives.
 3. Language standard is `stdcpplatest` across configs for the five main projects, and was added
    to the four `Tests/*` projects (see item 1); nothing to do.
-4. Mesh conventions confirmed for the loader: triangulated `f v/vt/vn`, per-face normals via
-   duplicated vertices, Y-up, **forward = −Z**, shared 5-material palette
-   (`hull/plate/glass/accent/thruster`) identical across all `.mtl` files.
+4. Mesh conventions confirmed for the loader: triangulated `f v/vt/vn`, Y-up,
+   **forward = −Z**, shared 5-material palette (`hull/plate/glass/accent/thruster`) identical
+   across all `.mtl` files — `Frigate.mtl` omits `glass` entirely, which is an absent submesh
+   rather than a different palette. Normals are per-face via duplicated vertices *for most of
+   the corpus*, but not all of it: S5 measured 152 of `Structure.obj`'s 1,784 faces carrying a
+   different normal per corner around a curved section. The loader keys a vertex on
+   (position, normal) so both shade correctly (ADR-006 §5).
