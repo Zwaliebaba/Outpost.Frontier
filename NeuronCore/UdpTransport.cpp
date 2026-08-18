@@ -8,9 +8,6 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
-// SIO_UDP_CONNRESET lives here, not in winsock2.h.
-#include <mstcpip.h>
-
 #include <cstring>
 
 #pragma comment(lib, "ws2_32.lib")
@@ -99,13 +96,6 @@ bool UdpTransport::OpenSocket(std::uint16_t _port)
   // drains once a tick, so give it room for a burst.
   int receiveBuffer = 1 << 20;
   setsockopt(handle, SOL_SOCKET, SO_RCVBUF, reinterpret_cast<const char*>(&receiveBuffer), sizeof(receiveBuffer));
-
-  // Windows raises WSAECONNRESET on a datagram socket when a previous send was
-  // refused by a now-absent peer. Left on, that turns one dead client into a
-  // recvfrom failure that looks like the socket itself broke.
-  BOOL reportUnreachable = FALSE;
-  DWORD returned = 0;
-  WSAIoctl(handle, SIO_UDP_CONNRESET, &reportUnreachable, sizeof(reportUnreachable), nullptr, 0, &returned, nullptr, nullptr);
 
   sockaddr_in address{};
   address.sin_family = AF_INET;
@@ -310,11 +300,21 @@ void UdpTransport::ReceiveAll()
     if (received == SOCKET_ERROR)
     {
       const int error = WSAGetLastError();
-      if (error != WSAEWOULDBLOCK && error != WSAECONNRESET)
+      if (error == WSAEWOULDBLOCK)
       {
-        NEURON_LOG_WARNING("recvfrom failed (%d)", error);
+        return; // Drained.
       }
-      return; // Drained, or a failure that says nothing about the next datagram.
+      if (error == WSAECONNRESET)
+      {
+        // Windows reports a previous send to a now-absent peer as a receive
+        // error on a datagram socket. It says nothing about the datagrams still
+        // queued behind it, so keep draining rather than treating one dead peer
+        // as a broken socket. (SIO_UDP_CONNRESET would suppress it at the
+        // source; tolerating it here needs no version-specific IOCTL.)
+        continue;
+      }
+      NEURON_LOG_WARNING("recvfrom failed (%d)", error);
+      return;
     }
     if (received < static_cast<int>(HeaderBytes))
     {
