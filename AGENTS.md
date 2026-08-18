@@ -191,8 +191,10 @@ through engine-declared interfaces that `Outpost.exe` injects (ADR-014).
   Windows SDK — **case-insensitively**. A header named `Time.h` or `Assert.h` shadows
   `<time.h>` or `<assert.h>` for every translation unit that can see this folder, and the
   errors land inside the STL with nothing pointing at you. CI fails the build on a collision.
-  The tables in [Design/Dependency-Map.md](Design/Dependency-Map.md) are the registry; check
-  it *before* creating a file, and add the name when you do.
+  Two documents hold the registry — the per-project tables in
+  [Design/Dependency-Map.md](Design/Dependency-Map.md) and the table in
+  [ADR-013](Design/ADR/ADR-013-source-layout.md) §3. Check them *before* creating a file, and
+  add the name to **both** when you do.
 - **Includes are unqualified**: `#include "Json.h"`. Each project lists the libraries it is
   entitled to as `$(SolutionDir)<Project>` include paths. Because several roots sit on the
   search path, a duplicate file name silently resolves to the wrong header — which is why the
@@ -269,7 +271,7 @@ Format the lines you write. Do not reformat files you are only passing through.
 ```
 msbuild Outpost.slnx /p:Configuration=Debug   /p:Platform=x64
 msbuild Outpost.slnx /p:Configuration=Release /p:Platform=x64
-vstest.console.exe Tests\GameLogicTests\x64\Debug\GameLogicTests.dll
+vstest.console.exe x64\Debug\NeuronCoreTests.dll x64\Debug\NeuronServerTests.dll
 ```
 
 **CI** ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds **Debug|x64 only**
@@ -284,8 +286,14 @@ Two things CI does that a local build does not, and that are easy to trip over:
   `$(SolutionDir)<Project>`, so without it no cross-project include resolves.
 - **`Outpost.exe` is built only once it has an entry point.** It is a Windows-subsystem
   application, so until `Main.cpp` exists the link fails on `WinMain`; the step detects this
-  and skips rather than leaving CI permanently red. It starts building itself when slice S1
-  lands, with no edit to the workflow.
+  and skips rather than leaving CI permanently red. It started building itself when slice S1
+  landed, with no edit to the workflow.
+- **A header whose stem matches a standard one fails the build** before anything is compiled
+  (§3). This step exists because the alternative is two dozen errors inside `<ctime>` naming
+  nothing of ours.
+- **Failing tests are printed with their assertion messages**, and `test.log` is uploaded with
+  `build.log`. Without that the one line that matters sits somewhere inside a 1,500-line log,
+  which is worth knowing before you conclude a red job is a build failure.
 
 Headless checks (no GPU needed) run by launching the executable from a directory whose
 `Outpost.json` sets `"mode": "headless"` and `"selfTest": true` — there are no flags to pass
@@ -312,7 +320,10 @@ slice" are different claims. Never imply the second when you only did the first.
 
 - [ ] Naming conforms to §1 — `_` on parameters, `m_` on class state, no `I`/`C`/`Base`
       prefixes, units in names.
-- [ ] Files are PascalCase, flat, unique repo-wide, and registered in the Dependency Map.
+- [ ] Files are PascalCase, flat, unique repo-wide — including against the CRT and STL — and
+      registered in **both** file-name registries: the Dependency Map's per-project tables and
+      ADR-013 §3. They are two lists of the same thing; updating one and not the other is how
+      both go stale.
 - [ ] Every added/removed/moved file is in both the `.vcxproj` **and** the `.filters`.
 - [ ] No `argv`, no environment reads, no `XMVECTOR` stored in a struct or container.
 - [ ] GameLogic touched? The replay-determinism suite still passes.

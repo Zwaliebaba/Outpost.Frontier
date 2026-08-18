@@ -1,9 +1,16 @@
 # MVP Build Order — Vertical Slices
 
-**Status:** Session output 2026-08-17 · Each slice is independently testable, lands green
-(`Tests/` + `selfTest` where applicable), and is sized at "a few days" or less. Order
-matters — later slices assume earlier ones. Milestones: **M0** = the brief's named first
-milestone; **M1** = first commanded fleet; **MVP** = playable definition met.
+**Status:** Session output 2026-08-17 · **implementation progress appended 2026-08-18.**
+Each slice is independently testable, lands green (`Tests/` + `selfTest` where applicable),
+and is sized at "a few days" or less. Order matters — later slices assume earlier ones.
+Milestones: **M0** = the brief's named first milestone; **M1** = first commanded fleet;
+**MVP** = playable definition met.
+
+Each landed slice carries a **Built** line: what is in the tree, and — where a slice is only
+partly done — what is still owed. A slice is not called done because its interesting part
+works; the leftovers are named so they cannot be quietly dropped. Manual checkpoints (anything
+needing a GPU, a window, or a person watching) are listed as outstanding until someone has
+actually run them, because CI cannot.
 
 Test placement follows the Dependency Map: sim logic proves itself in `GameLogicTests`,
 transport/foundation in `NeuronCoreTests`, host lifecycle in `NeuronServerTests`, client math
@@ -17,14 +24,24 @@ Raw Win32 window; DX12 device + direct queue; flip-model swapchain (3 buffers, w
 frames in flight); clear-to-colour animates; resize + fullscreen-borderless toggle; clean
 shutdown; debug layer clean.
 **Accept:** runs 5 min without debug-layer messages; PresentMon shows flip model; close exits 0.
+**Built ✅ (code):** `Window.h/.cpp`, `GpuDevice.h/.cpp`, `GpuSwapChain.h/.cpp`, `GpuCom.h`,
+`ClearColour.h/.cpp`, `ClientApp.h/.cpp`. COM ownership is `winrt::com_ptr` (AGENTS.md §5).
+**Outstanding:** resize and borderless-fullscreen toggle are wired but unexercised; the three
+acceptance measurements are manual and nobody has run them yet — CI has no GPU.
 
 ### S2 — NeuronCore foundations
 `Assert/Log/Time(QPC)/Hash(FNV)/Random(PCG32)`, `ByteReader/Writer`, SPSC/MPSC rings,
 telemetry lane registry + `NEURON_SPAN/COUNTER`, `TaskPool`. **No math layer** — DirectXMath
 is called natively at use sites (ADR-010).
 **Accept:** `NeuronCoreTests`: byte IO round-trip + underrun bounds, ring stress (2 threads),
-PCG32 vectors, span timing sanity, `XMVerifyCPUSupport` gate. *(Test projects need their
-ProjectReferences wired — owner task, see README.)*
+PCG32 vectors, span timing sanity, `XMVerifyCPUSupport` gate.
+**Built — partial ⚠:** `Debug.h/.cpp`, `Log.h/.cpp`, `Clock.h/.cpp`, `Hash.h`, `Random.h`,
+`ByteReader.h`, `ByteWriter.h`, `RingBuffer.h`, `Arena.h`, `EntityRecord.h/.cpp`. Test
+ProjectReferences are wired for the three engine test projects.
+**Still owed by this slice:** `TaskPool.h` and `Telemetry.h` — neither exists. Nothing needs
+them until the S5 atlas bake (TaskPool) and the S14 debug strip (Telemetry), but the
+`tickOverrun` counter R10 relies on is a plain atomic today, not a lane, and `NEURON_SPAN` /
+`NEURON_COUNTER` do not exist. `GameLogicTests` is still unwired (its library is empty).
 
 ### S2b — JSON parser & configuration
 `Json.h/.cpp` (iterative parse, flat-node DOM, exact `int64`, comments + trailing commas,
@@ -35,6 +52,9 @@ S1's window/renderer values move out of code into `Outpost.json`; `mode` honoure
 2⁵³, depth-cap rejection, duplicate-key rejection, `\uXXXX` surrogate decoding, writer
 round-trip stability; missing base config exits fatally with file/line/column; a corrupt user
 layer is ignored with a warning; **no argv or environment reads anywhere** (grep rule).
+**Built ✅:** `Json.h/.cpp`, `JsonWriter.h/.cpp` in NeuronCore; `AppConfig.h/.cpp`,
+`ConfigLoad.h/.cpp` in the exe; `Outpost.json` at the repo root. `wWinMain` ignores its
+arguments by signature.
 
 ### S3 — ServerHost skeleton + headless mode
 `ServerHost{Start/Stop/Join}` with Sim thread, 20 Hz waitable-timer loop (absolute schedule,
@@ -42,6 +62,12 @@ snap-forward rule), tick counter + `tickOverrun` telemetry; `Outpost.exe` with `
 under console logging until Ctrl-C.
 **Accept:** `NeuronServerTests` start/stop/join ×100 no leak/hang; headless 60 s: mean period
 50 ms ± 0.5, no overruns on an idle machine.
+**Built ✅:** `ServerHost.h/.cpp` (absolute-schedule waitable-timer loop, snap-forward past
+250 ms, at most 2 catch-up ticks), `ServerConfig.h`, `Simulation.h`; `mode: "headless"` runs it
+until Ctrl-C. `NeuronServerTests` covers start/stop/join, repeated cycles, idempotent stop, and
+the tick rate.
+**Outstanding:** the 60-second period measurement is a manual run — the CI test asserts loose
+bounds (5–40 ticks in 500 ms) because a shared runner is not a real-time system.
 
 ### S4 — Transport + handshake + heartbeat 🏁 **M0**
 `Transport` + `UdpTransport` (non-blocking Winsock, 1,152 B datagram cap, minimal control-
@@ -52,6 +78,13 @@ channel reliability); `Hello/Welcome/UpdateRequired` with schema hash (and `univ
 the brief's milestone, demonstrably. `NeuronCoreTests` handshake over real loopback socket;
 schema-hash mismatch produces `UpdateRequired` + refusal (test forces a bad hash).
 `selfTest` covers handshake + ping.
+**Built ✅:** `Transport.h`, `UdpTransport.h/.cpp` (non-blocking Winsock, 1,152 B cap,
+stop-and-wait control reliability), `Wire.h/.cpp`, `ClientConnection.h/.cpp`; NET stats logged
+on both sides every 5 s; `SelfTest.h/.cpp` drives the whole M0 exchange headlessly and returns
+an exit code. `NeuronCoreTests` covers the loopback and the wire; `NeuronServerTests` covers
+the handshake and a forced hash mismatch producing `UpdateRequired`.
+**Outstanding:** the visible half of M0 — window open, swapchain presenting, heartbeat live —
+still needs a person at a machine. The engine half is green in CI.
 
 ### S5 — Meshes, atlas, opaque pass, camera
 OBJ/MTL loader → submesh ranges (8 ship classes + Structure); DirectWrite glyph-atlas bake

@@ -2,8 +2,8 @@
 
 Output of the architecture & design session of 2026-08-17. The eight open questions from the
 session brief are settled, in order, one ADR each; the four session deliverables sit beside
-them. ADRs 009–013 record owner directives that arrived after the session and, where they
-overturn an earlier decision, say so in their header. `ScreenPrints/` is the pre-existing
+them. ADRs 009–014 record owner directives and rulings that arrived after the session and,
+where they overturn an earlier decision, say so in their header. `ScreenPrints/` is the pre-existing
 reference corpus these documents align with.
 
 **Supersessions to be aware of when reading older ADRs:** ADR-012 replaces ADR-008's command
@@ -51,32 +51,57 @@ moves between the trees without a rename pass. Three things it changed in these 
   time model, frame/tick anatomy, deliberate omissions, corpus alignment.
 - [Dependency-Map.md](Dependency-Map.md) — allowed edges, per-project public surface
   (header-level), the session's dependency rulings.
-- [MVP-Build-Order.md](MVP-Build-Order.md) — S1–S14 vertical slices with acceptance criteria;
+- [MVP-Build-Order.md](MVP-Build-Order.md) — S1–S15 vertical slices (S2b, S5b and S5c were
+  added by later directives) with acceptance criteria and a **Built** line per landed slice;
   milestones M0 (heartbeat) / M1 (first commanded fleet) / MVP.
-- [Risk-Register.md](Risk-Register.md) — R1–R10 with designed-in mitigations + standing spikes.
+- [Risk-Register.md](Risk-Register.md) — R1–R14 with designed-in mitigations + standing spikes.
+  R14 is marked realised.
 
-## Repo observations for the owner (no project files were modified this session)
+## Implementation state (2026-08-18)
 
-1. **Test projects aren't wired yet:** the four `Tests/*` vcxprojs (added on main) contain no
-   `ProjectReference` to the libraries they test and no include paths — they'll need both
-   before the S2/S6 suites can exist. Following ADR-014, each references **only** its library
-   and that library's own dependencies: `NeuronCoreTests` → NeuronCore; `GameLogicTests` →
-   GameLogic (+NeuronCore); `NeuronServerTests` → NeuronServer (+NeuronCore);
-   `NeuronClientTests` → NeuronClient (+NeuronCore). The engine test projects stay
-   engine-only — they test the seam with a stub `Simulation`/`WorldView`, not with GameLogic.
-1b. **Filters:** the generated `Source Files`/`Header Files` filters should be replaced with
-   the semantic taxonomy in ADR-013 §5 — that file is now the only place code grouping lives.
+Slices S1, S2b, S3 and S4 are in the tree and green in CI; S2 is partly done. The per-slice
+detail — what was built, and what a "done" slice still owes — lives in
+[MVP-Build-Order.md](MVP-Build-Order.md); it is not repeated here.
+
+**Milestone M0** is half proven. Its automated half is green: 64 tests across four assemblies,
+plus a `selfTest` mode that runs the whole handshake-and-heartbeat exchange over a real
+loopback socket and returns an exit code. Its visible half — window open, swapchain
+presenting, heartbeat live — has not been run by a person, because CI has no GPU and cannot
+run it.
+
+**Continuous integration:** `.github/workflows/build.yml` builds Debug|x64 (Release is
+deliberately not built — see the note at the top of that file), restores NuGet per project,
+checks header names against the CRT (R14), builds the four libraries, builds `Outpost.exe`
+once an entry point exists, builds and runs the tests, and surfaces failing tests and
+deduplicated warnings in the job summary. It is the only compiler this work has: every defect
+listed in R14 and the S4 notes was found by pushing and reading the log.
+
+## Repo observations for the owner
+
+1. **Test project wiring — mostly done.** `NeuronCoreTests`, `NeuronServerTests` and
+   `NeuronClientTests` now carry `ProjectReference`s and include paths, and all four projects
+   were given `stdcpplatest` (they were generated without a `<LanguageStandard>`, defaulting to
+   C++14, which failed the moment a `<span>` appeared). **`GameLogicTests` is still unwired** —
+   its library is empty, so there is nothing to reference yet. Following ADR-014, each
+   references **only** its library and that library's own dependencies; the engine test projects
+   stay engine-only — they test the seam with a stub `Simulation`/`WorldView`, not with
+   GameLogic, and `NeuronServerTests` already does exactly that.
+1b. **Filters:** semantic filters per ADR-013 §5 are maintained for the files added so far; the
+   generated `Source Files`/`Header Files` buckets remain wherever no file has been added yet.
 1c. **Include roots stay per-project** (owner decision) — the qualified-include alternative was
-   considered and declined; ADR-013 §4 records what that puts on the uniqueness rule.
+   considered and declined; ADR-013 §4 records what that puts on the uniqueness rule, and R14
+   records what it cost.
 2. ~~Content gap: Fighter/Cruiser meshes missing.~~ **Resolved by ADR-009 §6:** the meshes in
    `GameData/Meshes` *are* the standard ship set (8 ships + `Structure` for stations);
    `HullClass` keeps the 11-value closed taxonomy with **Fighter and Cruiser as reserved,
    unused ids** so wire, icons, and palettes never renumber when content arrives.
-3. **Package hygiene (harmless, trimmable):** every project references the msquic *and*
-   C++/WinRT NuGet packages; by the dependency map only NeuronCore needs msquic, and no MVP
-   code needs C++/WinRT.
-4. Language standard is now consistently `stdcpplatest` across configs after the testing
-   commit — matches the fixed constraints; nothing to do.
+3. **Package hygiene (harmless, trimmable):** every library and the exe reference the msquic
+   *and* C++/WinRT NuGet packages; by the dependency map only NeuronCore needs msquic, and only
+   NeuronClient needs C++/WinRT (for `winrt::com_ptr`). Note the constraint this creates: the
+   `Tests/*` projects have **no** packages, so anything a test includes must not reach a
+   C++/WinRT header — which is why `ClearColour` is a separate, dependency-free header.
+4. Language standard is `stdcpplatest` across configs for the five main projects, and was added
+   to the four `Tests/*` projects (see item 1); nothing to do.
 5. Mesh conventions confirmed for the loader: triangulated `f v/vt/vn`, per-face normals via
    duplicated vertices, Y-up, **forward = −Z**, shared 5-material palette
    (`hull/plate/glass/accent/thruster`) identical across all `.mtl` files.

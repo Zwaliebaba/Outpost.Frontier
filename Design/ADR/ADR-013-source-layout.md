@@ -35,10 +35,10 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
 
    | Project | Naming | Files |
    |---|---|---|
-   | NeuronCore | plain area names | `Debug.h` `Log.h` `Clock.h` `Hash.h` `Random.h` `Arena.h` `RingBuffer.h` `TaskPool.h` `Telemetry.h` `ByteReader.h` `ByteWriter.h` `Json.h` `JsonWriter.h` `Transport.h` `UdpTransport.h` `QuicTransport.h` `Wire.h` |
+   | NeuronCore | plain area names | `Debug.h` `Log.h` `Clock.h` `Hash.h` `Random.h` `Arena.h` `RingBuffer.h` `TaskPool.h` `Telemetry.h` `ByteReader.h` `ByteWriter.h` `Json.h` `JsonWriter.h` `EntityRecord.h` `Transport.h` `UdpTransport.h` `QuicTransport.h` `Wire.h` |
    | GameLogic | type + family names | `Ids.h` `ShipClass.h` `World.h` `ReplicatedView.h` `Orders.h` `Validate.h` `Formation.h` `WorldHash.h` `Snapshot.h` `OrderMessages.h` `SchemaHash.h` `Universe.h` `UniverseParse.h` |
-   | NeuronServer | type names | `ServerHost.h` `ServerConfig.h` `Session.h` `SnapshotSender.h` |
-   | NeuronClient | type names (`Gpu`, `Hud`, `Audio` read as domain words, R4) | `ClientApp.h` `Window.h` `ClientConnection.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuPasses.h` `GpuPipelines.h` `ObjMesh.h` `GlyphAtlas.h` `IsoCamera.h` `Picking.h` `InputMap.h` `HudLayout.h` `HudRoster.h` `OrderPuck.h` `AudioSystem.h` `AudioBank.h` `AudioListener.h` |
+   | NeuronServer | type names | `Simulation.h` `ServerHost.h` `ServerConfig.h` `Session.h` `SnapshotSender.h` |
+   | NeuronClient | type names (`Gpu`, `Hud`, `Audio` read as domain words, R4) | `ClientApp.h` `ClientConfig.h` `Window.h` `ClearColour.h` `ClientConnection.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuCom.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuPasses.h` `GpuPipelines.h` `ObjMesh.h` `GlyphAtlas.h` `IsoCamera.h` `Picking.h` `InputMap.h` `HudLayout.h` `HudRoster.h` `OrderPuck.h` `AudioSystem.h` `AudioBank.h` `AudioListener.h` |
    | Outpost | — | `Main.cpp` `AppConfig.h` `AppConfig.cpp` `ConfigLoad.h` `ConfigLoad.cpp` `SelfTest.h` `SelfTest.cpp` |
 
    If a genuine collision ever appears, the **newer** file is renamed to a more specific type name; the

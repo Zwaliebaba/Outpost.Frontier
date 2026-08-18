@@ -142,7 +142,8 @@ corpus debug HUD's budget rows; `AUDIO` joins them as a fifth.
 | Math | **DirectXMath natively** — no wrapper types, functions, or aliases; `XMFLOAT*` stored, `XMVECTOR` computed. NeuronCore has no math header. | [010](ADR/ADR-010-math-directxmath.md) |
 | Audio | **XAudio2** graph (master + 5 submixes, pooled voices) with **X3DAudio**; listener at the camera focus raised by zoom, mono 3D assets. | [011](ADR/ADR-011-audio.md) |
 | Configuration | **JSON files only** — no argv, no environment variables; custom NeuronCore parser also serving universe content and sound banks; settings persist to a user layer in LocalAppData. | [012](ADR/ADR-012-configuration-and-json.md) |
-| Source layout | **Flat project folders**, grouping via `.vcxproj.filters`, repo-wide unique file names, `$(SolutionDir)`-qualified cross-project includes. | [013](ADR/ADR-013-source-layout.md) |
+| Source layout | **Flat project folders**, grouping via `.vcxproj.filters`, repo-wide unique file names — including against the CRT and STL, case-insensitively. Includes are **unqualified**, resolved through per-project include roots; the `$(SolutionDir)`-qualified alternative was considered and declined, which is what puts the whole weight on uniqueness (ADR-013 §4, Risk R14). | [013](ADR/ADR-013-source-layout.md) |
+| COM ownership | **`winrt::com_ptr`** (aliased `Neuron::GpuPtr`) for every D3D12/DXGI interface, created with `IID_PPV_ARGS(x.put())` — which derives the IID from the pointer's own type rather than a hand-written one. `<unknwn.h>` precedes `<winrt/base.h>` so the classic-COM projection is available. NeuronClient is the only library that needs the C++/WinRT package; nothing a test includes may reach it. | [AGENTS.md](../AGENTS.md) §5 |
 
 ## Alignment with the screen-print corpus
 
