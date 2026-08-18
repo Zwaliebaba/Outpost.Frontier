@@ -172,6 +172,22 @@ inline constexpr std::uint32_t UI_FLAG_GLYPH = 1u;
  */
 inline constexpr std::uint32_t UI_FLAG_ORIENTED = 2u;
 
+/*
+ * One codepoint out of a UTF-8 string, advancing `_index` past it.
+ *
+ * The HUD's strings are UTF-8 because the atlas bakes more than ASCII -- the
+ * icon sheet's marker glyphs (the alert triangle, the slot squares) are real
+ * codepoints in the baked set, and a pass that read a byte as a codepoint
+ * could never reach them. A malformed sequence yields U+FFFD and advances one
+ * byte, so bad input costs a missing-glyph count rather than a stuck loop.
+ */
+[[nodiscard]] char32_t DecodeUtf8(std::string_view _text, std::size_t& _index) noexcept;
+
+/// Codepoints in a UTF-8 string -- the number of monospace cells a run covers,
+/// which is what every width measurement in the HUD needs. `strlen` counts
+/// bytes and over-measures any string carrying a marker glyph.
+[[nodiscard]] std::size_t TextCellCount(std::string_view _text) noexcept;
+
 class UiDrawList
 {
 public:

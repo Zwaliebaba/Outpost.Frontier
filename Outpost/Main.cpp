@@ -532,6 +532,7 @@ ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
   client.nebula.seed = _config.client.nebula.seed;
   client.cameraYawSnapDegrees = static_cast<float>(_config.client.camera.yawSnapDegrees);
   client.uiScale = static_cast<float>(_config.client.ui.scale);
+  client.uiPalette = _config.client.ui.palette;
 
   // The world is not here any more. Scenery, the grid anchor and the handshake
   // hashes went behind `Neuron::WorldView` with S5c: configuration is how the

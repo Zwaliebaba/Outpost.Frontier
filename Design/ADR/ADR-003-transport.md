@@ -1,6 +1,8 @@
 # ADR-003 — Transport: QUIC-Shaped Abstraction, UDP Loopback First
 
-**Status:** Accepted · 2026-08-17
+**Status:** Accepted · 2026-08-17 · Amended at S13 (2026-08-18): owner directive — QUIC only,
+`UdpTransport` deleted; §3's transport flag and §4's permanent-fallback decision are
+superseded below
 **Depends on:** ADR-002 (tick/snapshot cadence)
 **Feeds:** ADR-004 (wire protocol), ADR-007 (threading), ADR-008 (hosting)
 
@@ -62,16 +64,21 @@ function call.
    the minimal control-channel reliability described above and a 3-way hello for "connection".
 3. **msquic is validated by an early spike, not deferred to the end.** Build-order slice S13
    (before MVP-complete, after the protocol stabilises) brings up `QuicTransport` behind the
-   same interface with `server.transport: "quic"`: ALPN **`opf/1`**, self-signed server cert created
+   same interface: ALPN **`opf/1`**, self-signed server cert created
    in-memory via `CertCreateSelfSignCertificate` + `QUIC_CREDENTIAL_TYPE_CERTIFICATE_CONTEXT`
    (the Schannel-flavour package cannot load PEM/PKCS12 files), client using
    `NO_CERTIFICATE_VALIDATION` on loopback (pinning comes with real deployment, out of MVP).
    Datagrams enabled via `DatagramReceiveEnabled`; the reliable channel is stream 0 opened by
-   the client. The spike's exit criterion: the full MVP protocol runs unmodified over both
-   transports, toggled by flag.
-4. **Both transports ship in NeuronCore permanently.** UDP remains the debug/localhost fallback
-   (plaintext = Wireshark-able), QUIC is the product path. CI-style self-test (`selfTest`)
-   runs the handshake over both.
+   the client. The spike's exit criterion: the full MVP protocol runs unmodified over QUIC.
+   *(As originally accepted this read "over both transports, toggled by flag" — superseded by
+   the S13 amendment below.)*
+4. **QUIC is the only transport** *(S13 amendment, owner directive — as accepted this
+   paragraph shipped both transports permanently with UDP as the plaintext fallback)*.
+   `UdpTransport` was the S4–S12 scaffolding and was deleted when `QuicTransport` landed;
+   there is no transport config knob. What the UDP era bought stands: the seam was validated
+   against two implementations before the second became the only one, which is why the swap
+   touched one type name in `ServerHost` and one in `ClientConnection` and nothing else.
+   CI-style self-test (`selfTest`) runs the full handshake+order+snapshot loop over QUIC.
 
 ## Alternatives rejected
 

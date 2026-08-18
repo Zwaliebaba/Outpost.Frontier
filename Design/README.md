@@ -39,8 +39,8 @@ root, with `.clang-tidy` (identifiers) and `.clang-format` (whitespace) as the m
 half. The convention is adopted from the sibling repository **Outpost.Warzone** so engine code
 moves between the trees without a rename pass. Three things it changed in these documents:
 
-- `ITransport` → **`Transport`** (R2 bans `I`/`C`/`Base` prefixes; `UdpTransport` and
-  `QuicTransport` are the implementations).
+- `ITransport` → **`Transport`** (R2 bans `I`/`C`/`Base` prefixes; `QuicTransport` is the
+  implementation — `UdpTransport` was the MVP scaffold until the S13 owner directive).
 - Namespaces are PascalCase: **`Neuron`** for the engine libraries, **`Game`** for GameLogic.
 - Wire and aggregate fields carry units in camelCase: `posXCm`, `velXCmPerSec`,
   `headingTurns16`, `etaTicks` — never `posX_cm` or a type prefix.

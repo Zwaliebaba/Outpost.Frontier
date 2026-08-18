@@ -50,13 +50,13 @@ suffixes. Name the concept and let the concrete types say what they are:
 
 ```
 Transport             ← the concept
-├── UdpTransport      ← the loopback/plaintext one (MVP)
 └── QuicTransport     ← msquic, the product path
 ```
 
-Unlike the sibling tree, Frontier genuinely has two implementations from the outset
-(ADR-003), so the hierarchy above is real rather than illustrative. Where there is only ever
-one implementation, do not invent a base class for it.
+The abstract base is real even with one implementation, because it had two: `UdpTransport`
+was the MVP scaffold that validated the seam until the S13 owner directive deleted it
+(ADR-003 §4). Where a type never had and never will have a second implementation, do not
+invent a base class for it.
 
 **R3 — Compile-time constants are UPPER_CASE.** `static constexpr` members and namespace-scope
 `constexpr`/`inline constexpr` take UPPER_CASE: `TICK_RATE`, `TICK_DT`, `INTERP_DELAY_TICKS`,

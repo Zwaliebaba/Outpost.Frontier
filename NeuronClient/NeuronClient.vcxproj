@@ -82,6 +82,7 @@
     <ClInclude Include="UiDrawList.h" />
     <ClInclude Include="CommandRow.h" />
     <ClInclude Include="GhostLane.h" />
+    <ClInclude Include="HudPalette.h" />
     <ClInclude Include="HudRoster.h" />
     <ClInclude Include="UiLayout.h" />
   </ItemGroup>
@@ -168,6 +169,8 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
     <Import Project="..\packages\Microsoft.Windows.CppWinRT.3.0.260715.1\build\native\Microsoft.Windows.CppWinRT.targets" Condition="Exists('..\packages\Microsoft.Windows.CppWinRT.3.0.260715.1\build\native\Microsoft.Windows.CppWinRT.targets')" />
+    <Import Project="..\packages\Microsoft.Native.Quic.MsQuic.Schannel.2.6.0\build\native\Microsoft.Native.Quic.MsQuic.schannel.targets" Condition="Exists('..\packages\Microsoft.Native.Quic.MsQuic.Schannel.2.6.0\build\native\Microsoft.Native.Quic.MsQuic.schannel.targets')" />
+    <Import Project="..\packages\WinPixEventRuntime.1.0.240308001\build\WinPixEventRuntime.targets" Condition="Exists('..\packages\WinPixEventRuntime.1.0.240308001\build\WinPixEventRuntime.targets')" />
   </ImportGroup>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
@@ -175,5 +178,7 @@
     </PropertyGroup>
     <Error Condition="!Exists('..\packages\Microsoft.Windows.CppWinRT.3.0.260715.1\build\native\Microsoft.Windows.CppWinRT.props')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.Windows.CppWinRT.3.0.260715.1\build\native\Microsoft.Windows.CppWinRT.props'))" />
     <Error Condition="!Exists('..\packages\Microsoft.Windows.CppWinRT.3.0.260715.1\build\native\Microsoft.Windows.CppWinRT.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.Windows.CppWinRT.3.0.260715.1\build\native\Microsoft.Windows.CppWinRT.targets'))" />
+    <Error Condition="!Exists('..\packages\Microsoft.Native.Quic.MsQuic.Schannel.2.6.0\build\native\Microsoft.Native.Quic.MsQuic.schannel.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\Microsoft.Native.Quic.MsQuic.Schannel.2.6.0\build\native\Microsoft.Native.Quic.MsQuic.schannel.targets'))" />
+    <Error Condition="!Exists('..\packages\WinPixEventRuntime.1.0.240308001\build\WinPixEventRuntime.targets')" Text="$([System.String]::Format('$(ErrorText)', '..\packages\WinPixEventRuntime.1.0.240308001\build\WinPixEventRuntime.targets'))" />
   </Target>
 </Project>

@@ -56,6 +56,11 @@ struct ClientConfig
   /// sheet makes 0.8-1.6x a requirement rather than a nicety.
   float uiScale = 1.0f;
 
+  /// Which HUD colour table to resolve (`HudPalette`). "default" is the
+  /// prints' phosphor table; the settings sheet's colour-vision palettes
+  /// arrive as more names, which is why this is a string and not a bool.
+  std::string uiPalette = "default";
+
   // The world used to be here: authored scenery, a world id and a grid anchor,
   // passed in as configuration. S5c moved all three behind `Neuron::WorldView`,
   // where they belong -- configuration is how the client is set up, not what it

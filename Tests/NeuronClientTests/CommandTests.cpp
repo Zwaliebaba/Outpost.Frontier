@@ -44,7 +44,7 @@ const OrderOption FORMATIONS[] = {
 /// A row the size the print draws, with room for every button.
 [[nodiscard]] UiRect WideRow()
 {
-  return UiRect{0.0f, 838.0f, 1600.0f, 62.0f};
+  return UiRect{0.0f, 836.0f, 1600.0f, 64.0f};
 }
 
 [[nodiscard]] const CommandButton* Find(std::span<const CommandButton> _buttons, const char* _label)
@@ -205,7 +205,7 @@ public:
      * how many survived so a caller could report it.
      */
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
-    const UiRect narrow{0.0f, 838.0f, 320.0f, 62.0f};
+    const UiRect narrow{0.0f, 836.0f, 320.0f, 64.0f};
     const std::uint32_t count = BuildCommandRow(KINDS, 0, FORMATIONS, 0, narrow, 1.0f, CommandRowTuning{}, buttons);
 
     Assert::IsTrue(count > 0 && count < 5);
@@ -216,17 +216,41 @@ public:
     }
   }
 
-  TEST_METHOD(TheButtonsGrowWithTheUiScale)
+  TEST_METHOD(TheButtonsGrowWithTheUiScaleAboveTheTouchFloor)
   {
     // The settings sheet's 0.8-1.6x is a requirement, and a row that stayed at
-    // 1.0 while the text around it grew would be the control not working.
-    CommandButton small[MAX_COMMAND_BUTTONS] = {};
+    // 1.0 while the text around it grew would be the control not working. The
+    // height is the one dimension with a floor under it, so above 1.0x it
+    // scales and below it it refuses -- see the floor test beside this one.
+    CommandButton normal[MAX_COMMAND_BUTTONS] = {};
     CommandButton large[MAX_COMMAND_BUTTONS] = {};
-    (void)BuildCommandRow(KINDS, 0, FORMATIONS, 0, WideRow(), 0.8f, CommandRowTuning{}, small);
+    (void)BuildCommandRow(KINDS, 0, FORMATIONS, 0, WideRow(), 1.0f, CommandRowTuning{}, normal);
     (void)BuildCommandRow(KINDS, 0, FORMATIONS, 0, WideRow(), 1.6f, CommandRowTuning{}, large);
 
-    Assert::AreEqual(large[0].rect.width, small[0].rect.width * 2.0f, 0.01f);
-    Assert::AreEqual(large[0].rect.height, small[0].rect.height * 2.0f, 0.01f);
+    Assert::AreEqual(large[0].rect.width, normal[0].rect.width * 1.6f, 0.01f);
+    Assert::AreEqual(large[0].rect.height, normal[0].rect.height * 1.6f, 0.01f);
+  }
+
+  TEST_METHOD(AVerbNeverResolvesUnderTheTouchFloor)
+  {
+    /*
+     * The U2 floor: 48 px is the smallest target a thumb can be asked to hit,
+     * and the scale control does not get to shrink a verb below it -- at 0.8x
+     * the button holds its 1.0x height and gives up its top inset instead.
+     * The retuned command row (64 at 1.0x) exists to hold exactly this.
+     */
+    CommandButton small[MAX_COMMAND_BUTTONS] = {};
+    const UiRect row{0.0f, 848.8f, 1600.0f, 64.0f * 0.8f};
+    const std::uint32_t count = BuildCommandRow(KINDS, 0, FORMATIONS, 0, row, 0.8f, CommandRowTuning{}, small);
+    Assert::IsTrue(count > 0);
+
+    for (std::uint32_t index = 0; index < count; ++index)
+    {
+      Assert::AreEqual(CommandRowTuning{}.buttonHeight, small[index].rect.height, 0.001f,
+                       L"the floor holds at 0.8x");
+      Assert::IsTrue(small[index].rect.y >= row.y, L"and the button still sits inside its row");
+      Assert::IsTrue(small[index].rect.Bottom() <= row.Bottom() + 0.001f);
+    }
   }
 
   TEST_METHOD(NothingIsLaidOutWithoutCommandsOrRoom)

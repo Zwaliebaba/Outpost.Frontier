@@ -68,7 +68,7 @@ public:
     /// A monospace face. Consolas ships with Windows; the fallback list exists
     /// because a face missing from a machine must not stop the client.
     std::string fontFamily = "Consolas";
-    std::vector<float> sizesPixels = {13.0f, 16.0f, 22.0f};
+    std::vector<float> sizesPixels = {13.0f, 15.0f, 22.0f};
     std::uint32_t textureWidth = 1024;
     std::uint32_t maxTextureHeight = 2048;
   };

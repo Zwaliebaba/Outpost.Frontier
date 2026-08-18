@@ -53,4 +53,21 @@ float2 UiCorner(uint _vertexId)
   return float2((_vertexId & 1u) != 0u ? 1.0f : 0.0f, (_vertexId & 2u) != 0u ? 1.0f : 0.0f);
 }
 
+// The HUD's colours are authored in display terms -- `HudPalette`'s values are
+// read off the prints -- but the render target is an `_SRGB` view, which
+// encodes on write. A colour passed through untouched is therefore encoded
+// twice and arrives brighter and greyer than authored: rgb(4,8,5) panels came
+// out olive, which is exactly the wash the palette migration existed to
+// remove. Decoded here, once per corner, rather than on the CPU, because an
+// 8-bit *linear* value cannot hold the dark end -- rgb(4,8,5) linearises to
+// under 1/255 and would quantise to black. The exact piecewise transfer, not
+// the pow(2.2) approximation, so the round trip through the RTV's encode
+// reproduces the authored byte.
+float3 SrgbToLinear(float3 _srgb)
+{
+  const float3 low = _srgb / 12.92f;
+  const float3 high = pow((_srgb + 0.055f) / 1.055f, 2.4f);
+  return select(_srgb <= 0.04045f, low, high);
+}
+
 #endif // OUTPOST_UI_HLSLI

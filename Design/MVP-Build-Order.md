@@ -1296,6 +1296,30 @@ DATAGRAM = state. QUIC replaces `UdpTransport` outright — there is no transpor
 handshake+order+snapshot loop; measured added latency < 1 ms
 loopback. Friction findings feed Risk R3 disposition (stay Schannel vs flag OpenSSL flavour).
 
+**Built ✅:** `QuicTransport.h/.cpp` behind the unchanged seam — msquic 2.6 (Schannel), ALPN
+`opf/1`, client-opened stream 0 re-framed by a u16 length prefix as the control channel,
+DATAGRAM frames as state, in-memory `CertCreateSelfSignCertificate` + `CERTIFICATE_CONTEXT`
+over a persisted CNG key (Schannel reaches the key through the certificate's provider info,
+and an ephemeral key has no container to name; the key is deleted with the transport),
+`NO_CERTIFICATE_VALIDATION` on the client. `UdpTransport` deleted per the owner directive;
+`ServerHost` and `ClientConnection` each changed one type name, which is the seam doing its
+job.
+
+**Verified:** the unmodified game runs windowed over QUIC on loopback — fleet patrolling past
+tick 300, NET readout live, clean shutdown. `selfTest` now runs the whole loop rather than
+stopping at the heartbeat: a snapshot decoded to ships, a real order for a real ship up the
+reliable channel, the authority's ack back accepted — and it gates on latency: **transport
+min RTT 0.305 ms** on loopback in a Debug build, under the 1 ms accept. (Min rather than
+smoothed, because the smoothed figure is dominated by msquic's deliberate ~25 ms ack
+batching, which is not latency the transport adds to the game's bytes; the seam's `Stats()`
+now reports both.) All four suites pass — 453 tests, the transport suite retargeted to QUIC
+plus a close-reason-crosses-the-wire test QUIC made expressible. One defect found during
+bring-up by an existing test, which is what the suite is for: `ConnectionShutdown` abandons
+queued stream data, so the build-mismatch refusal never left the server — `Close()` now
+shuts the control stream down gracefully and defers the connection close until
+`SEND_SHUTDOWN_COMPLETE` says the refusal was actually delivered. Friction findings are in
+Risk R3; the disposition is **stay Schannel**.
+
 ### S14 — Debug strip, selftest, polish 🏁 **MVP**
 Tier-1 counters strip (frame/GAME/EXTRACT/UI ms, net RTT/loss/jitter, snap age/drift ticks,
 `tickOverrun`, drops) behind a toggle; `selfTest` aggregates: schema self-check,

@@ -7,7 +7,7 @@
 #include "ServerConfig.h"
 #include "ServerHost.h"
 #include "Simulation.h"
-#include "UdpTransport.h"
+#include "QuicTransport.h"
 #include "Wire.h"
 
 #include <array>
@@ -119,7 +119,7 @@ private:
 };
 
 template <typename Predicate>
-bool WaitUntil(UdpTransport& _transport, Predicate _predicate, double _timeoutMs = 5000.0)
+bool WaitUntil(QuicTransport& _transport, Predicate _predicate, double _timeoutMs = 5000.0)
 {
   const std::int64_t start = Clock::Counter();
   while (Clock::MillisecondsBetween(start, Clock::Counter()) < _timeoutMs)
@@ -227,7 +227,7 @@ public:
     config.port = 0;
     Assert::IsTrue(host.Start(config, simulation));
 
-    UdpTransport client;
+    QuicTransport client;
     const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
     Assert::IsTrue(link != INVALID_CONNECTION);
 
@@ -330,7 +330,7 @@ public:
     config.port = 0;
     Assert::IsTrue(host.Start(config, simulation));
 
-    UdpTransport client;
+    QuicTransport client;
     const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
     Assert::IsTrue(link != INVALID_CONNECTION);
 
@@ -411,7 +411,7 @@ public:
     config.port = 0;
     Assert::IsTrue(host.Start(config, simulation));
 
-    UdpTransport client;
+    QuicTransport client;
     const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
     Assert::IsTrue(link != INVALID_CONNECTION);
 
@@ -516,7 +516,7 @@ public:
     config.port = 0;
     Assert::IsTrue(host.Start(config, simulation));
 
-    UdpTransport client;
+    QuicTransport client;
     const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
     Assert::IsTrue(link != INVALID_CONNECTION);
 
@@ -597,7 +597,7 @@ public:
     config.port = 0;
     Assert::IsTrue(host.Start(config, simulation));
 
-    UdpTransport client;
+    QuicTransport client;
     const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
     Assert::IsTrue(link != INVALID_CONNECTION);
 
@@ -645,7 +645,7 @@ public:
     config.port = 0;
     Assert::IsTrue(host.Start(config, simulation));
 
-    UdpTransport client;
+    QuicTransport client;
     const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
 
     std::array<std::uint8_t, 256> buffer{};

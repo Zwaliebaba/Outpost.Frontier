@@ -18,34 +18,11 @@ namespace
 using namespace DirectX;
 
 /*
- * The HUD's palette, packed r-in-the-low-byte like every other colour the
- * client sends (`OverlayMark::colourRgba`).
- *
- * The prints are a dark panel with green text and an amber accent for anything
- * the player has to act on, and these are those four. Here rather than in
- * `UiTuning` because a colour is not a size: the scale control retunes sizes,
- * and nothing retunes these.
+ * The HUD's colours live in `HudPalette`, resolved once at boot from
+ * `client.ui.palette` and read through `m_palette` everywhere -- there are no
+ * colour constants in this file any more, and a packed literal in `BuildHud`
+ * is a defect (the accept criterion is a grep).
  */
-constexpr std::uint32_t PANEL_COLOUR = 0xd8140f0au;       // Near-black, mostly opaque.
-constexpr std::uint32_t PANEL_EDGE_COLOUR = 0x60403020u;
-constexpr std::uint32_t TEXT_COLOUR = 0xff64e664u;        // The sheets' green.
-constexpr std::uint32_t TEXT_DIM_COLOUR = 0xa050a050u;
-constexpr std::uint32_t TOAST_URGENT_COLOUR = 0xff20b4ffu; // Amber: act on this.
-constexpr std::uint32_t TOAST_CRITICAL_COLOUR = 0xff4040ffu; // Red: act on it now.
-constexpr std::uint32_t TEXT_DISABLED_COLOUR = 0x80303030u;  // A control with nothing behind it.
-constexpr std::uint32_t ROW_SELECTED_COLOUR = 0x40206020u;   // The roster's highlight.
-constexpr std::uint32_t BAR_TRACK_COLOUR = 0x60202020u;      // What an empty strip looks like.
-
-/// The drag box's wash. The selection cyan at low alpha, with its border drawn
-/// in the same colour the selection rings use -- a box and the rings it is
-/// about to produce must obviously be the same gesture.
-constexpr std::uint32_t DRAG_BOX_FILL_COLOUR = 0x28ffc864u;
-
-/// The roster's strips, and the same two colours the world-space gauge bars
-/// use (`OverlayTuning`): a wing's row and its ships' bars must not disagree
-/// about which one is hull.
-constexpr std::uint32_t HULL_COLOUR = 0xff50e050u;
-constexpr std::uint32_t SHIELD_COLOUR = 0xff40c0e0u;
 
 /// One descriptor for the glyph atlas, and room for the per-frame tables the
 /// overlay and UI passes will want. Small and fixed: a heap that grows is a
@@ -57,8 +34,9 @@ constexpr std::uint32_t SHADER_VISIBLE_DESCRIPTORS = 16;
 /// text streams that join them, so the first busy frame does not discover a cap.
 constexpr std::uint32_t UPLOAD_BYTES_PER_FRAME = 256 * 1024;
 
-/// The HUD's three sizes before the UI scale multiplier (ADR-006 §9).
-constexpr float BASE_FONT_SIZES_PIXELS[] = {13.0f, 16.0f, 22.0f};
+/// The HUD's three sizes before the UI scale multiplier (ADR-006 §9). The
+/// middle one is the chrome band the prints are set in -- 15, not 16.
+constexpr float BASE_FONT_SIZES_PIXELS[] = {13.0f, 15.0f, 22.0f};
 
 /*
  * Emissive strength per canonical material (ADR-006 §6).
@@ -69,6 +47,21 @@ constexpr float BASE_FONT_SIZES_PIXELS[] = {13.0f, 16.0f, 22.0f};
  * makes a cockpit read as glass against a lit hull rather than as a hole.
  */
 constexpr float MATERIAL_EMISSIVE[MESH_MATERIAL_COUNT] = {0.0f, 0.0f, 0.0f, 1.6f, 2.4f};
+
+/// UPPERCASE into a fixed buffer, for the command verbs and the formation
+/// value: the game supplies mixed-case names and the print sets the chrome in
+/// capitals. ASCII only -- a byte outside a-z passes through untouched, so a
+/// marker glyph in a name would survive rather than be mangled.
+void UpperCaseInto(const char* _text, char (&_out)[32])
+{
+  std::size_t i = 0;
+  for (; _text[i] != '\0' && i + 1 < sizeof(_out); ++i)
+  {
+    const char c = _text[i];
+    _out[i] = (c >= 'a' && c <= 'z') ? static_cast<char>(c - ('a' - 'A')) : c;
+  }
+  _out[i] = '\0';
+}
 
 } // namespace
 
@@ -82,6 +75,11 @@ bool ClientApp::Initialise(const ClientConfig& _config, const PipelineShaders& _
   m_config = _config;
   m_shaders = _shaders;
   m_worldView = &_worldView;
+
+  // The colour table, once. Everything `BuildHud` draws resolves through it,
+  // which is what makes the settings sheet's colour-vision palettes a config
+  // string rather than a migration.
+  m_palette = ResolveHudPalette(_config.uiPalette);
 
   // What the puck's orders are, from the side that knows. Once, at boot: there
   // is one command until the wheel exists, and asking every frame would be
@@ -736,6 +734,12 @@ void ClientApp::BuildHud()
   const float cell = 8.0f * layout.scale; // The monospace grid, near enough for
                                           // placement; the pass measures glyphs.
 
+  // The chrome band's height, for centring a line inside its zone. From the
+  // size table rather than a repeated 13.0f, so retuning the band retunes the
+  // centring with it.
+  const float bodyPx = BASE_FONT_SIZES_PIXELS[m_uiTuning.bodySizeIndex] * layout.scale;
+  const float smallPx = BASE_FONT_SIZES_PIXELS[m_uiTuning.smallSizeIndex] * layout.scale;
+
   /*
    * --- world-space marks, first so the panels cover them -------------------
    *
@@ -766,40 +770,90 @@ void ClientApp::BuildHud()
   {
     const UiRect box = UiRect::FromCorners(m_selection.DragStartX(), m_selection.DragStartY(), m_selection.DragCurrentX(),
                                            m_selection.DragCurrentY());
-    m_ui.AddQuad(box, DRAG_BOX_FILL_COLOUR);
+    // The wash is the ring colour at low alpha rather than a colour of its
+    // own: a box and the rings it is about to produce must obviously be the
+    // same gesture. The ring colour itself is `OverlayTuning`'s -- a
+    // world-space colour, outside the HUD palette's remit.
+    m_ui.AddQuad(box, WithAlpha(m_overlayTuning.ringColourRgba, 0x28));
     m_ui.AddBorder(box, 1.0f, m_overlayTuning.ringColourRgba);
   }
 
-  // --- the top status row -------------------------------------------------
-  //
-  // Everything on it is a replicated field or a link statistic, which is the
-  // whole acceptance criterion: kill the feed and these go stale rather than
-  // holding their last value.
-  m_ui.AddQuad(layout.topBar, PANEL_COLOUR);
-  m_ui.AddQuad(UiRect{0.0f, layout.topBar.Bottom() - 1.0f, layout.topBar.width, 1.0f}, PANEL_EDGE_COLOUR);
+  /*
+   * --- the top status row -------------------------------------------------
+   *
+   * Everything on it is a replicated field, a link statistic or local UI
+   * state, which is the whole acceptance criterion: kill the feed and these
+   * go stale -- drawn in `neutral` at reduced alpha -- rather than holding
+   * their last value or inventing one. The print's location and security
+   * readouts are not here because nothing replicates them yet; a slot with no
+   * source stays empty rather than lying.
+   */
+  m_ui.AddQuad(layout.topBar, m_palette.panel);
+  m_ui.AddQuad(UiRect{0.0f, layout.topBar.Bottom() - 1.0f, layout.topBar.width, 1.0f}, m_palette.borderStrong);
 
-  const float textY = layout.topBar.y + (layout.topBar.height - 13.0f * layout.scale) * 0.5f;
-  m_ui.AddText(pad, textY, m_uiTuning.bodySizeIndex, TEXT_DIM_COLOUR, "OUTPOST FRONTIER");
+  const bool joined = m_connection.State() == ClientLinkState::Joined;
+  const float textY = layout.topBar.y + (layout.topBar.height - bodyPx) * 0.5f;
+  const std::uint32_t staleColour = AtHalfAlpha(m_palette.neutral);
 
   char buffer[96] = {};
 
-  // Ships, from the newest snapshot rather than from anything the client keeps.
-  const std::uint32_t shipCount = static_cast<std::uint32_t>(m_scene.entities.size());
-  std::snprintf(buffer, sizeof(buffer), "%u SHIPS", shipCount);
-  m_ui.AddText(layout.topBar.width * 0.5f, textY, m_uiTuning.bodySizeIndex, TEXT_COLOUR, buffer);
+  // Left to right: session name, then the shared clock, "|"-separated. The
+  // tick is the only clock both sides agree on (ADR-002 §1), which is what
+  // makes it a readout rather than a decoration.
+  float pen = pad;
+  const char* sessionName = m_config.playerName.empty() ? "OUTPOST FRONTIER" : m_config.playerName.c_str();
+  m_ui.AddText(pen, textY, m_uiTuning.bodySizeIndex, m_palette.phosphorHot, sessionName);
+  pen += static_cast<float>(TextCellCount(sessionName)) * cell + cell;
 
-  // The link. `--` rather than a stale number when there is no session, because
-  // a round-trip figure from a connection that has gone is a lie with a unit.
-  if (m_connection.State() == ClientLinkState::Joined)
+  m_ui.AddText(pen, textY, m_uiTuning.bodySizeIndex, m_palette.phosphorGhost, "|");
+  pen += 2.0f * cell;
+
+  if (joined)
   {
-    std::snprintf(buffer, sizeof(buffer), "NET %.0f ms   TICK %u", m_connection.RoundTripMs(), m_connection.ServerTick());
+    std::snprintf(buffer, sizeof(buffer), "TICK %u", m_connection.ServerTick());
+    m_ui.AddText(pen, textY, m_uiTuning.bodySizeIndex, m_palette.neutral, buffer);
   }
   else
   {
-    std::snprintf(buffer, sizeof(buffer), "NET --   NO SESSION");
+    m_ui.AddText(pen, textY, m_uiTuning.bodySizeIndex, staleColour, "NO SESSION");
   }
-  const auto netWidth = static_cast<float>(std::strlen(buffer)) * cell;
-  m_ui.AddText(layout.topBar.Right() - pad - netWidth, textY, m_uiTuning.bodySizeIndex, TEXT_DIM_COLOUR, buffer);
+
+  // Right to left: the link, then the alert and pending chips. Each chip is a
+  // glyph and a count -- the glyph carries the meaning and the colour repeats
+  // it, because colour is never the only signal (icon sheet §3).
+  if (joined)
+  {
+    std::snprintf(buffer, sizeof(buffer), "NET %.0f ms", m_connection.RoundTripMs());
+  }
+  else
+  {
+    std::snprintf(buffer, sizeof(buffer), "NET --");
+  }
+  float right = layout.topBar.Right() - pad - static_cast<float>(TextCellCount(buffer)) * cell;
+  m_ui.AddText(right, textY, m_uiTuning.bodySizeIndex, joined ? m_palette.phosphorDim : staleColour, buffer);
+
+  std::size_t alertCount = 0;
+  for (const Toast& toast : m_toasts.Visible())
+  {
+    alertCount += toast.priority <= ToastPriority::Urgent ? 1 : 0;
+  }
+  const float chipY = layout.topBar.y + (layout.topBar.height - smallPx) * 0.5f;
+  // The glyphs are spelled as UTF-8 bytes for the same reason the atlas's
+  // bake table is spelled as codepoints: these files carry no byte-order
+  // mark, and a non-ASCII literal would be read in the compiler's current
+  // code page. U+25B2 is the alert triangle, U+23F3 the pending hourglass.
+  if (alertCount > 0)
+  {
+    std::snprintf(buffer, sizeof(buffer), "\xE2\x96\xB2 %zu", alertCount);
+    right -= (static_cast<float>(TextCellCount(buffer)) + 2.0f) * cell;
+    m_ui.AddText(right, chipY, m_uiTuning.smallSizeIndex, m_palette.hostile, buffer);
+  }
+  if (!m_ghosts.Empty())
+  {
+    std::snprintf(buffer, sizeof(buffer), "\xE2\x8F\xB3 %zu", m_ghosts.Count());
+    right -= (static_cast<float>(TextCellCount(buffer)) + 2.0f) * cell;
+    m_ui.AddText(right, chipY, m_uiTuning.smallSizeIndex, m_palette.caution, buffer);
+  }
 
   // --- the fleet roster ---------------------------------------------------
   //
@@ -809,36 +863,54 @@ void ClientApp::BuildHud()
   // (ADR-014 §2c).
   m_rosterRowCount = m_worldView->BuildRoster(m_selection.Ids(), m_rosterRows);
 
-  m_ui.AddQuad(layout.roster, PANEL_COLOUR);
-  m_ui.AddQuad(UiRect{layout.roster.Right() - 1.0f, layout.roster.y, 1.0f, layout.roster.height}, PANEL_EDGE_COLOUR);
-  m_ui.AddText(layout.roster.x + pad, layout.roster.y + pad, m_uiTuning.smallSizeIndex, TEXT_DIM_COLOUR, "FLEET ROSTER");
+  m_ui.AddQuad(layout.roster, m_palette.panel);
+  m_ui.AddQuad(UiRect{layout.roster.Right() - 1.0f, layout.roster.y, 1.0f, layout.roster.height},
+               m_palette.borderStrong);
+  m_ui.AddText(layout.roster.x + pad, layout.roster.y + pad, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel,
+               "FLEET ROSTER");
 
-  const float rowHeight = 38.0f * layout.scale;
+  /*
+   * One chip per row: name left, count right, a border and a ground. The
+   * selected chip is the lit one -- `phosphor` frame on a `rule` fill, hot
+   * text -- and an empty wing keeps its frame at half strength with no ground,
+   * so the roster's shape survives the fleet it describes.
+   *
+   * The gauge strips draw only when a gauge says something: a full pair on
+   * every chip was ink repeating "nothing is wrong" eight times.
+   */
+  const float chipHeight = 34.0f * layout.scale;
+  const float chipGap = 6.0f * layout.scale;
   const float barHeight = 3.0f * layout.scale;
   float rowY = layout.roster.y + pad + 18.0f * layout.scale;
 
   for (std::uint32_t index = 0; index < m_rosterRowCount; ++index)
   {
     const RosterRow& row = m_rosterRows[index];
-    const UiRect rowRect{layout.roster.x + pad * 0.5f, rowY, layout.roster.width - pad, rowHeight - 4.0f * layout.scale};
-    if (rowRect.Bottom() > layout.roster.Bottom())
+    const UiRect chip{layout.roster.x + pad * 0.5f, rowY, layout.roster.width - pad, chipHeight};
+    if (chip.Bottom() > layout.roster.Bottom())
     {
       break; // The panel is full. The print's "8/8" footer is where scrolling
              // would go, and scrolling is a surface rather than a clamp.
     }
 
-    // A wing the player has any of is lit; the print highlights the row rather
-    // than the name, so the whole row reads as the unit of selection.
     const bool selected = row.selectedCount > 0;
     const bool empty = row.shipCount == 0;
-    const std::uint32_t nameColour = empty ? TEXT_DISABLED_COLOUR : (selected ? TEXT_COLOUR : TEXT_DIM_COLOUR);
+
+    const std::uint32_t textColour =
+        empty ? m_palette.phosphorGhost : (selected ? m_palette.phosphorHot : m_palette.phosphor);
     if (selected)
     {
-      m_ui.AddQuad(rowRect, ROW_SELECTED_COLOUR);
-      m_ui.AddBorder(rowRect, 1.0f * layout.scale, TEXT_COLOUR);
+      m_ui.AddQuad(chip, m_palette.rule);
     }
+    else if (!empty)
+    {
+      m_ui.AddQuad(chip, m_palette.chipBg);
+    }
+    const std::uint32_t frameColour =
+        selected ? m_palette.phosphor : (empty ? AtHalfAlpha(m_palette.border) : m_palette.border);
+    m_ui.AddBorder(chip, 1.0f * layout.scale, frameColour);
 
-    m_ui.AddText(rowRect.x + pad * 0.5f, rowRect.y + pad * 0.4f, m_uiTuning.bodySizeIndex, nameColour,
+    m_ui.AddText(chip.x + pad * 0.5f, chip.y + pad * 0.5f, m_uiTuning.smallSizeIndex, textColour,
                  row.name != nullptr ? row.name : "?");
 
     // A dash rather than a zero for a wing with nothing left. The print draws
@@ -856,40 +928,97 @@ void ClientApp::BuildHud()
     {
       std::snprintf(buffer, sizeof(buffer), "%u", row.shipCount);
     }
-    const auto countWidth = static_cast<float>(std::strlen(buffer)) * cell;
-    m_ui.AddText(rowRect.Right() - pad * 0.5f - countWidth, rowRect.y + pad * 0.4f, m_uiTuning.bodySizeIndex, nameColour,
+    const auto countWidth = static_cast<float>(TextCellCount(buffer)) * cell;
+    m_ui.AddText(chip.Right() - pad * 0.5f - countWidth, chip.y + pad * 0.5f, m_uiTuning.smallSizeIndex, textColour,
                  buffer);
 
-    // Two strips: hull over shield, the same order and the same gauges the
-    // world-space bars use (ADR-006 §8), so a wing's row and its ships' bars
-    // cannot disagree about what full means.
-    const float barWidth = rowRect.width - pad;
-    const float barX = rowRect.x + pad * 0.5f;
-    const float barY = rowRect.Bottom() - pad * 0.5f - barHeight * 2.0f - 2.0f * layout.scale;
+    /*
+     * Two strips, hull over shield, from `RosterRow`'s own 0-255 gauges --
+     * and only when either is below full. The hull's fill moves through the
+     * palette's three bands as it falls; the shield is always the allied
+     * cyan. Same order and same gauges as the world-space bars (ADR-006 §8),
+     * so a wing's row and its ships' bars cannot disagree about what full
+     * means.
+     */
+    if (row.hullGauge < 255 || row.shieldGauge < 255)
+    {
+      const float barWidth = chip.width - pad;
+      const float barX = chip.x + pad * 0.5f;
+      const float hullY = chip.Bottom() - pad * 0.5f - barHeight * 2.0f - 2.0f * layout.scale;
 
-    m_ui.AddQuad(UiRect{barX, barY, barWidth, barHeight}, BAR_TRACK_COLOUR);
-    m_ui.AddQuad(UiRect{barX, barY, barWidth * (static_cast<float>(row.hullGauge) / 255.0f), barHeight}, HULL_COLOUR);
+      m_ui.AddQuad(UiRect{barX, hullY, barWidth, barHeight}, m_palette.trackHull);
+      m_ui.AddQuad(UiRect{barX, hullY, barWidth * (static_cast<float>(row.hullGauge) / 255.0f), barHeight},
+                   HullGaugeFill(m_palette, row.hullGauge));
 
-    const float shieldY = barY + barHeight + 2.0f * layout.scale;
-    m_ui.AddQuad(UiRect{barX, shieldY, barWidth, barHeight}, BAR_TRACK_COLOUR);
-    m_ui.AddQuad(UiRect{barX, shieldY, barWidth * (static_cast<float>(row.shieldGauge) / 255.0f), barHeight}, SHIELD_COLOUR);
+      const float shieldY = hullY + barHeight + 2.0f * layout.scale;
+      m_ui.AddQuad(UiRect{barX, shieldY, barWidth, barHeight}, m_palette.trackShield);
+      m_ui.AddQuad(UiRect{barX, shieldY, barWidth * (static_cast<float>(row.shieldGauge) / 255.0f), barHeight},
+                   m_palette.allied);
+    }
 
-    rowY += rowHeight;
+    rowY += chipHeight + chipGap;
   }
 
-  // --- the context bar ----------------------------------------------------
-  //
-  // `N SHIPS : WING -> FORMATION`, which is the print's own line. It reads off
-  // the selection and the roster the game just built, so it cannot claim a wing
-  // the roster does not list.
-  m_ui.AddQuad(layout.contextBar, PANEL_COLOUR);
-  m_ui.AddQuad(UiRect{0.0f, layout.contextBar.y, layout.contextBar.width, 1.0f}, PANEL_EDGE_COLOUR);
+  /*
+   * --- the ability rack ---------------------------------------------------
+   *
+   * The S11 stub: the zone, its frame, and four dead slots. Everything in it
+   * is `phosphorDead` because no ability exists game-side yet, and the labels
+   * are dashes for the same reason the roster draws one for an empty wing --
+   * the engine must not name MWD or REPAIR, because ability names are game
+   * vocabulary and this is the engine (ADR-014). The slots exist so the zone
+   * reads as reserved rather than broken.
+   */
+  m_ui.AddQuad(layout.abilityRack, m_palette.panel);
+  m_ui.AddQuad(UiRect{layout.abilityRack.x, layout.abilityRack.y, 1.0f, layout.abilityRack.height},
+               m_palette.borderStrong);
+  m_ui.AddText(layout.abilityRack.x + pad, layout.abilityRack.y + pad, m_uiTuning.smallSizeIndex,
+               m_palette.phosphorLabel, "ABILITY");
 
-  const float contextY = layout.contextBar.y + (layout.contextBar.height - 13.0f * layout.scale) * 0.5f;
+  const float slotHeight = 58.0f * layout.scale;
+  const float slotWidth = layout.abilityRack.width - 2.0f * pad;
+  float slotY = layout.abilityRack.y + pad + 18.0f * layout.scale;
+  for (int slot = 0; slot < 4 && slotWidth > 0.0f; ++slot)
+  {
+    const UiRect slotRect{layout.abilityRack.x + pad, slotY, slotWidth, slotHeight};
+    if (slotRect.Bottom() > layout.abilityRack.Bottom())
+    {
+      break;
+    }
+    m_ui.AddQuad(slotRect, m_palette.chipBg);
+    m_ui.AddBorder(slotRect, 1.0f * layout.scale, m_palette.border);
+
+    // U+25A1, the icon sheet's empty-slot square, over a dash of a label.
+    // One cell wide at the head size, centred by the same cell arithmetic
+    // every centred label on this HUD uses.
+    const float headCell = BASE_FONT_SIZES_PIXELS[m_uiTuning.headSizeIndex] * 0.55f * layout.scale;
+    m_ui.AddText(slotRect.x + (slotRect.width - headCell) * 0.5f, slotRect.y + 8.0f * layout.scale,
+                 m_uiTuning.headSizeIndex, m_palette.phosphorDead, "\xE2\x96\xA1");
+    m_ui.AddText(slotRect.x + (slotRect.width - 2.0f * cell) * 0.5f,
+                 slotRect.Bottom() - 6.0f * layout.scale - smallPx, m_uiTuning.smallSizeIndex, m_palette.phosphorDead,
+                 "--");
+
+    slotY += slotHeight + pad;
+  }
+
+  /*
+   * --- the context bar ----------------------------------------------------
+   *
+   * The selection summary: `N SHIPS SELECTED | WING | FORMATION VALUE`, with
+   * ghost separators. It reads off the selection and the roster the game just
+   * built, so it cannot claim a wing the roster does not list -- and the
+   * formation value lives here rather than as a second line on the command
+   * row's button, so the verb stays one word and the summary carries the
+   * state.
+   */
+  m_ui.AddQuad(layout.contextBar, m_palette.panel);
+  m_ui.AddQuad(UiRect{0.0f, layout.contextBar.y, layout.contextBar.width, 1.0f}, m_palette.borderStrong);
+
+  const float contextY = layout.contextBar.y + (layout.contextBar.height - bodyPx) * 0.5f;
   const std::size_t selectedCount = m_selection.Ids().size();
   if (selectedCount == 0)
   {
-    m_ui.AddText(pad, contextY, m_uiTuning.bodySizeIndex, TEXT_DISABLED_COLOUR, "NO SELECTION");
+    m_ui.AddText(pad, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphorDim, "NO SELECTION");
   }
   else
   {
@@ -913,24 +1042,28 @@ void ClientApp::BuildHud()
       wingName = "MIXED";
     }
 
-    const char* formation = "-";
+    float contextPen = pad;
+    std::snprintf(buffer, sizeof(buffer), "%zu SHIPS SELECTED", selectedCount);
+    m_ui.AddText(contextPen, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphorHot, buffer);
+    contextPen += static_cast<float>(TextCellCount(buffer)) * cell + cell;
+
+    m_ui.AddText(contextPen, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphorGhost, "|");
+    contextPen += 2.0f * cell;
+
+    char upper[32] = {};
+    UpperCaseInto(wingName, upper);
+    m_ui.AddText(contextPen, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphor, upper);
+    contextPen += static_cast<float>(TextCellCount(upper)) * cell + cell;
+
     if (m_orderOptionIndex < m_orderOptionCount && m_orderOptions[m_orderOptionIndex].name != nullptr)
     {
-      formation = m_orderOptions[m_orderOptionIndex].name;
-    }
-    std::snprintf(buffer, sizeof(buffer), "%zu SHIPS : %s  >  FORMATION %s", selectedCount, wingName, formation);
-    m_ui.AddText(pad, contextY, m_uiTuning.bodySizeIndex, TEXT_COLOUR, buffer);
-  }
+      m_ui.AddText(contextPen, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphorGhost, "|");
+      contextPen += 2.0f * cell;
 
-  // What the fleet is waiting on. The print puts it at the right of this bar,
-  // and it reads off the ghost list rather than off anything the client wishes
-  // were true.
-  if (!m_ghosts.Empty())
-  {
-    std::snprintf(buffer, sizeof(buffer), "%zu ORDER PENDING", m_ghosts.Count());
-    const auto pendingWidth = static_cast<float>(std::strlen(buffer)) * cell;
-    m_ui.AddText(layout.contextBar.Right() - pad - pendingWidth, contextY, m_uiTuning.bodySizeIndex, TOAST_URGENT_COLOUR,
-                 buffer);
+      UpperCaseInto(m_orderOptions[m_orderOptionIndex].name, upper);
+      std::snprintf(buffer, sizeof(buffer), "FORMATION %s", upper);
+      m_ui.AddText(contextPen, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphor, buffer);
+    }
   }
 
   // --- the command row ----------------------------------------------------
@@ -938,38 +1071,68 @@ void ClientApp::BuildHud()
   // Laid out in `UpdateHud` and only drawn here. Every word on it came from the
   // game through `OrderKinds`: a row that spelled MOVE and ATTACK in this file
   // would be one game's verbs compiled into a two-game engine (ADR-014 §2b).
-  m_ui.AddQuad(layout.commandRow, PANEL_COLOUR);
-  m_ui.AddQuad(UiRect{0.0f, layout.commandRow.y, layout.commandRow.width, 1.0f}, PANEL_EDGE_COLOUR);
+  m_ui.AddQuad(layout.commandRow, m_palette.panel);
+  m_ui.AddQuad(UiRect{0.0f, layout.commandRow.y, layout.commandRow.width, 1.0f}, m_palette.rule);
 
+  float lastButtonRight = layout.commandRow.x;
   for (std::uint32_t index = 0; index < m_commandButtonCount; ++index)
   {
     const CommandButton& button = m_commandButtons[index];
+    lastButtonRight = std::max(lastButtonRight, button.rect.Right());
 
-    // Three states, three treatments: the active command is filled and lit, an
-    // available one is outlined, and one with no content behind it is drawn
-    // flat and grey. The print keeps all three in the row -- greying rather
-    // than hiding is what lets the row stay the same shape as content arrives.
-    const std::uint32_t edge = button.active ? TEXT_COLOUR : (button.enabled ? TEXT_DIM_COLOUR : TEXT_DISABLED_COLOUR);
-    const std::uint32_t text = button.enabled ? (button.active ? TEXT_COLOUR : TEXT_DIM_COLOUR) : TEXT_DISABLED_COLOUR;
+    /*
+     * Three states, three treatments, and outline-plus-no-fill is the default
+     * control on this HUD: the active command is the only filled one, an
+     * available one is a `border` frame around `phosphor` text, and one with
+     * no content behind it keeps its frame at half strength around dead text.
+     * The print keeps all three in the row -- greying rather than hiding is
+     * what lets the row stay the same shape as content arrives.
+     */
+    const std::uint32_t edge =
+        button.active ? m_palette.phosphor : (button.enabled ? m_palette.border : AtHalfAlpha(m_palette.border));
+    const std::uint32_t text =
+        button.enabled ? (button.active ? m_palette.phosphorHot : m_palette.phosphor) : m_palette.phosphorDead;
 
-    m_ui.AddQuad(button.rect, button.active ? ROW_SELECTED_COLOUR : BAR_TRACK_COLOUR);
+    if (button.active)
+    {
+      m_ui.AddQuad(button.rect, m_palette.rule);
+    }
     m_ui.AddBorder(button.rect, 1.0f * layout.scale, edge);
 
-    // Centred, and measured the same way every other centred label on this HUD
-    // is -- length times the cell, because the face is fixed-pitch.
-    const auto labelWidth = static_cast<float>(std::strlen(button.label)) * cell;
-    const float labelY = button.value != nullptr ? button.rect.y + pad * 0.6f
-                                                 : button.rect.y + (button.rect.height - 13.0f * layout.scale) * 0.5f;
+    // One line per verb, UPPERCASE, centred -- the parameter's current value
+    // is the context bar's to say, so the button stays a single word. Measured
+    // the same way every other centred label on this HUD is: cells times the
+    // cell, because the face is fixed-pitch.
+    char upper[32] = {};
+    UpperCaseInto(button.label, upper);
+    const auto labelWidth = static_cast<float>(TextCellCount(upper)) * cell;
+    const float labelY = button.rect.y + (button.rect.height - bodyPx) * 0.5f;
     m_ui.AddText(button.rect.x + (button.rect.width - labelWidth) * 0.5f, labelY, m_commandTuning.labelSizeIndex, text,
-                 button.label);
+                 upper);
+  }
 
-    // The parameter's current value, under its name. `FORMATION` over `Claw`,
-    // which is the print's two-line dropdown without the dropdown.
-    if (button.value != nullptr)
+  /*
+   * The queue chip, right-aligned in the row: `caution` text and frame, no
+   * fill. It names the append gesture (`InputAction::QueueOrder` held at the
+   * puck's press) rather than being a button of its own, which is why it is
+   * not in `m_commandButtons` and takes no click -- and it yields entirely on
+   * a window narrow enough that the verbs reach it.
+   */
+  {
+    const char* queueLabel = "+ QUEUE";
+    const bool hasButtons = m_commandButtonCount > 0;
+    const float chipWidth =
+        static_cast<float>(TextCellCount(queueLabel)) * cell + 2.0f * m_commandTuning.paddingX * layout.scale;
+    const UiRect chipRect{layout.commandRow.Right() - m_commandTuning.paddingX * layout.scale - chipWidth,
+                          hasButtons ? m_commandButtons[0].rect.y : layout.commandRow.y + pad, chipWidth,
+                          hasButtons ? m_commandButtons[0].rect.height : m_commandTuning.buttonHeight * layout.scale};
+    if (chipRect.x > lastButtonRight + m_commandTuning.buttonGap * layout.scale)
     {
-      const auto valueWidth = static_cast<float>(std::strlen(button.value)) * cell;
-      m_ui.AddText(button.rect.x + (button.rect.width - valueWidth) * 0.5f, labelY + 15.0f * layout.scale,
-                   m_commandTuning.valueSizeIndex, text, button.value);
+      m_ui.AddBorder(chipRect, 1.0f * layout.scale, m_palette.caution);
+      const float labelWidth = static_cast<float>(TextCellCount(queueLabel)) * cell;
+      m_ui.AddText(chipRect.x + (chipRect.width - labelWidth) * 0.5f,
+                   chipRect.y + (chipRect.height - bodyPx) * 0.5f, m_uiTuning.bodySizeIndex, m_palette.caution,
+                   queueLabel);
     }
   }
 
@@ -990,23 +1153,42 @@ void ClientApp::BuildHud()
       break; // The stack showed what it can; the rest are already dropped.
     }
 
-    const std::uint32_t accent = isCritical ? TOAST_CRITICAL_COLOUR : TOAST_URGENT_COLOUR;
-    m_ui.AddQuad(rect, PANEL_COLOUR);
-    m_ui.AddBorder(rect, 1.0f * layout.scale, accent);
+    /*
+     * The frame is `border` like every chip on this HUD; the priority speaks
+     * through the head's colour and, for a critical, the alert triangle --
+     * the accent is never the frame, because a five-colour stack of frames
+     * would be the palette shouting over its own hierarchy. Urgent keeps the
+     * amber the old TOAST_URGENT_COLOUR intended; below urgent the head is
+     * ordinary chrome, because a market fill is not a warning.
+     */
+    std::uint32_t accent = m_palette.phosphor;
+    if (isCritical)
+    {
+      accent = m_palette.critical;
+    }
+    else if (toast.priority == ToastPriority::Urgent)
+    {
+      accent = m_palette.caution;
+    }
+    m_ui.AddQuad(rect, m_palette.panel);
+    m_ui.AddBorder(rect, 1.0f * layout.scale, m_palette.border);
 
     // A count only when there is one to report -- the sheet draws the coalesced
-    // form as a suffix, and "x1" on every row would be noise.
+    // form as a suffix, and "x1" on every row would be noise. The critical head
+    // leads with U+25B2, the sheet's alert triangle: colour is never the only
+    // signal.
+    const char* lead = isCritical ? "\xE2\x96\xB2 " : "";
     if (toast.count > 1)
     {
-      std::snprintf(buffer, sizeof(buffer), "%s x%u", toast.head.c_str(), toast.count);
+      std::snprintf(buffer, sizeof(buffer), "%s%s x%u", lead, toast.head.c_str(), toast.count);
     }
     else
     {
-      std::snprintf(buffer, sizeof(buffer), "%s", toast.head.c_str());
+      std::snprintf(buffer, sizeof(buffer), "%s%s", lead, toast.head.c_str());
     }
     m_ui.AddText(rect.x + pad, rect.y + pad * 0.5f, m_uiTuning.bodySizeIndex, accent, buffer);
-    m_ui.AddText(rect.x + pad, rect.y + pad * 0.5f + 15.0f * layout.scale, m_uiTuning.smallSizeIndex, TEXT_DIM_COLOUR,
-                 toast.detail);
+    m_ui.AddText(rect.x + pad, rect.y + pad * 0.5f + bodyPx + 2.0f * layout.scale, m_uiTuning.smallSizeIndex,
+                 m_palette.phosphorBody, toast.detail);
   }
 }
 

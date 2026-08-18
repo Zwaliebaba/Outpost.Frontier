@@ -22,7 +22,7 @@
     </ClCompile>
     <ClCompile Include="EntityRecord.cpp" />
     <ClCompile Include="Json.cpp" />
-    <ClCompile Include="UdpTransport.cpp" />
+    <ClCompile Include="QuicTransport.cpp" />
     <ClCompile Include="Wire.cpp" />
     <ClCompile Include="JsonWriter.cpp" />
     <ClCompile Include="Log.cpp" />
@@ -47,7 +47,7 @@
     <ClInclude Include="Log.h" />
     <ClInclude Include="Random.h" />
     <ClInclude Include="Transport.h" />
-    <ClInclude Include="UdpTransport.h" />
+    <ClInclude Include="QuicTransport.h" />
     <ClInclude Include="Wire.h" />
     <ClInclude Include="RingBuffer.h" />
     <ClInclude Include="TaskPool.h" />

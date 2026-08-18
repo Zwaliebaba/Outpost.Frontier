@@ -2,6 +2,8 @@
 
 #include "CommandRow.h"
 
+#include <algorithm>
+
 namespace Neuron
 {
 
@@ -11,10 +13,15 @@ std::uint32_t BuildCommandRow(std::span<const OrderKindOption> _kinds, std::uint
 {
   const float scale = _scale > 0.0f ? _scale : 1.0f;
   const float width = _tuning.buttonWidth * scale;
-  const float height = _tuning.buttonHeight * scale;
+
+  // The U2 floor: a verb never resolves under its 1.0x height, whatever the
+  // scale control says. Below 1.0x the clamp wins and the top inset gives way
+  // instead -- the button centres in the air the zone still has.
+  const float height = std::max(_tuning.buttonHeight * scale, _tuning.buttonHeight);
   const float gap = _tuning.buttonGap * scale;
 
-  const float top = _row.y + _tuning.paddingY * scale;
+  const float top =
+      _row.y + std::min(_tuning.paddingY * scale, std::max(0.0f, (_row.height - height) * 0.5f));
   const float right = _row.Right() - _tuning.paddingX * scale;
   float pen = _row.x + _tuning.paddingX * scale;
 

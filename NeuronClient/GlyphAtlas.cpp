@@ -45,7 +45,11 @@ constexpr char32_t BOX_AND_MARKER_GLYPHS[] = {
     0x2190, 0x2191, 0x2192, 0x2193,                 // arrows
     0x25b2, 0x25bc, 0x25c0, 0x25b6,                 // solid triangles
     0x25cf, 0x25cb, 0x25a0, 0x25a1,                 // discs and squares
-    0x00b0, 0x00b1, 0x00d7, 0x2022};                // degree, plus-minus, times, bullet
+    0x00b0, 0x00b1, 0x00d7, 0x2022,                 // degree, plus-minus, times, bullet
+    0x231b, 0x23f3};                                // hourglasses, for the pending chip --
+                                                    // listed so a face that has one shows it;
+                                                    // a face without bakes .notdef and the
+                                                    // chip degrades to its count
 
 /// One glyph, rasterised but not yet placed. Produced by the per-size tasks and
 /// consumed by the single-threaded packer.

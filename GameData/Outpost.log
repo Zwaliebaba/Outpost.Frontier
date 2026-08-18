@@ -1,22 +1,45 @@
-[   0.019] info  | Outpost: Frontier starting
-[   0.019] info  | config: Outpost.json
-[   0.019] info  | user settings: C:\Users\zwali\AppData\Local\Outpost.Frontier\Settings.json
-[   0.019] info  | mode: host
-[   0.019] info  | server: port 7777, max sessions 8
-[   0.019] info  | universe: GameData/Universe/Frontier.json
-[   0.019] info  | content: 9 meshes from GameData/Meshes, shaders from GameData/Shaders
-[   0.019] info  | window: 1600x900 windowed, vsync on, ui scale 1.00
-[   0.028] info  | universe: 'Frontier' from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Universe/Frontier.json (1 system(s), hash e7f5cdf74857f6b1)
-[   0.028] info  | start: system 1 'Vesta-3', grid anchored at (111700000000, -1741949000)
-[   0.036] info  | udp transport listening on 127.0.0.1:7777
-[   0.037] info  | server host started on port 7777 at 20 Hz
-[   0.069] info  | window created: 1600x900 client
-[   0.077] info  | d3d12 debug layer enabled
-[   0.138] info  | d3d12 device created on Qualcomm(R) Adreno(TM) X1-85 GPU (tearing supported)
-[   0.168] info  | task pool started with 9 worker(s)
-[   0.171] error | could not compile GameData/Shaders/Opaque.hlsl:VertexMain as vs_5_1 (hr 0x80070003)
-[   0.175] info  | task pool stopped after 0 task(s)
-[   0.176] error | client failed to initialise
-[   0.239] info  | server host stopped after 4 ticks (0 overruns)
-[   0.241] info  | server ran 4 ticks (0 overruns)
-[   0.241] info  | Outpost: Frontier exiting cleanly (2)
+[   0.005] info  | Outpost: Frontier starting
+[   0.005] info  | config: Outpost.json
+[   0.005] info  | user settings: C:\Users\zwali\AppData\Local\Outpost.Frontier\Settings.json
+[   0.005] info  | mode: host
+[   0.005] info  | server: port 7777, max sessions 8
+[   0.005] info  | universe: GameData/Universe/Frontier.json
+[   0.005] info  | content: 9 meshes from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Meshes
+[   0.005] info  | window: 1600x900 windowed, vsync on, ui scale 1.00
+[   0.006] info  | universe: 'Frontier' from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Universe/Frontier.json (1 system(s), hash e7f5cdf74857f6b1)
+[   0.006] info  | start: system 1 'Vesta-3', grid anchored at (111700000000, -1741949000)
+[   0.090] info  | quic transport listening on 127.0.0.1:7777 (alpn opf/1)
+[   0.091] info  | server host started on port 7777 at 20 Hz
+[   0.112] info  | window created: 1600x900 client
+[   0.115] info  | d3d12 debug layer enabled
+[   1.804] info  | d3d12 device created on NVIDIA GeForce RTX 3070 Ti Laptop GPU (tearing supported)
+[   1.859] info  | task pool started with 19 worker(s)
+[   1.860] error | telemetry: no lane left for 'Worker 17' (cap is 16)
+[   1.861] error | telemetry: no lane left for 'Worker 18' (cap is 16)
+[   1.860] error | telemetry: no lane left for 'Worker 15' (cap is 16)
+[   1.860] error | telemetry: no lane left for 'Worker 16' (cap is 16)
+[   1.861] error | telemetry: no lane left for 'Worker 6' (cap is 16)
+[   1.872] info  | pipelines: opaque (19536 + 18260 B), nebula (7560 + 14128 B), overlay (24588 + 22648 B), ui (21332 + 15060 B) built
+[   1.945] info  | meshes: 9 classes, 5276 triangles
+[   1.950] info  | upload ring: 256 KiB x 3 frames
+[   1.958] info  | glyph atlas: Consolas, 3 sizes, 417 glyphs, 1024x128
+[   2.017] info  | nebula: 256x256 field over 96000 m (375 m/texel), seed 1
+[   2.018] info  | task pool stopped after 12 task(s)
+[   2.018] info  | quic transport connecting to 127.0.0.1:7777
+[   2.019] info  | client initialised (NVIDIA GeForce RTX 3070 Ti Laptop GPU, vsync on)
+[   2.019] info  | entering frame loop
+[   2.042] info  | client 1 joined as '(unnamed)'
+[   2.045] info  | joined as client 1 (server at tick 38, 20 Hz)
+[   2.045] info  | world 1 anchored at (111700000000, -1741949000)
+[   2.094] info  | first pong: server tick 39, round trip 49.066 ms
+[   5.091] info  | net(session 1): rtt 0.37 ms, resends 0, dropped 0, dgrams 73/12, bytes 51334/144
+[   7.050] info  | net(client 1): rtt 11.78 ms, ping loss 0.0% (0/20), resends 0, dgrams 20/121, bytes 224/84966
+[  10.091] info  | net(session 1): rtt 0.41 ms, resends 0, dropped 0, dgrams 191/30, bytes 135386/324
+[  12.056] info  | net(client 1): rtt 37.78 ms, ping loss 0.0% (0/38), resends 0, dgrams 38/239, bytes 404/169018
+[  15.141] info  | net(session 1): rtt 0.34 ms, resends 0, dropped 0, dgrams 312/50, bytes 220304/524
+[  16.643] info  | frame loop ended after 2323 frames
+[  16.692] info  | connection 1 said goodbye
+[  16.742] info  | client 1 left (reason 1)
+[  16.750] info  | server host stopped after 333 ticks (0 overruns)
+[  16.750] info  | server ran 333 ticks (0 overruns)
+[  16.750] info  | Outpost: Frontier exiting cleanly (0)

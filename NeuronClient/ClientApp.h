@@ -14,6 +14,7 @@
 #include "CommandRow.h"
 #include "GhostLane.h"
 #include "GpuUploadRing.h"
+#include "HudPalette.h"
 #include "HudRoster.h"
 #include "InputMap.h"
 #include "IsoCamera.h"
@@ -204,6 +205,11 @@ private:
    */
   UiDrawList m_ui;
   UiTuning m_uiTuning;
+
+  /// The colour table every HUD element resolves through, chosen once at boot
+  /// by `client.ui.palette`. A packed literal in `BuildHud` is a defect.
+  HudPalette m_palette;
+
   GhostLaneTuning m_laneTuning;
   CommandRowTuning m_commandTuning;
   ToastStack m_toasts;

@@ -8,11 +8,18 @@
 #include "ServerHost.h"
 #include "Simulation.h"
 
+#include "OrderMessages.h"
+#include "ReplicatedView.h"
+
+#include "ByteWriter.h"
 #include "Clock.h"
+#include "EntityRecord.h"
 #include "Log.h"
 #include "Telemetry.h"
 
+#include <array>
 #include <cstdint>
+#include <vector>
 
 namespace Outpost
 {
@@ -87,7 +94,7 @@ template <typename Predicate> bool PumpUntil(Neuron::ClientConnection& _client, 
 
 int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
 {
-  NEURON_LOG_INFO("self test: starting (milestone M0: handshake and heartbeat over loopback)");
+  NEURON_LOG_INFO("self test: starting (handshake, orders and snapshots over QUIC loopback)");
 
   Checklist checks;
 
@@ -125,12 +132,73 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
       checks.Record("round trip is plausible", client.RoundTripMs() >= 0.0 && client.RoundTripMs() < IMPLAUSIBLE_ROUND_TRIP_MS);
       checks.Record("server advances its tick", client.ServerTick() > 0);
 
+      // The rest of the loop (S13's exit criterion): a snapshot down the
+      // unreliable channel, an order up the reliable one, and the authority's
+      // verdict back. Until now the self test stopped at the heartbeat.
+      const bool snapshotArrived = PumpUntil(client, [&] { return !client.PendingSnapshots().empty(); });
+      checks.Record("a snapshot arrives", snapshotArrived);
+
+      if (snapshotArrived)
+      {
+        Game::ReplicatedView view;
+        bool applied = false;
+        for (const std::vector<std::uint8_t>& payload : client.PendingSnapshots())
+        {
+          applied = view.ApplySnapshot(payload) || applied;
+        }
+        client.ClearPendingSnapshots();
+
+        std::vector<Game::ReplicatedShip> ships;
+        if (applied)
+        {
+          view.SampleAt(static_cast<double>(view.LatestTick()), ships);
+        }
+        checks.Record("the snapshot decodes to ships", applied && !ships.empty());
+
+        if (!ships.empty())
+        {
+          // A real order for a real ship, exactly as the client would send it:
+          // decoded from the snapshot, validated by the game, acknowledged
+          // back with the sequence it went out under (ADR-004 §7).
+          Game::OrderSubmit order;
+          order.orderSeq = 4242;
+          (void)order.AddShip(ships.front().id);
+          order.target.xCm = Neuron::MetresToCentimetres(ships.front().positionMetres.x + 100.0f);
+          order.target.yCm = Neuron::MetresToCentimetres(ships.front().positionMetres.y);
+
+          std::array<std::uint8_t, Game::MAX_ORDER_SUBMIT_BYTES> orderBuffer{};
+          Neuron::ByteWriter orderWriter{orderBuffer};
+          const bool sent = Game::WriteOrderSubmit(order, orderWriter) && client.SendOrder(orderWriter.Written());
+          checks.Record("an order goes up the reliable channel", sent);
+
+          if (sent)
+          {
+            (void)PumpUntil(client, [&] { return !client.PendingVerdicts().empty(); });
+            bool accepted = false;
+            for (const Neuron::OrderVerdict& verdict : client.PendingVerdicts())
+            {
+              accepted = accepted || (verdict.orderSeq == order.orderSeq && verdict.accepted);
+            }
+            checks.Record("the authority accepts it and the ack returns", accepted);
+          }
+        }
+      }
+
       const Neuron::TransportStats stats = client.Stats();
       checks.Record("no datagram was dropped", stats.datagramsDropped == 0);
 
-      NEURON_LOG_INFO("self test: %llu pings, %llu pongs, rtt %.3f ms, %llu resends, server at tick %u",
+      // The spike's latency gate: QUIC on loopback must add less than a
+      // millisecond. The *minimum* round trip is the instrument, because the
+      // smoothed one is dominated by the peer's deliberate ack batching (~25 ms
+      // max ack delay) and the app-level ping by the server's 50 ms poll
+      // cadence -- neither is latency the transport adds to the game's bytes.
+      checks.Record("transport adds under a millisecond", stats.minRoundTripMs > 0.0 && stats.minRoundTripMs < 1.0);
+
+      NEURON_LOG_INFO("self test: %llu pings, %llu pongs, app rtt %.3f ms, transport rtt %.3f ms (min %.3f ms), %llu resends, "
+                      "server at tick %u",
                       static_cast<unsigned long long>(client.PingCount()), static_cast<unsigned long long>(client.PongCount()),
-                      client.RoundTripMs(), static_cast<unsigned long long>(stats.controlResends), client.ServerTick());
+                      client.RoundTripMs(), stats.roundTripMs, stats.minRoundTripMs,
+                      static_cast<unsigned long long>(stats.controlResends), client.ServerTick());
     }
 
     // Leaving the scope disconnects, which is itself part of what is checked:

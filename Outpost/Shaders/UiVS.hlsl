@@ -33,7 +33,11 @@ UiVertexOutput VertexMain(uint _vertexId : SV_VertexID, UiInstanceInput _instanc
   // x: 0..width becomes -1..1. y: 0..height becomes 1..-1, because pixels count
   // down from the top and clip space counts up from the centre.
   output.clipPosition = float4(pixel.x * g_viewportSize.z * 2.0f - 1.0f, 1.0f - pixel.y * g_viewportSize.w * 2.0f, 0.0f, 1.0f);
-  output.colour = _instance.colour;
+
+  // Authored-sRGB into linear once per corner; the `_SRGB` target encodes it
+  // back on write, so what lands on screen is the byte the palette states.
+  // Alpha is coverage, not colour, and passes through.
+  output.colour = float4(SrgbToLinear(_instance.colour.rgb), _instance.colour.a);
   output.flags = _instance.flags;
 
   // Already normalised (Ui.hlsli). A panel's uv is zero and never read.

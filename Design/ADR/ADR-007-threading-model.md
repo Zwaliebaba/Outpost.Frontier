@@ -26,10 +26,10 @@ must not paint over those seams — but also must not build 23 threads for a dem
    `Poll(listenerTransport) → IngestOrders → Tick → EmitSnapshots → Send` (ADR-002 §2).
    Network I/O is polled on the sim thread — no separate net thread in MVP; on loopback with
    one client there is nothing for it to do but add a handoff.
-3. **Transport-internal threads** — none for `UdpTransport`; msquic later brings its own
-   worker pool, already absorbed by the ADR-003 rule: *completions enqueue internally
-   (MPSC), surface only via `Poll()` on the owning thread.* No game or render code ever runs
-   on a transport thread.
+3. **Transport-internal threads** — msquic's worker pool (none while `UdpTransport` was the
+   implementation, S4–S12), absorbed by the ADR-003 rule exactly as written: *completions
+   enqueue internally (MPSC), surface only via `Poll()` on the owning thread.* No game or
+   render code ever runs on a transport thread.
 3a. **XAudio2 threads** — owned by XAudio2, registered as external lanes. Voice callbacks
    push events into an SPSC ring and touch nothing else; all audio work happens in the
    Main-thread `AudioUpdate` stage (ADR-011 §8–9). Same rule as transport: foreign threads

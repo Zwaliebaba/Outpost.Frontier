@@ -7,7 +7,7 @@
 #include "Clock.h"
 #include "Log.h"
 #include "Telemetry.h"
-#include "UdpTransport.h"
+#include "QuicTransport.h"
 #include "Wire.h"
 
 #include <array>
@@ -48,9 +48,9 @@ bool ServerHost::Start(const ServerConfig& _config, Simulation& _simulation)
   m_sessions.clear();
   m_stopRequested.store(false, std::memory_order_release);
 
-  // Only UDP exists today; QuicTransport slots in here without touching
-  // anything above (ADR-003 §3).
-  auto transport = std::make_unique<UdpTransport>();
+  // QUIC only, per the S13 owner directive -- there is no transport knob, and
+  // nothing above this line knows which implementation it is talking to.
+  auto transport = std::make_unique<QuicTransport>();
   if (!transport->Listen(_config.port))
   {
     NEURON_LOG_ERROR("server could not listen on port %u", static_cast<unsigned>(_config.port));

@@ -17,9 +17,10 @@
  *
  * **The parameter button is not a command.** `FORMATION` sits in the row beside
  * the verbs and is a different kind of thing -- the name of what the selected
- * command varies by, with the current choice under it. The print gives it a
- * dropdown caret for exactly that reason. It is placed immediately after the
- * command it belongs to, so the pair reads as one control.
+ * command varies by; the chosen value itself is stated by the context bar's
+ * summary line. The print gives it a dropdown caret for exactly that reason.
+ * It is placed immediately after the command it belongs to, so the pair reads
+ * as one control.
  *
  * **Device-free, and that is what makes the row clickable at all.** A button is
  * a rect and a decision; putting both here means the hit test and the drawing
@@ -49,8 +50,10 @@ struct CommandButton
   /// The word on it, from the game. Never null in a slot the row reports.
   const char* label = nullptr;
 
-  /// The second line, for the parameter button: the currently chosen value's
-  /// name. Null on a command button, which has one line.
+  /// The currently chosen value's name, for the parameter button; null on a
+  /// command button. Reported rather than drawn in the row -- every verb is
+  /// one line, and the value is the context bar's summary to state
+  /// (`FORMATION` in the row, `FORMATION LINE` in the summary).
   const char* value = nullptr;
 
   CommandAction action = CommandAction::SelectKind;
@@ -69,16 +72,23 @@ struct CommandButton
 struct CommandRowTuning
 {
   float buttonWidth = 132.0f;
-  float buttonHeight = 44.0f;
+
+  /*
+   * 48 is the U2 touch floor, and it is a *floor* rather than only a size:
+   * the layout clamps so a verb never resolves under 48 real pixels even at
+   * 0.8x scale, because a target a thumb cannot hit is a control that does
+   * not exist. The row's zone (64 at 1.0x) holds this plus 8 px above and
+   * below; when the clamp wins, the button centres in whatever air is left.
+   */
+  float buttonHeight = 48.0f;
   float buttonGap = 8.0f;
 
   /// Inset from the row's left edge and from its top, so the buttons sit inside
   /// the zone rather than filling it -- the print leaves air above them.
-  float paddingX = 12.0f;
-  float paddingY = 9.0f;
+  float paddingX = 18.0f;
+  float paddingY = 8.0f;
 
   std::uint8_t labelSizeIndex = 1;
-  std::uint8_t valueSizeIndex = 0;
 };
 
 /*

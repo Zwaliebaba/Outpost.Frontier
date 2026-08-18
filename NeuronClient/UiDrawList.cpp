@@ -8,6 +8,71 @@
 namespace Neuron
 {
 
+char32_t DecodeUtf8(std::string_view _text, std::size_t& _index) noexcept
+{
+  const auto lead = static_cast<unsigned char>(_text[_index]);
+  if (lead < 0x80u)
+  {
+    ++_index;
+    return lead;
+  }
+
+  std::size_t length = 0;
+  char32_t codepoint = 0;
+  if ((lead & 0xe0u) == 0xc0u)
+  {
+    length = 2;
+    codepoint = lead & 0x1fu;
+  }
+  else if ((lead & 0xf0u) == 0xe0u)
+  {
+    length = 3;
+    codepoint = lead & 0x0fu;
+  }
+  else if ((lead & 0xf8u) == 0xf0u)
+  {
+    length = 4;
+    codepoint = lead & 0x07u;
+  }
+  else
+  {
+    ++_index; // A stray continuation byte. One replacement per byte, so a
+              // damaged string stays the same length it claims.
+    return 0xFFFD;
+  }
+
+  if (_index + length > _text.size())
+  {
+    ++_index;
+    return 0xFFFD;
+  }
+  for (std::size_t i = 1; i < length; ++i)
+  {
+    const auto follow = static_cast<unsigned char>(_text[_index + i]);
+    if ((follow & 0xc0u) != 0x80u)
+    {
+      ++_index;
+      return 0xFFFD;
+    }
+    codepoint = (codepoint << 6) | (follow & 0x3fu);
+  }
+
+  _index += length;
+  return codepoint;
+}
+
+std::size_t TextCellCount(std::string_view _text) noexcept
+{
+  std::size_t count = 0;
+  std::size_t index = 0;
+  while (index < _text.size())
+  {
+    (void)DecodeUtf8(_text, index);
+    ++count;
+  }
+  return count;
+}
+
 void UiDrawList::AddQuad(const UiRect& _rect, std::uint32_t _colourRgba)
 {
   // A zero-area quad is not an error and not worth an instance: layouts that

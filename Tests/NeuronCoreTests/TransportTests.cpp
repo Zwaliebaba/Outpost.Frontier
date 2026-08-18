@@ -5,8 +5,8 @@
 #include "ByteWriter.h"
 #include "Clock.h"
 #include "Hash.h"
+#include "QuicTransport.h"
 #include "Transport.h"
-#include "UdpTransport.h"
 #include "Wire.h"
 
 #include <array>
@@ -20,8 +20,9 @@ using namespace Microsoft::VisualStudio::CppUnitTestFramework;
 using namespace Neuron;
 
 /*
- * These use a real loopback socket rather than a fake. The transport's whole
- * job is the socket, and a test double would only prove the double works.
+ * These use real msquic connections over loopback rather than a fake. The
+ * transport's whole job is the wire -- handshake, TLS, streams, datagrams --
+ * and a test double would only prove the double works.
  */
 
 namespace NeuronCoreTests
@@ -32,7 +33,7 @@ namespace
 /// Polls both ends until the predicate holds or the deadline passes. Returns
 /// false on timeout, so a failing test says "never happened" rather than hanging.
 template <typename Predicate>
-bool PumpUntil(UdpTransport& _a, UdpTransport& _b, Predicate _predicate, double _timeoutMs = 3000.0)
+bool PumpUntil(QuicTransport& _a, QuicTransport& _b, Predicate _predicate, double _timeoutMs = 3000.0)
 {
   const std::int64_t start = Clock::Counter();
   while (Clock::MillisecondsBetween(start, Clock::Counter()) < _timeoutMs)
@@ -49,7 +50,7 @@ bool PumpUntil(UdpTransport& _a, UdpTransport& _b, Predicate _predicate, double 
 }
 
 /// Drains events into a list, since a test usually wants to look at all of them.
-void Drain(UdpTransport& _transport, std::vector<TransportEvent::Type>& _outTypes, std::vector<std::vector<std::uint8_t>>& _outPayloads)
+void Drain(QuicTransport& _transport, std::vector<TransportEvent::Type>& _outTypes, std::vector<std::vector<std::uint8_t>>& _outPayloads)
 {
   TransportEvent event;
   while (_transport.NextEvent(event))
@@ -64,13 +65,13 @@ void Drain(UdpTransport& _transport, std::vector<TransportEvent::Type>& _outType
 
 } // namespace
 
-TEST_CLASS(UdpTransportTests)
+TEST_CLASS(QuicTransportTests)
 {
 public:
   TEST_METHOD(DeliversOnBothChannelsAcrossLoopback)
   {
-    UdpTransport server;
-    UdpTransport client;
+    QuicTransport server;
+    QuicTransport client;
     Assert::IsTrue(server.Listen(0), L"listener could not bind");
     Assert::IsTrue(server.BoundPort() != 0, L"ephemeral port was not reported");
 
@@ -93,7 +94,7 @@ public:
     Assert::AreEqual<std::size_t>(4, serverPayloads.front().size());
     Assert::AreEqual<std::uint8_t>(1, serverPayloads.front()[0]);
 
-    // The server learned the client's address from the datagram, so it can answer.
+    // The server accepted the connection during the handshake, so it can answer.
     ConnectionId toClient = INVALID_CONNECTION;
     for (ConnectionId candidate = 1; candidate < 8; ++candidate)
     {
@@ -125,8 +126,8 @@ public:
   TEST_METHOD(CompletesTheHandshakeMessages)
   {
     // The M0 exchange, at the transport level: Hello in, Welcome back.
-    UdpTransport server;
-    UdpTransport client;
+    QuicTransport server;
+    QuicTransport client;
     Assert::IsTrue(server.Listen(0));
     const ConnectionId toServer = client.Connect("127.0.0.1", server.BoundPort());
 
@@ -160,23 +161,26 @@ public:
 
   TEST_METHOD(RefusesAPayloadLargerThanADatagram)
   {
-    // Nothing may depend on loopback carrying more than a real link would
-    // (ADR-003): the cap is enforced here, not discovered in the field.
-    UdpTransport server;
-    UdpTransport client;
+    // Nothing may depend on QUIC carrying more than the contract's datagram
+    // cap (ADR-003): the cap is enforced here, not discovered in the field --
+    // and it binds the reliable channel too, so nothing learns to lean on the
+    // stream being roomier.
+    QuicTransport server;
+    QuicTransport client;
     Assert::IsTrue(server.Listen(0));
     const ConnectionId toServer = client.Connect("127.0.0.1", server.BoundPort());
 
-    const std::vector<std::uint8_t> oversize(UdpTransport::MAX_PAYLOAD_BYTES + 1, 0xcd);
+    const std::vector<std::uint8_t> oversize(MAX_DATAGRAM_BYTES + 1, 0xcd);
     Assert::IsFalse(client.Send(toServer, TransportChannel::State, oversize));
+    Assert::IsFalse(client.Send(toServer, TransportChannel::Control, oversize));
 
-    const std::vector<std::uint8_t> largest(UdpTransport::MAX_PAYLOAD_BYTES, 0xcd);
+    const std::vector<std::uint8_t> largest(MAX_DATAGRAM_BYTES, 0xcd);
     Assert::IsTrue(client.Send(toServer, TransportChannel::State, largest));
   }
 
   TEST_METHOD(SendingOnADeadConnectionFailsQuietly)
   {
-    UdpTransport client;
+    QuicTransport client;
     const ConnectionId unknown = 999;
     const std::array<std::uint8_t, 1> payload{1};
 
@@ -189,7 +193,7 @@ public:
 
   TEST_METHOD(ReportsAnEphemeralPortAndShutsDownCleanly)
   {
-    UdpTransport transport;
+    QuicTransport transport;
     Assert::IsTrue(transport.Listen(0));
     const std::uint16_t port = transport.BoundPort();
     Assert::IsTrue(port != 0);
@@ -199,6 +203,56 @@ public:
 
     // Shutting down twice is a normal thing to do on a failure path.
     transport.Shutdown();
+  }
+
+  TEST_METHOD(ACloseReasonCrossesTheWire)
+  {
+    /*
+     * Close() puts its DisconnectReason on the wire as the QUIC application
+     * close code, so the peer can tell a deliberate goodbye from a crash --
+     * something the UDP implementation could only approximate with a message.
+     * The server closes with ShuttingDown; the client's Disconnected event
+     * must carry that reason, not a guess.
+     */
+    QuicTransport server;
+    QuicTransport client;
+    Assert::IsTrue(server.Listen(0));
+    const ConnectionId toServer = client.Connect("127.0.0.1", server.BoundPort());
+    Assert::IsTrue(toServer != INVALID_CONNECTION);
+
+    const bool connected = PumpUntil(server, client, [&] { return client.State(toServer) == ConnectionState::Connected; });
+    Assert::IsTrue(connected, L"the handshake never completed");
+
+    ConnectionId toClient = INVALID_CONNECTION;
+    for (ConnectionId candidate = 1; candidate < 8; ++candidate)
+    {
+      if (server.State(candidate) == ConnectionState::Connected)
+      {
+        toClient = candidate;
+        break;
+      }
+    }
+    Assert::IsTrue(toClient != INVALID_CONNECTION, L"the server did not register the peer");
+
+    server.Close(toClient, DisconnectReason::ShuttingDown);
+
+    DisconnectReason heard = DisconnectReason::None;
+    const bool told = PumpUntil(server, client,
+                                [&]
+                                {
+                                  TransportEvent event;
+                                  while (client.NextEvent(event))
+                                  {
+                                    if (event.type == TransportEvent::Type::Disconnected)
+                                    {
+                                      heard = event.reason;
+                                    }
+                                  }
+                                  return heard != DisconnectReason::None;
+                                });
+
+    Assert::IsTrue(told, L"the client was never told");
+    Assert::IsTrue(heard == DisconnectReason::ShuttingDown, L"the reason did not survive the wire");
   }
 };
 

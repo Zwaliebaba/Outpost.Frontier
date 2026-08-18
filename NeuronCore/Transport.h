@@ -59,6 +59,10 @@ inline constexpr ConnectionId INVALID_CONNECTION = 0;
 struct TransportStats
 {
   double roundTripMs = 0.0;
+  /// The floor: the fastest round trip observed. The smoothed figure above
+  /// includes the peer's deliberate ack batching, so this is the honest
+  /// measure of what the transport itself adds to the path.
+  double minRoundTripMs = 0.0;
   std::uint64_t datagramsSent = 0;
   std::uint64_t datagramsReceived = 0;
   std::uint64_t bytesSent = 0;

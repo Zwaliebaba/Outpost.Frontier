@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "CppUnitTest.h"
 
+#include "HudPalette.h"
 #include "ToastStack.h"
 #include "UiDrawList.h"
 #include "UiLayout.h"
@@ -572,6 +573,100 @@ public:
       Assert::AreEqual(0.0f, quad.axisX, 0.0f);
       Assert::AreEqual(0.0f, quad.axisY, 0.0f);
     }
+  }
+};
+
+TEST_CLASS(HudPaletteTests)
+{
+public:
+  TEST_METHOD(TheDefaultTableIsThePrintsAndUnknownNamesResolveToIt)
+  {
+    // An unknown palette name is a config typo, and a client that would not
+    // start over a typo would be the wrong failure -- the same judgement the
+    // nebula block gets. The default table's anchor colour is the phosphor
+    // green, packed r-in-the-low-byte.
+    const HudPalette named = ResolveHudPalette("default");
+    const HudPalette mistyped = ResolveHudPalette("deutranopia");
+
+    Assert::AreEqual(0xFF3EFF7Cu, named.phosphor);
+    Assert::AreEqual(named.phosphor, mistyped.phosphor, L"an unknown name is the default, not a failure");
+    Assert::AreEqual(named.caution, mistyped.caution);
+  }
+
+  TEST_METHOD(TheHullStripMovesThroughThreeBandsAsItFalls)
+  {
+    /*
+     * ~70% and ~40% of the 0-255 gauge scale. Bands rather than a gradient,
+     * because the strip is a reading: the boundaries are asserted from both
+     * sides so a drive-by `>` for `>=` cannot silently move a wing from worn
+     * to healthy at exactly the threshold.
+     */
+    const HudPalette palette;
+    Assert::AreEqual(palette.phosphor, HullGaugeFill(palette, 255));
+    Assert::AreEqual(palette.phosphor, HullGaugeFill(palette, 179), L"the healthy band includes its floor");
+    Assert::AreEqual(palette.caution, HullGaugeFill(palette, 178));
+    Assert::AreEqual(palette.caution, HullGaugeFill(palette, 102), L"the worn band includes its floor");
+    Assert::AreEqual(palette.hostile, HullGaugeFill(palette, 101));
+    Assert::AreEqual(palette.hostile, HullGaugeFill(palette, 0));
+  }
+
+  TEST_METHOD(AlphaHelpersChangeOpacityAndNothingElse)
+  {
+    // "Half alpha" treatments are an operation on a palette entry rather than
+    // a second literal, so the entry stays the single source of the hue.
+    const HudPalette palette;
+    Assert::AreEqual(0x283EFF7Cu, WithAlpha(palette.phosphor, 0x28), L"the hue survives");
+    Assert::AreEqual(0x7F3EFF7Cu, AtHalfAlpha(palette.phosphor), L"and half of 0xFF is 0x7F");
+    Assert::AreEqual(0x1C3EFF7Cu, AtHalfAlpha(palette.border), L"half alpha halves what was there, not 0xFF");
+  }
+};
+
+TEST_CLASS(TextCellTests)
+{
+public:
+  TEST_METHOD(AMarkerGlyphIsOneCellNotThreeBytes)
+  {
+    /*
+     * The HUD measures a run as cells times the cell width, and the alert
+     * triangle is three bytes of UTF-8 -- `strlen` would over-measure every
+     * string carrying one, and a right-aligned chip would drift left by two
+     * cells per glyph.
+     */
+    Assert::AreEqual<std::size_t>(8, TextCellCount("41 SHIPS"), L"ASCII is one byte per cell");
+    Assert::AreEqual<std::size_t>(3, TextCellCount("\xE2\x96\xB2 2"), L"triangle, space, digit");
+    Assert::AreEqual<std::size_t>(0, TextCellCount(""));
+  }
+
+  TEST_METHOD(DecodingWalksTheGlyphsThePassWillDraw)
+  {
+    // The same decode the pass's expansion uses, asserted device-free: the
+    // codepoints out of a mixed string are the ones the atlas will be asked
+    // for, in order.
+    const std::string_view text = "A\xE2\x96\xB2\xE2\x8F\xB3z";
+    std::size_t index = 0;
+    Assert::AreEqual<std::uint32_t>(U'A', DecodeUtf8(text, index));
+    Assert::AreEqual<std::uint32_t>(0x25b2, DecodeUtf8(text, index), L"the alert triangle");
+    Assert::AreEqual<std::uint32_t>(0x23f3, DecodeUtf8(text, index), L"the pending hourglass");
+    Assert::AreEqual<std::uint32_t>(U'z', DecodeUtf8(text, index));
+    Assert::AreEqual<std::size_t>(text.size(), index, L"and the walk consumed exactly the string");
+  }
+
+  TEST_METHOD(MalformedBytesCostAReplacementEachRatherThanAStuckLoop)
+  {
+    // A truncated sequence and a stray continuation byte are one replacement
+    // per byte: the index always advances, so damaged input ends the walk
+    // rather than wedging the frame that draws it.
+    const std::string_view stray = "\xB2ok";
+    std::size_t index = 0;
+    Assert::AreEqual<std::uint32_t>(0xFFFD, DecodeUtf8(stray, index));
+    Assert::AreEqual<std::size_t>(1, index);
+
+    const std::string_view truncated = "\xE2\x96";
+    index = 0;
+    Assert::AreEqual<std::uint32_t>(0xFFFD, DecodeUtf8(truncated, index));
+    Assert::IsTrue(index >= 1, L"the index moved");
+    Assert::AreEqual<std::size_t>(4, TextCellCount("\xE2\x96ok"),
+                                  L"one replacement per damaged byte, then the two good ones");
   }
 };
 

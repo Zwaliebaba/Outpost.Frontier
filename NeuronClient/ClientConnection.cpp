@@ -6,7 +6,7 @@
 #include "ByteWriter.h"
 #include "Clock.h"
 #include "Log.h"
-#include "UdpTransport.h"
+#include "QuicTransport.h"
 #include "Wire.h"
 
 #include <array>
@@ -40,7 +40,7 @@ bool ClientConnection::Connect(const std::string& _host, std::uint16_t _port, st
   m_contentHash = _contentHash;
   m_playerName = _playerName;
 
-  auto transport = std::make_unique<UdpTransport>();
+  auto transport = std::make_unique<QuicTransport>();
   m_connection = transport->Connect(_host, _port);
   if (m_connection == INVALID_CONNECTION)
   {

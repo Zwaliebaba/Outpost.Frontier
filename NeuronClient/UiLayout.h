@@ -33,28 +33,30 @@ namespace Neuron
 /// that reason -- these are the numbers a pass over the print retunes.
 struct UiTuning
 {
-  float topBarHeight = 34.0f;
-  float rosterWidth = 176.0f;
-  float abilityWidth = 128.0f;
+  float topBarHeight = 46.0f;
+  float rosterWidth = 132.0f;
+  float abilityWidth = 106.0f;
 
-  /// The context bar (`N SHIPS : WING -> FORMATION`) and the command row of
-  /// buttons under it. Two zones because the print draws two, and because a
-  /// toast may never cover either (`alerts-and-toasts.png` §2).
-  float contextBarHeight = 34.0f;
-  float commandRowHeight = 62.0f;
+  /// The context bar (the selection summary) and the command row of buttons
+  /// under it. Two zones because the print draws two, and because a toast may
+  /// never cover either (`alerts-and-toasts.png` §2). The command row is sized
+  /// to hold the 48 px verbs plus 8 px above and below -- 48 being the U2
+  /// touch floor the icon sheet's legibility plate is built around.
+  float contextBarHeight = 40.0f;
+  float commandRowHeight = 64.0f;
 
   /// Gap between a panel's edge and its contents.
   float padding = 8.0f;
 
   /// The bottom-right toast stack. Rows are one head line and one detail line
   /// plus padding, and the sheet caps the stack at five of them.
-  float toastWidth = 268.0f;
+  float toastWidth = 308.0f;
   float toastHeight = 46.0f;
   float toastGap = 6.0f;
 
   /// The centre-top critical surface, which is its own zone and not part of the
   /// stack: the sheet puts it near the eye's resting point during a fight.
-  float criticalWidth = 420.0f;
+  float criticalWidth = 520.0f;
   float criticalHeight = 52.0f;
   float criticalTopMargin = 24.0f;
 

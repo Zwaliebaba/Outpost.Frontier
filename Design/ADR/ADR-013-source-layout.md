@@ -55,10 +55,10 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
 
    | Project | Naming | Files |
    |---|---|---|
-   | NeuronCore | plain area names | `Debug.h` `Log.h` `Clock.h` `Hash.h` `Random.h` `Arena.h` `RingBuffer.h` `TaskPool.h` `Telemetry.h` `ByteReader.h` `ByteWriter.h` `Json.h` `JsonWriter.h` `EntityRecord.h` `OrderIntent.h` `Transport.h` `UdpTransport.h` `QuicTransport.h` `Wire.h` `FileSys.h` `FileSys.cpp` `NeuronHelper.h` |
+   | NeuronCore | plain area names | `Debug.h` `Log.h` `Clock.h` `Hash.h` `Random.h` `Arena.h` `RingBuffer.h` `TaskPool.h` `Telemetry.h` `ByteReader.h` `ByteWriter.h` `Json.h` `JsonWriter.h` `EntityRecord.h` `OrderIntent.h` `Transport.h` `QuicTransport.h` `Wire.h` `FileSys.h` `FileSys.cpp` `NeuronHelper.h` |
    | GameLogic | type + family names | `Ids.h` `ShipClass.h` `World.h` `ReplicatedView.h` `Orders.h` `Validate.h` `Formation.h` `Eta.h` `WorldHash.h` `Snapshot.h` `OrderMessages.h` `SchemaHash.h` `Universe.h` `UniverseParse.h` |
    | NeuronServer | type names | `Simulation.h` `ServerHost.h` `ServerConfig.h` `Session.h` `SnapshotSender.h` |
-   | NeuronClient | type names (`Gpu`, `Hud`, `Audio` read as domain words, R4) | `ClientApp.h` `ClientConfig.h` `WorldView.h` `Window.h` `ClearColour.h` `ClientConnection.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuCom.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuMeshes.h` `GpuNebula.h` `GpuPasses.h` `GpuPipelines.h` `ObjMesh.h` `NebulaField.h` `GlyphAtlas.h` `IsoCamera.h` `Picking.h` `Selection.h` `OverlayMark.h` `InputMap.h` `UiDrawList.h` `UiLayout.h` `ToastStack.h` `HudRoster.h` `GhostLane.h` `CommandRow.h` `OrderPuck.h` `OrderGhost.h` `AudioSystem.h` `AudioBank.h` `AudioListener.h` |
+   | NeuronClient | type names (`Gpu`, `Hud`, `Audio` read as domain words, R4) | `ClientApp.h` `ClientConfig.h` `WorldView.h` `Window.h` `ClearColour.h` `ClientConnection.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuCom.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuMeshes.h` `GpuNebula.h` `GpuPasses.h` `GpuPipelines.h` `ObjMesh.h` `NebulaField.h` `GlyphAtlas.h` `IsoCamera.h` `Picking.h` `Selection.h` `OverlayMark.h` `InputMap.h` `UiDrawList.h` `UiLayout.h` `ToastStack.h` `HudRoster.h` `HudPalette.h` `GhostLane.h` `CommandRow.h` `OrderPuck.h` `OrderGhost.h` `AudioSystem.h` `AudioBank.h` `AudioListener.h` |
    | Outpost | — | `Main.cpp` `AppConfig.h` `AppConfig.cpp` `ConfigLoad.h` `ConfigLoad.cpp` `UniverseLoad.h` `UniverseLoad.cpp` `ReplicatedWorldView.h` `ReplicatedWorldView.cpp` `ShaderTable.h` `ShaderTable.cpp` `SelfTest.h` `SelfTest.cpp` |
    | Outpost/Shaders | stage suffix on the pass name | `OpaqueVS.hlsl` `OpaquePS.hlsl` `NebulaVS.hlsl` `NebulaPS.hlsl` `OverlayVS.hlsl` `OverlayPS.hlsl` `UiVS.hlsl` `UiPS.hlsl` — plus `Opaque.hlsli` `Nebula.hlsli` `Overlay.hlsli` `Ui.hlsli` `FrameConstants.hlsli` `PassConstants.hlsli` for what stages share |
    | Outpost/CompiledShaders | generated; one per `.hlsl`, same stem | `OpaqueVS.h` `OpaquePS.h` `NebulaVS.h` `NebulaPS.h` `OverlayVS.h` `OverlayPS.h` `UiVS.h` `UiPS.h`, each defining `g_p<stem>` |
@@ -68,9 +68,11 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
 
    **Some rows reserve a name rather than describe a file**, which is the point of §4: the
    registry has to be written *before* the file exists or it cannot prevent anything. Not yet in
-   the tree, as of S9 — `QuicTransport.h` (S13), `Session.h` and `SnapshotSender.h` (both still
+   the tree, as of S13 — `Session.h` and `SnapshotSender.h` (both still
    structures inside `ServerHost.cpp`) and `AudioSystem.h`, `AudioBank.h`, `AudioListener.h`
-   (S15). Everything else listed is real. `HudLayout.h` was reserved here for S11's roster
+   (S15). Everything else listed is real. `QuicTransport.h`, reserved here since the start,
+   became real at S13 — and `UdpTransport.h` left the registry with the file, deleted by the
+   S13 owner directive (QUIC only, ADR-003 §4). `HudLayout.h` was reserved here for S11's roster
    half and is now struck from the row: S11a built `UiLayout.h` for the zones and S11b
    `HudRoster.h` for the rows, so the reserved name describes no file anyone intends to
    write. A reservation that outlives its plan is worse than no reservation -- it is a name

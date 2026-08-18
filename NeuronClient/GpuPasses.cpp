@@ -256,11 +256,15 @@ void ExpandTextRuns(const UiDrawList& _ui, const GlyphAtlas& _atlas, std::vector
     const float baseline = run.y + size.ascentPixels;
 
     float pen = run.x;
-    for (const char character : _ui.Text(run))
+    const std::string_view text = _ui.Text(run);
+    std::size_t byteIndex = 0;
+    while (byteIndex < text.size())
     {
-      // ASCII only, which is the whole alphabet the bake covers (ADR-006 §9):
-      // no shaping, no combining marks, and a byte is a codepoint.
-      const auto codepoint = static_cast<char32_t>(static_cast<unsigned char>(character));
+      // UTF-8, decoded here and nowhere earlier: the bake covers ASCII plus
+      // the icon sheet's marker glyphs (ADR-006 §9), and those markers are
+      // multi-byte. No shaping and no combining marks -- one codepoint is one
+      // cell, which is what keeps layout a multiplication upstream.
+      const char32_t codepoint = DecodeUtf8(text, byteIndex);
       const GlyphMetrics* glyph = _atlas.Find(sizeIndex, codepoint);
       if (glyph == nullptr)
       {
