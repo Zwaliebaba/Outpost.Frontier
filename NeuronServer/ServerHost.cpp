@@ -224,6 +224,50 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     return;
   }
 
+  case WireType::OrderSubmit:
+  {
+    /*
+     * The engine's whole part in an order: find the session, hand the rest of
+     * the bytes to the game, and send back what it decided (ADR-004 §7).
+     *
+     * It never parses the payload. `Remaining()` is the bytes after the type
+     * word, and what they mean is GameLogic's schema under GameLogic's hash --
+     * the same arrangement `Snapshot` has in the other direction (ADR-014 §5).
+     */
+    const SessionInfo* session = FindSession(_event.connection);
+    if (session == nullptr || !session->handshakeComplete)
+    {
+      // Before the handshake there is no client id to attribute an order to,
+      // and no agreement that the two builds share a schema. Dropped rather
+      // than acked: acking would imply the order was considered.
+      NEURON_LOG_WARNING("order from connection %u before it joined", _event.connection);
+      return;
+    }
+
+    const OrderVerdict verdict = m_simulation->ApplyOrderBytes(session->clientId, reader.Remaining());
+
+    OrderAck ack;
+    ack.orderSeq = verdict.orderSeq; // The game's echo: the engine never read it.
+    ack.serverOrderId = verdict.serverOrderId;
+    ack.reasonCode = verdict.reasonCode;
+    ack.accepted = verdict.accepted ? std::uint8_t{1} : std::uint8_t{0};
+
+    // Control channel, because an ack is exactly the kind of message ADR-003
+    // put a reliable ordered channel there for: a lost refusal leaves a ghost
+    // on screen forever, and there is no later snapshot that corrects it.
+    std::array<std::uint8_t, 64> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::OrderAck);
+    Write(writer, ack);
+    SendTo(_event.connection, TransportChannel::Control, writer);
+
+    if (!verdict.accepted)
+    {
+      m_ordersRefused.fetch_add(1, std::memory_order_relaxed);
+    }
+    return;
+  }
+
   case WireType::Goodbye:
   {
     NEURON_LOG_INFO("connection %u said goodbye", _event.connection);

@@ -110,6 +110,23 @@ bool Read(ByteReader& _reader, Pong& _outMessage) noexcept
   return _reader.Ok();
 }
 
+void Write(ByteWriter& _writer, const OrderAck& _message) noexcept
+{
+  _writer.WriteUInt32(_message.orderSeq);
+  _writer.WriteUInt32(_message.serverOrderId);
+  _writer.WriteUInt16(_message.reasonCode);
+  _writer.WriteUInt8(_message.accepted);
+}
+
+bool Read(ByteReader& _reader, OrderAck& _outMessage) noexcept
+{
+  _outMessage.orderSeq = _reader.ReadUInt32();
+  _outMessage.serverOrderId = _reader.ReadUInt32();
+  _outMessage.reasonCode = _reader.ReadUInt16();
+  _outMessage.accepted = _reader.ReadUInt8();
+  return _reader.Ok();
+}
+
 void Write(ByteWriter& _writer, const Goodbye& _message) noexcept
 {
   _writer.WriteUInt16(_message.reason);

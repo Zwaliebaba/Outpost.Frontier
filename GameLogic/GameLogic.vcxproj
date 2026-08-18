@@ -21,6 +21,7 @@
     </ClCompile>
     <ClCompile Include="ReplicatedView.cpp" />
     <ClCompile Include="Formation.cpp" />
+    <ClCompile Include="OrderMessages.cpp" />
     <ClCompile Include="Orders.cpp" />
     <ClCompile Include="Validate.cpp" />
     <ClCompile Include="ShipClass.cpp" />
@@ -36,6 +37,7 @@
     <ClInclude Include="ReplicatedView.h" />
     <ClInclude Include="SchemaHash.h" />
     <ClInclude Include="Formation.h" />
+    <ClInclude Include="OrderMessages.h" />
     <ClInclude Include="Orders.h" />
     <ClInclude Include="Validate.h" />
     <ClInclude Include="ShipClass.h" />

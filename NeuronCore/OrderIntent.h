@@ -64,6 +64,20 @@ struct OrderVerdict
   bool accepted = false;
   std::uint16_t reasonCode = 0;
   std::uint32_t serverOrderId = 0;
+
+  /*
+   * Which order this is about -- the client's own monotonic counter, echoed.
+   *
+   * It travels *back out of the game* rather than being read by the engine,
+   * and that is the whole reason it is here. The sequence lives inside the
+   * submitted payload, which the engine frames and never parses (ADR-004
+   * ruling 4); an engine that dug four bytes out of it to fill in the ack
+   * would have started reading game semantics for the sake of one field. The
+   * game already parsed it, so the game hands it back.
+   *
+   * Zero on a pre-check, where the client has not assigned one yet.
+   */
+  std::uint32_t orderSeq = 0;
 };
 
 /// How many marks a preview may carry. One per selected entity at the icon

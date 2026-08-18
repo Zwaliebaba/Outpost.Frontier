@@ -148,9 +148,16 @@ public:
     Neuron::ByteWriter writer{buffer};
     Assert::IsTrue(WriteSnapshot(world, writer));
 
-    Assert::AreEqual<std::size_t>(SnapshotBytes(41), writer.BytesWritten());
+    // One order record too, since S9: `BuildFlyingWorld` gives the fleet
+    // somewhere to go, and the group that carries it rides along.
+    Assert::AreEqual<std::uint16_t>(1, static_cast<std::uint16_t>(world.Groups().size()));
+    Assert::AreEqual<std::size_t>(SnapshotBytes(41, 1), writer.BytesWritten());
     Assert::IsTrue(writer.BytesWritten() <= SNAPSHOT_BUDGET_BYTES, L"41 ships must fit one datagram");
     Assert::IsTrue(writer.BytesWritten() < 1000, L"and with room to spare, per the budget in the ADR");
+
+    // And the worst case -- a full order area on top of that fleet -- is still
+    // inside the budget, which is what reserving the area buys.
+    Assert::IsTrue(SnapshotBytes(41, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES);
   }
 
   TEST_METHOD(AFleetTooBigForOneDatagramIsRefusedRatherThanTruncated)

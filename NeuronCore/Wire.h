@@ -41,7 +41,26 @@ enum class WireType : std::uint16_t
    * opinion about what they mean. What is inside is GameLogic's schema and
    * travels under its own hash.
    */
-  Snapshot = 8
+  Snapshot = 8,
+
+  /*
+   * An order payload, framed by the engine and read only by the game
+   * (ADR-004 §7). Opaque for the same reason `Snapshot` is: the engine carries
+   * the bytes and has no opinion about what a move is. Reliable and ordered --
+   * an order is the one thing in this protocol that must arrive (ADR-003).
+   */
+  OrderSubmit = 9,
+
+  /*
+   * What the authority decided, on the way back.
+   *
+   * This one *is* a struct, because every field is already a neutral number:
+   * a sequence the client chose, an id the server assigned, and the two halves
+   * of `OrderVerdict`. The reason code is the game's enum and the engine passes
+   * it through unread, which is what lets a local refusal and a server refusal
+   * say the same thing (ADR-014 §3).
+   */
+  OrderAck = 10
 };
 
 /// Why a server turned a client away. On the wire, so the values are fixed.
@@ -117,6 +136,23 @@ struct Pong
   std::uint32_t serverTick = 0;
 };
 
+/*
+ * The verdict on one submitted order (ADR-004 §7).
+ *
+ * `accepted` is a byte rather than a `bool` because a wire field needs a width
+ * the standard guarantees. `serverOrderId` is zero on a refusal -- nothing was
+ * given an id -- and the client's ghost is matched by `orderSeq`, which is the
+ * only field it chose itself and therefore the only one it can match on before
+ * the ack arrives.
+ */
+struct OrderAck
+{
+  std::uint32_t orderSeq = 0;
+  std::uint32_t serverOrderId = 0;
+  std::uint16_t reasonCode = 0;
+  std::uint8_t accepted = 0;
+};
+
 struct Goodbye
 {
   std::uint16_t reason = 0;
@@ -134,6 +170,7 @@ void Write(ByteWriter& _writer, const UpdateRequired& _message) noexcept;
 void Write(ByteWriter& _writer, const Refuse& _message) noexcept;
 void Write(ByteWriter& _writer, const Ping& _message) noexcept;
 void Write(ByteWriter& _writer, const Pong& _message) noexcept;
+void Write(ByteWriter& _writer, const OrderAck& _message) noexcept;
 void Write(ByteWriter& _writer, const Goodbye& _message) noexcept;
 
 [[nodiscard]] bool Read(ByteReader& _reader, Hello& _outMessage) noexcept;
@@ -142,6 +179,7 @@ void Write(ByteWriter& _writer, const Goodbye& _message) noexcept;
 [[nodiscard]] bool Read(ByteReader& _reader, Refuse& _outMessage) noexcept;
 [[nodiscard]] bool Read(ByteReader& _reader, Ping& _outMessage) noexcept;
 [[nodiscard]] bool Read(ByteReader& _reader, Pong& _outMessage) noexcept;
+[[nodiscard]] bool Read(ByteReader& _reader, OrderAck& _outMessage) noexcept;
 [[nodiscard]] bool Read(ByteReader& _reader, Goodbye& _outMessage) noexcept;
 
 /*
@@ -161,7 +199,13 @@ inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,
                                                      // game's own schema hash. The value is still part of this
                                                      // contract, because two builds disagreeing about which
                                                      // number means "snapshot" is a wire break.
-                                                     "Snapshot{u16 type,opaque payload}";
+                                                     "Snapshot{u16 type,opaque payload}"
+                                                     // Same argument as Snapshot: the submitted payload is the
+                                                     // game's, and only the type word is this contract's. The ack
+                                                     // is fully described here because every field of it is a
+                                                     // number this library defines the meaning of.
+                                                     "OrderSubmit{u16 type,opaque payload}"
+                                                     "OrderAck{u32 orderSeq,u32 serverOrderId,u16 reasonCode,u8 accepted}";
 
 [[nodiscard]] std::uint64_t CoreSchemaHash() noexcept;
 

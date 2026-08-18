@@ -2,18 +2,24 @@
 #include "CppUnitTest.h"
 
 #include "Formation.h"
+#include "OrderMessages.h"
 #include "Orders.h"
 #include "ShipClass.h"
 #include "Validate.h"
+#include "Snapshot.h"
 #include "World.h"
 #include "WorldHash.h"
 
+#include "ByteReader.h"
+#include "ByteWriter.h"
 #include "EntityRecord.h"
 
 #include <DirectXMath.h>
 
 #include <cmath>
+#include <array>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -694,6 +700,252 @@ public:
 
     Assert::AreNotEqual(ComputeWorldHash(withOneLeg), ComputeWorldHash(withTwoLegs),
                         L"a queued leg is state, and only the group table carries it");
+  }
+};
+
+TEST_CLASS(OrderMessageTests)
+{
+public:
+  TEST_METHOD(AnOrderRoundTripsFieldForField)
+  {
+    OrderSubmit sent = Order({3, 9, 400}, -12345.67f, 8901.23f, 2.5f);
+    sent.orderSeq = 0xdeadbeef;
+    sent.formation = FormationId::Wedge;   // Carried even though S9 refuses it:
+    sent.queueMode = QueueMode::Append;    // the codec's job is bytes, not policy.
+
+    std::array<std::uint8_t, 256> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteOrderSubmit(sent, writer));
+    Assert::AreEqual(OrderSubmitBytes(3), writer.Written().size());
+
+    Neuron::ByteReader reader{writer.Written()};
+    OrderSubmit received;
+    Assert::IsTrue(ReadOrderSubmit(reader, received));
+    Assert::IsTrue(reader.FullyConsumed());
+
+    Assert::AreEqual<std::uint32_t>(sent.orderSeq, received.orderSeq);
+    Assert::IsTrue(sent.kind == received.kind);
+    Assert::IsTrue(sent.formation == received.formation);
+    Assert::IsTrue(sent.queueMode == received.queueMode);
+    Assert::AreEqual<std::uint16_t>(3, received.shipCount);
+    Assert::AreEqual<ShipId>(3, received.shipIds[0]);
+    Assert::AreEqual<ShipId>(9, received.shipIds[1]);
+    Assert::AreEqual<ShipId>(400, received.shipIds[2]);
+
+    // The leg crosses as integers, so it survives exactly rather than nearly.
+    Assert::AreEqual(sent.target.xCm, received.target.xCm);
+    Assert::AreEqual(sent.target.yCm, received.target.yCm);
+    Assert::AreEqual<std::uint16_t>(sent.target.facingTurns16, received.target.facingTurns16);
+  }
+
+  TEST_METHOD(AnEmptyOrderIsStillAValidPayload)
+  {
+    // The decoder's job is bytes; `EmptySelection` is validation's answer, and
+    // a codec that refused here would return "malformed" where the client is
+    // owed a reason it can render.
+    const OrderSubmit empty = Order({}, 0.0f, 0.0f);
+    std::array<std::uint8_t, 64> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteOrderSubmit(empty, writer));
+
+    Neuron::ByteReader reader{writer.Written()};
+    OrderSubmit received;
+    Assert::IsTrue(ReadOrderSubmit(reader, received));
+    Assert::AreEqual<std::uint16_t>(0, received.shipCount);
+
+    const ShipId none[] = {1};
+    Assert::IsTrue(ValidateOrder(ViewOf(none), received).reason == OrderReason::EmptySelection);
+  }
+
+  TEST_METHOD(AnUnknownKindDecodesAndIsRefusedByValidationNotByTheCodec)
+  {
+    OrderSubmit strange = Order({1}, 100.0f, 0.0f);
+    strange.kind = static_cast<OrderKind>(200);
+    std::array<std::uint8_t, 64> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteOrderSubmit(strange, writer));
+
+    Neuron::ByteReader reader{writer.Written()};
+    OrderSubmit received;
+    Assert::IsTrue(ReadOrderSubmit(reader, received), L"bytes are bytes; the codec does not judge them");
+
+    const ShipId ids[] = {1};
+    Assert::IsTrue(ValidateOrder(ViewOf(ids), received).reason == OrderReason::UnknownKind);
+  }
+
+  TEST_METHOD(ATruncatedPayloadIsRefused)
+  {
+    const OrderSubmit order = Order({1, 2, 3}, 500.0f, 500.0f);
+    std::array<std::uint8_t, 128> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteOrderSubmit(order, writer));
+
+    const std::span<const std::uint8_t> whole = writer.Written();
+    for (std::size_t length = 0; length < whole.size(); ++length)
+    {
+      Neuron::ByteReader reader{whole.subspan(0, length)};
+      OrderSubmit received;
+      Assert::IsFalse(ReadOrderSubmit(reader, received), L"every short prefix must be refused, not guessed");
+    }
+  }
+
+  TEST_METHOD(AnAbsurdShipCountIsRefusedBeforeAnyIdIsRead)
+  {
+    /*
+     * The boundary where a hostile payload has to stop. A count of 65,535 with
+     * no ids behind it would otherwise run the read loop sixty-five thousand
+     * times against an underflowing reader before anything noticed -- the
+     * result is the same refusal, and the work is not.
+     */
+    std::array<std::uint8_t, 64> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    writer.WriteUInt32(1);
+    writer.WriteUInt8(0);
+    writer.WriteUInt8(0);
+    writer.WriteUInt8(0);
+    writer.WriteUInt16(0xffff);
+
+    Neuron::ByteReader reader{writer.Written()};
+    OrderSubmit received;
+    Assert::IsFalse(ReadOrderSubmit(reader, received));
+
+    // One past the cap is refused for the same reason, with the payload intact.
+    Neuron::ByteWriter overCap{buffer};
+    overCap.WriteUInt32(1);
+    overCap.WriteUInt8(0);
+    overCap.WriteUInt8(0);
+    overCap.WriteUInt8(0);
+    overCap.WriteUInt16(static_cast<std::uint16_t>(MAX_SHIPS_PER_ORDER + 1));
+    Neuron::ByteReader capReader{overCap.Written()};
+    Assert::IsFalse(ReadOrderSubmit(capReader, received));
+  }
+
+  TEST_METHOD(TheLargestOrderFitsItsStatedBound)
+  {
+    OrderSubmit full;
+    full.orderSeq = 1;
+    for (std::uint32_t index = 0; index < MAX_SHIPS_PER_ORDER; ++index)
+    {
+      Assert::IsTrue(full.AddShip(static_cast<ShipId>(index)));
+    }
+
+    std::vector<std::uint8_t> buffer(MAX_ORDER_SUBMIT_BYTES);
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteOrderSubmit(full, writer));
+    Assert::AreEqual(MAX_ORDER_SUBMIT_BYTES, writer.Written().size());
+
+    // And a buffer one byte short refuses rather than writing a short order.
+    std::vector<std::uint8_t> tooSmall(MAX_ORDER_SUBMIT_BYTES - 1);
+    Neuron::ByteWriter cramped{tooSmall};
+    Assert::IsFalse(WriteOrderSubmit(full, cramped));
+  }
+};
+
+TEST_CLASS(SnapshotOrderStateTests)
+{
+public:
+  TEST_METHOD(TheSnapshotCarriesTheGroupsAndTheHighWaterMark)
+  {
+    World world;
+    world.Reset(5);
+    const ShipId a = SpawnAt(world, HullClass::Interceptor, 0.0f, 0.0f);
+    const ShipId b = SpawnAt(world, HullClass::Corvette, 300.0f, 0.0f);
+
+    OrderSubmit order = Order({a, b}, 4000.0f, 0.0f);
+    order.orderSeq = 99;
+    const OrderVerdict verdict = world.SubmitOrder(order);
+    world.Tick(1);
+
+    std::array<std::uint8_t, 2048> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteSnapshot(world, writer));
+
+    Neuron::ByteReader reader{writer.Written()};
+    SnapshotHeader header;
+    std::vector<Neuron::EntityRecord> ships;
+    std::vector<OrderStateRecord> orders;
+    Assert::IsTrue(ReadSnapshot(reader, header, ships, orders));
+
+    Assert::AreEqual<std::uint16_t>(1, header.orderCount);
+    Assert::AreEqual<std::uint32_t>(99, header.lastOrderSeqProcessed);
+    Assert::AreEqual<std::size_t>(1, orders.size());
+    Assert::AreEqual<std::uint32_t>(verdict.serverOrderId, orders[0].serverOrderId);
+    Assert::AreEqual<std::uint32_t>(99, orders[0].clientOrderSeq);
+    Assert::AreEqual<std::uint8_t>(2, orders[0].memberCount);
+    Assert::AreEqual<std::uint8_t>(1, orders[0].legCount);
+    Assert::AreEqual<std::uint8_t>(0, orders[0].legIndex);
+  }
+
+  TEST_METHOD(AWorldWithNoOrdersCarriesNoOrderRecords)
+  {
+    World world;
+    world.Reset(5);
+    (void)SpawnAt(world, HullClass::Interceptor);
+    world.Tick(1);
+
+    std::array<std::uint8_t, 2048> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteSnapshot(world, writer));
+
+    Neuron::ByteReader reader{writer.Written()};
+    SnapshotHeader header;
+    std::vector<Neuron::EntityRecord> ships;
+    std::vector<OrderStateRecord> orders;
+    Assert::IsTrue(ReadSnapshot(reader, header, ships, orders));
+
+    Assert::AreEqual<std::uint16_t>(0, header.orderCount);
+    Assert::IsTrue(orders.empty());
+    Assert::AreEqual(SnapshotBytes(1, 0), writer.Written().size(), L"an idle world pays nothing for the order area");
+  }
+
+  TEST_METHOD(OrdersAreTruncatedWhereShipsWouldBeRefused)
+  {
+    /*
+     * The asymmetry, asserted. A missing ship record reads as a despawn and is
+     * unrecoverable; a missing order record costs one frame of ETA and the
+     * header's high-water mark still promotes the ghost. So more groups than
+     * fit are truncated, and more ships than fit are refused outright.
+     */
+    World world;
+    world.Reset(5);
+    std::vector<ShipId> ships;
+    for (std::uint32_t index = 0; index < MAX_ORDERS_PER_SNAPSHOT + 4; ++index)
+    {
+      ships.push_back(SpawnAt(world, HullClass::Interceptor, static_cast<float>(index) * 400.0f, 0.0f));
+    }
+
+    // One group per ship, so the group count passes the cap.
+    for (std::uint32_t index = 0; index < ships.size(); ++index)
+    {
+      OrderSubmit order = Order({ships[index]}, 1000.0f + static_cast<float>(index), 3000.0f);
+      order.orderSeq = index + 1;
+      Assert::IsTrue(world.SubmitOrder(order).accepted);
+      world.Tick(index + 1);
+    }
+    Assert::IsTrue(world.Groups().size() > MAX_ORDERS_PER_SNAPSHOT);
+
+    std::array<std::uint8_t, 2048> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteSnapshot(world, writer), L"a busy world still produces a snapshot");
+
+    Neuron::ByteReader reader{writer.Written()};
+    SnapshotHeader header;
+    std::vector<Neuron::EntityRecord> read;
+    std::vector<OrderStateRecord> orders;
+    Assert::IsTrue(ReadSnapshot(reader, header, read, orders));
+
+    Assert::AreEqual<std::uint16_t>(MAX_ORDERS_PER_SNAPSHOT, header.orderCount);
+    Assert::AreEqual<std::size_t>(ships.size(), read.size(), L"every ship is present even when orders were cut");
+  }
+
+  TEST_METHOD(TheOrderAreaIsReservedSoTheShipCapNeverMoves)
+  {
+    // A constant the client can rely on. If the ship cap were "whatever is
+    // left", it would shrink as the player issued orders -- and the failure
+    // would be a fleet that stops replicating when it gets busy.
+    Assert::IsTrue(MAX_SHIPS_PER_SNAPSHOT >= 41);
+    Assert::IsTrue(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES);
+    Assert::IsTrue(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT + 1, MAX_ORDERS_PER_SNAPSHOT) > SNAPSHOT_BUDGET_BYTES);
   }
 };
 

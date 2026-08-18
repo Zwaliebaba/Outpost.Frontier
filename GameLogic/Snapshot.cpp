@@ -55,7 +55,14 @@ bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer)
     // would read the missing ships as despawned and resurrect them next tick.
     return false;
   }
-  if (_writer.BytesRemaining() < SnapshotBytes(shipCount))
+  // Orders are truncated where ships are not, and the asymmetry is deliberate:
+  // a missing ship record reads as a despawn and is unrecoverable, while a
+  // missing order record costs one frame of ETA and the header's
+  // `lastOrderSeqProcessed` still promotes the client's ghost.
+  const auto orderCount =
+      static_cast<std::uint16_t>(std::min<std::size_t>(_world.Groups().size(), MAX_ORDERS_PER_SNAPSHOT));
+
+  if (_writer.BytesRemaining() < SnapshotBytes(shipCount, orderCount))
   {
     return false;
   }
@@ -63,8 +70,8 @@ bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer)
   _writer.WriteUInt32(_world.Tick());
   _writer.WriteUInt32(0); // baselineTick: full snapshots only (ADR-004 §6).
   _writer.WriteUInt16(static_cast<std::uint16_t>(shipCount));
-  _writer.WriteUInt16(0); // orderCount, until S9.
-  _writer.WriteUInt32(0); // lastOrderSeqProcessed, until S9.
+  _writer.WriteUInt16(orderCount);
+  _writer.WriteUInt32(_world.LastOrderSeqProcessed());
 
   // Dense-array order, which is the world's only iteration order and therefore
   // the one a replay reproduces.
@@ -72,10 +79,28 @@ bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer)
   {
     Neuron::WriteEntityRecord(_writer, MakeShipRecord(_world, slot));
   }
+
+  for (std::uint16_t index = 0; index < orderCount; ++index)
+  {
+    const OrderGroup& group = _world.Groups()[index];
+    _writer.WriteUInt32(group.serverOrderId);
+    _writer.WriteUInt32(group.clientOrderSeq);
+    _writer.WriteUInt8(static_cast<std::uint8_t>(group.state));
+    _writer.WriteUInt8(group.legIndex);
+    _writer.WriteUInt8(group.legCount);
+    _writer.WriteUInt8(static_cast<std::uint8_t>(std::min<std::uint16_t>(group.memberCount, 255)));
+  }
   return _writer.Ok();
 }
 
 bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader, std::vector<Neuron::EntityRecord>& _outShips)
+{
+  std::vector<OrderStateRecord> ignored;
+  return ReadSnapshot(_reader, _outHeader, _outShips, ignored);
+}
+
+bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader, std::vector<Neuron::EntityRecord>& _outShips,
+                  std::vector<OrderStateRecord>& _outOrders)
 {
   SnapshotHeader header;
   header.tick = _reader.ReadUInt32();
@@ -92,7 +117,7 @@ bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader, std::
   // Checked before allocating: a corrupt or hostile count is a refusal, not a
   // reservation. The cap is what one datagram can carry, so a larger number did
   // not come from a snapshot this build wrote.
-  if (header.shipCount > MAX_SHIPS_PER_SNAPSHOT)
+  if (header.shipCount > MAX_SHIPS_PER_SNAPSHOT || header.orderCount > MAX_ORDERS_PER_SNAPSHOT)
   {
     return false;
   }
@@ -104,6 +129,20 @@ bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader, std::
     ships.push_back(Neuron::ReadEntityRecord(_reader));
   }
 
+  std::vector<OrderStateRecord> orders;
+  orders.reserve(header.orderCount);
+  for (std::uint16_t index = 0; index < header.orderCount; ++index)
+  {
+    OrderStateRecord record;
+    record.serverOrderId = _reader.ReadUInt32();
+    record.clientOrderSeq = _reader.ReadUInt32();
+    record.state = _reader.ReadUInt8();
+    record.legIndex = _reader.ReadUInt8();
+    record.legCount = _reader.ReadUInt8();
+    record.memberCount = _reader.ReadUInt8();
+    orders.push_back(record);
+  }
+
   if (!_reader.Ok())
   {
     return false; // Truncated: leave the caller's view untouched.
@@ -111,6 +150,7 @@ bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader, std::
 
   _outHeader = header;
   _outShips = std::move(ships);
+  _outOrders = std::move(orders);
   return true;
 }
 

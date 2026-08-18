@@ -2,6 +2,9 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
+    <ClCompile Include="OrderMessages.cpp">
+      <Filter>Wire</Filter>
+    </ClCompile>
     <ClCompile Include="Orders.cpp">
       <Filter>Orders</Filter>
     </ClCompile>
@@ -37,6 +40,9 @@
     <ClInclude Include="pch.h" />
     <ClInclude Include="Ids.h">
       <Filter>World</Filter>
+    </ClInclude>
+    <ClInclude Include="OrderMessages.h">
+      <Filter>Wire</Filter>
     </ClInclude>
     <ClInclude Include="Orders.h">
       <Filter>Orders</Filter>

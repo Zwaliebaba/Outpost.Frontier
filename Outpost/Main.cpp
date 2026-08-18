@@ -9,6 +9,7 @@
 
 // GameLogic, reached only from here: the executable is the one project
 // entitled to know both halves (ADR-014 §1).
+#include "OrderMessages.h"
 #include "Orders.h"
 #include "SchemaHash.h"
 #include "ShipClass.h"
@@ -189,9 +190,41 @@ public:
     return Game::WriteSnapshot(m_world, _writer);
   }
 
-  [[nodiscard]] OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t>) override
+  /*
+   * Decode, validate, queue -- and say which order it was (ADR-004 §7).
+   *
+   * The engine handed over bytes it did not read. Everything that turns them
+   * into a decision is GameLogic's, and everything this function does is
+   * translation: `OrderMessages` for the layout, `World::SubmitOrder` for the
+   * verdict, and the neutral `Neuron::OrderVerdict` on the way back.
+   *
+   * `orderSeq` travels out through the verdict because the engine never parsed
+   * the payload and so cannot fill in the ack's echo itself. A malformed
+   * payload has no sequence to echo, which is why it acks zero: the client's
+   * ghost then falls back on the snapshot's `lastOrderSeqProcessed`, which will
+   * never mention it.
+   */
+  [[nodiscard]] OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t> _payload) override
   {
-    return OrderVerdict{}; // No order format to decode until S9.
+    Neuron::ByteReader reader{_payload};
+
+    Game::OrderSubmit order;
+    if (!Game::ReadOrderSubmit(reader, order))
+    {
+      NEURON_LOG_WARNING("malformed order payload (%zu bytes)", _payload.size());
+      OrderVerdict malformed;
+      malformed.reasonCode = static_cast<std::uint16_t>(Game::OrderReason::UnknownKind);
+      return malformed;
+    }
+
+    const Game::OrderVerdict decided = m_world.SubmitOrder(order);
+
+    OrderVerdict verdict;
+    verdict.accepted = decided.accepted;
+    verdict.reasonCode = static_cast<std::uint16_t>(decided.reason);
+    verdict.serverOrderId = decided.serverOrderId;
+    verdict.orderSeq = order.orderSeq;
+    return verdict;
   }
 
   [[nodiscard]] std::uint64_t SchemaHash() const override

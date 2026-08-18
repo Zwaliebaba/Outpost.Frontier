@@ -704,9 +704,40 @@ test**. Deleting the group fold from the world hash changed nothing, because the
 worlds also differed in `Guidance`, which has been hashed since S6. The replacement flies both
 worlds down the same leg with identical ship state and a different queued plan, so only the
 group table can carry the difference.
-**Outstanding:** the wire and the client. `OrderSubmit`/`OrderAck` messages, the server routing
-and ack, the snapshot's order-state records, the right-drag order puck, the PENDING ghost and
-the reason toast are all still to come — nothing outside GameLogic can issue an order yet.
+**Built ✅ (code, the wire):**
+`WireType::OrderSubmit` and `OrderAck` in NeuronCore. The submission is **opaque**, exactly as
+`Snapshot` is: the engine frames it and never parses it, because an order is game semantics and
+an engine that could read one would have learned what a move is (ADR-004 ruling 4). The ack
+*is* a struct, because all four of its fields are numbers this library defines.
+`OrderMessages.h/.cpp` — the layout ADR-004 §7 states, and the boundary a hostile payload stops
+at: a ship count past the cap is refused before a single id is read, rather than after the loop
+has run sixty-five thousand times against an underflowing reader.
+Snapshot order-state records and a real `lastOrderSeqProcessed`, with the order area **reserved**
+so the ship cap is a constant rather than a function of how busy the player has been.
+`ServerHost` routes `OrderSubmit` to the simulation and acks on the **control** channel — a lost
+refusal leaves a ghost on screen forever and no later snapshot corrects it.
+`Outpost`'s `ApplyOrderBytes` — decode, validate, queue, translate back.
+
+**One field had to travel the wrong way, and that is the interesting part.** The ack echoes the
+client's `orderSeq`, which lives *inside* the payload the engine must not parse. An engine that
+dug four bytes out to fill in the ack would have started reading game semantics for the sake of
+one field. So `Neuron::OrderVerdict` carries `orderSeq` back *out* of the game: the game already
+parsed it, and the engine echoes what it is handed.
+
+**Orders truncate where ships are refused.** A missing ship record reads as a despawn and is
+unrecoverable; a missing order record costs one frame of ETA, and the header's high-water mark
+still promotes the ghost. Asserted both ways.
+
+**Verified:** `GameLogicTests` 72 → 82, `NeuronCoreTests` +2, `NeuronServerTests` 7 → 10. The
+acceptance criterion — submit → ack → state in the next snapshot against a headless host over a
+real loopback socket — is a test, and the order format it uses is one the *test* invented. That
+is the strongest available demonstration that the engine assumes no layout: a simulation meaning
+something no game means still round-trips, and its refusal reason (4242, a number no game uses)
+arrives intact because nothing in between looked at it. A payload from a connection that never
+completed the handshake is dropped rather than acked, and never reaches the simulation.
+**Outstanding:** the client half. The right-drag order puck, `WorldView::PreCheck` and
+`SolvePreview` against the replicated view, `EncodeOrder`, the PENDING ghost and the reason
+toast. The client can receive an ack today and does nothing with it.
 
 ### S10 — Formations & the real footprint
 `SolveFormation` for Line/Wedge/Claw; puck footprint preview = the same solve (one tick per

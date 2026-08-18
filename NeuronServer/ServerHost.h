@@ -82,6 +82,13 @@ public:
   {
     return m_snapshotFailures.load(std::memory_order_relaxed);
   }
+  /// Orders the simulation refused. A number that only ever climbs on one
+  /// client is a client and a server that disagree about the world, which is
+  /// the interesting failure ADR-014 §3's parity rule exists to make loud.
+  [[nodiscard]] std::uint32_t RefusedOrderCount() const noexcept
+  {
+    return m_ordersRefused.load(std::memory_order_relaxed);
+  }
 
 private:
   void SimThread();
@@ -110,6 +117,7 @@ private:
   std::atomic<std::uint32_t> m_overruns{0};
   std::atomic<std::uint32_t> m_sessionCount{0};
   std::atomic<std::uint32_t> m_snapshotFailures{0};
+  std::atomic<std::uint32_t> m_ordersRefused{0};
   std::uint16_t m_boundPort = 0;
 };
 

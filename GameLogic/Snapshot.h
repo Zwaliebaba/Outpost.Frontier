@@ -76,20 +76,65 @@ inline constexpr std::size_t SNAPSHOT_HEADER_BYTES = 16;
  * bigger datagram is not** (ADR-004 §6).
  */
 inline constexpr std::size_t SNAPSHOT_BUDGET_BYTES = Neuron::MAX_DATAGRAM_BYTES - sizeof(std::uint16_t);
-inline constexpr std::uint16_t MAX_SHIPS_PER_SNAPSHOT =
-    static_cast<std::uint16_t>((SNAPSHOT_BUDGET_BYTES - SNAPSHOT_HEADER_BYTES) / Neuron::ENTITY_RECORD_BYTES);
 
-/// Bytes a snapshot of this many ships occupies, framing excluded.
-[[nodiscard]] constexpr std::size_t SnapshotBytes(std::size_t _shipCount) noexcept
+/*
+ * One order's state, for the ghost the client is drawing (ADR-004 §6).
+ *
+ * Twelve bytes. `serverOrderId` is what the client matched its ghost to when
+ * the ack arrived, and `clientOrderSeq` is what it can match on if the ack was
+ * lost -- carrying both is what makes the promotion path work over an
+ * unreliable channel without a retransmit.
+ *
+ * `legIndex` and `legCount` are the ETA row's: "second of four" is what a
+ * player reads, and it is not derivable from anything else in the snapshot.
+ */
+struct OrderStateRecord
 {
-  return SNAPSHOT_HEADER_BYTES + _shipCount * Neuron::ENTITY_RECORD_BYTES;
+  std::uint32_t serverOrderId = 0;
+  std::uint32_t clientOrderSeq = 0;
+  std::uint8_t state = 0; // OrderState
+  std::uint8_t legIndex = 0;
+  std::uint8_t legCount = 0;
+  std::uint8_t memberCount = 0;
+};
+
+inline constexpr std::size_t ORDER_STATE_RECORD_BYTES = 12;
+static_assert(sizeof(OrderStateRecord) == ORDER_STATE_RECORD_BYTES, "the record is written field by field; the size is the "
+                                                                    "budget, so a field added here costs ships");
+
+/*
+ * How many orders ride along with the ships.
+ *
+ * A fixed reservation rather than whatever is left, so the ship budget is a
+ * constant and not a function of how busy the player has been. Sixteen groups
+ * is four times the fleet an MVP session fields, and it costs 192 bytes of the
+ * 1,150.
+ *
+ * Orders are the half that may be truncated. A missing ship record reads as a
+ * despawn and is unrecoverable; a missing order record costs one frame of ETA,
+ * and the header's `lastOrderSeqProcessed` still promotes the ghost.
+ */
+inline constexpr std::uint16_t MAX_ORDERS_PER_SNAPSHOT = 16;
+inline constexpr std::size_t ORDER_AREA_BYTES = MAX_ORDERS_PER_SNAPSHOT * ORDER_STATE_RECORD_BYTES;
+
+inline constexpr std::uint16_t MAX_SHIPS_PER_SNAPSHOT = static_cast<std::uint16_t>(
+    (SNAPSHOT_BUDGET_BYTES - SNAPSHOT_HEADER_BYTES - ORDER_AREA_BYTES) / Neuron::ENTITY_RECORD_BYTES);
+
+/// Bytes a snapshot of this many ships and orders occupies, framing excluded.
+[[nodiscard]] constexpr std::size_t SnapshotBytes(std::size_t _shipCount, std::size_t _orderCount = 0) noexcept
+{
+  return SNAPSHOT_HEADER_BYTES + _shipCount * Neuron::ENTITY_RECORD_BYTES + _orderCount * ORDER_STATE_RECORD_BYTES;
 }
 
-// The budget ADR-004 §6 states, asserted rather than believed.
-static_assert(SnapshotBytes(41) <= SNAPSHOT_BUDGET_BYTES, "the MVP fleet must fit one datagram");
+// The budget ADR-004 §6 states, asserted rather than believed. The order area
+// is reserved whether or not any order is flying, which is what keeps the ship
+// cap from moving under the client.
+static_assert(SnapshotBytes(41, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES, "the MVP fleet must fit one datagram");
 static_assert(MAX_SHIPS_PER_SNAPSHOT >= 41, "the MVP fleet must fit one datagram");
-static_assert(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES, "the cap must be a cap");
-static_assert(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT + 1u) > SNAPSHOT_BUDGET_BYTES, "the cap must be the largest that fits");
+static_assert(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES,
+              "the cap must be a cap");
+static_assert(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT + 1u, MAX_ORDERS_PER_SNAPSHOT) > SNAPSHOT_BUDGET_BYTES,
+              "the cap must be the largest that fits");
 
 /// Quantises one ship into the neutral record the engine carries.
 [[nodiscard]] Neuron::EntityRecord MakeShipRecord(const World& _world, std::uint32_t _slot) noexcept;
@@ -108,5 +153,12 @@ static_assert(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT + 1u) > SNAPSHOT_BUDGET_BYTES
 /// the outputs untouched -- a half-applied snapshot is a corrupt view.
 [[nodiscard]] bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader,
                                 std::vector<Neuron::EntityRecord>& _outShips);
+
+/// The same, with the order records. The two-argument form stays because most
+/// callers -- and every test written before S9 -- want the fleet and nothing
+/// else, and reading orders they will not look at is work with no reader.
+[[nodiscard]] bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader,
+                                std::vector<Neuron::EntityRecord>& _outShips,
+                                std::vector<OrderStateRecord>& _outOrders);
 
 } // namespace Game
