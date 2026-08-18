@@ -553,7 +553,10 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
       Outpost::ReplicatedWorldView worldView{MakeWorldViewDesc(config, universe)};
 
       ClientApp client;
-      if (!client.Initialise(clientConfig, worldView))
+      // The shader table is a temporary and the client keeps it, which is safe
+      // and worth saying: it is four spans over byte arrays with static storage
+      // duration, so what survives the copy is what the spans point at.
+      if (!client.Initialise(clientConfig, Outpost::ShaderTable(), worldView))
       {
         NEURON_LOG_ERROR("client failed to initialise");
         exitCode = 2;
