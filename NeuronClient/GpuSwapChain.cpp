@@ -79,8 +79,7 @@ bool GpuSwapChain::Create(GpuDevice& _device, HWND _window, std::uint32_t _width
   heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
   heapDesc.NumDescriptors = BufferCount;
   heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE; // RTVs are never shader-visible.
-  if (!Check(_device.Device()->CreateDescriptorHeap(&heapDesc, __uuidof(ID3D12DescriptorHeap), m_rtvHeap.put_void()),
-             "CreateDescriptorHeap"))
+  if (!Check(_device.Device()->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(m_rtvHeap.put())), "CreateDescriptorHeap"))
   {
     return false;
   }
@@ -98,7 +97,7 @@ bool GpuSwapChain::CreateRenderTargets()
   D3D12_CPU_DESCRIPTOR_HANDLE handle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
   for (std::uint32_t i = 0; i < BufferCount; ++i)
   {
-    if (!Check(m_swapChain->GetBuffer(i, __uuidof(ID3D12Resource), m_backBuffers[i].put_void()), "swapchain GetBuffer"))
+    if (!Check(m_swapChain->GetBuffer(i, IID_PPV_ARGS(m_backBuffers[i].put())), "swapchain GetBuffer"))
     {
       return false;
     }

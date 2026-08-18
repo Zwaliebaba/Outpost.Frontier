@@ -54,8 +54,7 @@ bool ClientApp::CreateFrameResources()
   // beside it is what proves that it is safe.
   for (std::uint32_t i = 0; i < GpuSwapChain::BufferCount; ++i)
   {
-    if (FAILED(m_device.Device()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),
-                                                         m_commandAllocators[i].put_void())))
+    if (FAILED(m_device.Device()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(m_commandAllocators[i].put()))))
     {
       NEURON_LOG_ERROR("CreateCommandAllocator failed for frame %u", i);
       return false;
@@ -63,7 +62,7 @@ bool ClientApp::CreateFrameResources()
   }
 
   if (FAILED(m_device.Device()->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[0].get(), nullptr,
-                                                 __uuidof(ID3D12GraphicsCommandList), m_commandList.put_void())))
+                                                 IID_PPV_ARGS(m_commandList.put()))))
   {
     NEURON_LOG_ERROR("CreateCommandList failed");
     return false;

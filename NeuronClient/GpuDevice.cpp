@@ -42,7 +42,7 @@ bool GpuDevice::Create(bool _enableDebugLayer)
   {
     // Must happen before the device exists, or the layer is not attached.
     GpuPtr<ID3D12Debug> debug;
-    if (SUCCEEDED(D3D12GetDebugInterface(__uuidof(ID3D12Debug), debug.put_void())))
+    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(debug.put()))))
     {
       debug->EnableDebugLayer();
       factoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
@@ -54,7 +54,7 @@ bool GpuDevice::Create(bool _enableDebugLayer)
     }
   }
 
-  if (!Check(CreateDXGIFactory2(factoryFlags, __uuidof(IDXGIFactory6), m_factory.put_void()), "CreateDXGIFactory2"))
+  if (!Check(CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(m_factory.put())), "CreateDXGIFactory2"))
   {
     return false;
   }
@@ -71,8 +71,7 @@ bool GpuDevice::Create(bool _enableDebugLayer)
     return false;
   }
 
-  if (!Check(D3D12CreateDevice(adapter.get(), D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), m_device.put_void()),
-                 "D3D12CreateDevice"))
+  if (!Check(D3D12CreateDevice(adapter.get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(m_device.put())), "D3D12CreateDevice"))
   {
     return false;
   }
@@ -93,12 +92,12 @@ bool GpuDevice::Create(bool _enableDebugLayer)
   queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
   queueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
   queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-  if (!Check(m_device->CreateCommandQueue(&queueDesc, __uuidof(ID3D12CommandQueue), m_queue.put_void()), "CreateCommandQueue"))
+  if (!Check(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(m_queue.put())), "CreateCommandQueue"))
   {
     return false;
   }
 
-  if (!Check(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), m_fence.put_void()), "CreateFence"))
+  if (!Check(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fence.put())), "CreateFence"))
   {
     return false;
   }
@@ -121,8 +120,8 @@ bool GpuDevice::PickAdapter(GpuPtr<IDXGIAdapter1>& _outAdapter)
   for (UINT index = 0;; ++index)
   {
     GpuPtr<IDXGIAdapter1> adapter;
-    if (m_factory->EnumAdapterByGpuPreference(index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, __uuidof(IDXGIAdapter1),
-                                              adapter.put_void()) == DXGI_ERROR_NOT_FOUND)
+    if (m_factory->EnumAdapterByGpuPreference(index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(adapter.put())) ==
+        DXGI_ERROR_NOT_FOUND)
     {
       break;
     }
@@ -146,7 +145,7 @@ bool GpuDevice::PickAdapter(GpuPtr<IDXGIAdapter1>& _outAdapter)
   // WARP keeps the client running on a machine with no usable GPU -- slowly,
   // but well enough to see that everything else works.
   GpuPtr<IDXGIAdapter1> warp;
-  if (SUCCEEDED(m_factory->EnumWarpAdapter(__uuidof(IDXGIAdapter1), warp.put_void())))
+  if (SUCCEEDED(m_factory->EnumWarpAdapter(IID_PPV_ARGS(warp.put()))))
   {
     NEURON_LOG_WARNING("no hardware adapter supports d3d12; falling back to WARP");
     strncpy_s(m_adapterName, "WARP (software)", _TRUNCATE);

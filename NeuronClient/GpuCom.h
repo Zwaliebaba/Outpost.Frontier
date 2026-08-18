@@ -16,11 +16,15 @@
  * an out-parameter by accident.
  *
  * The two idioms this codebase uses:
- *   creation:  Thing(__uuidof(IThing), thing.put_void())
+ *   creation:  Thing(IID_PPV_ARGS(thing.put()))
  *   querying:  auto other = thing.try_as<IOther>()   // null on failure
  *
- * IID_PPV_ARGS does not work here -- it relies on operator&, which com_ptr
- * deliberately does not have.
+ * IID_PPV_ARGS works, but only around put(): the macro needs a T**, and
+ * com_ptr has no operator&, so the WRL spelling IID_PPV_ARGS(&thing) does not
+ * compile. Prefer it over passing __uuidof and put_void() separately, because
+ * it derives the IID from the pointer's own type -- spelling both by hand lets
+ * them disagree, and an IID that does not match the pointer it fills is a
+ * runtime bug the compiler will not catch.
  */
 
 namespace Neuron
