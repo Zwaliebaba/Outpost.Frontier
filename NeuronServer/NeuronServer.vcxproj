@@ -22,6 +22,7 @@
     <ClCompile Include="ServerHost.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="NeuronServer.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="ServerConfig.h" />
     <ClInclude Include="ServerHost.h" />

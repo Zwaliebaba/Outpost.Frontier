@@ -1,50 +1,66 @@
 #pragma once
 
-/*
- * Assertions.
- *
- * Named Debug.h rather than Assert.h, which would shadow the CRT's <assert.h>
- * on a case-insensitive filesystem once this folder is on the include path.
- *
- * NEURON_ASSERT is debug-only and states an invariant the code believes. It is
- * not input validation: anything reading a file, a socket or a config reports a
- * diagnostic instead and keeps going (AGENTS.md §5) -- an assert on hostile
- * input is a crash with extra steps.
- *
- * NEURON_VERIFY evaluates its expression in every configuration and is for the
- * cases where the call itself must happen; only the check is compiled out.
- */
+#include <exception>
+#include <format>
+#include <string>
+#include <string_view>
+#include <tuple>
+
+#if defined(_DEBUG)
+#   include <crtdbg.h>
+#   define NEW new (_NORMAL_BLOCK, __FILE__, __LINE__)
+#else
+#   define NEW new
+#endif
 
 namespace Neuron
 {
+template <class... Types> void DebugTrace(const std::string_view _fmt, Types&&... _args)
+{
+#ifdef _DEBUG
+  const std::string message = vformat(_fmt, std::make_format_args(_args...));
+  OutputDebugStringA(message.c_str());
+#else
+  __noop(_fmt);
+#endif
+}
 
-/// Reports a failed assertion and breaks into the debugger when one is attached.
-void AssertFailed(const char* _expression, const char* _file, int _line, const char* _message) noexcept;
+template <class... Types> void DebugTrace(const std::wstring_view _fmt, Types&&... _args)
+{
+#ifdef _DEBUG
+  const std::wstring message = vformat(_fmt, std::make_wformat_args(_args...));
+  OutputDebugStringW(message.c_str());
+#else
+  __noop(_fmt);
+#endif
+}
 
+template <class... Types> void __declspec(noreturn) Fatal(const std::string_view _fmt, Types&&... _args)
+{
+  std::ignore = vformat(_fmt, std::make_format_args(_args...));
+  __debugbreak();
+  throw std::exception("Fatal Error");
+}
+
+template <class... Types> void __declspec(noreturn) Fatal(const std::wstring_view _fmt, Types&&... _args)
+{
+  std::ignore = vformat(_fmt, std::make_wformat_args(_args...));
+  __debugbreak();
+  throw std::exception("Fatal Error");
+}
 } // namespace Neuron
 
-#if defined(_DEBUG)
-#   define NEURON_ASSERT(_expr)                                                                                                            \
-      do                                                                                                                                   \
-      {                                                                                                                                    \
-        if (!(_expr))                                                                                                                      \
-        {                                                                                                                                  \
-          ::Neuron::AssertFailed(#_expr, __FILE__, __LINE__, nullptr);                                                                     \
-        }                                                                                                                                  \
-      } while (false)
+#define ASSERT(expression) (void)((!!(expression)) || (Neuron::Fatal(_CRT_WIDE("Assert Failure")), 0))
+#define ASSERT_TEXT(expression, ...) (void)((!!(expression)) || (Neuron::Fatal(__VA_ARGS__), 0))
 
-#   define NEURON_ASSERT_MSG(_expr, _message)                                                                                              \
-      do                                                                                                                                   \
-      {                                                                                                                                    \
-        if (!(_expr))                                                                                                                      \
-        {                                                                                                                                  \
-          ::Neuron::AssertFailed(#_expr, __FILE__, __LINE__, (_message));                                                                   \
-        }                                                                                                                                  \
-      } while (false)
+#ifdef _DEBUG
+#   define DEBUG_ASSERT(expression) ASSERT(expression)
+#   define DEBUG_ASSERT_TEXT(expression, ...) ASSERT_TEXT(expression, __VA_ARGS__)
+#   define DEBUG_WARNING(expression, ...) (void)((!(expression)) || (DebugTrace(__VA_ARGS__), 0))
 
-#   define NEURON_VERIFY(_expr) NEURON_ASSERT(_expr)
 #else
-#   define NEURON_ASSERT(_expr) ((void)0)
-#   define NEURON_ASSERT_MSG(_expr, _message) ((void)0)
-#   define NEURON_VERIFY(_expr) ((void)(_expr))
+#   define DEBUG_ASSERT(expression) (__noop(expression))
+#   define DEBUG_ASSERT_TEXT(expression, ...) (__noop(expression, __VA_ARGS__))
+#   define DEBUG_WARNING(expression, ...) (__noop(expression, __VA_ARGS__))
+
 #endif

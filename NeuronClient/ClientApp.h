@@ -40,7 +40,7 @@ public:
   void Shutdown();
 
 private:
-  [[nodiscard]] bool CreateFrameResources();
+  void CreateFrameResources();
   void PollNetwork();
   void RenderFrame();
   void HandleResize();

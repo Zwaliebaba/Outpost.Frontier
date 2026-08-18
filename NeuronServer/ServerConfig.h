@@ -16,7 +16,6 @@ namespace Neuron
 struct ServerConfig
 {
   std::uint16_t port = 7777; // 0 binds an ephemeral port; ask the host which it got.
-  std::string transport = "udp";
   std::uint32_t maxSessions = 8;
   std::string serverName = "Outpost";
 };

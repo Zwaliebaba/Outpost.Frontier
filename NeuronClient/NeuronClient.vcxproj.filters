@@ -47,6 +47,8 @@
     <ClInclude Include="GpuSwapChain.h">
       <Filter>Gpu</Filter>
     </ClInclude>
+    <ClInclude Include="NeuronClient.h" />
+    <ClInclude Include="DirectXHelper.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="App">

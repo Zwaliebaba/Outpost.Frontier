@@ -13,16 +13,6 @@ namespace
 constexpr DXGI_FORMAT BackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 constexpr DXGI_FORMAT RenderTargetViewFormat = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 
-bool Check(HRESULT _result, const char* _what)
-{
-  if (FAILED(_result))
-  {
-    NEURON_LOG_ERROR("%s failed (hr 0x%08lx)", _what, static_cast<unsigned long>(_result));
-    return false;
-  }
-  return true;
-}
-
 } // namespace
 
 GpuSwapChain::~GpuSwapChain()
@@ -54,11 +44,7 @@ bool GpuSwapChain::Create(GpuDevice& _device, HWND _window, std::uint32_t _width
   }
 
   GpuPtr<IDXGISwapChain1> swapChain1;
-  if (!Check(_device.Factory()->CreateSwapChainForHwnd(_device.Queue(), _window, &desc, nullptr, nullptr, swapChain1.put()),
-             "CreateSwapChainForHwnd"))
-  {
-    return false;
-  }
+  check_hresult(_device.Factory()->CreateSwapChainForHwnd(_device.Queue(), _window, &desc, nullptr, nullptr, swapChain1.put()));
 
   // DXGI's own Alt+Enter would fight the client's fullscreen handling.
   _device.Factory()->MakeWindowAssociation(_window, DXGI_MWA_NO_ALT_ENTER);
@@ -79,16 +65,14 @@ bool GpuSwapChain::Create(GpuDevice& _device, HWND _window, std::uint32_t _width
   heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
   heapDesc.NumDescriptors = BufferCount;
   heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE; // RTVs are never shader-visible.
-  if (!Check(_device.Device()->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(m_rtvHeap.put())), "CreateDescriptorHeap"))
-  {
-    return false;
-  }
+  check_hresult(_device.Device()->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(m_rtvHeap.put())));
   m_rtvStride = _device.Device()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
-  return CreateRenderTargets();
+  CreateRenderTargets();
+  return true;
 }
 
-bool GpuSwapChain::CreateRenderTargets()
+void GpuSwapChain::CreateRenderTargets()
 {
   D3D12_RENDER_TARGET_VIEW_DESC viewDesc{};
   viewDesc.Format = RenderTargetViewFormat; // sRGB view over a UNORM buffer.
@@ -97,16 +81,12 @@ bool GpuSwapChain::CreateRenderTargets()
   D3D12_CPU_DESCRIPTOR_HANDLE handle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
   for (std::uint32_t i = 0; i < BufferCount; ++i)
   {
-    if (!Check(m_swapChain->GetBuffer(i, IID_PPV_ARGS(m_backBuffers[i].put())), "swapchain GetBuffer"))
-    {
-      return false;
-    }
+    check_hresult(m_swapChain->GetBuffer(i, IID_PPV_ARGS(m_backBuffers[i].put())));
     m_device->Device()->CreateRenderTargetView(m_backBuffers[i].get(), &viewDesc, handle);
     handle.ptr += m_rtvStride;
   }
 
   m_currentIndex = m_swapChain->GetCurrentBackBufferIndex();
-  return true;
 }
 
 void GpuSwapChain::ReleaseRenderTargets()
@@ -140,15 +120,13 @@ bool GpuSwapChain::Resize(std::uint32_t _width, std::uint32_t _height)
     flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
   }
 
-  if (!Check(m_swapChain->ResizeBuffers(BufferCount, _width, _height, BackBufferFormat, flags), "ResizeBuffers"))
-  {
-    return false;
-  }
+  check_hresult(m_swapChain->ResizeBuffers(BufferCount, _width, _height, BackBufferFormat, flags));
 
   m_width = _width;
   m_height = _height;
   NEURON_LOG_DEBUG("swapchain resized to %ux%u", _width, _height);
-  return CreateRenderTargets();
+  CreateRenderTargets();
+  return true;
 }
 
 void GpuSwapChain::WaitForFrameLatency()

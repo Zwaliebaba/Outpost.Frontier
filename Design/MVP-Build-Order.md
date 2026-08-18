@@ -35,7 +35,7 @@ telemetry lane registry + `NEURON_SPAN/COUNTER`, `TaskPool`. **No math layer** �
 is called natively at use sites (ADR-010).
 **Accept:** `NeuronCoreTests`: byte IO round-trip + underrun bounds, ring stress (2 threads),
 PCG32 vectors, span timing sanity, `XMVerifyCPUSupport` gate.
-**Built ✅:** `Debug.h/.cpp`, `Log.h/.cpp`, `Clock.h/.cpp`, `Hash.h`, `Random.h`,
+**Built ✅:** `Debug.h`, `Log.h/.cpp`, `Clock.h/.cpp`, `Hash.h`, `Random.h`,
 `ByteReader.h`, `ByteWriter.h`, `Arena.h`, `EntityRecord.h/.cpp`; `RingBuffer.h` carries both
 the SPSC ring and `MpscRingBuffer` (Vyukov bounded queue — sequence numbers per slot, so a
 producer cannot claim a slot the consumer has not finished with); `Telemetry.h/.cpp` (lane
@@ -237,18 +237,19 @@ queued-chain rendering matches `puck-and-wheel.png` §4.
 ### S13 — msquic behind the same interface ⚡ spike
 `QuicTransport`: ALPN `opf/1`, in-memory self-signed cert (`CertCreateSelfSignCertificate` +
 `CERTIFICATE_CONTEXT`), client `NO_CERTIFICATE_VALIDATION` (loopback), stream 0 = control,
-DATAGRAM = state; `server.transport: "quic"`.
+DATAGRAM = state. QUIC replaces `UdpTransport` outright — there is no transport config knob
+(owner directive: QUIC only); `UdpTransport` is deleted when this slice lands.
 **Accept:** the *unmodified* game runs over QUIC on loopback; `selfTest` runs the full
-handshake+order+snapshot loop over **both** transports; measured added latency < 1 ms
+handshake+order+snapshot loop; measured added latency < 1 ms
 loopback. Friction findings feed Risk R3 disposition (stay Schannel vs flag OpenSSL flavour).
 
 ### S14 — Debug strip, selftest, polish 🏁 **MVP**
 Tier-1 counters strip (frame/GAME/EXTRACT/UI ms, net RTT/loss/jitter, snap age/drift ticks,
-`tickOverrun`, drops) behind a toggle; `selfTest` aggregates: schema self-check, both-
+`tickOverrun`, drops) behind a toggle; `selfTest` aggregates: schema self-check,
 transport handshake, replay determinism run, wire round-trips — exit-code CI gate; polish:
 4× MSAA offscreen + resolve, cosmetic banking/hover from velocity, STALE marker visual.
 **Accept:** MVP playable definition demonstrated end-to-end — select fleet, issue queued
-formation moves, watch execution with status + feedback — over both transports; `selfTest`
+formation moves, watch execution with status + feedback; `selfTest`
 green on a GPU-less runner; counters strip numbers plausible vs `debug-hud.png` rows.
 
 ### S15 — Audio thin slice *(post-MVP-core; must not displace S1–S14)*

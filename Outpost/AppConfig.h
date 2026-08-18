@@ -38,7 +38,6 @@ struct LogSettings
 struct ServerSettings
 {
   std::uint16_t port = 7777;
-  std::string transport = "udp"; // "udp" | "quic"
   std::uint32_t maxSessions = 8;
 };
 

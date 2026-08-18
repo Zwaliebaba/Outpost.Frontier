@@ -256,6 +256,13 @@ Format the lines you write. Do not reformat files you are only passing through.
   unsupported. This is the COM-helper sanction only — do not reach for the WinRT projection as
   a UI or async framework. A project that includes these headers needs the C++/WinRT package,
   so keep them out of headers that test projects consume.
+- **An `HRESULT` that must succeed goes through `winrt::check_hresult`** — no hand-rolled
+  log-and-return helpers. Three deliberate exceptions: capability *probes* (`SUCCEEDED` on an
+  optional feature, adapter enumeration, the debug-layer attempt) are control flow, not error
+  checking; shutdown paths (`Destroy`, destructors) must not throw, so they log instead; and
+  per-frame `Present` logs and carries on until device-removed handling exists. The thrown
+  `hresult_error` is caught once, at the composition root, where it becomes a log line and a
+  message box. Assertions are `Debug.h`'s `ASSERT`/`DEBUG_ASSERT` family.
 - **No external libraries without the owner's explicit approval.** Pre-approved: the Windows
   SDK (Win32, Winsock2, D3D12/DXGI, DirectXMath, DirectWrite, XAudio2/X3DAudio), **msquic** via
   NuGet, and C++/WinRT as above. If you believe a third-party library is justified, present the

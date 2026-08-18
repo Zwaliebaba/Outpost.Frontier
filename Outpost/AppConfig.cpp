@@ -278,13 +278,8 @@ void ApplyConfigLayer(const JsonValue& _root, AppConfig& _config, ConfigDiagnost
   const JsonValue server = _root.Member("server");
   if (server.Valid())
   {
-    WarnUnknownKeys(server, {"port", "transport", "maxSessions"}, "server", _diagnostics);
+    WarnUnknownKeys(server, {"port", "maxSessions"}, "server", _diagnostics);
     ReadPort(server, "port", _config.server.port, "server", _diagnostics);
-    ReadText(server, "transport", _config.server.transport, "server", _diagnostics);
-    if (_config.server.transport != "udp" && _config.server.transport != "quic")
-    {
-      _diagnostics.errors.push_back("server.transport must be \"udp\" or \"quic\"");
-    }
     ReadUInt(server, "maxSessions", _config.server.maxSessions, 1, 1024, "server", _diagnostics);
   }
 

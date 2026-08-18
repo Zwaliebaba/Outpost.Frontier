@@ -1,8 +1,5 @@
 {
-  // Outpost: Frontier configuration (ADR-012). There is no command line:
-  // a build is configured by this file, and a runner selects a configuration
-  // by the directory it launches from.
-  "mode": "host",                       // "host" | "headless" | "client"
+  "mode": "host",                        
   "selfTest": false,
 
   "logging": { "level": "info", "file": "Outpost.log" },
@@ -10,7 +7,6 @@
 
   "server": {
     "port": 7777,
-    "transport": "udp",                 // "udp" | "quic"
     "maxSessions": 8
   },
 

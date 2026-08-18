@@ -30,8 +30,8 @@ public:
   Arena() noexcept = default;
 
   explicit Arena(std::size_t _capacityBytes)
-    : m_memory(std::make_unique<std::uint8_t[]>(_capacityBytes))
-    , m_capacityBytes(_capacityBytes)
+    : m_memory(std::make_unique<std::uint8_t[]>(_capacityBytes)),
+      m_capacityBytes(_capacityBytes)
   {
   }
 
@@ -42,7 +42,7 @@ public:
 
   [[nodiscard]] void* Allocate(std::size_t _byteCount, std::size_t _alignment = alignof(std::max_align_t)) noexcept
   {
-    NEURON_ASSERT(_alignment != 0 && (_alignment & (_alignment - 1)) == 0);
+    DEBUG_ASSERT(_alignment != 0 && (_alignment & (_alignment - 1)) == 0);
 
     const std::size_t aligned = (m_used + _alignment - 1) & ~(_alignment - 1);
     if (aligned + _byteCount > m_capacityBytes)
@@ -59,8 +59,7 @@ public:
     return result;
   }
 
-  template <typename T>
-  [[nodiscard]] T* AllocateArray(std::size_t _count) noexcept
+  template <typename T> [[nodiscard]] T* AllocateArray(std::size_t _count) noexcept
   {
     static_assert(std::is_trivially_destructible_v<T>, "an arena never runs destructors");
     if (_count == 0)
@@ -76,12 +75,27 @@ public:
   }
 
   /// Releases everything at once. The memory stays; only the offset moves.
-  void Reset() noexcept { m_used = 0; }
+  void Reset() noexcept
+  {
+    m_used = 0;
+  }
 
-  [[nodiscard]] std::size_t UsedBytes() const noexcept { return m_used; }
-  [[nodiscard]] std::size_t CapacityBytes() const noexcept { return m_capacityBytes; }
-  [[nodiscard]] std::size_t HighWaterMarkBytes() const noexcept { return m_highWaterMark; }
-  [[nodiscard]] std::uint32_t FailedAllocationCount() const noexcept { return m_failedAllocations; }
+  [[nodiscard]] std::size_t UsedBytes() const noexcept
+  {
+    return m_used;
+  }
+  [[nodiscard]] std::size_t CapacityBytes() const noexcept
+  {
+    return m_capacityBytes;
+  }
+  [[nodiscard]] std::size_t HighWaterMarkBytes() const noexcept
+  {
+    return m_highWaterMark;
+  }
+  [[nodiscard]] std::uint32_t FailedAllocationCount() const noexcept
+  {
+    return m_failedAllocations;
+  }
 
 private:
   std::unique_ptr<std::uint8_t[]> m_memory;

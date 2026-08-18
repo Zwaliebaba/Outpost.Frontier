@@ -52,7 +52,7 @@ public:
     const JsonDocument document = ParseOk(R"({
       "mode": "host",
       "selfTest": false,
-      "server": { "port": 7777, "transport": "udp" },
+      "server": { "port": 7777, "maxSessions": 8 },
       "client": { "window": { "width": 1600, "height": 900 } },
       "levels": [1, 2, 3]
     })");
@@ -62,7 +62,7 @@ public:
     Assert::IsTrue(root.Member("mode").AsString() == "host");
     Assert::IsFalse(root.Member("selfTest").AsBool(true));
     Assert::AreEqual<std::int64_t>(7777, root.Member("server").Member("port").AsInt64());
-    Assert::IsTrue(root.Member("server").Member("transport").AsString() == "udp");
+    Assert::AreEqual<std::int64_t>(8, root.Member("server").Member("maxSessions").AsInt64());
     Assert::AreEqual<std::int64_t>(1600, root.Member("client").Member("window").Member("width").AsInt64());
 
     const JsonValue levels = root.Member("levels");

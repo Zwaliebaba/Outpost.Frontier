@@ -38,17 +38,13 @@ bool ClientApp::Initialise(const ClientConfig& _config)
     return false;
   }
 
-  if (!CreateFrameResources())
-  {
-    return false;
-  }
+  CreateFrameResources();
 
   // After the device: a network failure should not arrive dressed as a
   // graphics one, and the window is worth having either way.
   if (!m_connection.Connect(_config.serverHost, _config.serverPort, _config.schemaHash, _config.contentHash, _config.playerName))
   {
-    NEURON_LOG_ERROR("could not open a connection to %s:%u", _config.serverHost.c_str(),
-                     static_cast<unsigned>(_config.serverPort));
+    NEURON_LOG_ERROR("could not open a connection to %s:%u", _config.serverHost.c_str(), static_cast<unsigned>(_config.serverPort));
     return false;
   }
 
@@ -57,30 +53,21 @@ bool ClientApp::Initialise(const ClientConfig& _config)
   return true;
 }
 
-bool ClientApp::CreateFrameResources()
+void ClientApp::CreateFrameResources()
 {
   // One allocator per back buffer: an allocator cannot be reset while the GPU
   // is still executing commands recorded from it, and the fence value stored
   // beside it is what proves that it is safe.
   for (std::uint32_t i = 0; i < GpuSwapChain::BufferCount; ++i)
   {
-    if (FAILED(m_device.Device()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(m_commandAllocators[i].put()))))
-    {
-      NEURON_LOG_ERROR("CreateCommandAllocator failed for frame %u", i);
-      return false;
-    }
+    check_hresult(m_device.Device()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(m_commandAllocators[i].put())));
   }
 
-  if (FAILED(m_device.Device()->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[0].get(), nullptr,
-                                                 IID_PPV_ARGS(m_commandList.put()))))
-  {
-    NEURON_LOG_ERROR("CreateCommandList failed");
-    return false;
-  }
+  check_hresult(m_device.Device()->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[0].get(), nullptr,
+                                                     IID_PPV_ARGS(m_commandList.put())));
   // Command lists are created open; close it so the loop can treat every frame
   // the same way.
-  m_commandList->Close();
-  return true;
+  check_hresult(m_commandList->Close());
 }
 
 int ClientApp::Run()
@@ -171,8 +158,8 @@ void ClientApp::RenderFrame()
   m_device.WaitForValue(m_frameFenceValues[frameIndex]);
 
   ID3D12CommandAllocator* allocator = m_commandAllocators[frameIndex].get();
-  allocator->Reset();
-  m_commandList->Reset(allocator, nullptr);
+  check_hresult(allocator->Reset());
+  check_hresult(m_commandList->Reset(allocator, nullptr));
 
   ID3D12Resource* backBuffer = m_swapChain.CurrentBackBuffer();
 
@@ -197,7 +184,7 @@ void ClientApp::RenderFrame()
   barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
   m_commandList->ResourceBarrier(1, &barrier);
 
-  m_commandList->Close();
+  check_hresult(m_commandList->Close());
 
   ID3D12CommandList* lists[] = {m_commandList.get()};
   m_device.Queue()->ExecuteCommandLists(1, lists);

@@ -14,9 +14,6 @@
     <ClCompile Include="Json.cpp">
       <Filter>Json</Filter>
     </ClCompile>
-    <ClCompile Include="Debug.cpp">
-      <Filter>Foundation</Filter>
-    </ClCompile>
     <ClCompile Include="TaskPool.cpp">
       <Filter>Tasking</Filter>
     </ClCompile>
@@ -49,9 +46,6 @@
     </ClInclude>
     <ClInclude Include="Json.h">
       <Filter>Json</Filter>
-    </ClInclude>
-    <ClInclude Include="Debug.h">
-      <Filter>Foundation</Filter>
     </ClInclude>
     <ClInclude Include="Log.h">
       <Filter>Foundation</Filter>
@@ -86,6 +80,8 @@
     <ClInclude Include="EntityRecord.h">
       <Filter>Serialization</Filter>
     </ClInclude>
+    <ClInclude Include="NeuronCore.h" />
+    <ClInclude Include="Debug.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Foundation">

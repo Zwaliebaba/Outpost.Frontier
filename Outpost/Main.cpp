@@ -45,6 +45,17 @@ BOOL WINAPI ConsoleHandler(DWORD _type)
 }
 
 /// Before the log file exists, a fatal problem still has to reach a person.
+void ReportFatal(const std::string& _text)
+{
+  OutputDebugStringA(_text.c_str());
+  std::fputs(_text.c_str(), stderr);
+
+  const int wide = MultiByteToWideChar(CP_UTF8, 0, _text.c_str(), -1, nullptr, 0);
+  std::wstring message(static_cast<std::size_t>(wide), L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, _text.c_str(), -1, message.data(), wide);
+  MessageBoxW(nullptr, message.c_str(), L"Outpost: Frontier", MB_OK | MB_ICONERROR);
+}
+
 void ReportStartupFailure(const Outpost::ConfigDiagnostics& _diagnostics)
 {
   std::string text = "Outpost could not start.\n\n";
@@ -53,13 +64,7 @@ void ReportStartupFailure(const Outpost::ConfigDiagnostics& _diagnostics)
     text += error;
     text += '\n';
   }
-  OutputDebugStringA(text.c_str());
-  std::fputs(text.c_str(), stderr);
-
-  const int wide = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
-  std::wstring message(static_cast<std::size_t>(wide), L'\0');
-  MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, message.data(), wide);
-  MessageBoxW(nullptr, message.c_str(), L"Outpost: Frontier", MB_OK | MB_ICONERROR);
+  ReportFatal(text);
 }
 
 void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigPaths& _paths)
@@ -70,8 +75,8 @@ void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigP
     NEURON_LOG_INFO("user settings: %s", _paths.userLayer.c_str());
   }
   NEURON_LOG_INFO("mode: %s%s", Outpost::HostModeText(_config.mode), _config.selfTest ? " (self test)" : "");
-  NEURON_LOG_INFO("server: port %u, transport %s, max sessions %u", static_cast<unsigned>(_config.server.port),
-                  _config.server.transport.c_str(), static_cast<unsigned>(_config.server.maxSessions));
+  NEURON_LOG_INFO("server: port %u, max sessions %u", static_cast<unsigned>(_config.server.port),
+                  static_cast<unsigned>(_config.server.maxSessions));
   NEURON_LOG_INFO("universe: %s", _config.universeDefinition.c_str());
   NEURON_LOG_INFO("window: %ux%u %s, vsync %s, ui scale %.2f", static_cast<unsigned>(_config.client.window.width),
                   static_cast<unsigned>(_config.client.window.height), _config.client.window.mode.c_str(),
@@ -83,7 +88,6 @@ Neuron::ServerConfig MakeServerConfig(const Outpost::AppConfig& _config)
 {
   Neuron::ServerConfig server;
   server.port = _config.server.port;
-  server.transport = _config.server.transport;
   server.maxSessions = _config.server.maxSessions;
   return server;
 }
@@ -118,8 +122,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   // natively, and boot is the use site.
   if (!DirectX::XMVerifyCPUSupport())
   {
-    MessageBoxW(nullptr, L"This CPU does not support the instruction set this build requires.", L"Outpost: Frontier",
-                MB_OK | MB_ICONERROR);
+    MessageBoxW(nullptr, L"This CPU does not support the instruction set this build requires.", L"Outpost: Frontier", MB_OK | MB_ICONERROR);
     return 4;
   }
 
@@ -174,8 +177,13 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     return 2;
   }
 
-  switch (config.mode)
+  // check_hresult failures (device, swapchain, command lists) and assertion
+  // fatals arrive here as exceptions; the boundary turns them into a log line
+  // and a message box instead of a silent crash, and still stops the server.
+  try
   {
+    switch (config.mode)
+    {
     case Outpost::HostMode::Host:
     case Outpost::HostMode::Client:
     {
@@ -217,6 +225,22 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
       }
       break;
     }
+    }
+  }
+  catch (const winrt::hresult_error& error)
+  {
+    const std::string text = std::format("fatal error 0x{:08x}: {}", static_cast<std::uint32_t>(static_cast<std::int32_t>(error.code())),
+                                         winrt::to_string(error.message()));
+    NEURON_LOG_ERROR("%s", text.c_str());
+    ReportFatal(text);
+    exitCode = 5;
+  }
+  catch (const std::exception& error)
+  {
+    const std::string text = std::string("fatal error: ") + error.what();
+    NEURON_LOG_ERROR("%s", text.c_str());
+    ReportFatal(text);
+    exitCode = 5;
   }
 
   if (hostsServer)

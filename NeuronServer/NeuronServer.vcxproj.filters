@@ -17,6 +17,7 @@
     <ClInclude Include="Simulation.h">
       <Filter>Seam</Filter>
     </ClInclude>
+    <ClInclude Include="NeuronServer.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Host">

@@ -12,22 +12,6 @@
 
 namespace Neuron
 {
-namespace
-{
-
-/// Logs and returns false rather than throwing: a machine without a usable GPU
-/// is a situation to report, not a crash.
-bool Check(HRESULT _result, const char* _what)
-{
-  if (FAILED(_result))
-  {
-    NEURON_LOG_ERROR("%s failed (hr 0x%08lx)", _what, static_cast<unsigned long>(_result));
-    return false;
-  }
-  return true;
-}
-
-} // namespace
 
 GpuDevice::~GpuDevice()
 {
@@ -54,10 +38,7 @@ bool GpuDevice::Create(bool _enableDebugLayer)
     }
   }
 
-  if (!Check(CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(m_factory.put())), "CreateDXGIFactory2"))
-  {
-    return false;
-  }
+  check_hresult(CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(m_factory.put())));
 
   BOOL allowTearing = FALSE;
   if (SUCCEEDED(m_factory->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing))))
@@ -71,10 +52,7 @@ bool GpuDevice::Create(bool _enableDebugLayer)
     return false;
   }
 
-  if (!Check(D3D12CreateDevice(adapter.get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(m_device.put())), "D3D12CreateDevice"))
-  {
-    return false;
-  }
+  check_hresult(D3D12CreateDevice(adapter.get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(m_device.put())));
 
   if (_enableDebugLayer)
   {
@@ -92,15 +70,9 @@ bool GpuDevice::Create(bool _enableDebugLayer)
   queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
   queueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
   queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-  if (!Check(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(m_queue.put())), "CreateCommandQueue"))
-  {
-    return false;
-  }
+  check_hresult(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(m_queue.put())));
 
-  if (!Check(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fence.put())), "CreateFence"))
-  {
-    return false;
-  }
+  check_hresult(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(m_fence.put())));
 
   m_fenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
   if (m_fenceEvent == nullptr)
@@ -159,6 +131,8 @@ bool GpuDevice::PickAdapter(GpuPtr<IDXGIAdapter1>& _outAdapter)
 
 std::uint64_t GpuDevice::Signal()
 {
+  // Not check_hresult: Signal runs on the shutdown path (Destroy -> WaitForIdle),
+  // and throwing during teardown would turn an orderly exit into a terminate.
   ++m_lastSignalled;
   if (FAILED(m_queue->Signal(m_fence.get(), m_lastSignalled)))
   {

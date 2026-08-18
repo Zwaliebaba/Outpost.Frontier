@@ -27,6 +27,8 @@
     <ClCompile Include="Window.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="DirectXHelper.h" />
+    <ClInclude Include="NeuronClient.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="ClearColour.h" />
     <ClInclude Include="ClientApp.h" />

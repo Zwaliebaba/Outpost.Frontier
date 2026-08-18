@@ -50,7 +50,6 @@ grammar plus an ad-hoc content format.
   "universe": { "definition": "GameData/Universe/Frontier.json" },
   "server": {
     "port": 7777,                       //                                   (was --port)
-    "transport": "udp",                 // "udp" | "quic"                    (was --transport)
     "maxSessions": 8
   },
   "client": {

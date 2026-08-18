@@ -93,7 +93,6 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
   // configured port is already taken by the thing it is testing.
   Neuron::ServerConfig serverConfig;
   serverConfig.port = 0;
-  serverConfig.transport = _config.server.transport;
   serverConfig.maxSessions = _config.server.maxSessions;
 
   Neuron::ServerHost server;
