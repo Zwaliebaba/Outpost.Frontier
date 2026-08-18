@@ -512,15 +512,23 @@ a tick in meant the engine supplying a number it had guessed from somewhere else
 supposed to time. Putting the tick in the framing as well would fix that and create two copies
 of one number — the arrangement S5b already refused for the content hash.
 
-**Verified:** `GameLogicTests` 32 → 44, `NeuronClientTests` 64 → 73. The round trip is asserted
-in *integers*, because integers are what crossed the wire — a metre-space comparison would have
-to allow for float representation on top of the quantiser and would then pass on a bug that
-shifted a ship by a centimetre. Smoothness is asserted as a bound on the per-frame step: at
-seven frames per snapshot, a view that snapped to each arrival would take one tick-sized step
-every seventh frame, which is seven times too far. The stall is a timing scenario played
-through a fake clock — 400 ms of nothing, then recovery — and the slew absorbs it without a
-single snap. Jitter of ±15 ms lands within 2 % of a steady step instead of reaching the screen.
-41 ships is 836 bytes of the 1,150 available.
+**Verified:** `GameLogicTests` 32 → 44, `NeuronClientTests` 64 → 73, `NeuronServerTests` 6 → 7,
+195 across the four suites. The round trip is asserted in *integers*, because integers are what
+crossed the wire — a metre-space comparison would have to allow for float representation on top of
+the quantiser and would then pass on a bug that shifted a ship by a centimetre. Smoothness is
+asserted as a bound on the per-frame step: at seven frames per snapshot, a view that snapped to
+each arrival would take one tick-sized step every seventh frame, which is seven times too far. The
+stall is a timing scenario played through a fake clock — 400 ms of nothing, then recovery — and
+the slew absorbs it without a single snap. Jitter of ±15 ms lands within 2 % of a steady step
+instead of reaching the screen. 41 ships is 836 bytes of the 1,150 available.
+
+`NeuronServerTests` gained the one seam nothing had been watching: a client joins over a real
+loopback socket and waits for two snapshots, then checks the payload for the simulation's own
+marker rather than for its length — an engine sending eight bytes of its own devising would
+pass a length check. That gap was found by a build failure, not by a test: `MakeStartingWorld`
+called `SpawnStations` before it was defined, and while fixing the one-line ordering slip it
+became clear `BroadcastSnapshot` had encoding tests on one side of it and clock tests on the
+other and nothing at all in between.
 **Outstanding:** the visual half. That motion *looks* smooth at 144 Hz, and that the induced
 stall reads as extrapolate-then-freeze rather than as a stutter, are judgements no test here
 makes — they need a GPU. The numbers say both hold.
