@@ -254,8 +254,19 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, const GhostLaneView& _
     const float journeyX = ghost.targetMetres.x - ghost.originMetres.x;
     const float journeyY = ghost.targetMetres.y - ghost.originMetres.y;
 
+    /*
+     * The authority's ETA if there is one, the game's prediction if there is
+     * not (S12).
+     *
+     * A ghost is PENDING for one round trip and the prediction is all there is;
+     * from promotion onward the authority is measuring the same thing from
+     * where the ships have actually got to, and preferring the prediction after
+     * that would be showing a stale guess beside a live fact.
+     */
+    const float eta = ghost.authorityEtaSeconds >= 0.0f ? ghost.authorityEtaSeconds : ghost.preview.etaSeconds;
+
     char detail[48] = {};
-    FormatLaneDetail(std::sqrt(journeyX * journeyX + journeyY * journeyY), ghost.preview.etaSeconds, detail, sizeof(detail));
+    FormatLaneDetail(std::sqrt(journeyX * journeyX + journeyY * journeyY), eta, detail, sizeof(detail));
     if (detail[0] != '\0')
     {
       const auto width = static_cast<float>(std::strlen(detail)) * _view.cellPixels;

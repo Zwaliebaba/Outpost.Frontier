@@ -84,6 +84,18 @@ struct OrderGhost
   std::uint8_t legCount = 0;
   std::uint8_t memberCount = 0;
 
+  /*
+   * The authority's own ETA for the current leg, or negative while there is
+   * none (S12).
+   *
+   * `preview.etaSeconds` is what the game predicted before the order was sent;
+   * this is what it measured once the ships were moving. The label prefers this
+   * the moment it exists, which is the frame the order is promoted -- so a
+   * queued chain shows a prediction until the authority answers and a fact
+   * afterwards, and never the prediction once the fact is available.
+   */
+  float authorityEtaSeconds = -1.0f;
+
   /// When the current state began, in the client's own seconds.
   double stateSinceSeconds = 0.0;
 

@@ -98,6 +98,10 @@ std::uint64_t ComputeWorldHash(const World& _world) noexcept
       _hash = Neuron::HashValue(static_cast<std::uint8_t>(group.formation), _hash);
       _hash = Neuron::HashValue(static_cast<std::uint8_t>(group.state), _hash);
       _hash = Neuron::HashValue(group.legStartTick, _hash);
+      // The leg's deadline is state, not a constant, since S12 made it
+      // proportional to the leg. A replay that diverged on it would
+      // advance a leg a tick apart and then diverge on everything.
+      _hash = Neuron::HashValue(group.legDeadlineTick, _hash);
       _hash = Neuron::HashValue(group.memberCount, _hash);
       for (std::uint16_t index = 0; index < group.memberCount; ++index)
       {

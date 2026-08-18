@@ -488,6 +488,12 @@ void ReplicatedWorldView::PollOrderFeedback(OrderFeedback& _outFeedback)
     progress.legIndex = record.legIndex;
     progress.legCount = record.legCount;
     progress.memberCount = record.memberCount;
+
+    // Dequantised here, where the wire's `NO_ETA` sentinel is still a game
+    // concept. What crosses is a float or a negative number, so the engine
+    // never learns that 65,535 meant anything in particular.
+    progress.etaSeconds = record.etaSeconds == Game::NO_ETA ? -1.0f : static_cast<float>(record.etaSeconds);
+
     if (!_outFeedback.Add(progress))
     {
       break; // Bounded by the assert above; the break is what makes that true.

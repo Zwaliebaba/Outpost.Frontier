@@ -2,6 +2,7 @@
 
 #include "World.h"
 
+#include "Eta.h"
 #include "Formation.h"
 
 #include "EntityRecord.h"
@@ -256,6 +257,7 @@ OrderVerdict World::SubmitOrder(const OrderSubmit& _order)
                ClampToPlayArea(Neuron::CentimetresToMetres(_order.target.yCm))};
   group.legs[0].facingRadians = WrapAngle(Neuron::HeadingToRadians(_order.target.facingTurns16));
   group.legStartTick = m_tick;
+  group.legDeadlineTick = 0; // Sized by ApplyLeg, which is where the stations exist.
 
   // Marked with the mode it will be applied with. Append is resolved at ingest,
   // where the group it appends to is still there to be found.
@@ -318,6 +320,7 @@ void World::IngestOrders()
     std::erase_if(m_groups, [](const OrderGroup& _group) { return _group.memberCount == 0; });
 
     submitted.legStartTick = m_tick;
+    submitted.legDeadlineTick = 0; // As above -- sized once the stations are solved.
     m_groups.push_back(submitted);
   }
   m_pending.clear();
@@ -388,6 +391,85 @@ void World::ApplyLeg(OrderGroup& _group)
     guidance.targetYMetres = ClampToPlayArea(stations[index].positionMetres.y);
     guidance.arrivalFacingRadians = leg.facingRadians;
   }
+
+  /*
+   * The deadline, set from the leg's own estimate now that the stations are
+   * resolved and `LegEtaSeconds` has something to measure.
+   *
+   * Here rather than where `legStartTick` is set, because the estimate needs
+   * the guidance this function just wrote: before it, a member's remaining
+   * distance is whatever the *previous* leg left behind.
+   *
+   * **Once per leg, and that is the whole reason for the zero check.** This
+   * function runs every tick -- it re-solves the formation as ships die -- so
+   * computing the deadline unconditionally would push it forward every tick and
+   * it would never arrive. A leg that could never complete would then hold its
+   * group forever, which is the exact failure the timeout exists to prevent.
+   */
+  if (_group.legDeadlineTick != 0)
+  {
+    return;
+  }
+
+  const float expected = LegEtaSeconds(_group);
+  if (expected < 0.0f)
+  {
+    // Nothing in the group can move, so no estimate. It still gets a deadline,
+    // because a group that could never advance must not sit in the list
+    // forever holding an order id and a slot in the snapshot.
+    _group.legDeadlineTick = m_tick + LEG_TIMEOUT_MAX_TICKS;
+    return;
+  }
+
+  const float ticks = expected * LEG_TIMEOUT_FACTOR / TICK_SECONDS;
+  const auto bounded = static_cast<std::uint32_t>(std::min(ticks, static_cast<float>(LEG_TIMEOUT_MAX_TICKS)));
+  _group.legDeadlineTick = m_tick + std::min(bounded + LEG_TIMEOUT_GRACE_TICKS, LEG_TIMEOUT_MAX_TICKS);
+}
+
+float World::LegEtaSeconds(const OrderGroup& _group) const noexcept
+{
+  if (_group.state == OrderState::Done || _group.legIndex >= _group.legCount)
+  {
+    return -1.0f; // Nothing under way, so nothing to be due.
+  }
+
+  TravelLeg legs[MAX_SHIPS_PER_ORDER];
+  std::uint32_t count = 0;
+  for (std::uint16_t index = 0; index < _group.memberCount && count < MAX_SHIPS_PER_ORDER; ++index)
+  {
+    std::uint32_t slot = 0;
+    if (!FindSlot(_group.members[index], slot))
+    {
+      continue; // Died mid-leg. The rest of the group still arrives.
+    }
+
+    // Against the ship's own **guidance target** rather than the leg's anchor:
+    // that is the station `ApplyLeg` resolved for it, and the far end of a Line
+    // is most of a kilometre past the anchor.
+    const Guidance& guidance = m_guidances[slot];
+    const float dx = guidance.targetXMetres - m_positions[slot].x;
+    const float dy = guidance.targetYMetres - m_positions[slot].y;
+
+    /*
+     * Speed **along the way it is going**, not speed outright.
+     *
+     * A ship still swinging onto its heading is moving fast in a direction that
+     * does not help, and crediting the full magnitude would promise an arrival
+     * its velocity is not carrying it toward. The projection is negative while
+     * it is pointing away, and the model clamps that to zero -- which is the
+     * honest reading: no progress is being made.
+     */
+    const float distance = std::sqrt(dx * dx + dy * dy);
+    float closing = 0.0f;
+    if (distance > 0.0f)
+    {
+      closing = (m_velocities[slot].x * dx + m_velocities[slot].y * dy) / distance;
+    }
+
+    legs[count] = TravelLeg{static_cast<HullClass>(m_classes[slot]), distance, closing};
+    ++count;
+  }
+  return GroupTravelSeconds(std::span<const TravelLeg>{legs, count});
 }
 
 void World::GroupAdvance()
@@ -426,10 +508,12 @@ void World::GroupAdvance()
       continue;
     }
 
-    // Or the leg timed out. A straggler behind a station must not wedge the
-    // fleet behind it forever (ADR-005 §2), and the tick index is the only
-    // clock this simulation has.
-    const bool timedOut = (m_tick - group.legStartTick) >= LEG_TIMEOUT_TICKS;
+    // Or the leg ran past its deadline. A straggler behind a station must not
+    // wedge the fleet behind it forever (ADR-005 §2), and the tick index is the
+    // only clock this simulation has. The deadline is the leg's own -- set from
+    // what the leg was estimated to take, not from a constant that fits no
+    // journey (`LEG_TIMEOUT_FACTOR`).
+    const bool timedOut = m_tick >= group.legDeadlineTick;
     if (!everyoneArrived && !timedOut)
     {
       group.state = OrderState::Underway;
@@ -438,6 +522,7 @@ void World::GroupAdvance()
 
     ++group.legIndex;
     group.legStartTick = m_tick;
+    group.legDeadlineTick = 0; // A new leg: the next ApplyLeg sizes the deadline to it.
     if (group.legIndex >= group.legCount)
     {
       group.state = OrderState::Done;

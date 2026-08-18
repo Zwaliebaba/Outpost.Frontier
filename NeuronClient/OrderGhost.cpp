@@ -116,6 +116,7 @@ void OrderGhostList::OnFeedback(const OrderFeedback& _feedback, double _nowSecon
       ghost.legIndex = progress->legIndex;
       ghost.legCount = progress->legCount;
       ghost.memberCount = progress->memberCount;
+      ghost.authorityEtaSeconds = progress->etaSeconds;
       if (ghost.state != GhostState::UnderWay)
       {
         ghost.state = GhostState::UnderWay;

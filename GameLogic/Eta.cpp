@@ -12,6 +12,11 @@ namespace Game
 
 float TravelSeconds(HullClass _hullClass, float _distanceMetres) noexcept
 {
+  return RemainingSeconds(_hullClass, _distanceMetres, 0.0f);
+}
+
+float RemainingSeconds(HullClass _hullClass, float _distanceMetres, float _speedMetresPerSec) noexcept
+{
   const ShipClassInfo& info = ShipClass(_hullClass);
 
   // The ship stops when it is within tolerance, so that last couple of metres
@@ -30,20 +35,35 @@ float TravelSeconds(HullClass _hullClass, float _distanceMetres) noexcept
     return -1.0f; // A Structure. Not slow -- unable.
   }
 
+  const float top = info.maxSpeedMetresPerSec;
+  const float accel = info.accelMetresPerSecSq;
+
+  // Clamped rather than trusted: a velocity that came off the wire, or one
+  // sampled the tick a class table changed under it, must not make the rest of
+  // this arithmetic imaginary.
+  const float speed = std::clamp(_speedMetresPerSec, 0.0f, top);
+
   /*
-   * The distance a full accelerate-and-brake costs: v^2/2a each way.
+   * A trapezoid from wherever it already is: run up from `speed` to `top`,
+   * cruise, brake to rest.
    *
-   * Above it the profile is a trapezoid and below it a triangle that never
-   * reaches top speed. The two agree exactly at the boundary -- both give
-   * 2v/a -- which is worth knowing, because a discontinuity here would show up
-   * as an ETA that jumped while the player dragged the puck across it.
+   * `climb` is the ground the run-up takes and `brake` the ground the stop
+   * takes. Above their sum the profile is a trapezoid; below it a triangle that
+   * turns round at some peak short of `top`, and the two agree exactly at the
+   * boundary -- a discontinuity here would show as an ETA that jumped while the
+   * player dragged the puck across one particular radius.
    */
-  const float rampDistance = info.maxSpeedMetresPerSec * info.maxSpeedMetresPerSec / info.accelMetresPerSecSq;
-  if (reach >= rampDistance)
+  const float climb = (top * top - speed * speed) / (2.0f * accel);
+  const float brake = top * top / (2.0f * accel);
+  if (reach >= climb + brake)
   {
-    return reach / info.maxSpeedMetresPerSec + info.maxSpeedMetresPerSec / info.accelMetresPerSecSq;
+    return (top - speed) / accel + (reach - climb - brake) / top + top / accel;
   }
-  return 2.0f * std::sqrt(reach / info.accelMetresPerSecSq);
+
+  // The peak it does reach: the speed at which running up and braking exactly
+  // consume the distance, from (p^2 - u^2)/2a + p^2/2a = d.
+  const float peak = std::sqrt((2.0f * accel * reach + speed * speed) * 0.5f);
+  return (peak - speed) / accel + peak / accel;
 }
 
 float GroupTravelSeconds(std::span<const TravelLeg> _legs) noexcept
@@ -51,7 +71,7 @@ float GroupTravelSeconds(std::span<const TravelLeg> _legs) noexcept
   float slowest = -1.0f;
   for (const TravelLeg& leg : _legs)
   {
-    const float seconds = TravelSeconds(leg.hullClass, leg.distanceMetres);
+    const float seconds = RemainingSeconds(leg.hullClass, leg.distanceMetres, leg.speedMetresPerSec);
     if (seconds < 0.0f)
     {
       continue; // Cannot make it; not a reason to say nothing about the rest.

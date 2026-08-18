@@ -52,6 +52,13 @@ struct TravelLeg
 {
   HullClass hullClass = HullClass::Interceptor;
   float distanceMetres = 0.0f;
+
+  /// How fast it is already going, along the way it is going. Zero for a
+  /// journey that has not started, which is what a *preview* asks about; the
+  /// authority's own ETA fills it in, because a group half way through a leg is
+  /// not at rest and charging it a full acceleration ramp makes the number
+  /// stall as the ships arrive.
+  float speedMetresPerSec = 0.0f;
 };
 
 /*
@@ -72,6 +79,22 @@ struct TravelLeg
  * read as an answer. Callers show nothing rather than showing "never".
  */
 [[nodiscard]] float TravelSeconds(HullClass _hullClass, float _distanceMetres) noexcept;
+
+/*
+ * The same journey, from a hull that is **already moving**.
+ *
+ * `TravelSeconds` is this with `_speedMetresPerSec` of zero, and the two agree
+ * exactly there rather than approximately -- one is written in terms of the
+ * other, so there is one profile and not two that have to be kept in step.
+ *
+ * This is the form the authority replicates (S12). A rest-to-rest estimate of a
+ * *remaining* distance charges an acceleration ramp the ships already paid, and
+ * the error grows as they arrive: a Battleship with a kilometre left is 7.5
+ * seconds into a 9.5-second finish, and the rest-to-rest answer is 17. An ETA
+ * that visibly stalls in the last few seconds is worse than no ETA, because it
+ * is the moment a player is actually watching it.
+ */
+[[nodiscard]] float RemainingSeconds(HullClass _hullClass, float _distanceMetres, float _speedMetresPerSec) noexcept;
 
 /*
  * The group's ETA: **the slowest member's own journey**, not the group's centre

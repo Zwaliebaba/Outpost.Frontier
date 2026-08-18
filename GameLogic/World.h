@@ -121,6 +121,11 @@ struct OrderGroup
   /// When the current leg began, so a straggler cannot wedge the fleet
   /// (ADR-005 §2). Ticks, because the tick index is the simulation's only clock.
   std::uint32_t legStartTick = 0;
+
+  /// The tick this leg gives up at, set from its own estimate when it starts
+  /// (`World::LEG_TIMEOUT_FACTOR`). A tick count rather than a duration in
+  /// seconds so that world state stays integral and hashes exactly.
+  std::uint32_t legDeadlineTick = 0;
 };
 
 /// What a ship looks like at the moment it enters the world.
@@ -167,12 +172,33 @@ public:
   /*
    * How long a leg may wait for its slowest member (ADR-005 §2).
    *
-   * A group advances when every member is within station tolerance *or* this
-   * many ticks have passed. Thirty seconds at 20 Hz: long enough that a
-   * Battleship crossing the grid is never cut short, short enough that one ship
-   * stuck behind a station never wedges the fleet behind it forever.
+   * **This was a flat 600 ticks and the flat number was wrong** (S12). Thirty
+   * seconds was documented as "long enough that a Battleship crossing the grid
+   * is never cut short"; a Battleship crossing the grid takes 182 seconds, and
+   * even four kilometres takes 45. Every leg longer than half a minute was
+   * *timing out* rather than completing. Nothing looked broken, because
+   * `Guidance` still held the station and the ships flew on -- what the timeout
+   * actually ended was the **order**, so the footprint vanished mid-flight and
+   * the fleet's ETA with it. With a queue it is worse than cosmetic: leg two
+   * would begin while leg one was a sixth flown, and the fleet would skip to
+   * the last waypoint.
+   *
+   * So the deadline is now relative to the leg's own expected duration, which
+   * S12 made computable (`LegEtaSeconds`). Three times the estimate plus a
+   * grace: the estimate is optimistic by at most a third even on a full
+   * reversal, so three times it is generous without being unbounded, and a
+   * straggler still frees the fleet in a time proportional to the journey it
+   * was asked to make rather than a constant that fits no journey.
    */
-  static constexpr std::uint32_t LEG_TIMEOUT_TICKS = 600;
+  static constexpr float LEG_TIMEOUT_FACTOR = 3.0f;
+
+  /// Added on top, so a leg with a near-zero estimate -- a station-keeping
+  /// nudge -- still gets a moment rather than a deadline of now.
+  static constexpr std::uint32_t LEG_TIMEOUT_GRACE_TICKS = 200;
+
+  /// The ceiling, for a leg whose estimate is refused (a group of stations).
+  /// Twenty minutes: past any journey this grid affords, and still not forever.
+  static constexpr std::uint32_t LEG_TIMEOUT_MAX_TICKS = 24000;
 
   /*
    * Validates an order, and queues it for the next tick if it passes.
@@ -229,6 +255,24 @@ public:
   /// The highest client sequence this world has ingested, for the snapshot
   /// header. Closes the feedback loop when an `OrderAck` is lost.
   [[nodiscard]] std::uint32_t LastOrderSeqProcessed() const noexcept { return m_lastOrderSeqProcessed; }
+
+  /*
+   * Seconds until this group finishes the leg it is on, or a negative number
+   * when it cannot say (S12).
+   *
+   * The authority's own answer, replicated in the order state so the HUD is
+   * reading a fact rather than the prediction its pre-check made. It is the
+   * **slowest member's remaining journey to its own station** -- a leg completes
+   * when every member is inside tolerance (ADR-005 §2), so the arrival that
+   * matters is the last one.
+   *
+   * **Derived, never stored.** A field on `OrderGroup` would be a float in the
+   * world's state and therefore in `WorldHash`, and two builds whose class
+   * tables differed by an ulp would diverge on a number nothing simulates. It
+   * is recomputed when a snapshot asks, which is twenty times a second over at
+   * most sixteen groups.
+   */
+  [[nodiscard]] float LegEtaSeconds(const OrderGroup& _group) const noexcept;
 
   /// Orders accepted but not yet ingested. Non-zero only between a `SubmitOrder`
   /// and the next `Tick`.

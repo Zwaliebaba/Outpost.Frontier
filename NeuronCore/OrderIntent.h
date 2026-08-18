@@ -300,6 +300,23 @@ struct OrderProgress
   std::uint8_t legIndex = 0;
   std::uint8_t legCount = 0;
   std::uint8_t memberCount = 0;
+
+  /*
+   * Seconds until this order's current leg completes, or negative when the
+   * game will not say (S12).
+   *
+   * The *authority's* number, which is what makes it different from
+   * `OrderPreview::etaSeconds`. That one is a prediction the game made before
+   * the order was sent, from a fleet standing still; this one is measured from
+   * where the ships have actually got to and how fast they are actually going.
+   * A ghost prefers this the moment it has one, and the engine never learns
+   * that either is a *time* -- it formats a number the game handed it.
+   *
+   * A float here and whole seconds on the wire: the seam is not the budget, and
+   * a client that had to remember the quantisation to divide by would be doing
+   * the arithmetic the wire already did.
+   */
+  float etaSeconds = -1.0f;
 };
 
 /// How many live orders the game may report in one poll. The snapshot's order

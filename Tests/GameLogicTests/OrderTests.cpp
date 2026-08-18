@@ -788,12 +788,131 @@ public:
     Assert::AreEqual<std::uint8_t>(2, world.Groups()[0].legCount);
     Assert::AreEqual<std::uint8_t>(0, world.Groups()[0].legIndex);
 
-    for (std::uint32_t tick = 3; tick <= World::LEG_TIMEOUT_TICKS + 10; ++tick)
+    /*
+     * Run until it gives up, bounded by the ceiling rather than by a constant
+     * duration -- the deadline is the leg's own now (S12), so a test that
+     * counted a fixed number of ticks would be asserting the old flat timeout
+     * back into existence.
+     */
+    std::uint32_t tick = 2;
+    while (tick < World::LEG_TIMEOUT_MAX_TICKS && !world.Groups().empty() && world.Groups()[0].legIndex == 0)
     {
+      ++tick;
       world.Tick(tick);
     }
     Assert::IsTrue(world.Groups().empty() || world.Groups()[0].legIndex > 0,
                    L"one ship that cannot move must not hold the plan forever");
+    Assert::IsTrue(tick < World::LEG_TIMEOUT_MAX_TICKS, L"and must not hold it until the ceiling either");
+  }
+
+  TEST_METHOD(ALegLongerThanHalfAMinuteIsNotCutShort)
+  {
+    /*
+     * The defect S12 found, pinned so it cannot come back.
+     *
+     * The timeout was a flat 600 ticks -- thirty seconds -- documented as "long
+     * enough that a Battleship crossing the grid is never cut short". A
+     * Battleship crossing the grid takes 182 seconds. Every leg longer than
+     * half a minute ended by *timing out*, and nothing looked wrong because
+     * `Guidance` still held the station and the ships flew on: what ended was
+     * the order, so the footprint and the ETA vanished mid-flight. With a queue
+     * it skips to the last waypoint.
+     */
+    World world;
+    world.Reset(21);
+    const ShipId ship = SpawnAt(world, HullClass::Battleship, 0.0f, 0.0f);
+
+    OrderSubmit far = Order({ship}, 18400.0f, 0.0f);
+    Assert::IsTrue(world.SubmitOrder(far).accepted);
+
+    std::uint32_t tick = 0;
+    std::uint32_t arrived = 0;
+    std::uint32_t finished = 0;
+    while (tick < World::LEG_TIMEOUT_MAX_TICKS && (arrived == 0 || finished == 0))
+    {
+      ++tick;
+      world.Tick(tick);
+      if (finished == 0 && (world.Groups().empty() || world.Groups()[0].state == OrderState::Done))
+      {
+        finished = tick;
+      }
+      if (arrived == 0 && std::fabs(18400.0f - world.Positions()[0].x) <= World::ARRIVAL_TOLERANCE_METRES)
+      {
+        arrived = tick;
+      }
+    }
+
+    Assert::IsTrue(arrived > 0, L"the ship never arrived");
+    Assert::IsTrue(finished > 0, L"the order never finished");
+    Assert::IsTrue(arrived * World::TICK_SECONDS > 60.0f, L"this journey has to be a long one to test anything");
+    Assert::IsTrue(finished >= arrived, L"the order must not end before the fleet gets there");
+  }
+
+  TEST_METHOD(EachLegOfALongQueueGetsItsOwnDeadline)
+  {
+    /*
+     * The deadline is per *leg*, and this is the test that says so.
+     *
+     * It is sized in `ApplyLeg`, which runs every tick to re-solve the
+     * formation, so it is computed only when unset -- and therefore has to be
+     * *un*set when a leg begins. Without that, leg two inherits leg one's
+     * deadline, which by then is in the past, and times out on the tick it
+     * starts. The fleet would fly the first waypoint and teleport its plan
+     * through every one after it.
+     *
+     * Two legs of eighteen kilometres each: far enough that the old flat
+     * thirty-second timeout could not have completed either.
+     */
+    World world;
+    world.Reset(31);
+    const ShipId ship = SpawnAt(world, HullClass::Corvette, 0.0f, 0.0f);
+
+    OrderSubmit first = Order({ship}, 12000.0f, 0.0f);
+    Assert::IsTrue(world.SubmitOrder(first).accepted);
+    world.Tick(1);
+
+    // Inside the 20 km half-extent: a waypoint outside it is refused as
+    // `OutOfBounds` before the queue is ever consulted, and a test that hit
+    // that would be asserting about the play area instead of the deadline.
+    OrderSubmit second = Order({ship}, 18000.0f, 0.0f);
+    second.orderSeq = 2;
+    second.queueMode = QueueMode::Append;
+    Assert::IsTrue(world.SubmitOrder(second).accepted);
+    world.Tick(2);
+    Assert::AreEqual<std::uint8_t>(2, world.Groups()[0].legCount);
+
+    const std::uint32_t firstDeadline = world.Groups()[0].legDeadlineTick;
+    Assert::IsTrue(firstDeadline > 2, L"leg one has to have been given a deadline");
+
+    // Fly leg one and watch the hand-over.
+    std::uint32_t tick = 2;
+    while (tick < World::LEG_TIMEOUT_MAX_TICKS && !world.Groups().empty() && world.Groups()[0].legIndex == 0)
+    {
+      ++tick;
+      world.Tick(tick);
+    }
+    Assert::IsFalse(world.Groups().empty(), L"the group must survive its first leg");
+    Assert::AreEqual<std::uint8_t>(1, world.Groups()[0].legIndex, L"and move on to the second");
+
+    // The moment of the bug: leg two must get a deadline of its own, ahead of
+    // where it starts rather than the one leg one used up.
+    const std::uint32_t secondDeadline = world.Groups()[0].legDeadlineTick;
+    Assert::IsTrue(secondDeadline > tick, L"leg two inherited a deadline that had already passed");
+    Assert::IsTrue(secondDeadline != firstDeadline, L"and it must be its own, not leg one's");
+
+    // And it actually completes it rather than giving up on the spot.
+    const float arrival = 18000.0f;
+    std::uint32_t arrived = 0;
+    while (tick < World::LEG_TIMEOUT_MAX_TICKS && arrived == 0)
+    {
+      ++tick;
+      world.Tick(tick);
+      if (std::fabs(arrival - world.Positions()[0].x) <= World::ARRIVAL_TOLERANCE_METRES)
+      {
+        arrived = tick;
+      }
+    }
+    Assert::IsTrue(arrived > 0, L"the fleet never reached the second waypoint");
   }
 
   TEST_METHOD(TheHighestSequenceIngestedIsReported)
@@ -1325,6 +1444,256 @@ public:
     // And already-there is genuinely zero, at any class.
     Assert::AreEqual(0.0f, TravelSeconds(HullClass::Interceptor, 0.0f));
     Assert::AreEqual(0.0f, TravelSeconds(HullClass::Structure, 0.0f));
+  }
+
+  TEST_METHOD(TheReplicatedEtaTracksTheRealArrivalAllTheWayDown)
+  {
+    /*
+     * S12's accept criterion -- "ETA error < 10 % on straight runs" -- measured
+     * against the simulation rather than asserted about the formula.
+     *
+     * Sampled at **every tick of the whole leg**, not once at the start, which
+     * is the only way to catch the failure this replaces: a rest-to-rest
+     * estimate of a *remaining* distance is accurate at the start and hopeless
+     * at the end, because it charges an acceleration ramp the ships already
+     * paid. Measured, that version peaks at 44.8 % with a second left; this one
+     * peaks at 2.4 %.
+     *
+     * The last second is excluded: below one second the wire's whole-second
+     * quantisation is the dominant error, and asserting through it would be
+     * asserting about rounding.
+     */
+    for (const HullClass hull : {HullClass::Interceptor, HullClass::Corvette, HullClass::Battleship})
+    {
+      for (const float distance : {4000.0f, 18400.0f})
+      {
+        World world;
+        world.Reset(3);
+        ShipSpawn spawn;
+        spawn.hullClass = hull;
+        spawn.headingRadians = 0.0f; // Straight run: already pointing at the target.
+        const ShipId ship = world.Spawn(spawn);
+
+        OrderSubmit move;
+        move.orderSeq = 1;
+        Assert::IsTrue(move.AddShip(ship));
+        move.target.xCm = Neuron::MetresToCentimetres(distance);
+        Assert::IsTrue(world.SubmitOrder(move).accepted);
+
+        std::vector<float> sampled;
+        std::uint32_t tick = 0;
+        while (tick < 20000)
+        {
+          ++tick;
+          world.Tick(tick);
+          sampled.push_back(world.Groups().empty() ? -1.0f : world.LegEtaSeconds(world.Groups()[0]));
+          if (std::fabs(distance - world.Positions()[0].x) <= World::ARRIVAL_TOLERANCE_METRES)
+          {
+            break;
+          }
+        }
+        Assert::IsTrue(tick < 20000, L"the ship never arrived, so there is nothing to compare");
+
+        int compared = 0;
+        for (std::size_t index = 0; index < sampled.size(); ++index)
+        {
+          if (sampled[index] < 0.0f)
+          {
+            continue;
+          }
+          const float trueRemaining = static_cast<float>(tick - (index + 1)) * World::TICK_SECONDS;
+          if (trueRemaining < 1.0f)
+          {
+            continue;
+          }
+          const float error = std::fabs(sampled[index] - trueRemaining) / trueRemaining;
+          Assert::IsTrue(error < 0.10f, L"the replicated ETA drifted more than a tenth from the real arrival");
+          ++compared;
+        }
+        Assert::IsTrue(compared > 20, L"the sweep has to have actually compared something");
+      }
+    }
+  }
+
+  TEST_METHOD(SpeedAlreadyGainedShortensTheEstimate)
+  {
+    // The generalisation, stated on its own. A ship at top speed with a
+    // kilometre to run does not have to accelerate into it again.
+    const ShipClassInfo& info = ShipClass(HullClass::Corvette);
+    const float distance = 1000.0f;
+
+    const float fromRest = RemainingSeconds(HullClass::Corvette, distance, 0.0f);
+    const float moving = RemainingSeconds(HullClass::Corvette, distance, info.maxSpeedMetresPerSec);
+    Assert::IsTrue(moving < fromRest, L"already moving must never take longer");
+    Assert::IsTrue(moving < fromRest * 0.85f, L"and the difference has to be worth the arithmetic");
+
+    // And the two forms are one profile rather than two kept in step: the
+    // rest-to-rest name is the general one at zero speed, exactly.
+    for (const float sweep : {40.0f, 400.0f, 4000.0f, 40000.0f})
+    {
+      Assert::AreEqual(TravelSeconds(HullClass::Corvette, sweep), RemainingSeconds(HullClass::Corvette, sweep, 0.0f), 0.0f);
+    }
+  }
+
+  TEST_METHOD(ARedirectedFleetIsNotCreditedWithSpeedItMustFirstShed)
+  {
+    /*
+     * Speed is counted **along the way the ship is going**, not outright.
+     *
+     * The case is ordinary: a fleet at cruise is sent back the way it came. Its
+     * velocity is large and points entirely the wrong way, and crediting the
+     * magnitude promises an arrival that velocity is carrying it *away* from.
+     * The projection is negative here and the model clamps it to zero, which is
+     * the honest reading -- no progress is being made toward the new station.
+     *
+     * Measured: 22.4 s against a real 24.2 s. Taking the speed outright gives
+     * 20.1 s. The bound below passes the first and fails the second.
+     */
+    World world;
+    world.Reset(7);
+    const ShipId ship = SpawnAt(world, HullClass::Corvette, 0.0f, 0.0f);
+
+    OrderSubmit outbound = Order({ship}, 15000.0f, 0.0f);
+    Assert::IsTrue(world.SubmitOrder(outbound).accepted);
+    for (std::uint32_t tick = 1; tick <= 400; ++tick)
+    {
+      world.Tick(tick);
+    }
+    Assert::IsTrue(world.Velocities()[0].x > 100.0f, L"the fleet has to actually be moving for this to test anything");
+
+    OrderSubmit back = Order({ship}, 0.0f, 0.0f);
+    back.orderSeq = 2;
+    Assert::IsTrue(world.SubmitOrder(back).accepted);
+    world.Tick(401);
+
+    const float predicted = world.LegEtaSeconds(world.Groups()[0]);
+    Assert::IsTrue(predicted > 0.0f);
+
+    std::uint32_t tick = 401;
+    std::uint32_t arrived = 0;
+    while (tick < World::LEG_TIMEOUT_MAX_TICKS && arrived == 0)
+    {
+      ++tick;
+      world.Tick(tick);
+      if (std::fabs(world.Positions()[0].x) <= World::ARRIVAL_TOLERANCE_METRES)
+      {
+        arrived = tick;
+      }
+    }
+    Assert::IsTrue(arrived > 0, L"the fleet never got back");
+
+    const float actual = static_cast<float>(arrived - 401) * World::TICK_SECONDS;
+    Assert::IsTrue(std::fabs(predicted - actual) / actual < 0.12f,
+                   L"the estimate credited speed that was pointing the wrong way");
+  }
+
+  TEST_METHOD(TheGroupEtaIsMeasuredToEachStationNotToTheAnchor)
+  {
+    /*
+     * Each member's own station, not the group's anchor. A wide formation on a
+     * short hop is where the two diverge: eight Battleships in a Line are 480 m
+     * apart, so the far station is well over two kilometres past the anchor --
+     * and a leg completes when the *last* of them arrives.
+     *
+     * The same claim `SolvePreview` makes on the client's side, asserted here
+     * against the authority's own number.
+     */
+    World world;
+    world.Reset(41);
+    const float hop = 6000.0f;
+    OrderSubmit line;
+    line.orderSeq = 1;
+    line.formation = FormationId::Line;
+    line.target.xCm = Neuron::MetresToCentimetres(hop);
+    for (int index = 0; index < 8; ++index)
+    {
+      Assert::IsTrue(line.AddShip(SpawnAt(world, HullClass::Battleship, 0.0f, static_cast<float>(index) * 60.0f)));
+    }
+    Assert::IsTrue(world.SubmitOrder(line).accepted);
+    world.Tick(1);
+
+    const float groupEta = world.LegEtaSeconds(world.Groups()[0]);
+    const float anchorOnly = TravelSeconds(HullClass::Battleship, hop);
+    Assert::IsTrue(groupEta > 0.0f);
+    Assert::IsTrue(groupEta > anchorOnly * 1.05f,
+                   L"the far end of the formation has to set the ETA, not the anchor");
+  }
+
+  TEST_METHOD(AGroupWithNothingUnderWayReportsNoEta)
+  {
+    // Distinct from zero, which means *arriving now*. A `Done` group that
+    // reported zero would put `ETA 0s` under a ghost that has finished.
+    World world;
+    world.Reset(8);
+    ShipSpawn spawn;
+    spawn.hullClass = HullClass::Corvette;
+    const ShipId ship = world.Spawn(spawn);
+
+    OrderSubmit move;
+    move.orderSeq = 1;
+    Assert::IsTrue(move.AddShip(ship));
+    move.target.xCm = Neuron::MetresToCentimetres(300.0f);
+    Assert::IsTrue(world.SubmitOrder(move).accepted);
+
+    std::uint32_t tick = 0;
+    while (tick < 2000 && (world.Groups().empty() || world.Groups()[0].state != OrderState::Done))
+    {
+      ++tick;
+      world.Tick(tick);
+    }
+    Assert::IsFalse(world.Groups().empty());
+    Assert::IsTrue(world.Groups()[0].state == OrderState::Done);
+    Assert::IsTrue(world.LegEtaSeconds(world.Groups()[0]) < 0.0f);
+  }
+
+  TEST_METHOD(TheEtaCrossesTheWireAsWholeSeconds)
+  {
+    /*
+     * Rounded **up**, for the reason the ghost's label rounds up: `0s` while
+     * the ships are visibly still moving reads as a broken readout, and a
+     * second of pessimism at the end costs nothing.
+     */
+    World world;
+    world.Reset(12);
+    ShipSpawn spawn;
+    spawn.hullClass = HullClass::Battleship;
+    const ShipId ship = world.Spawn(spawn);
+
+    OrderSubmit move;
+    move.orderSeq = 5;
+    Assert::IsTrue(move.AddShip(ship));
+    move.target.xCm = Neuron::MetresToCentimetres(9000.0f);
+    Assert::IsTrue(world.SubmitOrder(move).accepted);
+    world.Tick(1);
+
+    const float source = world.LegEtaSeconds(world.Groups()[0]);
+    Assert::IsTrue(source > 0.0f);
+
+    std::array<std::uint8_t, 2048> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteSnapshot(world, writer));
+
+    Neuron::ByteReader reader{writer.Written()};
+    SnapshotHeader header;
+    std::vector<Neuron::EntityRecord> ships;
+    std::vector<OrderStateRecord> orders;
+    Assert::IsTrue(ReadSnapshot(reader, header, ships, orders));
+    Assert::AreEqual<std::size_t>(1, orders.size());
+
+    Assert::AreEqual<std::uint16_t>(static_cast<std::uint16_t>(std::ceil(source)), orders[0].etaSeconds);
+    Assert::IsTrue(orders[0].etaSeconds != NO_ETA, L"a live leg has an answer");
+    Assert::IsTrue(static_cast<float>(orders[0].etaSeconds) >= source, L"rounded up, never down");
+  }
+
+  TEST_METHOD(TheOrderAreaStillFitsWithTheEtaOnIt)
+  {
+    // The record grew from 12 bytes to 14, and the comment on it says a field
+    // added here costs ships. It cost two.
+    Assert::AreEqual<std::size_t>(14, ORDER_STATE_RECORD_BYTES);
+    Assert::IsTrue(MAX_SHIPS_PER_SNAPSHOT >= 41, L"the MVP fleet still has to fit one datagram");
+    Assert::IsTrue(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES);
+    Assert::IsTrue(GAME_SCHEMA_TEXT.find("u16 etaSeconds") != std::string_view::npos,
+                   L"a field on the wire that is not in the schema is two builds disagreeing silently");
   }
 
   TEST_METHOD(AGroupWaitsForItsSlowestMember)

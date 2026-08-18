@@ -1165,6 +1165,58 @@ ETA = remaining-distance/speed model server-side, replicated in order state.
 **Accept:** wire-enforced 4-leg cap (5th bounces); ETA error < 10 % on straight runs;
 queued-chain rendering matches `puck-and-wheel.png` §4.
 
+**More of this slice was already standing than the line above implies.** S9 built
+`MAX_ORDER_LEGS = 4`, the `QueueFull` refusal, the append path through `IngestOrders`, and the
+per-leg re-solve. What it did not have was an authoritative ETA, and — as S12a found — a leg
+timeout that let a long leg finish at all.
+
+**Built ✅ (S12a — the authority's ETA, and two defects that blocked the queue):**
+
+`OrderStateRecord` gained `u16 etaSeconds`: seconds until the group's current leg completes,
+computed by the authority and replicated. The ghost prefers it the moment it exists and falls
+back to `OrderPreview::etaSeconds` — the prediction made before sending — only while PENDING.
+The record grew 12 → 14 bytes, and the comment saying a field here costs ships was right: the
+fleet cap fell 47 → 45, still above the 41 the MVP fields.
+
+**The model needed a moving start.** S11c's `TravelSeconds` is rest-to-rest, which is correct
+for a *preview* of a fleet standing still and wrong for a *remaining* journey — it charges an
+acceleration ramp the ships already paid, and the error grows as they arrive. Measured over
+whole legs: rest-to-rest peaks at **44.8 %** error with a second left; `RemainingSeconds`, which
+takes the speed already gained, peaks at **2.4 %**. The two are one profile — the rest-to-rest
+name is the general one at zero speed — so there is nothing to keep in step.
+
+Speed counts **along the way the ship is going**, not outright. Redirecting a fleet at cruise is
+the ordinary case: its velocity is large and points entirely the wrong way, and crediting the
+magnitude promises an arrival it is moving away from.
+
+**The leg timeout was six times too short, and it blocked the queue.** `LEG_TIMEOUT_TICKS` was a
+flat 600 — thirty seconds — documented as "long enough that a Battleship crossing the grid is
+never cut short". A Battleship crossing the grid takes **182 seconds**; even four kilometres
+takes 45. Every leg longer than half a minute ended by *timing out*. Nothing looked broken
+because `Guidance` still held the station and the ships flew on — what the timeout ended was the
+**order**, so the footprint and the ETA vanished mid-flight. With a queue it is not cosmetic:
+leg two would begin while leg one was a sixth flown, and the fleet would skip to the last
+waypoint.
+
+The deadline is now the leg's own — three times its estimate plus a grace, which S12a's own ETA
+made computable. It is set in `ApplyLeg`, which runs *every tick* to re-solve the formation, so
+it is computed only when unset and cleared wherever a leg begins. Getting that wrong in either
+direction is a live failure: recompute every tick and the deadline never arrives, so a group
+that can never advance holds forever; forget to clear it and leg two inherits leg one's expired
+deadline and gives up on the tick it starts. There is a test for each.
+
+**Verified:** `GameLogicTests` 105 → 114. Eight mutations, each failing exactly the test named
+for it. Two survived the first pass and both were the same weakness — every ETA test used a
+single ship on a straight run, where speed-toward equals speed-outright and a station equals the
+anchor. A redirected fleet and a wide Line separate them.
+
+**Outstanding for S12:** the append's identity — `SubmitOrder` returns a fresh `serverOrderId`
+that `IngestOrders` then discards, so the ack names an order no snapshot ever reports and the
+appended order's ghost retires silently. The client's pre-check still passes `queuedLegs = 0`,
+so a fifth leg bounces on the wire but not locally (BounceParity). And the queued chain itself:
+`puck-and-wheel.png` §4 draws **one** polyline with a label per leg, which means an append joins
+the existing ghost rather than making a second one.
+
 ### S13 — msquic behind the same interface ⚡ spike
 `QuicTransport`: ALPN `opf/1`, in-memory self-signed cert (`CertCreateSelfSignCertificate` +
 `CERTIFICATE_CONTEXT`), client `NO_CERTIFICATE_VALIDATION` (loopback), stream 0 = control,
