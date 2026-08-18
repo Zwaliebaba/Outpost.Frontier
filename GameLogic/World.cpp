@@ -2,6 +2,10 @@
 
 #include "World.h"
 
+#include "Formation.h"
+
+#include "EntityRecord.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -81,6 +85,11 @@ void World::Reset(std::uint64_t _seed) noexcept
   m_hulls.clear();
   m_shields.clear();
 
+  m_groups.clear();
+  m_pending.clear();
+  m_nextOrderId = 1;
+  m_lastOrderSeqProcessed = 0;
+
   m_random.Seed(_seed);
 }
 
@@ -127,6 +136,12 @@ bool World::Despawn(ShipId _shipId)
   {
     return false;
   }
+
+  // Out of every group first. A group holding a dead id would solve a station
+  // for it and leave a gap in the formation, and would keep reporting a leg
+  // nobody is flying.
+  ForgetShipInGroups(_shipId);
+  std::erase_if(m_groups, [](const OrderGroup& _group) { return _group.memberCount == 0; });
 
   // Swap-and-pop: the arrays stay dense, so iteration order stays array order
   // and nothing has to skip holes. The moved ship's id needs its slot fixed,
@@ -179,52 +194,274 @@ float World::SpeedAt(std::uint32_t _slot) const noexcept
   return XMVectorGetX(XMVector2Length(velocity));
 }
 
-void World::Tick(std::uint32_t _tick, std::span<const ScriptedMove> _moves)
+void World::Tick(std::uint32_t _tick)
 {
   m_tick = _tick;
 
-  IngestOrders(_moves);
-  // GroupAdvance belongs here (S10), between the orders arriving and the ships
-  // reacting to them.
+  IngestOrders();
+  GroupAdvance();
   Steering();
   Integrate();
-  // EmitSnapshot belongs here (S7), after the state is final for this tick.
 }
 
-void World::IngestOrders(std::span<const ScriptedMove> _moves)
+ValidationView World::Validation() const noexcept
 {
-  // Orders are applied in the order they arrive, and within an order in the
-  // order the ships are listed. Both are part of the replay contract: the same
-  // log has to produce the same assignment every time.
-  for (const ScriptedMove& move : _moves)
+  ValidationView view;
+  view.shipIds = m_ids;
+  view.queuedLegs = 0; // Per-group, and resolved in SubmitOrder where the group is known.
+  return view;
+}
+
+OrderVerdict World::SubmitOrder(const OrderSubmit& _order)
+{
+  // Appending needs to know which group it would append to, and that is the
+  // group the *first* named ship already belongs to. One group per order means
+  // a selection spanning two groups cannot append to both, so the answer is the
+  // first member's -- which is also what the client's ghost is drawn against.
+  ValidationView view = Validation();
+  if (_order.queueMode == QueueMode::Append && _order.shipCount > 0)
   {
-    const float targetX = ClampToPlayArea(move.targetXMetres);
-    const float targetY = ClampToPlayArea(move.targetYMetres);
-
-    for (std::uint32_t i = 0; i < move.shipCount; ++i)
+    for (const OrderGroup& group : m_groups)
     {
-      std::uint32_t slot = 0;
-      if (move.shipIds == nullptr || !FindSlot(move.shipIds[i], slot))
+      const ShipId* found = std::find(group.members, group.members + group.memberCount, _order.shipIds[0]);
+      if (found != group.members + group.memberCount)
       {
-        continue; // An order naming a ship that is gone is not an error here;
-                  // S9's ValidateOrder is where a client hears about it.
+        view.queuedLegs = group.legCount;
+        break;
       }
+    }
+  }
 
-      Guidance& guidance = m_guidances[slot];
-      if (move.hold)
+  const OrderVerdict verdict = ValidateOrder(view, _order);
+  if (!verdict.accepted)
+  {
+    return verdict;
+  }
+
+  OrderGroup group;
+  group.serverOrderId = m_nextOrderId;
+  group.clientOrderSeq = _order.orderSeq;
+  group.formation = _order.formation;
+  group.state = OrderState::Underway;
+  group.memberCount = _order.shipCount;
+  std::copy(_order.shipIds, _order.shipIds + _order.shipCount, group.members);
+
+  // The leg arrives quantised and is converted once, here. Everything downstream
+  // works in metres, and the number it works from is the number that was
+  // validated -- not a second conversion of the player's original click.
+  group.legCount = 1;
+  group.legIndex = 0;
+  group.legs[0].anchorMetres =
+      XMFLOAT2{ClampToPlayArea(Neuron::CentimetresToMetres(_order.target.xCm)),
+               ClampToPlayArea(Neuron::CentimetresToMetres(_order.target.yCm))};
+  group.legs[0].facingRadians = WrapAngle(Neuron::HeadingToRadians(_order.target.facingTurns16));
+  group.legStartTick = m_tick;
+
+  // Marked with the mode it will be applied with. Append is resolved at ingest,
+  // where the group it appends to is still there to be found.
+  group.legIndex = _order.queueMode == QueueMode::Append ? 1 : 0;
+
+  m_pending.push_back(group);
+  ++m_nextOrderId;
+
+  OrderVerdict accepted;
+  accepted.accepted = true;
+  accepted.reason = OrderReason::Accepted;
+  accepted.serverOrderId = group.serverOrderId;
+  return accepted;
+}
+
+void World::IngestOrders()
+{
+  // Drained in arrival order, and within an order in the order the ships were
+  // listed. Both are part of the replay contract: the same log has to produce
+  // the same assignment every time (ADR-005 §5).
+  for (OrderGroup& submitted : m_pending)
+  {
+    m_lastOrderSeqProcessed = std::max(m_lastOrderSeqProcessed, submitted.clientOrderSeq);
+
+    // `legIndex` carried the queue mode out of SubmitOrder: 1 meant append.
+    const bool append = submitted.legIndex == 1;
+    submitted.legIndex = 0;
+
+    if (append)
+    {
+      OrderGroup* existing = nullptr;
+      for (OrderGroup& group : m_groups)
       {
-        guidance.mode = GuidanceMode::Hold;
-        guidance.targetXMetres = m_positions[slot].x;
-        guidance.targetYMetres = m_positions[slot].y;
-        guidance.arrivalFacingRadians = m_headings[slot];
+        if (std::find(group.members, group.members + group.memberCount, submitted.members[0]) !=
+            group.members + group.memberCount)
+        {
+          existing = &group;
+          break;
+        }
+      }
+      if (existing != nullptr && existing->legCount < MAX_ORDER_LEGS)
+      {
+        // The group keeps its id and its ghost; only the plan grew.
+        existing->legs[existing->legCount] = submitted.legs[0];
+        ++existing->legCount;
+        existing->state = OrderState::Underway;
         continue;
       }
-
-      guidance.mode = GuidanceMode::Seek;
-      guidance.targetXMetres = targetX;
-      guidance.targetYMetres = targetY;
-      guidance.arrivalFacingRadians = WrapAngle(move.arrivalFacingRadians);
+      // Nothing to append to. Validation passed because there was no group and
+      // therefore no full queue, so this becomes the first leg of a new one.
     }
+
+    // Replace: the members leave whatever they were doing. A ship may belong to
+    // one group at a time, or two plans would write the same guidance and the
+    // last writer would win by array order.
+    for (std::uint16_t index = 0; index < submitted.memberCount; ++index)
+    {
+      ForgetShipInGroups(submitted.members[index]);
+    }
+    std::erase_if(m_groups, [](const OrderGroup& _group) { return _group.memberCount == 0; });
+
+    submitted.legStartTick = m_tick;
+    m_groups.push_back(submitted);
+  }
+  m_pending.clear();
+
+  for (OrderGroup& group : m_groups)
+  {
+    if (group.state != OrderState::Done)
+    {
+      ApplyLeg(group);
+    }
+  }
+}
+
+void World::ApplyLeg(OrderGroup& _group)
+{
+  if (_group.legIndex >= _group.legCount)
+  {
+    return;
+  }
+
+  // Only the members that still exist. A group whose ships died mid-leg solves
+  // for the survivors, which is what keeps a formation from leaving a hole
+  // where a casualty was.
+  ShipId living[MAX_SHIPS_PER_ORDER] = {};
+  std::uint32_t livingCount = 0;
+  for (std::uint16_t index = 0; index < _group.memberCount; ++index)
+  {
+    std::uint32_t slot = 0;
+    if (FindSlot(_group.members[index], slot))
+    {
+      living[livingCount] = _group.members[index];
+      ++livingCount;
+    }
+  }
+  if (livingCount == 0)
+  {
+    _group.state = OrderState::Done;
+    return;
+  }
+
+  const OrderGroupLeg& leg = _group.legs[_group.legIndex];
+
+  FormationStation stations[MAX_SHIPS_PER_ORDER] = {};
+  const auto lookup = [](ShipId _shipId, void* _context) -> HullClass
+  {
+    const World& world = *static_cast<const World*>(_context);
+    std::uint32_t slot = 0;
+    if (!world.FindSlot(_shipId, slot))
+    {
+      return HullClass::Interceptor; // Unreachable: the caller filtered to living ships.
+    }
+    return static_cast<HullClass>(world.Classes()[slot]);
+  };
+
+  const std::uint32_t solved = SolveFormation(_group.formation, std::span<const ShipId>{living, livingCount}, lookup, this,
+                                              leg.anchorMetres, leg.facingRadians, std::span<FormationStation>{stations});
+
+  for (std::uint32_t index = 0; index < solved; ++index)
+  {
+    std::uint32_t slot = 0;
+    if (!FindSlot(stations[index].shipId, slot))
+    {
+      continue;
+    }
+    Guidance& guidance = m_guidances[slot];
+    guidance.mode = GuidanceMode::Seek;
+    guidance.targetXMetres = ClampToPlayArea(stations[index].positionMetres.x);
+    guidance.targetYMetres = ClampToPlayArea(stations[index].positionMetres.y);
+    guidance.arrivalFacingRadians = leg.facingRadians;
+  }
+}
+
+void World::GroupAdvance()
+{
+  for (OrderGroup& group : m_groups)
+  {
+    if (group.state == OrderState::Done || group.legIndex >= group.legCount)
+    {
+      continue;
+    }
+
+    bool everyoneArrived = true;
+    std::uint32_t living = 0;
+    for (std::uint16_t index = 0; index < group.memberCount; ++index)
+    {
+      std::uint32_t slot = 0;
+      if (!FindSlot(group.members[index], slot))
+      {
+        continue;
+      }
+      ++living;
+
+      const Guidance& guidance = m_guidances[slot];
+      const float dx = guidance.targetXMetres - m_positions[slot].x;
+      const float dy = guidance.targetYMetres - m_positions[slot].y;
+      if (dx * dx + dy * dy > ARRIVAL_TOLERANCE_METRES * ARRIVAL_TOLERANCE_METRES)
+      {
+        everyoneArrived = false;
+        break;
+      }
+    }
+
+    if (living == 0)
+    {
+      group.state = OrderState::Done;
+      continue;
+    }
+
+    // Or the leg timed out. A straggler behind a station must not wedge the
+    // fleet behind it forever (ADR-005 §2), and the tick index is the only
+    // clock this simulation has.
+    const bool timedOut = (m_tick - group.legStartTick) >= LEG_TIMEOUT_TICKS;
+    if (!everyoneArrived && !timedOut)
+    {
+      group.state = OrderState::Underway;
+      continue;
+    }
+
+    ++group.legIndex;
+    group.legStartTick = m_tick;
+    if (group.legIndex >= group.legCount)
+    {
+      group.state = OrderState::Done;
+      continue;
+    }
+    group.state = OrderState::Arriving;
+    ApplyLeg(group);
+  }
+}
+
+void World::ForgetShipInGroups(ShipId _shipId) noexcept
+{
+  for (OrderGroup& group : m_groups)
+  {
+    ShipId* found = std::find(group.members, group.members + group.memberCount, _shipId);
+    if (found == group.members + group.memberCount)
+    {
+      continue;
+    }
+    // Shift down rather than swap-and-pop: member order is the order the client
+    // listed them, and a group that reordered itself would reorder the ghost.
+    std::copy(found + 1, group.members + group.memberCount, found);
+    --group.memberCount;
+    group.members[group.memberCount] = INVALID_SHIP_ID;
   }
 }
 

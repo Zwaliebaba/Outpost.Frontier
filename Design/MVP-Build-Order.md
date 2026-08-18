@@ -659,6 +659,54 @@ reason on the failure paths (out-of-bounds, empty selection).
 ack → state in next snapshot); `GameLogicTests` validation parity: identical verdict/reason on
 quantised inputs for a case matrix; on-screen promotion ≤ 100 ms; deliberate out-of-bounds
 order bounces with reason toast, visually identical local vs server refusal.
+**Built ✅ (code, GameLogic half):**
+`Orders.h/.cpp` — the vocabulary: kinds, formations, queue modes, the reason enum that crosses
+the wire, and `OrderSubmit` with fixed storage so decoding a datagram on the tick thread
+allocates nothing. **Legs are wire-quantised** — centimetres and turns/65536, not metres and
+radians — because ADR-005 §4's parity rule says validation consumes quantised values only, and a
+struct that stored metres would make the mistake available.
+`Validate.h/.cpp` — `ValidateOrder`, pure, over a `ValidationView` that is the *intersection* of
+what the two sides have. The client has ids off a snapshot and no `World`; if this took a
+`World` the client could not call it and the parity claim would be about two different
+functions. The order of the checks is part of the contract: an order failing two rules has to
+fail the same one on both machines, or the player reads a different explanation depending on
+which answered.
+`Formation.h/.cpp` — the Line solve, centred on the anchor so a single-ship move lands exactly
+where the player pointed, spaced by the largest member's class, and **assigned by ascending
+ShipId**. That last is not tidiness: the client's selection and the server's dense table hold
+the same ships in different orders, and a solve that followed array order would put the preview
+one station out from where the fleet actually goes.
+`World` — the `OrderGroup` table, `SubmitOrder`, `IngestOrders`, `GroupAdvance`, and a leg
+timeout so one ship that cannot move never wedges the fleet behind it. `Guidance` still carries
+the resolved station, so `Steering` never learns that groups exist — which is what S6 built it
+for.
+
+**`ScriptedMove` is gone, as its own comment promised.** The replay harness feeds real
+`OrderSubmit`s through the real validation now, which is strictly stronger. Two S6 tests changed
+their answers and both changes are the point: an absurd target is **refused** rather than
+clamped, and an order naming a ship that does not exist is **refused whole** rather than applied
+to the ships that do. A partial application would succeed on the server and fail locally in a
+way no reason code describes.
+
+**A defect found on the way, in NeuronCore.** `MetresToCentimetres` cast a float straight to
+`int32`. Beyond ±21,474 km that is undefined behaviour, and where it did not trap it wrapped — a
+target 10,000,000 km east arriving as one somewhere west, small enough for the bounds check to
+wave through. Reachable from any client that sends a large coordinate, so a validation hole
+rather than a rounding curiosity. It saturates now, and NaN saturates to the low end where
+validation refuses it.
+
+**Verified:** `GameLogicTests` 44 → 72. Parity is asserted across a six-case matrix run through
+both a server view (its own tables) and a client view (the same ids in snapshot order), with the
+matrix checked for being neither all-accepted nor all-refused. Mutation-tested: reordering the
+validation checks, dropping the formation's sort by id, and taking the smallest spacing instead
+of the largest each fail exactly the test named for them — **and one mutation caught a bad
+test**. Deleting the group fold from the world hash changed nothing, because the hash test's two
+worlds also differed in `Guidance`, which has been hashed since S6. The replacement flies both
+worlds down the same leg with identical ship state and a different queued plan, so only the
+group table can carry the difference.
+**Outstanding:** the wire and the client. `OrderSubmit`/`OrderAck` messages, the server routing
+and ack, the snapshot's order-state records, the right-drag order puck, the PENDING ghost and
+the reason toast are all still to come — nothing outside GameLogic can issue an order yet.
 
 ### S10 — Formations & the real footprint
 `SolveFormation` for Line/Wedge/Claw; puck footprint preview = the same solve (one tick per

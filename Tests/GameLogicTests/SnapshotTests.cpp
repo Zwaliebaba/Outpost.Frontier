@@ -5,6 +5,8 @@
 #include "SchemaHash.h"
 #include "ShipClass.h"
 #include "Snapshot.h"
+
+#include "EntityRecord.h"
 #include "World.h"
 
 #include <array>
@@ -50,15 +52,19 @@ void BuildFlyingWorld(World& _world, int _shipCount, std::vector<ShipId>& _outId
     _outIds.push_back(_world.Spawn(spawn));
   }
 
-  ScriptedMove move;
-  move.shipIds = _outIds.data();
-  move.shipCount = static_cast<std::uint32_t>(_outIds.size());
-  move.targetXMetres = 7000.0f;
-  move.targetYMetres = -3000.0f;
-  move.arrivalFacingRadians = 1.0f;
+  OrderSubmit move;
+  move.orderSeq = 1;
+  for (const ShipId id : _outIds)
+  {
+    (void)move.AddShip(id);
+  }
+  move.target.xCm = Neuron::MetresToCentimetres(7000.0f);
+  move.target.yCm = Neuron::MetresToCentimetres(-3000.0f);
+  move.target.facingTurns16 = Neuron::RadiansToHeading(1.0f);
+  (void)_world.SubmitOrder(move);
   for (std::uint32_t tick = 1; tick <= _ticks; ++tick)
   {
-    _world.Tick(tick, tick == 1 ? std::span<const ScriptedMove>{&move, 1} : std::span<const ScriptedMove>{});
+    _world.Tick(tick);
   }
 }
 
@@ -224,10 +230,11 @@ public:
     const ShipId ship = world.Spawn(spawn);
     const ShipId ships[] = {ship};
 
-    ScriptedMove move;
-    move.shipIds = ships;
-    move.shipCount = 1;
-    move.targetXMetres = 6000.0f;
+    OrderSubmit move;
+    move.orderSeq = 1;
+    (void)move.AddShip(ships[0]);
+    move.target.xCm = Neuron::MetresToCentimetres(6000.0f);
+    (void)world.SubmitOrder(move);
 
     ReplicatedView view;
     std::vector<ReplicatedShip> sampled;
@@ -242,7 +249,7 @@ public:
     float worstStep = 0.0f;
     for (std::uint32_t tick = 1; tick <= 120; ++tick)
     {
-      world.Tick(tick, tick == 1 ? std::span<const ScriptedMove>{&move, 1} : std::span<const ScriptedMove>{});
+      world.Tick(tick);
 
       Neuron::ByteWriter writer{buffer};
       Assert::IsTrue(WriteSnapshot(world, writer));
@@ -283,16 +290,17 @@ public:
     const ShipId ship = world.Spawn(spawn);
     const ShipId ships[] = {ship};
 
-    ScriptedMove move;
-    move.shipIds = ships;
-    move.shipCount = 1;
-    move.targetXMetres = 12000.0f;
+    OrderSubmit move;
+    move.orderSeq = 1;
+    (void)move.AddShip(ships[0]);
+    move.target.xCm = Neuron::MetresToCentimetres(12000.0f);
+    (void)world.SubmitOrder(move);
 
     ReplicatedView view;
     std::array<std::uint8_t, 512> buffer{};
     for (std::uint32_t tick = 1; tick <= 80; ++tick)
     {
-      world.Tick(tick, tick == 1 ? std::span<const ScriptedMove>{&move, 1} : std::span<const ScriptedMove>{});
+      world.Tick(tick);
       Neuron::ByteWriter writer{buffer};
       Assert::IsTrue(WriteSnapshot(world, writer));
       Assert::IsTrue(view.ApplySnapshot(writer.Written()));
@@ -337,7 +345,7 @@ public:
     ReplicatedView view;
     std::array<std::uint8_t, 256> buffer{};
 
-    world.Tick(10, std::span<const ScriptedMove>{});
+    world.Tick(10);
     Neuron::ByteWriter first{buffer};
     Assert::IsTrue(WriteSnapshot(world, first));
     Assert::IsTrue(view.ApplySnapshot(first.Written()));
@@ -348,7 +356,7 @@ public:
     ShipSpawn turnedSpawn = spawn;
     turnedSpawn.headingRadians = after;
     (void)turned.Spawn(turnedSpawn);
-    turned.Tick(11, std::span<const ScriptedMove>{});
+    turned.Tick(11);
 
     std::array<std::uint8_t, 256> secondBuffer{};
     Neuron::ByteWriter second{secondBuffer};
@@ -378,7 +386,7 @@ public:
 
     for (std::uint32_t tick = 21; tick <= 30; ++tick)
     {
-      world.Tick(tick, std::span<const ScriptedMove>{});
+      world.Tick(tick);
     }
     std::array<std::uint8_t, 512> newer{};
     Neuron::ByteWriter newerWriter{newer};
@@ -406,7 +414,7 @@ public:
     Assert::IsTrue(view.ApplySnapshot(writer.Written()));
 
     Assert::IsTrue(world.Despawn(ids[2]));
-    world.Tick(11, std::span<const ScriptedMove>{});
+    world.Tick(11);
 
     std::array<std::uint8_t, 512> second{};
     Neuron::ByteWriter secondWriter{second};

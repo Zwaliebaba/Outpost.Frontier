@@ -2,6 +2,7 @@
 
 #include "Ids.h"
 #include "Orders.h"
+#include "ShipClass.h"
 
 #include <DirectXMath.h>
 

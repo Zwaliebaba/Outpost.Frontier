@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Ids.h"
+#include "Orders.h"
+#include "Validate.h"
 #include "ShipClass.h"
 
 #include "Random.h"
@@ -74,28 +76,51 @@ struct Guidance
 };
 
 /*
- * One scripted move, and the whole of S6's order vocabulary.
+ * One leg of a group's plan: where to go and which way to face on arrival.
  *
- * Not `OrderSubmit` (ADR-005 §1): there is no queue, no formation, no
- * validation and no server order id here, and naming it as though there were
- * would claim four things this slice does not do. S9 brings the real type and
- * the validation behind it; this is what the replay harness feeds the world in
- * the meantime, and what proves the tick pipeline is order-driven rather than
- * scripted inside itself.
+ * Metres and radians, not the wire's centimetres and turns. The quantised form
+ * is `OrderLeg` and it is what validation reads (ADR-005 §4); by the time a leg
+ * reaches the group table it has been accepted and converted once, and the
+ * simulation works in the units it integrates in.
  */
-struct ScriptedMove
+struct OrderGroupLeg
 {
-  const ShipId* shipIds = nullptr;
-  std::uint32_t shipCount = 0;
+  DirectX::XMFLOAT2 anchorMetres{};
+  float facingRadians = 0.0f;
+};
 
-  float targetXMetres = 0.0f;
-  float targetYMetres = 0.0f;
-  float arrivalFacingRadians = 0.0f;
+/*
+ * One accepted order, and the thing a ghost is promoted against (ADR-005 §1).
+ *
+ * A group rather than per-ship orders, because a shared leg is what gives a
+ * fleet one ETA, one ghost and one arrival -- ADR-005's alternatives section
+ * rejects per-ship independent orders for exactly that. `Guidance` still
+ * carries the resolved station, so `Steering` never learns that groups exist.
+ *
+ * Members are ids and not slots: slots move under swap-and-pop, and a group
+ * outlives any particular arrangement of the tables.
+ */
+struct OrderGroup
+{
+  std::uint32_t serverOrderId = 0;
 
-  /// Stop where you are, ignoring the target. The one order a ship can always
-  /// be given, and the reason `GuidanceMode::Hold` is the default rather than a
-  /// state a ship falls into by accident.
-  bool hold = false;
+  /// The client's own counter, echoed so a ghost can be matched to its order
+  /// even if the `OrderAck` is lost (ADR-004 §6).
+  std::uint32_t clientOrderSeq = 0;
+
+  FormationId formation = FormationId::Line;
+  OrderState state = OrderState::Underway;
+
+  std::uint16_t memberCount = 0;
+  ShipId members[MAX_SHIPS_PER_ORDER] = {};
+
+  std::uint8_t legCount = 0;
+  std::uint8_t legIndex = 0;
+  OrderGroupLeg legs[MAX_ORDER_LEGS] = {};
+
+  /// When the current leg began, so a straggler cannot wedge the fleet
+  /// (ADR-005 §2). Ticks, because the tick index is the simulation's only clock.
+  std::uint32_t legStartTick = 0;
 };
 
 /// What a ship looks like at the moment it enters the world.
@@ -140,14 +165,38 @@ public:
   bool Despawn(ShipId _shipId);
 
   /*
-   * One fixed step: IngestOrders -> Steering -> Integrate.
+   * How long a leg may wait for its slowest member (ADR-005 §2).
    *
-   * The order is named and fixed (ADR-005 §2). `GroupAdvance` belongs between
-   * ingest and steering and arrives with S10; `EmitSnapshot` belongs after
-   * integrate and arrives with S7. Both are absent rather than stubbed, so the
-   * pipeline reads as what it does.
+   * A group advances when every member is within station tolerance *or* this
+   * many ticks have passed. Thirty seconds at 20 Hz: long enough that a
+   * Battleship crossing the grid is never cut short, short enough that one ship
+   * stuck behind a station never wedges the fleet behind it forever.
    */
-  void Tick(std::uint32_t _tick, std::span<const ScriptedMove> _moves);
+  static constexpr std::uint32_t LEG_TIMEOUT_TICKS = 600;
+
+  /*
+   * Validates an order, and queues it for the next tick if it passes.
+   *
+   * Returns the verdict the server acks with, including the `serverOrderId` an
+   * accepted order was assigned (ADR-004 §7). The verdict is available
+   * immediately and the state change is not: validation is pure and can answer
+   * now, but a world that mutated between ticks would have no tick to attribute
+   * the mutation to, and replay would have nothing to reproduce.
+   */
+  [[nodiscard]] OrderVerdict SubmitOrder(const OrderSubmit& _order);
+
+  /*
+   * One fixed step: IngestOrders -> GroupAdvance -> Steering -> Integrate.
+   *
+   * The order is named and fixed (ADR-005 §2). `EmitSnapshot` is not a step
+   * here -- `WriteSnapshot` reads the finished state from outside, which keeps
+   * the world from knowing what a datagram is.
+   *
+   * Orders are not a parameter: they arrive through `SubmitOrder` between ticks
+   * and wait in world state, so a replay reproduces the queue rather than
+   * needing the harness to remember what was in flight.
+   */
+  void Tick(std::uint32_t _tick);
 
   [[nodiscard]] std::uint32_t Tick() const noexcept { return m_tick; }
   [[nodiscard]] std::uint32_t ShipCount() const noexcept { return static_cast<std::uint32_t>(m_ids.size()); }
@@ -173,6 +222,23 @@ public:
   [[nodiscard]] std::span<const std::uint8_t> Hulls() const noexcept { return m_hulls; }
   [[nodiscard]] std::span<const std::uint8_t> Shields() const noexcept { return m_shields; }
 
+  /// The accepted orders, and what they are doing. Read by `WriteSnapshot` for
+  /// the order-state records that promote a client's ghost (ADR-004 §6).
+  [[nodiscard]] std::span<const OrderGroup> Groups() const noexcept { return m_groups; }
+
+  /// The highest client sequence this world has ingested, for the snapshot
+  /// header. Closes the feedback loop when an `OrderAck` is lost.
+  [[nodiscard]] std::uint32_t LastOrderSeqProcessed() const noexcept { return m_lastOrderSeqProcessed; }
+
+  /// Orders accepted but not yet ingested. Non-zero only between a `SubmitOrder`
+  /// and the next `Tick`.
+  [[nodiscard]] std::uint32_t PendingOrderCount() const noexcept { return static_cast<std::uint32_t>(m_pending.size()); }
+
+  /// The view `ValidateOrder` runs against, built from this world's own tables.
+  /// Exposed because the server pre-checks with it and a test asserts parity
+  /// against the client's (ADR-005 §4).
+  [[nodiscard]] ValidationView Validation() const noexcept;
+
   /// The RNG's state, for the world hash. Exposed rather than hashed here so
   /// `WorldHash` stays the single place that decides what "the state" means.
   [[nodiscard]] const Neuron::Pcg32& Random() const noexcept { return m_random; }
@@ -182,9 +248,18 @@ public:
   [[nodiscard]] float SpeedAt(std::uint32_t _slot) const noexcept;
 
 private:
-  void IngestOrders(std::span<const ScriptedMove> _moves);
+  void IngestOrders();
+  void GroupAdvance();
   void Steering();
   void Integrate();
+
+  /// Solves the current leg's stations and writes them into the members'
+  /// guidance. The one place a group touches a ship.
+  void ApplyLeg(OrderGroup& _group);
+
+  /// Drops any group a ship still belongs to, so an order cannot outlive its
+  /// last member. Called on despawn.
+  void ForgetShipInGroups(ShipId _shipId) noexcept;
 
   std::uint32_t m_tick = 0;
 
@@ -203,6 +278,15 @@ private:
   std::vector<Guidance> m_guidances;
   std::vector<std::uint8_t> m_hulls;
   std::vector<std::uint8_t> m_shields;
+
+  std::vector<OrderGroup> m_groups;
+
+  /// Accepted, waiting for the next tick to ingest. World state, so a replay
+  /// reproduces orders that were in flight across a tick boundary.
+  std::vector<OrderGroup> m_pending;
+
+  std::uint32_t m_nextOrderId = 1; // Zero means "no order" in the verdict.
+  std::uint32_t m_lastOrderSeqProcessed = 0;
 
   /// In world state, not a global, because a replay has to reproduce it
   /// (ADR-005 §5). Unused by S6's movement -- steering is deterministic and

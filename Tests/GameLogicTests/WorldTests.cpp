@@ -3,6 +3,8 @@
 
 #include "ShipClass.h"
 #include "World.h"
+
+#include "EntityRecord.h"
 #include "WorldHash.h"
 
 #include <cmath>
@@ -61,15 +63,25 @@ constexpr float PI = 3.14159265358979323846f;
   return _world.Spawn(spawn);
 }
 
-[[nodiscard]] ScriptedMove MoveTo(const ShipId* _ships, std::uint32_t _count, float _x, float _y, float _facing = 0.0f)
+/*
+ * A move order for these ships, quantised the way the wire quantises it.
+ *
+ * Metres in, centimetres out, because that is what an `OrderSubmit` carries and
+ * what `ValidateOrder` reads (ADR-005 §4). A test that built a leg in metres
+ * would be exercising a path the game does not have.
+ */
+[[nodiscard]] OrderSubmit MoveTo(const ShipId* _ships, std::uint32_t _count, float _x, float _y, float _facing = 0.0f)
 {
-  ScriptedMove move;
-  move.shipIds = _ships;
-  move.shipCount = _count;
-  move.targetXMetres = _x;
-  move.targetYMetres = _y;
-  move.arrivalFacingRadians = _facing;
-  return move;
+  OrderSubmit order;
+  order.orderSeq = 1;
+  for (std::uint32_t index = 0; index < _count; ++index)
+  {
+    (void)order.AddShip(_ships[index]);
+  }
+  order.target.xCm = Neuron::MetresToCentimetres(_x);
+  order.target.yCm = Neuron::MetresToCentimetres(_y);
+  order.target.facingTurns16 = Neuron::RadiansToHeading(_facing);
+  return order;
 }
 
 /// The classes with content, which are the only ones that can be spawned.
@@ -110,16 +122,19 @@ const HullClass PLAYABLE[] = {HullClass::Interceptor, HullClass::Bomber, HullCla
     // A new order every hundred ticks, so the log exercises re-targeting
     // mid-flight rather than one long uninterrupted approach.
     const bool issue = (tick % 100) == 1;
-    ScriptedMove move = MoveTo(ships.data(), static_cast<std::uint32_t>(ships.size()),
+    OrderSubmit move = MoveTo(ships.data(), static_cast<std::uint32_t>(ships.size()),
                                ((tick / 200) % 2) != 0 ? -6000.0f : 6000.0f, ((tick / 300) % 2) != 0 ? 4000.0f : -4000.0f,
                                static_cast<float>(tick % 7) * 0.4f);
     if (_divergeAtHalf && tick == _tickCount / 2)
     {
-      move.targetXMetres += 1.0f; // One metre, once. It must still show up.
+      move.target.xCm += 100; // One metre, once. It must still show up.
     }
 
-    world.Tick(tick, issue || (_divergeAtHalf && tick == _tickCount / 2) ? std::span<const ScriptedMove>{&move, 1}
-                                                                        : std::span<const ScriptedMove>{});
+    if (issue || (_divergeAtHalf && tick == _tickCount / 2))
+    {
+      (void)world.SubmitOrder(move);
+    }
+    world.Tick(tick);
     if (tick % 20 == 0)
     {
       checkpoints.push_back(ComputeWorldHash(world));
@@ -215,13 +230,21 @@ public:
 
     const ShipId onlyA[] = {stationA};
     const ShipId onlyB[] = {stationB};
-    const ScriptedMove moveA = MoveTo(onlyA, 1, 3000.0f, 0.0f);
-    const ScriptedMove moveB = MoveTo(onlyB, 1, -3000.0f, 0.0f);
+    const OrderSubmit moveA = MoveTo(onlyA, 1, 3000.0f, 0.0f);
+    const OrderSubmit moveB = MoveTo(onlyB, 1, -3000.0f, 0.0f);
 
     for (std::uint32_t tick = 1; tick <= 50; ++tick)
     {
-      a.Tick(tick, tick == 1 ? std::span<const ScriptedMove>{&moveA, 1} : std::span<const ScriptedMove>{});
-      b.Tick(tick, tick == 1 ? std::span<const ScriptedMove>{&moveB, 1} : std::span<const ScriptedMove>{});
+      if (tick == 1)
+      {
+        (void)a.SubmitOrder(moveA);
+      }
+      a.Tick(tick);
+      if (tick == 1)
+      {
+        (void)b.SubmitOrder(moveB);
+      }
+      b.Tick(tick);
     }
 
     Assert::AreEqual(ComputeReplicatedHash(a), ComputeReplicatedHash(b), L"nothing a client can see has changed");
@@ -251,13 +274,17 @@ public:
         world.Reset(3);
         const ShipId ship = SpawnOne(world, hullClass);
         const ShipId ships[] = {ship};
-        const ScriptedMove move = MoveTo(ships, 1, target[0], target[1], target[2]);
+        const OrderSubmit move = MoveTo(ships, 1, target[0], target[1], target[2]);
 
         float previousHeading = world.Headings()[0];
         float previousSpeed = 0.0f;
         for (std::uint32_t tick = 1; tick <= 2500; ++tick)
         {
-          world.Tick(tick, tick == 1 ? std::span<const ScriptedMove>{&move, 1} : std::span<const ScriptedMove>{});
+          if (tick == 1)
+          {
+            (void)world.SubmitOrder(move);
+          }
+          world.Tick(tick);
 
           const float speed = world.SpeedAt(0);
           const float heading = world.Headings()[0];
@@ -283,11 +310,15 @@ public:
       world.Reset(3);
       const ShipId ship = SpawnOne(world, hullClass);
       const ShipId ships[] = {ship};
-      const ScriptedMove move = MoveTo(ships, 1, -3000.0f, 2000.0f, 2.0f);
+      const OrderSubmit move = MoveTo(ships, 1, -3000.0f, 2000.0f, 2.0f);
 
       for (std::uint32_t tick = 1; tick <= 4000; ++tick)
       {
-        world.Tick(tick, tick == 1 ? std::span<const ScriptedMove>{&move, 1} : std::span<const ScriptedMove>{});
+        if (tick == 1)
+        {
+          (void)world.SubmitOrder(move);
+        }
+        world.Tick(tick);
       }
 
       const float finalDistance = DistanceTo(world.Positions()[0], -3000.0f, 2000.0f);
@@ -308,13 +339,17 @@ public:
       world.Reset(3);
       const ShipId ship = SpawnOne(world, hullClass);
       const ShipId ships[] = {ship};
-      const ScriptedMove move = MoveTo(ships, 1, 6000.0f, 0.0f);
+      const OrderSubmit move = MoveTo(ships, 1, 6000.0f, 0.0f);
 
       bool arrived = false;
       float worstAfterArrival = 0.0f;
       for (std::uint32_t tick = 1; tick <= 4000; ++tick)
       {
-        world.Tick(tick, tick == 1 ? std::span<const ScriptedMove>{&move, 1} : std::span<const ScriptedMove>{});
+        if (tick == 1)
+        {
+          (void)world.SubmitOrder(move);
+        }
+        world.Tick(tick);
         const float distance = DistanceTo(world.Positions()[0], 6000.0f, 0.0f);
         if (distance <= World::ARRIVAL_TOLERANCE_METRES)
         {
@@ -355,11 +390,15 @@ public:
       const ShipId ships[] = {ship};
 
       // Get up to cruise heading east.
-      const ScriptedMove run = MoveTo(ships, 1, 15000.0f, 0.0f);
+      const OrderSubmit run = MoveTo(ships, 1, 15000.0f, 0.0f);
       std::uint32_t tick = 1;
       for (; tick <= 900; ++tick)
       {
-        world.Tick(tick, tick == 1 ? std::span<const ScriptedMove>{&run, 1} : std::span<const ScriptedMove>{});
+        if (tick == 1)
+        {
+          (void)world.SubmitOrder(run);
+        }
+        world.Tick(tick);
       }
       Assert::IsTrue(world.SpeedAt(0) > info.maxSpeedMetresPerSec * 0.9f, L"the hull never reached cruise");
 
@@ -367,14 +406,18 @@ public:
       const XMFLOAT2 at = world.Positions()[0];
       const float targetX = at.x - 60.0f;
       const float targetY = at.y;
-      const ScriptedMove back = MoveTo(ships, 1, targetX, targetY);
+      const OrderSubmit back = MoveTo(ships, 1, targetX, targetY);
 
       float accumulatedBearing = 0.0f;
       float previousBearing = std::atan2(at.y - targetY, at.x - targetX);
       bool arrived = false;
       for (std::uint32_t step = 0; step < 4000 && !arrived; ++step, ++tick)
       {
-        world.Tick(tick, step == 0 ? std::span<const ScriptedMove>{&back, 1} : std::span<const ScriptedMove>{});
+        if (step == 0)
+        {
+          (void)world.SubmitOrder(back);
+        }
+        world.Tick(tick);
         const XMFLOAT2 position = world.Positions()[0];
         const float bearing = std::atan2(position.y - targetY, position.x - targetX);
         accumulatedBearing += WrappedDelta(previousBearing, bearing);
@@ -485,7 +528,7 @@ public:
 
     for (std::uint32_t tick = 1; tick <= 100; ++tick)
     {
-      world.Tick(tick, std::span<const ScriptedMove>{});
+      world.Tick(tick);
     }
 
     Assert::AreEqual(1234.0f, world.Positions()[0].x, 1e-3f);
@@ -500,55 +543,105 @@ public:
     const ShipId ship = SpawnOne(world, HullClass::Corvette);
     const ShipId ships[] = {ship};
 
-    const ScriptedMove go = MoveTo(ships, 1, 8000.0f, 0.0f);
+    const OrderSubmit go = MoveTo(ships, 1, 8000.0f, 0.0f);
     std::uint32_t tick = 1;
     for (; tick <= 200; ++tick)
     {
-      world.Tick(tick, tick == 1 ? std::span<const ScriptedMove>{&go, 1} : std::span<const ScriptedMove>{});
+      if (tick == 1)
+      {
+        (void)world.SubmitOrder(go);
+      }
+      world.Tick(tick);
     }
     Assert::IsTrue(world.SpeedAt(0) > 50.0f, L"the ship never got moving");
 
-    ScriptedMove stop;
-    stop.shipIds = ships;
-    stop.shipCount = 1;
-    stop.hold = true;
+    // A hold is a Move to where the ship already is. ADR-004 §7's wire carries
+    // one order kind, so "stop" is a destination rather than a verb, and the
+    // ship brakes to it under the same arrival logic as any other move.
+    const OrderSubmit stop = MoveTo(ships, 1, world.Positions()[0].x, world.Positions()[0].y);
     for (std::uint32_t step = 0; step < 400; ++step, ++tick)
     {
-      world.Tick(tick, step == 0 ? std::span<const ScriptedMove>{&stop, 1} : std::span<const ScriptedMove>{});
+      if (step == 0)
+      {
+        (void)world.SubmitOrder(stop);
+      }
+      world.Tick(tick);
     }
 
     Assert::AreEqual(0.0f, world.SpeedAt(0), 1e-3f, L"a held ship is still moving");
   }
 
-  TEST_METHOD(TargetsAreClampedIntoThePlayArea)
+  TEST_METHOD(AnAbsurdTargetIsRefusedRatherThanClamped)
   {
-    // float32 gives millimetres over a 40 km grid and much less far outside it
-    // (ADR-001 §3), so an order aimed at the horizon is brought back to the
-    // edge rather than trusted.
+    /*
+     * This asserted clamping before S9, because before S9 nothing validated.
+     * `ValidateOrder` refuses an out-of-bounds leg now, and refusing is the
+     * better answer: a clamped order is one the player did not give, arriving
+     * with no explanation, at the edge of the map.
+     *
+     * The value matters. 1e9 metres is 1e11 centimetres, well past `int32`, and
+     * casting a float that far out of range is undefined behaviour --
+     * `MetresToCentimetres` saturates for exactly this reason, so the number
+     * validation sees is enormous rather than wrapped into something small
+     * enough to accept.
+     */
     World world;
     world.Reset(1);
     const ShipId ship = SpawnOne(world, HullClass::Interceptor);
     const ShipId ships[] = {ship};
-    const ScriptedMove absurd = MoveTo(ships, 1, 1.0e9f, -1.0e9f);
+    const OrderSubmit absurd = MoveTo(ships, 1, 1.0e9f, -1.0e9f);
 
-    world.Tick(1, std::span<const ScriptedMove>{&absurd, 1});
+    Assert::IsTrue(absurd.target.xCm > PLAY_AREA_HALF_EXTENT_CM, L"saturation should leave it far outside, not wrapped");
+    Assert::IsTrue(absurd.target.yCm < -PLAY_AREA_HALF_EXTENT_CM);
 
-    const Guidance& guidance = world.Guidances()[0];
-    Assert::AreEqual(World::PLAY_AREA_HALF_EXTENT_METRES, guidance.targetXMetres, 1e-3f);
-    Assert::AreEqual(-World::PLAY_AREA_HALF_EXTENT_METRES, guidance.targetYMetres, 1e-3f);
+    const OrderVerdict verdict = world.SubmitOrder(absurd);
+    Assert::IsFalse(verdict.accepted);
+    Assert::IsTrue(verdict.reason == OrderReason::OutOfBounds);
+
+    world.Tick(1);
+    Assert::IsTrue(world.Guidances()[0].mode == GuidanceMode::Hold, L"a refused order must move nothing");
   }
 
-  TEST_METHOD(AnOrderNamingAMissingShipIsIgnoredRatherThanFatal)
+  TEST_METHOD(TheEdgeOfTheOperatingAreaIsStillInsideIt)
   {
+    // The bound is inclusive, and a test says so rather than leaving the next
+    // reader to work it out from a comparison operator.
+    World world;
+    world.Reset(1);
+    const ShipId ship = SpawnOne(world, HullClass::Interceptor);
+    const ShipId ships[] = {ship};
+
+    const OrderSubmit onTheEdge = MoveTo(ships, 1, World::PLAY_AREA_HALF_EXTENT_METRES, 0.0f);
+    Assert::IsTrue(world.SubmitOrder(onTheEdge).accepted);
+
+    OrderSubmit oneCentimetreOut = onTheEdge;
+    oneCentimetreOut.target.xCm += 1;
+    Assert::IsTrue(world.SubmitOrder(oneCentimetreOut).reason == OrderReason::OutOfBounds);
+  }
+
+  TEST_METHOD(AnOrderNamingAMissingShipIsRefusedWhole)
+  {
+    /*
+     * Also a change of answer at S9. The order used to be applied to whatever
+     * ships existed; it is refused entirely now, with `UnknownShip`.
+     *
+     * Refusing the whole thing is what makes the client's pre-check worth
+     * having: a partial application would succeed on the server and fail
+     * locally in a way no reason code describes, and the player would see some
+     * of their fleet move.
+     */
     World world;
     world.Reset(1);
     const ShipId ship = SpawnOne(world, HullClass::Bomber);
     const ShipId ships[] = {ship, static_cast<ShipId>(9999)};
-    const ScriptedMove move = MoveTo(ships, 2, 1000.0f, 0.0f);
+    const OrderSubmit move = MoveTo(ships, 2, 1000.0f, 0.0f);
 
-    world.Tick(1, std::span<const ScriptedMove>{&move, 1});
+    const OrderVerdict verdict = world.SubmitOrder(move);
+    Assert::IsFalse(verdict.accepted);
+    Assert::IsTrue(verdict.reason == OrderReason::UnknownShip);
 
-    Assert::IsTrue(world.Guidances()[0].mode == GuidanceMode::Seek, L"the ship that does exist should still have moved");
+    world.Tick(1);
+    Assert::IsTrue(world.Guidances()[0].mode == GuidanceMode::Hold, L"no part of a refused order may be applied");
   }
 
   TEST_METHOD(AStationIsAShipThatNeverMoves)
@@ -562,10 +655,14 @@ public:
     Assert::IsTrue(station != INVALID_SHIP_ID);
 
     const ShipId ships[] = {station};
-    const ScriptedMove move = MoveTo(ships, 1, 5000.0f, 5000.0f);
+    const OrderSubmit move = MoveTo(ships, 1, 5000.0f, 5000.0f);
     for (std::uint32_t tick = 1; tick <= 500; ++tick)
     {
-      world.Tick(tick, tick == 1 ? std::span<const ScriptedMove>{&move, 1} : std::span<const ScriptedMove>{});
+      if (tick == 1)
+      {
+        (void)world.SubmitOrder(move);
+      }
+      world.Tick(tick);
     }
 
     Assert::AreEqual(0.0f, world.Positions()[0].x, 1e-4f);

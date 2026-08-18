@@ -59,6 +59,12 @@ struct OrderVerdict
 {
   bool accepted = false;
   OrderReason reason = OrderReason::Accepted;
+
+  /// Assigned by the authority when it accepts, and zero everywhere else --
+  /// including on an accepted pre-check, because nothing has been given an id
+  /// until the server has seen it (ADR-004 §7). `ValidateOrder` never sets it;
+  /// only `World::SubmitOrder` does.
+  std::uint32_t serverOrderId = 0;
 };
 
 /*

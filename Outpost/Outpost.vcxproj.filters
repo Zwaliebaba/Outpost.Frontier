@@ -1,36 +1,102 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <FxCompile Include="Shaders\NebulaPS.hlsl">
-      <Filter>Shaders</Filter>
-    </FxCompile>
-    <FxCompile Include="Shaders\NebulaVS.hlsl">
+    <Filter Include="Boot">
+      <UniqueIdentifier>{68d99bc3-5eff-4e1d-a1a5-e25e7335d0d5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Config">
+      <UniqueIdentifier>{ad920af8-f841-4de5-9d02-645d45875445}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shaders">
+      <UniqueIdentifier>{6f1b7c4e-2a55-4d1f-9c73-8b0d2e6a41c9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Project Files">
+      <UniqueIdentifier>{5f83fdad-674d-492b-8102-e14c89b3a2c4}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Shaders\OpaqueVS.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
     <FxCompile Include="Shaders\OpaquePS.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
-    <FxCompile Include="Shaders\OpaqueVS.hlsl">
+    <FxCompile Include="Shaders\NebulaVS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\NebulaPS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\OverlayVS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\OverlayPS.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
   </ItemGroup>
   <ItemGroup>
+    <None Include="packages.config">
+      <Filter>Project Files</Filter>
+    </None>
+    <None Include="Shaders\FrameConstants.hlsli">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="Shaders\PassConstants.hlsli">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="Shaders\Opaque.hlsli">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="Shaders\Nebula.hlsli">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="Shaders\Overlay.hlsli">
+      <Filter>Shaders</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
     <ClCompile Include="pch.cpp" />
-    <ClCompile Include="AppConfig.cpp" />
-    <ClCompile Include="ConfigLoad.cpp" />
-    <ClCompile Include="ReplicatedWorldView.cpp" />
-    <ClCompile Include="ShaderTable.cpp" />
-    <ClCompile Include="UniverseLoad.cpp" />
-    <ClCompile Include="Main.cpp" />
-    <ClCompile Include="SelfTest.cpp" />
+    <ClCompile Include="Main.cpp">
+      <Filter>Boot</Filter>
+    </ClCompile>
+    <ClCompile Include="SelfTest.cpp">
+      <Filter>Boot</Filter>
+    </ClCompile>
+    <ClCompile Include="ReplicatedWorldView.cpp">
+      <Filter>Boot</Filter>
+    </ClCompile>
+    <ClCompile Include="AppConfig.cpp">
+      <Filter>Config</Filter>
+    </ClCompile>
+    <ClCompile Include="ConfigLoad.cpp">
+      <Filter>Config</Filter>
+    </ClCompile>
+    <ClCompile Include="UniverseLoad.cpp">
+      <Filter>Config</Filter>
+    </ClCompile>
+    <ClCompile Include="ShaderTable.cpp">
+      <Filter>Shaders</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
-    <ClInclude Include="AppConfig.h" />
-    <ClInclude Include="ConfigLoad.h" />
-    <ClInclude Include="ReplicatedWorldView.h" />
-    <ClInclude Include="ShaderTable.h" />
-    <ClInclude Include="UniverseLoad.h" />
-    <ClInclude Include="SelfTest.h" />
+    <ClInclude Include="SelfTest.h">
+      <Filter>Boot</Filter>
+    </ClInclude>
+    <ClInclude Include="ReplicatedWorldView.h">
+      <Filter>Boot</Filter>
+    </ClInclude>
+    <ClInclude Include="AppConfig.h">
+      <Filter>Config</Filter>
+    </ClInclude>
+    <ClInclude Include="ConfigLoad.h">
+      <Filter>Config</Filter>
+    </ClInclude>
+    <ClInclude Include="UniverseLoad.h">
+      <Filter>Config</Filter>
+    </ClInclude>
+    <ClInclude Include="ShaderTable.h">
+      <Filter>Shaders</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

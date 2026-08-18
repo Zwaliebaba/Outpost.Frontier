@@ -99,6 +99,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="UniverseTests.cpp" />
+    <ClCompile Include="OrderTests.cpp" />
     <ClCompile Include="SnapshotTests.cpp" />
     <ClCompile Include="WorldTests.cpp" />
     <ClCompile Include="pch.cpp">

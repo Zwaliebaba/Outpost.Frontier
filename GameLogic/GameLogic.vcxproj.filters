@@ -2,6 +2,15 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
+    <ClCompile Include="Orders.cpp">
+      <Filter>Orders</Filter>
+    </ClCompile>
+    <ClCompile Include="Validate.cpp">
+      <Filter>Orders</Filter>
+    </ClCompile>
+    <ClCompile Include="Formation.cpp">
+      <Filter>Formation</Filter>
+    </ClCompile>
     <ClCompile Include="ShipClass.cpp">
       <Filter>World</Filter>
     </ClCompile>
@@ -28,6 +37,15 @@
     <ClInclude Include="pch.h" />
     <ClInclude Include="Ids.h">
       <Filter>World</Filter>
+    </ClInclude>
+    <ClInclude Include="Orders.h">
+      <Filter>Orders</Filter>
+    </ClInclude>
+    <ClInclude Include="Validate.h">
+      <Filter>Orders</Filter>
+    </ClInclude>
+    <ClInclude Include="Formation.h">
+      <Filter>Formation</Filter>
     </ClInclude>
     <ClInclude Include="ShipClass.h">
       <Filter>World</Filter>
@@ -57,6 +75,12 @@
   <ItemGroup>
     <Filter Include="World">
       <UniqueIdentifier>{3f6b1c40-9d27-4a58-8b0e-2c7415d9e8a3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Orders">
+      <UniqueIdentifier>{2b7f1a90-5d3c-4a68-9f21-6c4e8b0d7a35}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Formation">
+      <UniqueIdentifier>{c14d6e82-9a07-4b53-8d6f-1e2a45b9c308}</UniqueIdentifier>
     </Filter>
     <Filter Include="Wire">
       <UniqueIdentifier>{7c1a94e2-5b36-4d08-9f21-0ae63c85d417}</UniqueIdentifier>

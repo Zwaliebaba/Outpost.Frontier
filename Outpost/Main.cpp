@@ -9,6 +9,7 @@
 
 // GameLogic, reached only from here: the executable is the one project
 // entitled to know both halves (ADR-014 §1).
+#include "Orders.h"
 #include "SchemaHash.h"
 #include "ShipClass.h"
 #include "Snapshot.h"
@@ -139,6 +140,11 @@ public:
    * It is scripted from the tick index and nothing else, so it replays exactly
    * (ADR-005 §5) and a desync between two runs of the same build would be a
    * real defect rather than an artefact of when someone clicked.
+   *
+   * From S9 it goes through the real order path -- validated, assigned a server
+   * order id, solved into a formation -- rather than writing guidance directly.
+   * The fleet therefore arrives in a Line abreast rather than in a heap, which
+   * is the formation solve visible without anyone having to click.
    */
   void AdvanceTick(std::uint32_t _tick) override
   {
@@ -148,17 +154,32 @@ public:
       const std::uint32_t leg = (_tick / LEG_TICKS) % 4;
       constexpr float WAYPOINTS[4][2] = {{6000.0f, 0.0f}, {0.0f, 6000.0f}, {-6000.0f, 0.0f}, {0.0f, -6000.0f}};
 
-      Game::ScriptedMove move;
-      move.shipIds = m_patrolShips.data();
-      move.shipCount = static_cast<std::uint32_t>(m_patrolShips.size());
-      move.targetXMetres = WAYPOINTS[leg][0];
-      move.targetYMetres = WAYPOINTS[leg][1];
-      move.arrivalFacingRadians = static_cast<float>(leg) * DirectX::XM_PIDIV2;
-      m_world.Tick(_tick, std::span<const Game::ScriptedMove>{&move, 1});
-      return;
+      Game::OrderSubmit order;
+      // The sequence is the leg number, not a counter: derived from the tick, so
+      // two runs of the same build submit the same sequence at the same tick.
+      order.orderSeq = _tick;
+      order.kind = Game::OrderKind::Move;
+      order.formation = Game::FormationId::Line;
+      order.queueMode = Game::QueueMode::Replace;
+      for (const Game::ShipId shipId : m_patrolShips)
+      {
+        if (!order.AddShip(shipId))
+        {
+          break; // A fleet past the per-order cap patrols with as much as fits.
+        }
+      }
+      order.target.xCm = Neuron::MetresToCentimetres(WAYPOINTS[leg][0]);
+      order.target.yCm = Neuron::MetresToCentimetres(WAYPOINTS[leg][1]);
+      order.target.facingTurns16 = Neuron::RadiansToHeading(static_cast<float>(leg) * DirectX::XM_PIDIV2);
+
+      const Game::OrderVerdict verdict = m_world.SubmitOrder(order);
+      if (!verdict.accepted)
+      {
+        NEURON_LOG_WARNING("scripted patrol refused: %s", Game::OrderReasonText(verdict.reason));
+      }
     }
 
-    m_world.Tick(_tick, std::span<const Game::ScriptedMove>{});
+    m_world.Tick(_tick);
   }
 
   /// The tick argument is the loop's; the world knows its own and they are the
