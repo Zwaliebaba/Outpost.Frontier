@@ -119,12 +119,12 @@ struct OverlayTuning
    * circle drawn at that radius circumscribes a formation it barely touches at
    * two points, and eleven ships put a green ellipse across the whole viewport.
    *
-   * The footprint is the **station ticks** — one per ship, at the exact place
+   * The footprint is the **station ticks** -- one per ship, at the exact place
    * that ship is going (ADR-005 §3). They already say what shape the fleet will
    * take and how much room it needs, and they say it truthfully for every
    * formation. The ring's job is the other half of `puck-and-wheel.png` §2: it
    * marks where the player pointed. A shape that hugs the formation is the
-   * print's enclosing outline, and that is a polyline — draw list *(B)*, with
+   * print's enclosing outline, and that is a polyline -- draw list *(B)*, with
    * the Ui pass.
    */
   float puckRadiusPixels = 22.0f;

@@ -4,6 +4,7 @@
 #include "WorldView.h"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 /*
@@ -51,6 +52,17 @@ public:
      */
     std::vector<std::uint16_t> renderClassByHull;
 
+    /*
+     * What each wing is called, indexed by `WingId`. Index 0 is
+     * `INVALID_WING_ID` and is never drawn -- the stations belong to no wing.
+     *
+     * Here rather than in GameLogic because the MVP's fleet is authored in the
+     * composition root (`MakeStartingWorld`) and its names belong beside it. A
+     * fleet file would move both together; splitting them now would put the
+     * ships in one place and their call signs in another.
+     */
+    std::vector<std::string> wingNames;
+
     /// The universe hash, which is what the handshake fails closed on.
     std::uint64_t contentHash = 0;
   };
@@ -67,6 +79,8 @@ public:
   [[nodiscard]] bool EncodeOrder(const Neuron::OrderIntent& _intent, Neuron::ByteWriter& _writer) override;
   [[nodiscard]] Neuron::OrderDefaults DefaultOrder() const override;
   [[nodiscard]] std::uint32_t OrderOptions(std::uint16_t _kind, std::span<Neuron::OrderOption> _outOptions) const override;
+  [[nodiscard]] std::uint32_t BuildRoster(std::span<const std::uint16_t> _selectedIds,
+                                          std::span<Neuron::RosterRow> _outRows) const override;
   void PollOrderFeedback(Neuron::OrderFeedback& _outFeedback) override;
   [[nodiscard]] const char* ReasonText(std::uint16_t _reasonCode) const override;
 

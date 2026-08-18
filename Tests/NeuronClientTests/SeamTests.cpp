@@ -151,6 +151,28 @@ public:
     (void)_outFeedback.Add(progress);
   }
 
+  /*
+   * Two groups, and the stub aggregates them itself -- which is the shape of
+   * the claim. A game with no groups returns zero and the panel draws empty;
+   * this one has groups it named, counted and combined health for on its own
+   * side of the seam.
+   */
+  [[nodiscard]] std::uint32_t BuildRoster(std::span<const std::uint16_t> _selectedIds,
+                                          std::span<RosterRow> _outRows) const override
+  {
+    if (_outRows.size() < 2)
+    {
+      return 0;
+    }
+    _outRows[0] = RosterRow{"ALPHA", 11, 4, 0, 200, 100};
+    _outRows[1] = RosterRow{"BETA", 12, 2, 0, 255, 0};
+
+    // Anything selected counts against the first row, which is enough for a
+    // test that cares whether the number crosses rather than how it was found.
+    _outRows[0].selectedCount = static_cast<std::uint16_t>(_selectedIds.size());
+    return 2;
+  }
+
   [[nodiscard]] const char* ReasonText(std::uint16_t _reasonCode) const override
   {
     return _reasonCode == REFUSE_REASON ? "the stub said no" : "something else";
@@ -400,6 +422,42 @@ public:
                                     L"this stub would rather offer nothing than half a list");
   }
 
+  TEST_METHOD(TheGameAggregatesTheRosterAndTheEngineOnlyDrawsIt)
+  {
+    /*
+     * The engine has `EntityRecord::groupId` and could group by it in four
+     * lines. It must not: doing so would decide that groups are worth showing,
+     * that they are named, and how a group's health combines. Those are
+     * questions about a particular game, and this call is where they are
+     * answered on the side allowed to answer them.
+     *
+     * Nothing in the engine's half of this test knows the word "wing".
+     */
+    StubWorldView view;
+    WorldView& seam = view;
+
+    const std::uint16_t selected[] = {1, 2, 3};
+    RosterRow rows[MAX_ROSTER_ROWS] = {};
+    const std::uint32_t count = seam.BuildRoster(selected, rows);
+
+    Assert::AreEqual<std::uint32_t>(2, count, L"two rows");
+    Assert::AreEqual("ALPHA", rows[0].name, L"named by the game");
+    Assert::AreEqual<std::uint16_t>(11, rows[0].groupId, L"with an id the engine echoes and never reads");
+    Assert::AreEqual<std::uint16_t>(4, rows[0].shipCount);
+    Assert::AreEqual<std::uint16_t>(3, rows[0].selectedCount, L"and the selection counted on the game's side");
+    Assert::AreEqual<std::uint8_t>(200, rows[0].hullGauge, L"gauges are 0-255, EntityRecord's own scale");
+  }
+
+  TEST_METHOD(ARosterBufferSmallerThanTheGameWantsIsNotOverrun)
+  {
+    StubWorldView view;
+    WorldView& seam = view;
+
+    RosterRow one[1] = {};
+    Assert::AreEqual<std::uint32_t>(0, seam.BuildRoster(std::span<const std::uint16_t>{}, one),
+                                    L"this stub would rather offer nothing than half a roster");
+  }
+
   TEST_METHOD(OrderProgressCrossesAsNumbersTheEngineDoesNotInterpret)
   {
     // The promotion path. The engine polls, copies six numbers, and compares
@@ -503,6 +561,9 @@ public:
     Assert::AreEqual<std::uint16_t>(0, view.DefaultOrder().kind, L"there is no command to give");
     OrderOption options[MAX_ORDER_OPTIONS] = {};
     Assert::AreEqual<std::uint32_t>(0, view.OrderOptions(0, options), L"and no parameters to give it");
+    RosterRow rows[MAX_ROSTER_ROWS] = {};
+    Assert::AreEqual<std::uint32_t>(0, view.BuildRoster(std::span<const std::uint16_t>{}, rows),
+                                    L"a world with no fleet has no roster");
     Assert::IsNotNull(view.ReasonText(0), L"and still never a null string to draw");
 
     Assert::AreEqual<std::uint64_t>(0, view.SchemaHash());

@@ -78,6 +78,7 @@
     <ClInclude Include="RenderWorld.h" />
     <ClInclude Include="ToastStack.h" />
     <ClInclude Include="UiDrawList.h" />
+    <ClInclude Include="HudRoster.h" />
     <ClInclude Include="UiLayout.h" />
   </ItemGroup>
   <ItemGroup>

@@ -149,6 +149,9 @@
     <ClInclude Include="OrderGhost.h">
       <Filter>Extract</Filter>
     </ClInclude>
+    <ClInclude Include="HudRoster.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
     <ClInclude Include="ToastStack.h">
       <Filter>Hud</Filter>
     </ClInclude>

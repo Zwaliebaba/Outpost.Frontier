@@ -11,6 +11,8 @@
 #include "EntityRecord.h"
 
 #include <algorithm>
+#include <array>
+#include <limits>
 #include <utility>
 
 using namespace Neuron;
@@ -305,6 +307,99 @@ std::uint32_t ReplicatedWorldView::OrderOptions(std::uint16_t _kind, std::span<O
     ++count;
   }
   return count;
+}
+
+std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const std::uint16_t> _selectedIds,
+                                              std::span<RosterRow> _outRows) const
+{
+  /*
+   * One pass over the sampled fleet, accumulating per wing.
+   *
+   * `m_sampled` rather than the newest snapshot's records, so the roster counts
+   * exactly the ships the frame drew -- including the exclusions `BuildScene`
+   * makes. A roster that listed a ship the player cannot see would be a roster
+   * they cannot act on.
+   */
+  struct Accumulator
+  {
+    std::uint16_t ships = 0;
+    std::uint16_t selected = 0;
+    std::uint32_t hullTotal = 0;
+    std::uint32_t shieldTotal = 0;
+  };
+  /*
+   * Indexed by `WingId` directly, so the table is every wing that can exist
+   * rather than every wing that is named -- one byte, so 256 entries, three
+   * kilobytes, on the stack.
+   *
+   * A `vector` sized from the name list is the obvious spelling and is an
+   * allocation on every frame, inside the one function whose entire job is to
+   * describe the frame. It also needed a bounds check that this does not: a
+   * `WingId` cannot index past a table with an entry per `WingId`.
+   */
+  std::array<Accumulator, static_cast<std::size_t>(std::numeric_limits<Game::WingId>::max()) + 1u> byWing{};
+
+  for (const Game::ReplicatedShip& ship : m_sampled)
+  {
+    // Wing zero is `INVALID_WING_ID` and belongs to nothing -- the stations
+    // are in it. A row for "no wing" would be a row the player cannot command.
+    if (ship.wing == Game::INVALID_WING_ID)
+    {
+      continue;
+    }
+
+    Accumulator& wing = byWing[ship.wing];
+    ++wing.ships;
+    wing.hullTotal += ship.hullGauge;
+    wing.shieldTotal += ship.shieldGauge;
+
+    if (std::find(_selectedIds.begin(), _selectedIds.end(), ship.id) != _selectedIds.end())
+    {
+      ++wing.selected;
+    }
+  }
+
+  /*
+   * The *names* decide which wings are rows, not the tally above.
+   *
+   * A ship replicated in a wing this build has no name for is counted into the
+   * table and then never emitted, which is the right way round: the roster is
+   * a list of the wings the game declared, and a row whose label had to be
+   * invented would be a row naming something the player was never told about.
+   */
+  std::uint32_t rows = 0;
+  for (std::size_t wingId = 1; wingId < m_desc.wingNames.size(); ++wingId)
+  {
+    if (rows >= _outRows.size())
+    {
+      break;
+    }
+    const Accumulator& wing = byWing[wingId];
+
+    /*
+     * A wing with nothing left in it is still a row.
+     *
+     * The print draws one -- `ECHO` with a dash where its count should be --
+     * and it is the right answer rather than a spare pixel: a wing that
+     * vanished from the roster the moment its last ship died would tell the
+     * player nothing about *which* wing they just lost, at the one moment they
+     * most need to know. The gauges read zero, which is what an empty wing has.
+     */
+    RosterRow& row = _outRows[rows];
+    row.name = m_desc.wingNames[wingId].c_str();
+    row.groupId = static_cast<std::uint16_t>(wingId);
+    row.shipCount = wing.ships;
+    row.selectedCount = wing.selected;
+
+    // The mean, not the minimum. A strip that dropped to the worst member would
+    // read as the whole wing being hurt when one Interceptor is; the print
+    // draws a bar per wing rather than per ship for exactly the opposite
+    // reason, and the roster is a summary.
+    row.hullGauge = wing.ships == 0 ? 0 : static_cast<std::uint8_t>(wing.hullTotal / wing.ships);
+    row.shieldGauge = wing.ships == 0 ? 0 : static_cast<std::uint8_t>(wing.shieldTotal / wing.ships);
+    ++rows;
+  }
+  return rows;
 }
 
 void ReplicatedWorldView::PollOrderFeedback(OrderFeedback& _outFeedback)

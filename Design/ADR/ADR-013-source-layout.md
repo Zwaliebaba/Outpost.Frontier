@@ -58,10 +58,10 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
    | NeuronCore | plain area names | `Debug.h` `Log.h` `Clock.h` `Hash.h` `Random.h` `Arena.h` `RingBuffer.h` `TaskPool.h` `Telemetry.h` `ByteReader.h` `ByteWriter.h` `Json.h` `JsonWriter.h` `EntityRecord.h` `OrderIntent.h` `Transport.h` `UdpTransport.h` `QuicTransport.h` `Wire.h` `FileSys.h` `FileSys.cpp` `NeuronHelper.h` |
    | GameLogic | type + family names | `Ids.h` `ShipClass.h` `World.h` `ReplicatedView.h` `Orders.h` `Validate.h` `Formation.h` `WorldHash.h` `Snapshot.h` `OrderMessages.h` `SchemaHash.h` `Universe.h` `UniverseParse.h` |
    | NeuronServer | type names | `Simulation.h` `ServerHost.h` `ServerConfig.h` `Session.h` `SnapshotSender.h` |
-   | NeuronClient | type names (`Gpu`, `Hud`, `Audio` read as domain words, R4) | `ClientApp.h` `ClientConfig.h` `WorldView.h` `Window.h` `ClearColour.h` `ClientConnection.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuCom.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuMeshes.h` `GpuNebula.h` `GpuPasses.h` `GpuPipelines.h` `ObjMesh.h` `NebulaField.h` `GlyphAtlas.h` `IsoCamera.h` `Picking.h` `Selection.h` `OverlayMark.h` `InputMap.h` `UiDrawList.h` `UiLayout.h` `ToastStack.h` `HudLayout.h` `HudRoster.h` `OrderPuck.h` `OrderGhost.h` `AudioSystem.h` `AudioBank.h` `AudioListener.h` |
+   | NeuronClient | type names (`Gpu`, `Hud`, `Audio` read as domain words, R4) | `ClientApp.h` `ClientConfig.h` `WorldView.h` `Window.h` `ClearColour.h` `ClientConnection.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuCom.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuMeshes.h` `GpuNebula.h` `GpuPasses.h` `GpuPipelines.h` `ObjMesh.h` `NebulaField.h` `GlyphAtlas.h` `IsoCamera.h` `Picking.h` `Selection.h` `OverlayMark.h` `InputMap.h` `UiDrawList.h` `UiLayout.h` `ToastStack.h` `HudRoster.h` `OrderPuck.h` `OrderGhost.h` `AudioSystem.h` `AudioBank.h` `AudioListener.h` |
    | Outpost | — | `Main.cpp` `AppConfig.h` `AppConfig.cpp` `ConfigLoad.h` `ConfigLoad.cpp` `UniverseLoad.h` `UniverseLoad.cpp` `ReplicatedWorldView.h` `ReplicatedWorldView.cpp` `ShaderTable.h` `ShaderTable.cpp` `SelfTest.h` `SelfTest.cpp` |
-   | Outpost/Shaders | stage suffix on the pass name | `OpaqueVS.hlsl` `OpaquePS.hlsl` `NebulaVS.hlsl` `NebulaPS.hlsl` `OverlayVS.hlsl` `OverlayPS.hlsl` — plus `Opaque.hlsli` `Nebula.hlsli` `Overlay.hlsli` `FrameConstants.hlsli` `PassConstants.hlsli` for what stages share |
-   | Outpost/CompiledShaders | generated; one per `.hlsl`, same stem | `OpaqueVS.h` `OpaquePS.h` `NebulaVS.h` `NebulaPS.h` `OverlayVS.h` `OverlayPS.h`, each defining `g_p<stem>` |
+   | Outpost/Shaders | stage suffix on the pass name | `OpaqueVS.hlsl` `OpaquePS.hlsl` `NebulaVS.hlsl` `NebulaPS.hlsl` `OverlayVS.hlsl` `OverlayPS.hlsl` `UiVS.hlsl` `UiPS.hlsl` — plus `Opaque.hlsli` `Nebula.hlsli` `Overlay.hlsli` `Ui.hlsli` `FrameConstants.hlsli` `PassConstants.hlsli` for what stages share |
+   | Outpost/CompiledShaders | generated; one per `.hlsl`, same stem | `OpaqueVS.h` `OpaquePS.h` `NebulaVS.h` `NebulaPS.h` `OverlayVS.h` `OverlayPS.h` `UiVS.h` `UiPS.h`, each defining `g_p<stem>` |
 
    If a genuine collision ever appears, the **newer** file is renamed to a more specific type name; the
    table above is the registry to check first.
@@ -69,8 +69,12 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
    **Some rows reserve a name rather than describe a file**, which is the point of §4: the
    registry has to be written *before* the file exists or it cannot prevent anything. Not yet in
    the tree, as of S9 — `QuicTransport.h` (S13), `Session.h` and `SnapshotSender.h` (both still
-   structures inside `ServerHost.cpp`), `HudLayout.h` and `HudRoster.h` (S11's roster half), and
-   `AudioSystem.h`, `AudioBank.h`, `AudioListener.h` (S15). Everything else listed is real. The
+   structures inside `ServerHost.cpp`) and `AudioSystem.h`, `AudioBank.h`, `AudioListener.h`
+   (S15). Everything else listed is real. `HudLayout.h` was reserved here for S11's roster
+   half and is now struck from the row: S11a built `UiLayout.h` for the zones and S11b
+   `HudRoster.h` for the rows, so the reserved name describes no file anyone intends to
+   write. A reservation that outlives its plan is worse than no reservation -- it is a name
+   the next author avoids for nothing. The
    Dependency Map's per-project tables carry the same names and mark the same rows *(planned)*;
    they are two views of one list, and updating one without the other is how both go stale.
 

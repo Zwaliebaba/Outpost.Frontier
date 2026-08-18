@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ByteWriter.h"
+#include "HudRoster.h"
 #include "OrderIntent.h"
 #include "RenderWorld.h"
 
@@ -133,6 +134,27 @@ public:
   [[nodiscard]] virtual std::uint32_t OrderOptions(std::uint16_t _kind, std::span<OrderOption> _outOptions) const = 0;
 
   /*
+   * The fleet roster's rows, for the HUD's left column (`tactical-hud.png`).
+   *
+   * Writes at most `_outRows.size()` and returns how many. `_selectedIds` is
+   * the client's current selection, so a row can report how much of itself is
+   * selected without the engine matching ids against group membership.
+   *
+   * **The game aggregates, and that is the whole point of the call.** The
+   * engine has `EntityRecord::groupId` and could group by it in four lines --
+   * and would thereby have decided that groups are worth showing, that they are
+   * named, that a group's health averages rather than takes a minimum, and that
+   * an empty group disappears rather than showing as empty. Those are design
+   * questions about a particular game, so they are answered on the side that is
+   * allowed to answer them.
+   *
+   * An empty answer is legitimate: a game with no groups has no roster, and the
+   * panel draws its frame with nothing in it.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildRoster(std::span<const std::uint16_t> _selectedIds,
+                                                  std::span<RosterRow> _outRows) const = 0;
+
+  /*
    * What the authority has decided about orders already sent.
    *
    * Read out of the newest snapshot, which is the game's to parse. The client
@@ -204,6 +226,8 @@ public:
   [[nodiscard]] OrderDefaults DefaultOrder() const override { return OrderDefaults{}; }
 
   [[nodiscard]] std::uint32_t OrderOptions(std::uint16_t, std::span<OrderOption>) const override { return 0; }
+
+  [[nodiscard]] std::uint32_t BuildRoster(std::span<const std::uint16_t>, std::span<RosterRow>) const override { return 0; }
 
   void PollOrderFeedback(OrderFeedback& _outFeedback) override { _outFeedback.Clear(); }
 

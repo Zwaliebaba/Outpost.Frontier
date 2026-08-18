@@ -540,7 +540,7 @@ public:
      * The bug this pins, which reached a screenshot before it reached a test.
      *
      * The puck used to be `max(preview.extentMetres, floor)`, and the extent of
-     * a Line is *half its length* — so eleven ships put a green ellipse across
+     * a Line is *half its length* -- so eleven ships put a green ellipse across
      * the whole viewport, circumscribing a formation it touches at two points.
      * The ticks are the footprint; the ring marks where the player pointed, and
      * where they pointed is one place regardless of how many ships are going.

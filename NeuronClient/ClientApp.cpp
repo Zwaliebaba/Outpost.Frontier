@@ -32,6 +32,15 @@ constexpr std::uint32_t TEXT_COLOUR = 0xff64e664u;        // The sheets' green.
 constexpr std::uint32_t TEXT_DIM_COLOUR = 0xa050a050u;
 constexpr std::uint32_t TOAST_URGENT_COLOUR = 0xff20b4ffu; // Amber: act on this.
 constexpr std::uint32_t TOAST_CRITICAL_COLOUR = 0xff4040ffu; // Red: act on it now.
+constexpr std::uint32_t TEXT_DISABLED_COLOUR = 0x80303030u;  // A control with nothing behind it.
+constexpr std::uint32_t ROW_SELECTED_COLOUR = 0x40206020u;   // The roster's highlight.
+constexpr std::uint32_t BAR_TRACK_COLOUR = 0x60202020u;      // What an empty strip looks like.
+
+/// The roster's strips, and the same two colours the world-space gauge bars
+/// use (`OverlayTuning`): a wing's row and its ships' bars must not disagree
+/// about which one is hull.
+constexpr std::uint32_t HULL_COLOUR = 0xff50e050u;
+constexpr std::uint32_t SHIELD_COLOUR = 0xff40c0e0u;
 
 /// One descriptor for the glyph atlas, and room for the per-frame tables the
 /// overlay and UI passes will want. Small and fixed: a heap that grows is a
@@ -681,6 +690,138 @@ void ClientApp::BuildHud()
   }
   const auto netWidth = static_cast<float>(std::strlen(buffer)) * cell;
   m_ui.AddText(layout.topBar.Right() - pad - netWidth, textY, m_uiTuning.bodySizeIndex, TEXT_DIM_COLOUR, buffer);
+
+  // --- the fleet roster ---------------------------------------------------
+  //
+  // The rows are the game's answer, not a grouping this file performs: it has
+  // `EntityRecord::groupId` and could aggregate in four lines, and doing so
+  // would be deciding that groups are named and how their health combines
+  // (ADR-014 §2c).
+  m_rosterRowCount = m_worldView->BuildRoster(m_selection.Ids(), m_rosterRows);
+
+  m_ui.AddQuad(layout.roster, PANEL_COLOUR);
+  m_ui.AddQuad(UiRect{layout.roster.Right() - 1.0f, layout.roster.y, 1.0f, layout.roster.height}, PANEL_EDGE_COLOUR);
+  m_ui.AddText(layout.roster.x + pad, layout.roster.y + pad, m_uiTuning.smallSizeIndex, TEXT_DIM_COLOUR, "FLEET ROSTER");
+
+  const float rowHeight = 38.0f * layout.scale;
+  const float barHeight = 3.0f * layout.scale;
+  float rowY = layout.roster.y + pad + 18.0f * layout.scale;
+
+  for (std::uint32_t index = 0; index < m_rosterRowCount; ++index)
+  {
+    const RosterRow& row = m_rosterRows[index];
+    const UiRect rowRect{layout.roster.x + pad * 0.5f, rowY, layout.roster.width - pad, rowHeight - 4.0f * layout.scale};
+    if (rowRect.Bottom() > layout.roster.Bottom())
+    {
+      break; // The panel is full. The print's "8/8" footer is where scrolling
+             // would go, and scrolling is a surface rather than a clamp.
+    }
+
+    // A wing the player has any of is lit; the print highlights the row rather
+    // than the name, so the whole row reads as the unit of selection.
+    const bool selected = row.selectedCount > 0;
+    const bool empty = row.shipCount == 0;
+    const std::uint32_t nameColour = empty ? TEXT_DISABLED_COLOUR : (selected ? TEXT_COLOUR : TEXT_DIM_COLOUR);
+    if (selected)
+    {
+      m_ui.AddQuad(rowRect, ROW_SELECTED_COLOUR);
+      m_ui.AddBorder(rowRect, 1.0f * layout.scale, TEXT_COLOUR);
+    }
+
+    m_ui.AddText(rowRect.x + pad * 0.5f, rowRect.y + pad * 0.4f, m_uiTuning.bodySizeIndex, nameColour,
+                 row.name != nullptr ? row.name : "?");
+
+    // A dash rather than a zero for a wing with nothing left. The print draws
+    // one, and it is the honest glyph: zero reads as a count and this is the
+    // absence of one.
+    if (empty)
+    {
+      std::snprintf(buffer, sizeof(buffer), "-");
+    }
+    else if (selected)
+    {
+      std::snprintf(buffer, sizeof(buffer), "%u/%u", row.selectedCount, row.shipCount);
+    }
+    else
+    {
+      std::snprintf(buffer, sizeof(buffer), "%u", row.shipCount);
+    }
+    const auto countWidth = static_cast<float>(std::strlen(buffer)) * cell;
+    m_ui.AddText(rowRect.Right() - pad * 0.5f - countWidth, rowRect.y + pad * 0.4f, m_uiTuning.bodySizeIndex, nameColour,
+                 buffer);
+
+    // Two strips: hull over shield, the same order and the same gauges the
+    // world-space bars use (ADR-006 §8), so a wing's row and its ships' bars
+    // cannot disagree about what full means.
+    const float barWidth = rowRect.width - pad;
+    const float barX = rowRect.x + pad * 0.5f;
+    const float barY = rowRect.Bottom() - pad * 0.5f - barHeight * 2.0f - 2.0f * layout.scale;
+
+    m_ui.AddQuad(UiRect{barX, barY, barWidth, barHeight}, BAR_TRACK_COLOUR);
+    m_ui.AddQuad(UiRect{barX, barY, barWidth * (static_cast<float>(row.hullGauge) / 255.0f), barHeight}, HULL_COLOUR);
+
+    const float shieldY = barY + barHeight + 2.0f * layout.scale;
+    m_ui.AddQuad(UiRect{barX, shieldY, barWidth, barHeight}, BAR_TRACK_COLOUR);
+    m_ui.AddQuad(UiRect{barX, shieldY, barWidth * (static_cast<float>(row.shieldGauge) / 255.0f), barHeight}, SHIELD_COLOUR);
+
+    rowY += rowHeight;
+  }
+
+  // --- the context bar ----------------------------------------------------
+  //
+  // `N SHIPS : WING -> FORMATION`, which is the print's own line. It reads off
+  // the selection and the roster the game just built, so it cannot claim a wing
+  // the roster does not list.
+  m_ui.AddQuad(layout.contextBar, PANEL_COLOUR);
+  m_ui.AddQuad(UiRect{0.0f, layout.contextBar.y, layout.contextBar.width, 1.0f}, PANEL_EDGE_COLOUR);
+
+  const float contextY = layout.contextBar.y + (layout.contextBar.height - 13.0f * layout.scale) * 0.5f;
+  const std::size_t selectedCount = m_selection.Ids().size();
+  if (selectedCount == 0)
+  {
+    m_ui.AddText(pad, contextY, m_uiTuning.bodySizeIndex, TEXT_DISABLED_COLOUR, "NO SELECTION");
+  }
+  else
+  {
+    // The wing named is the one the selection is mostly in. A selection
+    // spanning two wings is a real thing a box-drag produces, and naming the
+    // largest share beats naming the first or claiming both.
+    const char* wingName = "MIXED";
+    std::uint16_t best = 0;
+    for (std::uint32_t index = 0; index < m_rosterRowCount; ++index)
+    {
+      if (m_rosterRows[index].selectedCount > best)
+      {
+        best = m_rosterRows[index].selectedCount;
+        wingName = m_rosterRows[index].name != nullptr ? m_rosterRows[index].name : "?";
+      }
+    }
+    // Cast rather than compare across the promotion: `best` is a `uint16_t`
+    // that promotes to `int`, and `int < size_t` is C4018 at /W3.
+    if (static_cast<std::size_t>(best) < selectedCount)
+    {
+      wingName = "MIXED";
+    }
+
+    const char* formation = "-";
+    if (m_orderOptionIndex < m_orderOptionCount && m_orderOptions[m_orderOptionIndex].name != nullptr)
+    {
+      formation = m_orderOptions[m_orderOptionIndex].name;
+    }
+    std::snprintf(buffer, sizeof(buffer), "%zu SHIPS : %s  >  FORMATION %s", selectedCount, wingName, formation);
+    m_ui.AddText(pad, contextY, m_uiTuning.bodySizeIndex, TEXT_COLOUR, buffer);
+  }
+
+  // What the fleet is waiting on. The print puts it at the right of this bar,
+  // and it reads off the ghost list rather than off anything the client wishes
+  // were true.
+  if (!m_ghosts.Empty())
+  {
+    std::snprintf(buffer, sizeof(buffer), "%zu ORDER PENDING", m_ghosts.Count());
+    const auto pendingWidth = static_cast<float>(std::strlen(buffer)) * cell;
+    m_ui.AddText(layout.contextBar.Right() - pad - pendingWidth, contextY, m_uiTuning.bodySizeIndex, TOAST_URGENT_COLOUR,
+                 buffer);
+  }
 
   // --- the toast stack ----------------------------------------------------
   //

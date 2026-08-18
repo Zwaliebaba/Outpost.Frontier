@@ -25,7 +25,10 @@ Neuron::EntityRecord MakeShipRecord(const World& _world, std::uint32_t _slot) no
   // `typeId` is the hull class and `gaugeA`/`gaugeB` are hull and shield. The
   // engine moves all four and reads none of them (ADR-014 §4).
   record.typeId = _world.Classes()[_slot];
-  record.flags = 0;
+  // The ship's wing, which is what the HUD's roster is a roster *of*. It rides
+  // in the neutral `groupId` byte: the engine carries the number and only this
+  // library knows the word for it (ADR-014 §4).
+  record.groupId = _world.Wings()[_slot];
 
   record.posXCm = Neuron::MetresToCentimetres(position.x);
   record.posYCm = Neuron::MetresToCentimetres(position.y);

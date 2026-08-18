@@ -12,6 +12,7 @@
 #include "GpuPipelines.h"
 #include "GpuSwapChain.h"
 #include "GpuUploadRing.h"
+#include "HudRoster.h"
 #include "InputMap.h"
 #include "IsoCamera.h"
 #include "OrderGhost.h"
@@ -192,6 +193,11 @@ private:
   UiDrawList m_ui;
   UiTuning m_uiTuning;
   ToastStack m_toasts;
+
+  /// The roster's rows, asked of the game once a frame. A fixed array because
+  /// the count is capped and a HUD must not allocate to describe itself.
+  RosterRow m_rosterRows[MAX_ROSTER_ROWS] = {};
+  std::uint32_t m_rosterRowCount = 0;
 
   GpuPtr<ID3D12CommandAllocator> m_commandAllocators[GpuSwapChain::BUFFER_COUNT];
   GpuPtr<ID3D12GraphicsCommandList> m_commandList;

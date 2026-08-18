@@ -996,13 +996,54 @@ suppressed toasts dropped instead of queued, dwell measured from when a toast wa
 than shown, coalescing not restarting the dwell, and toasts anchored to the viewport instead of
 the context bar each fail exactly the tests named for them.
 
-**Outstanding for S11:** the content the pass now has somewhere to draw — the fleet roster with
-its wing rows, the selection context bar, the command row with MOVE and FORMATION live and the
-rest disabled, and the order-pending indicator. Plus the two world-space items S8 and S9 left
-here: the selection drag rectangle and the ghost's dashed lane with per-leg ETA labels. **The
-roster needs a decision first:** the print's rows are *wings*, `World` has a `WingId` per ship,
-and `EntityRecord` does not replicate it — so either the wire grows a field or the roster shows
-something other than what the print draws.
+**Built ✅ (S11b — the wing on the wire, the roster and the context bar):**
+The decision S11a left open was: the print's rows are *wings*, `World` has a `WingId` per ship,
+and `EntityRecord` did not replicate it — so either the wire grew a field or the roster showed
+something other than what the print draws. **The wire grew a field, and it cost nothing:**
+`EntityRecord`'s third byte was a `flags` that carried zero, and it is now `groupId`. The rename
+is the whole change and it is the part worth keeping: `flags` promises the engine will
+*interpret* the bits, `groupId` promises it will only carry them. Had it stayed `flags` the next
+thing anyone wanted would have been a `FLAG_` constant in NeuronCore, which is a game rule
+arriving in the engine one bit at a time.
+
+`HudRoster.h` — one row: a name, a group id, two counts and two gauges. **The word for what a
+row *is* never crosses the seam.** This game means a wing; another game on these libraries means
+a squad or a convoy, and the pass that draws the panel does not change.
+
+`WorldView::BuildRoster(selectedIds, outRows)` — the fifth seam call, and the one most worth
+resisting. The engine has the replicated entities and the byte to group them by; aggregating in
+the engine would have taken four lines and would have decided, in the engine, that groups are
+worth showing, that they are *named*, that the two gauges **average** rather than take a
+minimum, and that a group whose ships all died vanishes rather than showing as empty. Every one
+of those is a design question about this game (ADR-014 §2c). `selectedCount` crosses for the
+same reason: it is the one number the engine needs to highlight a row, and the alternative is
+the engine matching selected ids against group membership — the aggregation it must not do.
+
+The **context bar** reads `N SHIPS : WING > FORMATION` off the selection and the roster the game
+just built, so it cannot name a wing the roster does not list. A selection spanning two wings
+reads `MIXED` rather than naming the first or claiming both — a box-drag produces that case
+routinely. The order-pending count sits at the right, read off the ghost list.
+
+**Verified:** `GameLogicTests` 91 → 92, and the new one is the whole point: a wing survives
+`emit → bytes → ReadSnapshot → SampleAt`, asserted after sampling rather than on the record,
+because the record is only half the path. Mutation-tested — emit not reading the wing, apply
+dropping it, and emit reading slot 0 for everyone each fail exactly that test. `BuildRoster`'s
+aggregation is exercised by a scratch harness against a real world and a real snapshot; six
+mutations (emitting from wing 0, bounding the emit loop on the table instead of the name list,
+totalling instead of averaging, counting every ship as selected, ignoring the output span, and
+dropping an emptied wing) each fail it.
+
+**One thing was rewritten on the way in.** The accumulator started as a `std::vector` sized from
+the name list — an allocation on every frame, inside the one function whose entire job is to
+describe the frame, and next door to a comment claiming a HUD must not allocate to describe
+itself. It is now a fixed 256-entry array indexed by `WingId` directly, which also retires the
+bounds check: a `WingId` cannot index past a table with an entry per `WingId`. The emit loop
+then had to bound on the *name list* rather than the table, and that pairing is load-bearing —
+getting it wrong segfaults, which is how the harness caught it.
+
+**Outstanding for S11:** the command row with MOVE and FORMATION live and ATTACK/STANCE/
+ABILITIES rendered disabled. Plus the two world-space items S8 and S9 left here: the selection
+drag rectangle and the ghost's dashed lane with per-leg ETA labels.
 
 **Four things were queued for this pass, and none of them is a widget** — worth listing
 so S11 is scoped against them rather than surprised by them. All four are screen-space quads or

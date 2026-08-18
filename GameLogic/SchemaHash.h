@@ -27,21 +27,33 @@ namespace Game
 {
 
 /*
- * `Snapshot` is `Header + ShipRecord[]`, where `ShipRecord` is deliberately
- * `Neuron::EntityRecord` rather than a type of ours (ADR-004 §6, ADR-014 §4).
- * The string names it as the engine spells it, because that is what is on the
- * wire; what it *means* is GameLogic's and is written beside it.
+ * `Snapshot` is `Header + ShipRecord[] + OrderStateRecord[]`, where `ShipRecord`
+ * is deliberately `Neuron::EntityRecord` rather than a type of ours (ADR-004 §6,
+ * ADR-014 §4). The string names it as the engine spells it, because that is what
+ * is on the wire; what it *means* is GameLogic's and is written beside it.
  *
- * `OrderStateRecord` and `OrderSubmit` are not here yet. They arrive with S9,
- * and the hash changing then is the mechanism working, not a break.
+ * **The order messages are described as they are written, not as they are
+ * declared.** `OrderSubmit` is a struct with a fixed `shipIds[64]`, and what
+ * goes on the wire is `shipCount` ids and no more; a schema that copied the
+ * declaration would promise 128 bytes that are never sent. The `meaning{}`
+ * clause carries the same discipline for the neutral fields: `groupId` and the
+ * two gauges are numbers the engine moves, and this is the only place that says
+ * what they stand for -- so two builds that disagreed about whether a gauge is
+ * a percentage would refuse each other here instead of drawing different bars.
  */
 inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "SnapshotHeader{u32 tick,u32 baselineTick,u16 shipCount,u16 orderCount,u32 lastOrderSeqProcessed}"
-    "ShipRecord=EntityRecord{u16 id,u8 typeId,u8 flags,i32 posXCm,i32 posYCm,"
+    "ShipRecord=EntityRecord{u16 id,u8 typeId,u8 groupId,i32 posXCm,i32 posYCm,"
     "i16 velXCmPerSec,i16 velYCmPerSec,u16 headingTurns16,u8 gaugeA,u8 gaugeB}"
-    "meaning{typeId=HullClass,gaugeA=hullPct,gaugeB=shieldPct}"
+    "OrderStateRecord{u32 serverOrderId,u32 clientOrderSeq,u8 state,u8 legIndex,u8 legCount,u8 memberCount}"
+    "OrderSubmit{u32 orderSeq,u8 kind,u8 formation,u8 queueMode,u16 shipCount,u16 shipIds[shipCount],"
+    "i32 targetXCm,i32 targetYCm,u16 targetFacingTurns16}"
+    "meaning{typeId=HullClass,groupId=WingId,gaugeA=hull255,gaugeB=shield255,state=OrderState}"
     "quantisation{position=cm,velocity=cm/s,heading=turns/65536}"
-    "hull{11 classes,Fighter+Cruiser reserved}";
+    "hull{11 classes,Fighter+Cruiser reserved}"
+    "caps{shipsPerOrder=64,ordersPerSnapshot=16}"
+    "enums{OrderKind:Move=0;FormationId:Line=0,Wedge=1,Claw=2;QueueMode:Replace=0,Append=1;"
+    "OrderState:Underway=0,Arriving=1,Done=2}";
 
 /// Stable across runs and builds by construction: FNV-1a over the text above,
 /// computed at compile time so it costs nothing to ask.
