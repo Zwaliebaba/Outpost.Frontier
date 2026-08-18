@@ -26,8 +26,11 @@ shutdown; debug layer clean.
 **Accept:** runs 5 min without debug-layer messages; PresentMon shows flip model; close exits 0.
 **Built ✅ (code):** `Window.h/.cpp`, `GpuDevice.h/.cpp`, `GpuSwapChain.h/.cpp`, `GpuCom.h`,
 `ClearColour.h/.cpp`, `ClientApp.h/.cpp`. COM ownership is `winrt::com_ptr` (AGENTS.md §5).
-**Outstanding:** resize and borderless-fullscreen toggle are wired but unexercised; the three
-acceptance measurements are manual and nobody has run them yet — CI has no GPU.
+**Accepted ✅ 2026-08-18:** the three manual measurements — five minutes with no debug-layer
+messages, PresentMon showing the flip model, and a clean exit — were run by the owner on a GPU
+machine and passed. Note the scope: they were run against S1–S4's clear-and-present frame, so
+they do not cover the passes S5 added.
+**Outstanding:** resize and borderless-fullscreen toggle are wired but still unexercised.
 
 ### S2 — NeuronCore foundations
 `Assert/Log/Time(QPC)/Hash(FNV)/Random(PCG32)`, `ByteReader/Writer`, SPSC/MPSC rings,
@@ -80,8 +83,10 @@ under console logging until Ctrl-C.
 250 ms, at most 2 catch-up ticks), `ServerConfig.h`, `Simulation.h`; `mode: "headless"` runs it
 until Ctrl-C. `NeuronServerTests` covers start/stop/join, repeated cycles, idempotent stop, and
 the tick rate.
-**Outstanding:** the 60-second period measurement is a manual run — the CI test asserts loose
-bounds (5–40 ticks in 500 ms) because a shared runner is not a real-time system.
+**Accepted ✅ 2026-08-18:** the 60-second period measurement was run by the owner on an idle
+machine and met the 50 ms ± 0.5 bound with no overruns. The CI test still asserts only loose
+bounds (5–40 ticks in 500 ms), because a shared runner is not a real-time system and never
+will be — the tight bound is a manual check by design, not by omission.
 
 ### S4 — Transport + handshake + heartbeat 🏁 **M0**
 `Transport` + `UdpTransport` (non-blocking Winsock, 1,152 B datagram cap, minimal control-
@@ -97,15 +102,17 @@ stop-and-wait control reliability), `Wire.h/.cpp`, `ClientConnection.h/.cpp`; NE
 on both sides every 5 s; `SelfTest.h/.cpp` drives the whole M0 exchange headlessly and returns
 an exit code. `NeuronCoreTests` covers the loopback and the wire; `NeuronServerTests` covers
 the handshake and a forced hash mismatch producing `UpdateRequired`.
-**Outstanding:** the visible half of M0 — window open, swapchain presenting, heartbeat live —
-still needs a person at a machine. The engine half is green in CI.
+**Accepted ✅ 2026-08-18:** the visible half of M0 — window open, swapchain presenting,
+heartbeat live — was run by the owner and passed. The engine half has been green in CI
+throughout. **M0 is complete.**
 
 ---
 
-## 🏁 M0 — status as of 2026-08-18
+## 🏁 M0 — **complete**, 2026-08-18
 
-**Everything M0 asks for that a machine can check is done and green. One item remains, and it
-is the visual one.**
+**Every criterion M0 rests on is met.** The machine-checkable ones are green in CI on every
+push; the five that need a GPU, a window and a person were run by the owner on 2026-08-18 and
+signed off.
 
 The slices M0 rests on are S1–S4. Their acceptance criteria, and how each stands:
 
@@ -128,13 +135,14 @@ The slices M0 rests on are S1–S4. Their acceptance criteria, and how each stan
 | NET stats (RTT/loss) logged both sides | S4 | both loops log on a 5 s cadence | ✅ |
 | `selfTest` covers handshake + ping | S4 | 15 checks, exit code 0 or 3 | ✅ |
 | Engine libraries never reference GameLogic | ADR-014 | include paths declared per project; no engine source includes a GameLogic header or names `Game::` | ✅ |
-| **Window opens, swapchain presents** | S1, S4 | **a person, at a machine with a GPU** | ⏳ **outstanding** |
-| 5 min with no debug-layer messages | S1 | manual | ⏳ outstanding |
-| PresentMon shows flip model | S1 | manual (`DXGI_SWAP_EFFECT_FLIP_DISCARD` + waitable object are in the code) | ⏳ outstanding |
-| Close exits 0 | S1 | manual | ⏳ outstanding |
-| Headless 60 s: mean period 50 ms ± 0.5, no overruns | S3 | `selfTest` measures and reports it; the ± 0.5 bound needs an **idle** machine | ⏳ outstanding |
+| **Window opens, swapchain presents** | S1, S4 | a person, at a machine with a GPU | ✅ **owner-validated 2026-08-18** |
+| 5 min with no debug-layer messages | S1 | manual | ✅ owner-validated 2026-08-18 |
+| PresentMon shows flip model | S1 | manual (`DXGI_SWAP_EFFECT_FLIP_DISCARD` + waitable object are in the code) | ✅ owner-validated 2026-08-18 |
+| Close exits 0 | S1 | manual | ✅ owner-validated 2026-08-18 |
+| Headless 60 s: mean period 50 ms ± 0.5, no overruns | S3 | `selfTest` measures and reports it; the ± 0.5 bound needs an **idle** machine | ✅ owner-validated 2026-08-18 |
 
-**How to close the rest** — one run, on a machine with a GPU:
+**How the manual five were closed**, and how to reproduce them — one run each, on a machine
+with a GPU:
 
 1. `"selfTest": true` in `Outpost.json`, run the exe, read `Outpost.log`. Exit code 0 and
    `self test: PASSED` closes the cadence measurement and re-proves the whole M0 exchange on
@@ -144,7 +152,17 @@ The slices M0 rests on are S1–S4. Their acceptance criteria, and how each stan
    near-black blue, and logs `first pong: server tick N, round trip X ms` is M0's visible half.
    Leave it five minutes, watch the debug-layer output, close it, check the exit code.
 
-Everything else is signed off by CI, which at the time of writing runs **82 tests across four
+*The sign-off is recorded as a verdict, not as measurements* — the observed mean tick period
+and round-trip were not captured into this document. If those numbers are wanted as a baseline
+to regress against later, they have to come off that run's `Outpost.log`.
+
+**M0 being closed does not close S5's GPU items, and the distinction is not pedantry.** These
+five were validated against the S1–S4 renderer, which cleared the screen and presented. S5
+added the opaque pass, the pipeline state, the upload ring, a depth buffer and an atlas
+texture upload — none of which existed when the debug layer was watched for five minutes. S5
+carries its own outstanding list for exactly that reason.
+
+Everything else is signed off by CI, which at the time of writing runs **122 tests across four
 assemblies with zero unique warnings** on every push.
 
 ---

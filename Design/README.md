@@ -59,15 +59,23 @@ moves between the trees without a rename pass. Three things it changed in these 
 
 ## Implementation state (2026-08-18)
 
-Slices S1, S2, S2b, S3 and S4 are in the tree and green in CI. The per-slice detail — what was
-built, and what a "done" slice still owes — lives in
+Slices S1, S2, S2b, S3, S4 and S5 are in the tree and green in CI. The per-slice detail — what
+was built, and what a "done" slice still owes — lives in
 [MVP-Build-Order.md](MVP-Build-Order.md); it is not repeated here.
 
-**Milestone M0** is half proven. Its automated half is green: 64 tests across four assemblies,
-plus a `selfTest` mode that runs the whole handshake-and-heartbeat exchange over a real
-loopback socket and returns an exit code. Its visible half — window open, swapchain
-presenting, heartbeat live — has not been run by a person, because CI has no GPU and cannot
-run it.
+**Milestone M0 is complete (2026-08-18).** Its automated half is green: 122 tests across four
+assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
+handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. Its
+visible half — window open, swapchain presenting, heartbeat live — together with the four
+other criteria that need a GPU and a person (five minutes clean under the debug layer,
+PresentMon showing the flip model, a clean exit, and the 60-second tick cadence on an idle
+machine) was run by the owner and signed off.
+
+**S5 is a separate matter and is not covered by that sign-off.** M0's manual run exercised the
+S1–S4 frame, which cleared and presented; S5 added the opaque pass, pipeline state, upload
+ring, depth buffer and atlas upload afterwards. S5's own GPU checks — the visual checkpoint
+against `tactical-hud.png`, frame time at 41 instances, and a debug-layer-clean run of the new
+passes — are still open and listed under S5 in the build order.
 
 **Continuous integration:** `.github/workflows/build.yml` builds Debug|x64 (Release is
 deliberately not built — see the note at the top of that file), restores NuGet per project,
