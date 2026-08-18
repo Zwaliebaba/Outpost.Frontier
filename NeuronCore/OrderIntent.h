@@ -319,6 +319,18 @@ struct OrderProgress
   float etaSeconds = -1.0f;
 };
 
+/*
+ * How many legs of one order a client will draw (S12).
+ *
+ * The queue's real cap is GameLogic's -- `puck-and-wheel.png` §4 says four
+ * slots and the game enforces it -- and this is the engine's buffer for
+ * whatever the game reports, the same arrangement `MAX_ORDER_PROGRESS` has.
+ * Eight is twice the sheet's four, so a game with a deeper queue draws what it
+ * can rather than overrunning, and `OrderProgress::legCount` is a `uint8_t` in
+ * any case.
+ */
+inline constexpr std::uint32_t MAX_GHOST_LEGS = 8;
+
 /// How many live orders the game may report in one poll. The snapshot's order
 /// area is the real cap and it is GameLogic's; this is the engine's buffer for
 /// it, asserted equal where the two meet so a game that reports more than the

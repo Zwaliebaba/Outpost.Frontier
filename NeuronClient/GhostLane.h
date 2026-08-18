@@ -24,13 +24,18 @@
  * behind it. That is the sheet's decision, not a shortcut -- a route the hull
  * you are flying around can hide is a route you cannot follow.
  *
- * **It is a summary of the order, not a live countdown.** Both numbers are
- * fixed when the order commits: the distance is the lane's own length and the
- * ETA came back from `SolvePreview` with the footprint. Neither can update,
- * because a ghost knows how many members it has and not *which* -- there is no
- * way from here to ask where those ships are now. S12 replicates the
- * authority's per-leg ETA in the order state and that is what makes the label
- * tick.
+ * **A queued order is one chain, not one ghost per waypoint** (S12,
+ * `puck-and-wheel.png` §4: "waypoints render as a polyline with per-leg ETAs").
+ * The lane walks the ghost's legs, so a single-leg order is this with two
+ * points and there is no separate case for it. Only the *last* waypoint
+ * retracts on a refusal, and only to the one before it: a refused append takes
+ * back the leg that was refused rather than the plan the player already had.
+ *
+ * **The distance is fixed at commit; the ETA is not, any more.** The distance
+ * is the plan's own length, walked leg by leg. The ETA of the leg the fleet is
+ * *currently* flying is the authority's, replicated in the order state (S12a),
+ * so it counts down; the legs ahead of it keep the game's prediction, because
+ * the authority has not started them and has nothing measured to say.
  *
  * **Device-free.** Projection, clipping, dash placement and label text are all
  * arithmetic over a mapping and a viewport, so the whole file is tested without
@@ -115,6 +120,13 @@ struct GhostLaneTuning
 /// half rather than printing a negative time -- the game says it cannot tell,
 /// and inventing a number would be the client answering for it.
 void FormatLaneDetail(float _distanceMetres, float _etaSeconds, char* _out, std::size_t _capacity) noexcept;
+
+/// Just the time -- `1m 41s` or `41s` -- for the per-leg labels a queued chain
+/// hangs at its waypoints. **Empty** for a negative input rather than a printed
+/// negative time: the game said it cannot tell, and the caller draws nothing.
+/// `FormatLaneDetail` is written in terms of this, so the two cannot disagree
+/// about what a minute and a half looks like.
+void FormatEta(float _seconds, char* _out, std::size_t _capacity) noexcept;
 
 /*
  * Appends every ghost's lane and label.

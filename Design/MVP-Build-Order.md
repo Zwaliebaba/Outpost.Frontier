@@ -1250,9 +1250,42 @@ nothing covered an append with no group to join, which is reachable by holding t
 modifier with nothing previously ordered and would have left a live group carrying the
 "no order" id.
 
-**Outstanding for S12:** the queued chain itself. `puck-and-wheel.png` §4 draws **one** polyline
-with a label per leg, which means an append joins the existing ghost rather than making a second
-one, and `GhostLane` walks the legs rather than drawing a single lane.
+**Built ✅ (S12c — the queued chain):** one order is one ghost with a leg per waypoint, drawn as
+a polyline with a per-leg ETA. **S12 is complete.**
+
+**The merge happens on *acceptance*, not on send, and that one decision is most of the design.**
+A queued waypoint is its own pending ghost from the moment it is sent — it has to be, or a
+refusal would have nowhere to land (§4: an order in flight with no ghost is an order whose
+refusal has nowhere to go). When the authority accepts it, it joins the chain and stops existing
+on its own. When the authority refuses it — a fifth leg, `QueueFull` — it bounces alone and the
+chain never notices, which is what `Refuse` already did with no special case for queues in it.
+Merging on send would have had that refusal retract the four legs the player still had.
+
+The chain then **takes the appending order's sequence**, exactly as `World::IngestOrders` makes
+the group take it (S12b). Both sides name the plan after the most recent order that shaped it, so
+the record the next snapshot carries matches the ghost that is left.
+
+**The one thing the ghost predicts rather than replicates** is which chain an append joins:
+"the plan whose first named ship is this one's", mirroring the authority's own rule. That is what
+a ghost is for — the only client-side optimism in the game — and the authority's `legCount` is
+what corrects it when the guess is wrong. The alternative was replicating the leg anchors, and
+the budget refuses: four legs at even 4 bytes each is 16 bytes per order, 256 across the area,
+and the fleet cap falls to 32 against the 41 the MVP fields.
+
+Only the **last** waypoint retracts on a refusal, and only to the one before it.
+`OrderGhost::RetractTowardMetres` is read by both the footprint ring and the lane, so they cannot
+come home to two different places for the 150 ms the animation lasts — and for a single-leg
+ghost it returns the fleet, which is S11c's picture unchanged.
+
+The label gained a line: `MOVE - CLAW`, the whole plan's distance with the current leg's ETA,
+and `3 LEGS` when there is a queue. The distance is walked leg by leg **on the plane**, and the
+ETA of the leg the fleet is actually flying is the authority's (S12a) while the legs ahead keep
+the game's prediction — the authority has not started them and has nothing measured to say.
+
+**Verified:** `NeuronClientTests` 172 → 183. Five mutations — merging on send, finding the chain
+by any live ghost rather than a shared ship, keeping the original sequence, growing past the
+engine's buffer, and retracting to the fleet from a queued chain — each failing exactly the test
+named for it.
 
 ### S13 — msquic behind the same interface ⚡ spike
 `QuicTransport`: ALPN `opf/1`, in-memory self-signed cert (`CertCreateSelfSignCertificate` +

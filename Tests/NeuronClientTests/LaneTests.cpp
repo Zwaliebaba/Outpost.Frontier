@@ -6,8 +6,10 @@
 #include "OrderGhost.h"
 #include "UiDrawList.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -66,6 +68,26 @@ constexpr std::uint32_t VIEWPORT_HEIGHT = 900;
   ghost.targetMetres = _target;
   ghost.preview.etaSeconds = 92.0f;
   std::snprintf(ghost.preview.label, sizeof(ghost.preview.label), "Move - Claw");
+
+  // Its own target is its first leg, which is what `OrderGhostList::Add` does.
+  // A ghost built by hand without this has no plan and draws nothing.
+  ghost.legs[0] = GhostLeg{_target, ghost.preview.etaSeconds};
+  ghost.queuedLegCount = 1;
+  return ghost;
+}
+
+/// The same ghost with waypoints appended -- what a chain looks like after an
+/// append is accepted and merged.
+[[nodiscard]] OrderGhost MakeChain(GhostState _state, const XMFLOAT2& _origin, std::span<const XMFLOAT2> _waypoints)
+{
+  OrderGhost ghost = MakeGhost(_state, _origin, _waypoints.front());
+  ghost.queuedLegCount = 0;
+  for (const XMFLOAT2& waypoint : _waypoints)
+  {
+    ghost.legs[ghost.queuedLegCount] = GhostLeg{waypoint, 30.0f + 10.0f * static_cast<float>(ghost.queuedLegCount)};
+    ++ghost.queuedLegCount;
+  }
+  ghost.targetMetres = _waypoints.back();
   return ghost;
 }
 
@@ -464,6 +486,144 @@ public:
     const float halfway = laneLength(100.0 + OrderGhostList::BOUNCE_SECONDS * 0.5);
     Assert::IsTrue(atRefusal > 0.0f);
     Assert::IsTrue(halfway < atRefusal * 0.75f, L"the lane has to come home with the footprint");
+  }
+
+  TEST_METHOD(AQueuedChainIsOnePolylineThroughItsWaypoints)
+  {
+    /*
+     * `puck-and-wheel.png` §4: "waypoints render as a polyline with per-leg
+     * ETAs". One chain, not one ghost per waypoint -- so the dashes run fleet
+     * to first waypoint to second, and every one of them belongs to the same
+     * order.
+     */
+    const GhostLaneView view = MakeView(MakeMapping());
+    const XMFLOAT2 waypoints[] = {XMFLOAT2{-2000.0f, 0.0f}, XMFLOAT2{2000.0f, 1500.0f}, XMFLOAT2{5000.0f, -1000.0f}};
+    const OrderGhost ghosts[] = {MakeChain(GhostState::Pending, XMFLOAT2{-6000.0f, -1000.0f}, waypoints)};
+
+    UiDrawList list;
+    BuildGhostLanes(ghosts, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    const std::vector<UiQuad> dashes = Segments(list);
+    Assert::IsTrue(dashes.size() > 6, L"three legs of dashes");
+
+    // Three distinct directions, one per leg -- a chain drawn as a single
+    // straight lane from the fleet to the last waypoint would have one.
+    std::vector<std::pair<float, float>> axes;
+    for (const UiQuad& dash : dashes)
+    {
+      const bool seen = std::any_of(axes.begin(), axes.end(), [&dash](const std::pair<float, float>& _axis) {
+        return std::fabs(_axis.first - dash.axisX) < 0.001f && std::fabs(_axis.second - dash.axisY) < 0.001f;
+      });
+      if (!seen)
+      {
+        axes.emplace_back(dash.axisX, dash.axisY);
+      }
+    }
+    Assert::AreEqual<std::size_t>(3, axes.size(), L"one heading per leg, and the chain has three");
+  }
+
+  TEST_METHOD(EveryWaypointButTheLastCarriesItsOwnEta)
+  {
+    /*
+     * The per-leg labels. The last leg's number is already in the two-line
+     * label under the footprint, so repeating it beside the ring would print
+     * the same seconds twice -- which is why a single-leg ghost gets no
+     * waypoint labels at all and looks exactly as it did in S11c.
+     */
+    const GhostLaneView view = MakeView(MakeMapping());
+    const XMFLOAT2 waypoints[] = {XMFLOAT2{-2000.0f, 0.0f}, XMFLOAT2{2000.0f, 500.0f}, XMFLOAT2{4000.0f, -500.0f}};
+    const OrderGhost chain[] = {MakeChain(GhostState::UnderWay, XMFLOAT2{-5000.0f, 0.0f}, waypoints)};
+
+    UiDrawList list;
+    BuildGhostLanes(chain, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    const std::vector<std::string> texts = Texts(list);
+
+    // Two waypoint labels, then the name, the detail and the leg count.
+    Assert::AreEqual(std::string{"30s"}, texts[0], L"the first leg's own prediction");
+    Assert::AreEqual(std::string{"40s"}, texts[1], L"and the second's");
+    Assert::AreEqual(std::string{"Move - Claw"}, texts[2]);
+    Assert::AreEqual(std::string{"3 LEGS"}, texts.back(), L"the print's footer, and only when there is a queue");
+
+    // A single leg keeps S11c's picture: a name and a detail line, nothing else.
+    const OrderGhost single[] = {MakeGhost(GhostState::UnderWay, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{3000.0f, 0.0f})};
+    UiDrawList plain;
+    BuildGhostLanes(single, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, plain);
+    Assert::AreEqual<std::size_t>(2, Texts(plain).size(), L"no waypoint label and no leg count for one leg");
+  }
+
+  TEST_METHOD(TheAuthoritysEtaIsUsedForTheLegItIsActuallyFlying)
+  {
+    /*
+     * The leg under way gets the replicated number, which counts down; the legs
+     * ahead of it keep the game's prediction, because the authority has not
+     * started them and has nothing measured to say about them.
+     */
+    const GhostLaneView view = MakeView(MakeMapping());
+    const XMFLOAT2 waypoints[] = {XMFLOAT2{-2000.0f, 0.0f}, XMFLOAT2{2000.0f, 500.0f}, XMFLOAT2{4000.0f, -500.0f}};
+    OrderGhost chain = MakeChain(GhostState::UnderWay, XMFLOAT2{-5000.0f, 0.0f}, waypoints);
+    chain.legIndex = 1;                    // The authority is flying the second leg.
+    chain.authorityEtaSeconds = 17.0f;
+    const OrderGhost ghosts[] = {chain};
+
+    UiDrawList list;
+    BuildGhostLanes(ghosts, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    const std::vector<std::string> texts = Texts(list);
+
+    Assert::AreEqual(std::string{"30s"}, texts[0], L"leg one keeps its prediction");
+    Assert::AreEqual(std::string{"17s"}, texts[1], L"leg two is the one being flown, so it is the authority's");
+  }
+
+  TEST_METHOD(TheDistanceIsTheWholePlanAndNotTheLastLeg)
+  {
+    // A player who queued three waypoints wants to know how far the fleet is
+    // going, not how far the final hop is.
+    const GhostLaneView view = MakeView(MakeMapping());
+    const XMFLOAT2 waypoints[] = {XMFLOAT2{3000.0f, 0.0f}, XMFLOAT2{6000.0f, 0.0f}};
+    const OrderGhost chain[] = {MakeChain(GhostState::UnderWay, XMFLOAT2{0.0f, 0.0f}, waypoints)};
+
+    UiDrawList list;
+    BuildGhostLanes(chain, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    const std::vector<std::string> texts = Texts(list);
+
+    // 3 km then 3 km again: six, not the three the last leg alone would give.
+    const auto detail = std::find_if(texts.begin(), texts.end(),
+                                     [](const std::string& _text) { return _text.find(" km") != std::string::npos; });
+    Assert::IsTrue(detail != texts.end(), L"there has to be a distance to check");
+    Assert::IsTrue(detail->rfind("6.0 km", 0) == 0, L"the whole plan, walked leg by leg");
+  }
+
+  TEST_METHOD(ARefusedAppendTakesBackOnlyItsOwnLeg)
+  {
+    /*
+     * The reason the merge happens on *acceptance*: a fifth leg is refused with
+     * `QueueFull`, and a chain that had already absorbed it would bounce the
+     * four legs the player still has. Here the chain is intact and only its
+     * last waypoint retracts -- toward the waypoint before it, not the fleet.
+     */
+    const GhostLaneView view = MakeView(MakeMapping());
+    const XMFLOAT2 waypoints[] = {XMFLOAT2{-3000.0f, 0.0f}, XMFLOAT2{3000.0f, 0.0f}};
+    OrderGhost chain = MakeChain(GhostState::Rejected, XMFLOAT2{-9000.0f, 0.0f}, waypoints);
+    chain.stateSinceSeconds = 100.0;
+    const OrderGhost ghosts[] = {chain};
+
+    const auto firstLegSpan = [&](double _now) {
+      UiDrawList list;
+      BuildGhostLanes(ghosts, view, OverlayTuning{}, GhostLaneTuning{}, _now, list);
+      const std::vector<UiQuad> dashes = Segments(list);
+      float minX = 1e9f;
+      float maxX = -1e9f;
+      for (const UiQuad& dash : dashes)
+      {
+        minX = std::min(minX, dash.rect.x);
+        maxX = std::max(maxX, dash.rect.x);
+      }
+      return std::pair<float, float>{minX, maxX};
+    };
+
+    const auto atRefusal = firstLegSpan(100.0);
+    const auto halfway = firstLegSpan(100.0 + OrderGhostList::BOUNCE_SECONDS * 0.5);
+
+    Assert::AreEqual(atRefusal.first, halfway.first, 0.5f, L"the fleet end of the chain must not move");
+    Assert::IsTrue(halfway.second < atRefusal.second - 1.0f, L"and the far end has to come home");
   }
 
   TEST_METHOD(NothingIsDrawnWithoutAViewportOrAGhost)
