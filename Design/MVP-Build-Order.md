@@ -611,8 +611,43 @@ reads correctly with one sign wrong — which is how ADR-006 §3a's handedness d
 review. Each behaviour was then mutation-tested: flipping that sign, taking the first pick
 instead of the nearest, making shift-click replace instead of toggle, and widening the box to
 overlap rather than centre each fail exactly the test named for it and nothing else.
-**Outstanding:** the OverlayWorld pass. Nothing is drawn yet — a selection is a set of ids that
-no pixel reflects. Rings, bars, the drag rectangle and their PSOs are the other half of S8.
+**Built ✅ (code, overlay half):**
+`OverlayMark.h/.cpp` — which marks exist and where, on the CPU. One instanced quad per mark,
+built from `SV_VertexID`, with the pixel shader deciding what is inside it: a ring is a distance
+test and a bar is a fill fraction. Adding a mark type is a branch, not a mesh.
+`Outpost/Shaders/OverlayVS.hlsl` `OverlayPS.hlsl` `Overlay.hlsli`, and `FrameConstants.hlsli`
+split out of `Opaque.hlsli` — the overlay reads `g_viewProjection` and nothing else from b0, and
+a shader declaring its own copy of that block to reach one field would be a second copy of two
+array sizes free to drift.
+`GpuPipelines::CreateOverlayPipelines`, `OverlayWorldPass` — one upload, two draws.
+
+**Two pipelines, one shader pair, and the difference is the acceptance criterion.** A selection
+ring lies on the plane, so its quad is built in plane metres and pushed through the
+view-projection — which is what makes it foreshorten into the 2:1 ellipse ADR-006 §4 fixed the
+elevation to produce, with no ellipse maths anywhere — and it depth-tests, so a ring behind a
+Carrier is occluded by it. A bar is anchored in clip space and then offset in *pixels*, so it
+stays the same size at every zoom, and its pipeline has depth disabled entirely: a health readout
+that hides behind the thing it describes is not a readout. That is `overlay-pass.png`'s rule, and
+it is a property of the pipeline rather than the shader — which is why `OverlayMarkList` keeps
+its rings contiguous and the pass draws two ranges of one upload.
+
+**A misnomer fixed on the way past.** `ReplicatedShip::hullPercent` and `shieldPercent` carry
+`EntityRecord`'s gauges verbatim, which are 0–255. A ship spawns at 255, and a reader who
+believed the name would divide by a hundred and put every bar two and a half times past its own
+end. They are `hullGauge`/`shieldGauge` now, with the range written down.
+
+**Verified:** `NeuronClientTests` 102 → 116. Ring radius against the screen clamp in both
+directions, gauge 255 mapping to a full bar rather than 2.55 of one, the shield bar clearing the
+hull bar by exactly the configured gap, rings preceding bars so the contiguous split holds, and a
+selected ship that has despawned drawing nothing. Mutation-tested again: scaling the gauge by 255
+instead of 257, and clamping the ring with `min` instead of `max`, each fail exactly the tests
+named for them.
+**Outstanding:** the visual half, and it is the whole acceptance criterion. That rings occlude
+behind a Carrier hull and bars never do is a depth state, and no test here can see a depth state
+— it needs a frame on a GPU. The depth bias on the ring pipeline (`-100`, slope-scaled `-1`) is
+the classic decal pair and is a guess until someone looks at a ring lying on the plane under a
+hull. The drag rectangle is deliberately not here: it is a screen-space quad, which ADR-006 §10
+puts in the Ui pass, and it arrives with the rest of that pass in S11.
 
 ### S9 — Move orders end-to-end 🏁 **M1**
 Right-drag order puck (plane point + facing), client pre-check via `WorldView::PreCheck`

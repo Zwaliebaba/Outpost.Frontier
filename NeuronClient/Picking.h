@@ -1,6 +1,7 @@
 #pragma once
 
 #include "IsoCamera.h"
+#include "RenderWorld.h"
 
 #include <DirectXMath.h>
 
@@ -24,7 +25,7 @@
  * for it.
  *
  * **Device-free and game-free.** No D3D12, no window, and no idea what a ship
- * is -- a `PickTarget` is an opaque id, a point and a radius, which is exactly
+ * is -- a `SceneEntity` is an opaque id, a point and a radius, which is exactly
  * what the maths needs and nothing more (ADR-014). That is what makes the
  * accept criterion a unit test rather than a screenshot.
  */
@@ -32,24 +33,12 @@
 namespace Neuron
 {
 
-/// No target. `0` is a legitimate ship id, so the sentinel cannot be zero.
-inline constexpr std::uint32_t INVALID_PICK_ID = 0xffffffffu;
-
 /*
- * One pickable thing, as the picker sees it.
- *
- * The id is opaque: the engine never interprets it, and hands back whatever the
- * game put in (`Game::ShipId` today). The radius is the class's, in metres, so
- * a Battleship is easier to hit than an Interceptor because it is bigger --
- * which is the behaviour a player expects and the reason the radius is not a
- * constant.
+ * Picking runs over `SceneEntity` (RenderWorld.h) rather than a type of its
+ * own. It reads three of the fields -- id, position, radius -- and ignores the
+ * gauges, which is the price of the frame having one per-entity record instead
+ * of three arrays to keep in lockstep.
  */
-struct PickTarget
-{
-  std::uint32_t id = INVALID_PICK_ID;
-  DirectX::XMFLOAT2 planeMetres{};
-  float pickRadiusMetres = 0.0f;
-};
 
 /*
  * Plane point back to NDC -- the inverse of `PlaneMapping`.
@@ -68,7 +57,7 @@ struct PickTarget
                               DirectX::XMFLOAT2& _outNdc) noexcept;
 
 /*
- * The nearest target whose circle contains the point, or `INVALID_PICK_ID`.
+ * The nearest target whose circle contains the point, or `INVALID_ENTITY_ID`.
  *
  * `_minRadiusMetres` is ADR-006 §11's screen floor: at 40 km of zoom an
  * Interceptor's 12 m radius is a fraction of a pixel, and a pick that demanded
@@ -81,7 +70,7 @@ struct PickTarget
  * answer a player can predict. Ties go to the earlier target, which only
  * matters for two ships at exactly the same point.
  */
-[[nodiscard]] std::uint32_t PickPoint(std::span<const PickTarget> _targets, const DirectX::XMFLOAT2& _planeMetres,
+[[nodiscard]] std::uint32_t PickPoint(std::span<const SceneEntity> _entities, const DirectX::XMFLOAT2& _planeMetres,
                                       float _minRadiusMetres) noexcept;
 
 /*
@@ -96,7 +85,7 @@ struct PickTarget
  * makes a careful drag around a formation pick up the capital ship parked
  * beside it.
  */
-void PickBox(std::span<const PickTarget> _targets, const PlaneMapping& _mapping, const DirectX::XMFLOAT2& _ndcCornerA,
+void PickBox(std::span<const SceneEntity> _entities, const PlaneMapping& _mapping, const DirectX::XMFLOAT2& _ndcCornerA,
              const DirectX::XMFLOAT2& _ndcCornerB, std::vector<std::uint32_t>& _outIds);
 
 } // namespace Neuron

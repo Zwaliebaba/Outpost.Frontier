@@ -6,6 +6,7 @@
 #include "GpuPipelines.h"
 #include "GpuUploadRing.h"
 #include "Log.h"
+#include "OverlayMark.h"
 #include "RenderWorld.h"
 #include "Telemetry.h"
 
@@ -152,13 +153,74 @@ void NebulaPass::Record(const FrameContext& _context)
   m_drew = true;
 }
 
+void OverlayWorldPass::Record(const FrameContext& _context)
+{
+  NEURON_SPAN("OverlayWorld");
+
+  m_ringCount = 0;
+  m_barCount = 0;
+
+  if (_context.overlayMarks == nullptr || _context.overlayMarks->marks.empty() || _context.pipelines == nullptr ||
+      _context.pipelines->OverlayRings() == nullptr || _context.pipelines->OverlayBars() == nullptr)
+  {
+    return; // Nothing selected is the common case, and it costs one branch.
+  }
+
+  const OverlayMarkList& marks = *_context.overlayMarks;
+  const auto markBytes = static_cast<std::uint32_t>(marks.marks.size() * sizeof(OverlayMark));
+
+  GpuUploadRing::Allocation upload;
+  if (!_context.uploadRing->Write(marks.marks.data(), markBytes, static_cast<std::uint32_t>(alignof(OverlayMark)), upload))
+  {
+    NEURON_COUNTER("OverlayMarkDrops", static_cast<std::int64_t>(marks.marks.size()));
+    return; // Logged by the ring. A frame short of memory drops the overlay
+            // rather than drawing half a selection.
+  }
+
+  D3D12_VERTEX_BUFFER_VIEW markView{};
+  markView.BufferLocation = upload.gpu;
+  markView.SizeInBytes = markBytes;
+  markView.StrideInBytes = static_cast<UINT>(sizeof(OverlayMark));
+
+  ID3D12GraphicsCommandList* commandList = _context.commandList;
+  commandList->SetGraphicsRootSignature(_context.pipelines->RootSignature());
+  commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+  commandList->IASetVertexBuffers(0, 1, &markView);
+
+  // FrameConstants for the view-projection, PassConstants for the viewport size
+  // the bars offset in. No textures: the marks are procedural.
+  commandList->SetGraphicsRootConstantBufferView(static_cast<UINT>(RootSlot::FrameConstants), _context.frameConstants);
+  commandList->SetGraphicsRootConstantBufferView(static_cast<UINT>(RootSlot::PassConstants), _context.passConstants);
+
+  // Four vertices as a strip, instanced per mark. Rings first with depth,
+  // then bars without -- two pipelines over two contiguous ranges of one
+  // upload, which is what `ringCount` exists to make possible.
+  if (marks.ringCount > 0)
+  {
+    commandList->SetPipelineState(_context.pipelines->OverlayRings());
+    commandList->DrawInstanced(4, marks.ringCount, 0, 0);
+    m_ringCount = marks.ringCount;
+  }
+
+  const std::uint32_t barCount = marks.BarCount();
+  if (barCount > 0)
+  {
+    commandList->SetPipelineState(_context.pipelines->OverlayBars());
+    commandList->DrawInstanced(4, barCount, 0, marks.ringCount);
+    m_barCount = barCount;
+  }
+
+  NEURON_COUNTER("OverlayMarks", static_cast<std::int64_t>(marks.marks.size()));
+}
+
 void GpuPassList::Record(const FrameContext& _context)
 {
   m_clear.Record(_context);
   m_opaque.Record(_context);
   m_nebula.Record(_context);
-  // OverlayWorld (S8) and Ui (S11) are recorded here, in this order, when they
-  // exist. Present is the swapchain's, not a recorded pass.
+  m_overlayWorld.Record(_context);
+  // Ui (S11) is recorded here, after the world overlay. Present is the
+  // swapchain's, not a recorded pass.
 }
 
 } // namespace Neuron

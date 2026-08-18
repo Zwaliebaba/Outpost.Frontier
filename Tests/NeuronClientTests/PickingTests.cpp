@@ -52,13 +52,13 @@ namespace
   return camera;
 }
 
-[[nodiscard]] PickTarget Target(std::uint32_t _id, float _x, float _y, float _radius)
+[[nodiscard]] SceneEntity Target(std::uint32_t _id, float _x, float _y, float _radius)
 {
-  PickTarget target;
-  target.id = _id;
-  target.planeMetres = XMFLOAT2{_x, _y};
-  target.pickRadiusMetres = _radius;
-  return target;
+  SceneEntity entity;
+  entity.id = _id;
+  entity.planeMetres = XMFLOAT2{_x, _y};
+  entity.pickRadiusMetres = _radius;
+  return entity;
 }
 
 /// The plane point an NDC lands on, the forward direction, spelled out so a
@@ -151,7 +151,7 @@ TEST_CLASS(PointPickTests)
 public:
   TEST_METHOD(TheShipUnderTheCursorIsThePickedOne)
   {
-    const std::vector<PickTarget> targets = {Target(7, 0.0f, 0.0f, INTERCEPTOR_RADIUS_METRES),
+    const std::vector<SceneEntity> targets = {Target(7, 0.0f, 0.0f, INTERCEPTOR_RADIUS_METRES),
                                              Target(9, 500.0f, 0.0f, INTERCEPTOR_RADIUS_METRES)};
 
     Assert::AreEqual<std::uint32_t>(7, PickPoint(targets, XMFLOAT2{3.0f, 2.0f}, 0.0f));
@@ -160,12 +160,12 @@ public:
 
   TEST_METHOD(EmptySpacePicksNothing)
   {
-    const std::vector<PickTarget> targets = {Target(7, 0.0f, 0.0f, INTERCEPTOR_RADIUS_METRES)};
+    const std::vector<SceneEntity> targets = {Target(7, 0.0f, 0.0f, INTERCEPTOR_RADIUS_METRES)};
 
     // Just outside the radius, and a long way outside it.
-    Assert::AreEqual(INVALID_PICK_ID, PickPoint(targets, XMFLOAT2{13.0f, 0.0f}, 0.0f));
-    Assert::AreEqual(INVALID_PICK_ID, PickPoint(targets, XMFLOAT2{9000.0f, 9000.0f}, 0.0f));
-    Assert::AreEqual(INVALID_PICK_ID, PickPoint({}, XMFLOAT2{0.0f, 0.0f}, 100.0f));
+    Assert::AreEqual(INVALID_ENTITY_ID, PickPoint(targets, XMFLOAT2{13.0f, 0.0f}, 0.0f));
+    Assert::AreEqual(INVALID_ENTITY_ID, PickPoint(targets, XMFLOAT2{9000.0f, 9000.0f}, 0.0f));
+    Assert::AreEqual(INVALID_ENTITY_ID, PickPoint({}, XMFLOAT2{0.0f, 0.0f}, 100.0f));
   }
 
   TEST_METHOD(OverlappingShipsResolveToTheNearestRatherThanTheFirst)
@@ -173,7 +173,7 @@ public:
     // The normal case in a formation. "Whichever came first in the array" is
     // not an answer a player can predict, and the array order is the sample
     // order, which is the spawn order, which is nothing they can see.
-    const std::vector<PickTarget> targets = {Target(1, 0.0f, 0.0f, 100.0f), Target(2, 40.0f, 0.0f, 100.0f),
+    const std::vector<SceneEntity> targets = {Target(1, 0.0f, 0.0f, 100.0f), Target(2, 40.0f, 0.0f, 100.0f),
                                              Target(3, 80.0f, 0.0f, 100.0f)};
 
     Assert::AreEqual<std::uint32_t>(1, PickPoint(targets, XMFLOAT2{5.0f, 0.0f}, 0.0f));
@@ -181,23 +181,23 @@ public:
     Assert::AreEqual<std::uint32_t>(3, PickPoint(targets, XMFLOAT2{85.0f, 0.0f}, 0.0f));
 
     // Reversing the array must not reverse the answer.
-    const std::vector<PickTarget> reversed = {targets[2], targets[1], targets[0]};
+    const std::vector<SceneEntity> reversed = {targets[2], targets[1], targets[0]};
     Assert::AreEqual<std::uint32_t>(2, PickPoint(reversed, XMFLOAT2{45.0f, 0.0f}, 0.0f));
   }
 
   TEST_METHOD(ABiggerHullIsEasierToHitBecauseItIsBigger)
   {
-    const std::vector<PickTarget> targets = {Target(1, 0.0f, 0.0f, INTERCEPTOR_RADIUS_METRES),
+    const std::vector<SceneEntity> targets = {Target(1, 0.0f, 0.0f, INTERCEPTOR_RADIUS_METRES),
                                              Target(2, 1000.0f, 0.0f, CARRIER_RADIUS_METRES)};
 
     // 50 m from each: inside the Carrier, outside the Interceptor.
-    Assert::AreEqual(INVALID_PICK_ID, PickPoint(targets, XMFLOAT2{50.0f, 0.0f}, 0.0f));
+    Assert::AreEqual(INVALID_ENTITY_ID, PickPoint(targets, XMFLOAT2{50.0f, 0.0f}, 0.0f));
     Assert::AreEqual<std::uint32_t>(2, PickPoint(targets, XMFLOAT2{1050.0f, 0.0f}, 0.0f));
   }
 
   TEST_METHOD(TheScreenFloorMakesADistantInterceptorClickable)
   {
-    const std::vector<PickTarget> targets = {Target(1, 0.0f, 0.0f, INTERCEPTOR_RADIUS_METRES)};
+    const std::vector<SceneEntity> targets = {Target(1, 0.0f, 0.0f, INTERCEPTOR_RADIUS_METRES)};
 
     // At full zoom out, eight pixels is far more than twelve metres, so the
     // floor is what the pick actually uses.
@@ -205,13 +205,13 @@ public:
     const float floorMetres = far.ScreenFloorMetres(Selection::PICK_FLOOR_PIXELS);
     Assert::IsTrue(floorMetres > INTERCEPTOR_RADIUS_METRES * 10.0f, L"the floor should dominate a hull radius at 40 km");
 
-    Assert::AreEqual(INVALID_PICK_ID, PickPoint(targets, XMFLOAT2{200.0f, 0.0f}, 0.0f));
+    Assert::AreEqual(INVALID_ENTITY_ID, PickPoint(targets, XMFLOAT2{200.0f, 0.0f}, 0.0f));
     Assert::AreEqual<std::uint32_t>(1, PickPoint(targets, XMFLOAT2{200.0f, 0.0f}, floorMetres));
   }
 
   TEST_METHOD(TheFloorIsAFloorAndNotAReplacement)
   {
-    const std::vector<PickTarget> targets = {Target(1, 0.0f, 0.0f, CARRIER_RADIUS_METRES)};
+    const std::vector<SceneEntity> targets = {Target(1, 0.0f, 0.0f, CARRIER_RADIUS_METRES)};
 
     // Zoomed right in, the floor is metres and the Carrier is ninety of them.
     const IsoCamera close = PickCamera(0.0f, IsoCamera::MIN_ZOOM_METRES);
@@ -250,7 +250,7 @@ public:
     const XMFLOAT2 alsoInside = PlanePointForNdc(mapping, 0.4f, -0.3f);
     const XMFLOAT2 outside = PlanePointForNdc(mapping, 0.9f, 0.9f);
 
-    const std::vector<PickTarget> targets = {Target(1, inside.x, inside.y, 20.0f), Target(2, outside.x, outside.y, 20.0f),
+    const std::vector<SceneEntity> targets = {Target(1, inside.x, inside.y, 20.0f), Target(2, outside.x, outside.y, 20.0f),
                                              Target(3, alsoInside.x, alsoInside.y, 20.0f)};
 
     std::vector<std::uint32_t> hits;
@@ -267,7 +267,7 @@ public:
     const PlaneMapping mapping = camera.PlaneMappingForNdc();
 
     const XMFLOAT2 middle = PlanePointForNdc(mapping, 0.0f, 0.0f);
-    const std::vector<PickTarget> targets = {Target(42, middle.x, middle.y, 20.0f)};
+    const std::vector<SceneEntity> targets = {Target(42, middle.x, middle.y, 20.0f)};
 
     constexpr XMFLOAT2 CORNERS[][2] = {{XMFLOAT2{-0.5f, -0.5f}, XMFLOAT2{0.5f, 0.5f}},
                                        {XMFLOAT2{0.5f, 0.5f}, XMFLOAT2{-0.5f, -0.5f}},
@@ -293,7 +293,7 @@ public:
     // Just outside the right edge of the box, with a radius wide enough to
     // reach well inside it.
     const XMFLOAT2 justOutside = PlanePointForNdc(mapping, 0.55f, 0.0f);
-    const std::vector<PickTarget> targets = {Target(1, justOutside.x, justOutside.y, 4000.0f)};
+    const std::vector<SceneEntity> targets = {Target(1, justOutside.x, justOutside.y, 4000.0f)};
 
     std::vector<std::uint32_t> hits;
     PickBox(targets, mapping, XMFLOAT2{-0.5f, -0.5f}, XMFLOAT2{0.5f, 0.5f}, hits);
@@ -315,7 +315,7 @@ public:
      * and MSVC disagreed about. Every edge below clears its point by at least
      * 0.05 of NDC, some forty pixels at this viewport.
      */
-    const std::vector<PickTarget> targets = {Target(1, 2000.0f, 0.0f, 20.0f)};
+    const std::vector<SceneEntity> targets = {Target(1, 2000.0f, 0.0f, 20.0f)};
     const XMFLOAT2 cornerA{0.05f, -0.06f};
     const XMFLOAT2 cornerB{0.30f, 0.06f};
 
@@ -349,13 +349,13 @@ public:
     mapping.rightPerNdc = XMFLOAT2{1024.0f, 0.0f};
     mapping.upPerNdc = XMFLOAT2{0.0f, 1024.0f};
 
-    const std::vector<PickTarget> onTheEdge = {Target(1, 512.0f, 0.0f, 1.0f)};
+    const std::vector<SceneEntity> onTheEdge = {Target(1, 512.0f, 0.0f, 1.0f)};
     std::vector<std::uint32_t> hits;
     PickBox(onTheEdge, mapping, XMFLOAT2{-0.5f, -0.5f}, XMFLOAT2{0.5f, 0.5f}, hits);
     Assert::AreEqual<std::size_t>(1, hits.size(), L"a ship exactly on the edge is in the box");
 
     // One representable step further out is not.
-    const std::vector<PickTarget> justOutside = {Target(1, 513.0f, 0.0f, 1.0f)};
+    const std::vector<SceneEntity> justOutside = {Target(1, 513.0f, 0.0f, 1.0f)};
     hits.clear();
     PickBox(justOutside, mapping, XMFLOAT2{-0.5f, -0.5f}, XMFLOAT2{0.5f, 0.5f}, hits);
     Assert::AreEqual<std::size_t>(0, hits.size());
@@ -366,7 +366,7 @@ public:
     const IsoCamera camera = PickCamera(0.0f, 8000.0f);
     const PlaneMapping mapping = camera.PlaneMappingForNdc();
     const XMFLOAT2 middle = PlanePointForNdc(mapping, 0.0f, 0.0f);
-    const std::vector<PickTarget> targets = {Target(5, middle.x, middle.y, 20.0f)};
+    const std::vector<SceneEntity> targets = {Target(5, middle.x, middle.y, 20.0f)};
 
     std::vector<std::uint32_t> hits = {99};
     PickBox(targets, mapping, XMFLOAT2{-0.5f, -0.5f}, XMFLOAT2{0.5f, 0.5f}, hits);
@@ -387,7 +387,7 @@ public:
 
     IsoCamera camera = PickCamera(0.0f, 8000.0f);
     PlaneMapping mapping = camera.PlaneMappingForNdc();
-    std::vector<PickTarget> targets;
+    std::vector<SceneEntity> targets;
 
     Fixture()
     {
@@ -581,7 +581,7 @@ public:
     Selection selection;
     selection.Set(std::vector<std::uint32_t>{1, 2, 3});
 
-    const std::vector<PickTarget> stillAlive = {Target(1, 0.0f, 0.0f, 10.0f), Target(3, 100.0f, 0.0f, 10.0f)};
+    const std::vector<SceneEntity> stillAlive = {Target(1, 0.0f, 0.0f, 10.0f), Target(3, 100.0f, 0.0f, 10.0f)};
     selection.Retain(stillAlive);
 
     Assert::AreEqual<std::size_t>(2, selection.Count());
@@ -596,10 +596,10 @@ public:
   TEST_METHOD(AddAndToggleRefuseTheInvalidId)
   {
     Selection selection;
-    selection.Add(INVALID_PICK_ID);
+    selection.Add(INVALID_ENTITY_ID);
     Assert::IsTrue(selection.Empty());
 
-    selection.Toggle(INVALID_PICK_ID);
+    selection.Toggle(INVALID_ENTITY_ID);
     Assert::IsTrue(selection.Empty(), L"a click on nothing must not select nothing-as-a-thing");
   }
 

@@ -37,7 +37,7 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
 
   _outScene.Clear();
   _outScene.instances.reserve(m_sampled.size());
-  _outScene.pickTargets.reserve(m_sampled.size());
+  _outScene.entities.reserve(m_sampled.size());
 
   std::uint32_t renderClassCount = 0;
   for (const Game::ReplicatedShip& ship : m_sampled)
@@ -68,17 +68,20 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
     instance.classId = renderClass;
     _outScene.instances.push_back(instance);
 
-    // The same ship as a circle, for picking and for the ring the overlay draws
-    // around it. `id` crosses the seam as an opaque number -- the engine hands
-    // back whatever it was given, and only this project knows it is a `ShipId`.
-    // A hull the wire named but this build has no class for was already skipped
-    // above; a ship that is not drawn must not be selectable either, or a
-    // player picks something they cannot see.
-    Neuron::PickTarget target;
-    target.id = ship.id;
-    target.planeMetres = ship.positionMetres;
-    target.pickRadiusMetres = Game::ShipClass(static_cast<Game::HullClass>(ship.classId)).pickRadiusMetres;
-    _outScene.pickTargets.push_back(target);
+    // The same ship again, in the shape picking and the overlay want. `id`
+    // crosses the seam as an opaque number -- the engine hands back whatever it
+    // was given, and only this project knows it is a `ShipId`. A hull the wire
+    // named but this build has no class for was already skipped above; a ship
+    // that is not drawn must not be selectable either, or a player picks
+    // something they cannot see.
+    Neuron::SceneEntity entity;
+    entity.id = ship.id;
+    entity.planeMetres = ship.positionMetres;
+    entity.pickRadiusMetres = Game::ShipClass(static_cast<Game::HullClass>(ship.classId)).pickRadiusMetres;
+    entity.hullGauge = ship.hullGauge;
+    entity.shieldGauge = ship.shieldGauge;
+    entity.stale = ship.stale;
+    _outScene.entities.push_back(entity);
 
     renderClassCount = std::max(renderClassCount, static_cast<std::uint32_t>(renderClass) + 1u);
   }

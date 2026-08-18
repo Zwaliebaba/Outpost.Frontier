@@ -44,8 +44,12 @@ struct ReplicatedShip
   DirectX::XMFLOAT2 positionMetres{};
   DirectX::XMFLOAT2 velocityMetresPerSec{};
   float headingRadians = 0.0f;
-  std::uint8_t hullPercent = 0;
-  std::uint8_t shieldPercent = 0;
+  /// `EntityRecord`'s two gauges, verbatim: 0-255, not 0-100. They were called
+  /// `hullPercent`/`shieldPercent`, which was wrong in the way that eventually
+  /// costs someone a divide by a hundred -- a ship spawns at 255 and that is
+  /// full health, not two and a half times it.
+  std::uint8_t hullGauge = 0;
+  std::uint8_t shieldGauge = 0;
 
   /// Extrapolated past the cap and frozen. The icon sheet draws a marker for
   /// this; the point of surfacing it is that a frozen ship must never be

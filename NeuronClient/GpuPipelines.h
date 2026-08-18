@@ -97,6 +97,8 @@ struct PipelineShaders
   std::span<const std::uint8_t> opaquePixel;
   std::span<const std::uint8_t> nebulaVertex;
   std::span<const std::uint8_t> nebulaPixel;
+  std::span<const std::uint8_t> overlayVertex;
+  std::span<const std::uint8_t> overlayPixel;
 };
 
 /// Root parameter slots. Named because a bare index at a Set call site is the
@@ -128,14 +130,31 @@ public:
   [[nodiscard]] ID3D12PipelineState* Opaque() const noexcept { return m_opaque.get(); }
   [[nodiscard]] ID3D12PipelineState* Nebula() const noexcept { return m_nebula.get(); }
 
+  /*
+   * Two overlay pipelines, one shader pair (ADR-006 §8).
+   *
+   * They differ in depth state and nothing else. A selection ring lies on the
+   * plane and depth-tests against hulls, so a ring behind a Carrier is occluded
+   * by it; a bar faces the screen and never occludes, because a health readout
+   * that hides behind the thing it describes is not a readout. That is
+   * `overlay-pass.png`'s rule, and it is a property of the pipeline rather than
+   * of the shader -- which is why the marks are sorted rings-then-bars and
+   * drawn as two ranges.
+   */
+  [[nodiscard]] ID3D12PipelineState* OverlayRings() const noexcept { return m_overlayRings.get(); }
+  [[nodiscard]] ID3D12PipelineState* OverlayBars() const noexcept { return m_overlayBars.get(); }
+
 private:
   [[nodiscard]] bool CreateRootSignature(ID3D12Device* _device);
   [[nodiscard]] bool CreateOpaquePipeline(ID3D12Device* _device, const PipelineShaders& _shaders);
   [[nodiscard]] bool CreateNebulaPipeline(ID3D12Device* _device, const PipelineShaders& _shaders);
+  [[nodiscard]] bool CreateOverlayPipelines(ID3D12Device* _device, const PipelineShaders& _shaders);
 
   GpuPtr<ID3D12RootSignature> m_rootSignature;
   GpuPtr<ID3D12PipelineState> m_opaque;
   GpuPtr<ID3D12PipelineState> m_nebula;
+  GpuPtr<ID3D12PipelineState> m_overlayRings;
+  GpuPtr<ID3D12PipelineState> m_overlayBars;
 };
 
 } // namespace Neuron

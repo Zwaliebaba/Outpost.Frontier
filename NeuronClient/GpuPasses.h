@@ -34,6 +34,7 @@ namespace Neuron
 class GpuMeshTable;
 class GpuPipelines;
 class GpuUploadRing;
+struct OverlayMarkList;
 struct RenderScene;
 
 /// Everything a pass is allowed to touch, handed in rather than reached for.
@@ -54,6 +55,10 @@ struct FrameContext
   std::uint32_t viewportWidth = 0;
   std::uint32_t viewportHeight = 0;
   float clearColour[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+
+  /// The frame's selection rings and gauge bars, built by `BuildOverlayMarks`.
+  /// Null or empty draws nothing, which is what an empty selection looks like.
+  const OverlayMarkList* overlayMarks = nullptr;
 
   /// Whether the nebula field baked and uploaded. The pass reads its tint and
   /// tile size out of the pass constants, so this is the only thing it needs to
@@ -106,6 +111,32 @@ private:
 };
 
 /*
+ * Selection rings and gauge bars (ADR-006 §8).
+ *
+ * After the nebula, because the overlay is a readout and nothing may composite
+ * over it. Two draws over one instance stream: the rings first, depth-tested so
+ * one behind a Carrier is occluded by it, then the bars with no depth at all so
+ * a health readout never hides behind the ship it describes. That split is why
+ * `OverlayMarkList` keeps its rings contiguous.
+ *
+ * One upload, two draws, four vertices each -- the quads come from
+ * `SV_VertexID`, so the only thing in the vertex buffer is the marks.
+ */
+struct OverlayWorldPass
+{
+  void Record(const FrameContext& _context);
+
+  /// What the last Record issued, for the debug strip (S14) and for a test that
+  /// wants to know the pass ran rather than that it looked right.
+  [[nodiscard]] std::uint32_t RingCount() const noexcept { return m_ringCount; }
+  [[nodiscard]] std::uint32_t BarCount() const noexcept { return m_barCount; }
+
+private:
+  std::uint32_t m_ringCount = 0;
+  std::uint32_t m_barCount = 0;
+};
+
+/*
  * The pass list itself.
  *
  * Reserved slots, in the order they will be inserted:
@@ -114,7 +145,7 @@ private:
  *                 into the soft SRV occlusion ADR-006 §8 wants
  *   Effects    -- corpus target
  *   Tonemap    -- arrives with HDR; the SDR path has nothing to tone-map
- *   OverlayWorld (S8), Ui (S11)
+ *   Ui (S11)
  */
 class GpuPassList
 {
@@ -123,11 +154,13 @@ public:
 
   [[nodiscard]] const OpaquePass& Opaque() const noexcept { return m_opaque; }
   [[nodiscard]] const NebulaPass& Nebula() const noexcept { return m_nebula; }
+  [[nodiscard]] const OverlayWorldPass& OverlayWorld() const noexcept { return m_overlayWorld; }
 
 private:
   ClearPass m_clear;
   OpaquePass m_opaque;
   NebulaPass m_nebula;
+  OverlayWorldPass m_overlayWorld;
 };
 
 } // namespace Neuron

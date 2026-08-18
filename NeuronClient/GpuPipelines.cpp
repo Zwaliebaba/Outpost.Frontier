@@ -3,6 +3,7 @@
 #include "GpuPipelines.h"
 
 #include "Log.h"
+#include "OverlayMark.h"
 #include "RenderWorld.h"
 
 #include <cstddef>
@@ -32,7 +33,7 @@ namespace
 [[nodiscard]] bool AllPresent(const PipelineShaders& _shaders) noexcept
 {
   const bool ok = !_shaders.opaqueVertex.empty() && !_shaders.opaquePixel.empty() && !_shaders.nebulaVertex.empty() &&
-                  !_shaders.nebulaPixel.empty();
+                  !_shaders.nebulaPixel.empty() && !_shaders.overlayVertex.empty() && !_shaders.overlayPixel.empty();
   if (!ok)
   {
     NEURON_LOG_ERROR("pipelines: the composition root supplied an empty shader; refusing to build a pipeline from nothing");
@@ -269,6 +270,94 @@ bool GpuPipelines::CreateNebulaPipeline(ID3D12Device* _device, const PipelineSha
   return true;
 }
 
+/*
+ * The two OverlayWorld pipelines (ADR-006 §8).
+ *
+ * One shader pair, two depth states, and the difference is the whole rule the
+ * `overlay-pass.png` acceptance is about: plane-lying marks depth-test against
+ * hulls so a ring behind a Carrier is occluded by it, and screen-facing marks
+ * never occlude because a bar that hides behind its own ship is not a readout.
+ *
+ * No vertex buffer for geometry: the quad comes from `SV_VertexID`, the same
+ * trick the nebula's full-screen triangle uses, so slot 0 is the instance
+ * stream and there is no slot 1.
+ */
+bool GpuPipelines::CreateOverlayPipelines(ID3D12Device* _device, const PipelineShaders& _shaders)
+{
+  // Four elements rather than seven, because the four size floats are
+  // contiguous and mean "size" between them. The offsets are spelled by hand
+  // because that is what D3D12 asks for, which makes them a second copy of
+  // OverlayMark's layout -- and these are the asserts that keep the copies
+  // honest.
+  static_assert(offsetof(OverlayMark, anchorPlane) == 0, "MARK_ANCHOR is declared at offset 0");
+  static_assert(offsetof(OverlayMark, radiusMetres) == 8, "MARK_SIZE starts at offset 8");
+  static_assert(offsetof(OverlayMark, halfWidthPixels) == 12, "MARK_SIZE.y is the half width");
+  static_assert(offsetof(OverlayMark, halfHeightPixels) == 16, "MARK_SIZE.z is the half height");
+  static_assert(offsetof(OverlayMark, offsetUpPixels) == 20, "MARK_SIZE.w is the screen offset");
+  static_assert(offsetof(OverlayMark, colourRgba) == 24, "MARK_COLOUR is declared at offset 24");
+  static_assert(offsetof(OverlayMark, kind) == 28 && offsetof(OverlayMark, fill) == 30,
+                "MARK_KINDFILL is two 16-bit lanes at offset 28");
+
+  const D3D12_INPUT_ELEMENT_DESC elements[] = {
+      {"MARK_ANCHOR", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+      {"MARK_SIZE", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 8, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+      {"MARK_COLOUR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+      {"MARK_KINDFILL", 0, DXGI_FORMAT_R16G16_UINT, 0, 28, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+  };
+
+  D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
+  desc.pRootSignature = m_rootSignature.get();
+  desc.VS = Bytecode(_shaders.overlayVertex);
+  desc.PS = Bytecode(_shaders.overlayPixel);
+  desc.InputLayout = {elements, static_cast<UINT>(_countof(elements))};
+  desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+  desc.NumRenderTargets = 1;
+  desc.RTVFormats[0] = RENDER_TARGET_FORMAT;
+  desc.DSVFormat = DEPTH_FORMAT;
+  desc.SampleDesc.Count = 1;
+  desc.SampleMask = UINT_MAX;
+
+  desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+  // A quad built from a vertex id has one winding and no back to cull; culling
+  // nothing means its winding never has to agree with the meshes'.
+  desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+  desc.RasterizerState.FrontCounterClockwise = FALSE;
+  desc.RasterizerState.DepthClipEnable = TRUE;
+
+  D3D12_RENDER_TARGET_BLEND_DESC& blend = desc.BlendState.RenderTarget[0];
+  blend.BlendEnable = TRUE;
+  blend.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+  blend.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+  blend.BlendOp = D3D12_BLEND_OP_ADD;
+  blend.SrcBlendAlpha = D3D12_BLEND_ZERO;
+  blend.DestBlendAlpha = D3D12_BLEND_ONE;
+  blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+  blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+  // Rings: tested, never written. Writing would make one ring occlude the next
+  // where they overlap, which at fleet scale is most of them.
+  desc.DepthStencilState.DepthEnable = TRUE;
+  desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+  desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+  // The ring lies exactly on the plane and so does nothing else, but a hull
+  // resting on it is a coplanar surface away; ADR-006 §8 asks for a bias in the
+  // MVP and this is it. Negative, so the ring wins a tie against what it lies on.
+  desc.RasterizerState.DepthBias = -100;
+  desc.RasterizerState.SlopeScaledDepthBias = -1.0f;
+  desc.RasterizerState.DepthBiasClamp = 0.0f;
+  check_hresult(_device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(m_overlayRings.put())));
+  NAME_D3D12_OBJECT(m_overlayRings);
+
+  // Bars: no depth at all. This is the half of the rule a test cannot check.
+  desc.DepthStencilState.DepthEnable = FALSE;
+  desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+  desc.RasterizerState.DepthBias = 0;
+  desc.RasterizerState.SlopeScaledDepthBias = 0.0f;
+  check_hresult(_device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(m_overlayBars.put())));
+  NAME_D3D12_OBJECT(m_overlayBars);
+  return true;
+}
+
 bool GpuPipelines::Create(ID3D12Device* _device, const PipelineShaders& _shaders)
 {
   if (_device == nullptr || !AllPresent(_shaders))
@@ -290,17 +379,24 @@ bool GpuPipelines::Create(ID3D12Device* _device, const PipelineShaders& _shaders
   {
     return false;
   }
+  if (!CreateOverlayPipelines(_device, _shaders))
+  {
+    return false;
+  }
 
   // The sizes, because they are the one thing about a compiled-in shader worth
   // seeing at boot: a stage that shrank to nothing between builds shows up here
   // rather than as an empty screen.
-  NEURON_LOG_INFO("pipelines: opaque (%zu + %zu B) and nebula (%zu + %zu B) built", _shaders.opaqueVertex.size(),
-                  _shaders.opaquePixel.size(), _shaders.nebulaVertex.size(), _shaders.nebulaPixel.size());
+  NEURON_LOG_INFO("pipelines: opaque (%zu + %zu B), nebula (%zu + %zu B), overlay (%zu + %zu B) built",
+                  _shaders.opaqueVertex.size(), _shaders.opaquePixel.size(), _shaders.nebulaVertex.size(),
+                  _shaders.nebulaPixel.size(), _shaders.overlayVertex.size(), _shaders.overlayPixel.size());
   return true;
 }
 
 void GpuPipelines::Destroy()
 {
+  m_overlayBars = nullptr;
+  m_overlayRings = nullptr;
   m_nebula = nullptr;
   m_opaque = nullptr;
   m_rootSignature = nullptr;

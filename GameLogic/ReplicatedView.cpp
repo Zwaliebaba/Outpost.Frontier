@@ -39,8 +39,8 @@ namespace
   ship.velocityMetresPerSec =
       XMFLOAT2{Neuron::CentimetresToMetres(_record.velXCmPerSec), Neuron::CentimetresToMetres(_record.velYCmPerSec)};
   ship.headingRadians = Neuron::HeadingToRadians(_record.headingTurns16);
-  ship.hullPercent = _record.gaugeA;
-  ship.shieldPercent = _record.gaugeB;
+  ship.hullGauge = _record.gaugeA;
+  ship.shieldGauge = _record.gaugeB;
   return ship;
 }
 
@@ -152,8 +152,8 @@ void ReplicatedView::SampleAt(double _renderTick, std::vector<ReplicatedShip>& _
       ship.velocityMetresPerSec = XMFLOAT2{Lerp(ship.velocityMetresPerSec.x, target.velocityMetresPerSec.x, blend),
                                            Lerp(ship.velocityMetresPerSec.y, target.velocityMetresPerSec.y, blend)};
       ship.headingRadians = LerpAngle(ship.headingRadians, target.headingRadians, blend);
-      ship.hullPercent = blend < 0.5f ? ship.hullPercent : target.hullPercent;
-      ship.shieldPercent = blend < 0.5f ? ship.shieldPercent : target.shieldPercent;
+      ship.hullGauge = blend < 0.5f ? ship.hullGauge : target.hullGauge;
+      ship.shieldGauge = blend < 0.5f ? ship.shieldGauge : target.shieldGauge;
       _outShips.push_back(ship);
     }
     return;

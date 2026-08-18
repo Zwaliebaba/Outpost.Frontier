@@ -56,13 +56,13 @@ public:
   /*
    * The button came up. Resolves to a click or a box and applies it.
    *
-   * `_mapping` and `_viewport*` convert the recorded pixels; `_targets` is the
+   * `_mapping` and `_viewport*` convert the recorded pixels; `_entities` is the
    * frame's pick list; `_minRadiusMetres` is the screen floor. Everything the
    * decision needs arrives here rather than being remembered, because the
    * camera may have moved during the drag and the answer must use where things
    * are *now*.
    */
-  void EndDrag(std::span<const PickTarget> _targets, const PlaneMapping& _mapping, std::uint32_t _viewportWidth,
+  void EndDrag(std::span<const SceneEntity> _entities, const PlaneMapping& _mapping, std::uint32_t _viewportWidth,
                std::uint32_t _viewportHeight, float _minRadiusMetres);
 
   /// Abandons a drag without changing the selection -- focus loss, or the
@@ -96,7 +96,7 @@ public:
    * selected has to leave the selection, or the overlay draws a ring around
    * empty space and an order goes out for something that does not exist.
    */
-  void Retain(std::span<const PickTarget> _targets);
+  void Retain(std::span<const SceneEntity> _entities);
 
   /// Directly, for tests and for the HUD's select-all (S11).
   void Set(std::span<const std::uint32_t> _ids);

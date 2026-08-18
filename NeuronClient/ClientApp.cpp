@@ -290,7 +290,7 @@ void ClientApp::UpdateCamera(float _deltaSeconds)
  * Click, shift-click and box-select (ADR-006 §11).
  *
  * Runs before `ExtractScene`, and that is the interesting part: it tests
- * against `m_scene.pickTargets` as the *previous* frame left them, which is the
+ * against `m_scene.entities` as the *previous* frame left them, which is the
  * arrangement of ships the player was actually looking at when they pressed the
  * button. Resolving against the scene built after the click would test against
  * a world up to a frame newer than the one on screen -- a fraction of a pixel
@@ -325,7 +325,7 @@ void ClientApp::UpdateSelection()
 
   if (m_input.Released(InputButton::Left) && m_selection.Dragging())
   {
-    m_selection.EndDrag(m_scene.pickTargets, m_camera.PlaneMappingForNdc(), m_input.viewportWidth, m_input.viewportHeight,
+    m_selection.EndDrag(m_scene.entities, m_camera.PlaneMappingForNdc(), m_input.viewportWidth, m_input.viewportHeight,
                         m_camera.ScreenFloorMetres(Selection::PICK_FLOOR_PIXELS));
   }
 }
@@ -346,7 +346,11 @@ void ClientApp::ExtractScene()
   // A ship that died while selected leaves the selection here, with the fresh
   // list. Holding a dead id would draw a ring around empty space and, from S9,
   // send an order for something that no longer exists.
-  m_selection.Retain(m_scene.pickTargets);
+  m_selection.Retain(m_scene.entities);
+
+  // The overlay is built from the same entities the pick ran over, so a ring is
+  // drawn exactly where a click would have landed (ADR-006 §8, §11).
+  BuildOverlayMarks(m_scene.entities, m_selection.Ids(), m_overlayTuning, m_camera.MetresPerPixel(), m_overlayMarks);
 }
 
 FrameConstants ClientApp::BuildFrameConstants() const
@@ -468,6 +472,7 @@ void ClientApp::RenderFrame()
   context.commandList = m_commandList.get();
   context.uploadRing = &m_uploadRing;
   context.pipelines = &m_pipelines;
+  context.overlayMarks = &m_overlayMarks;
   context.meshes = &m_meshes;
   context.scene = &m_scene;
   context.renderTargetView = m_swapChain.CurrentRenderTargetView();

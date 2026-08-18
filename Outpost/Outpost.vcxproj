@@ -77,8 +77,34 @@
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">6.7</ShaderModel>
       <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">/Qembed_debug %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
+    <FxCompile Include="Shaders\OverlayVS.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <EntryPointName>VertexMain</EntryPointName>
+      <HeaderFileOutput>$(ProjectDir)CompiledShaders\OverlayVS.h</HeaderFileOutput>
+      <VariableName>g_pOverlayVS</VariableName>
+      <VariableName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">g_p%(Filename)</VariableName>
+      <HeaderFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(ProjectDir)CompiledShaders\%(Filename).h</HeaderFileOutput>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      </ObjectFileOutput>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">6.7</ShaderModel>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">/Qembed_debug %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
+    <FxCompile Include="Shaders\OverlayPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <EntryPointName>PixelMain</EntryPointName>
+      <HeaderFileOutput>$(ProjectDir)CompiledShaders\OverlayPS.h</HeaderFileOutput>
+      <VariableName>g_pOverlayPS</VariableName>
+      <VariableName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">g_p%(Filename)</VariableName>
+      <HeaderFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(ProjectDir)CompiledShaders\%(Filename).h</HeaderFileOutput>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      </ObjectFileOutput>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">6.7</ShaderModel>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">/Qembed_debug %(AdditionalOptions)</AdditionalOptions>
+    </FxCompile>
     <!-- Included by the .hlsl files above; fxc resolves them beside the source. -->
+    <None Include="Shaders\FrameConstants.hlsli" />
     <None Include="Shaders\Nebula.hlsli" />
+    <None Include="Shaders\Overlay.hlsli" />
     <None Include="Shaders\Opaque.hlsli" />
     <None Include="Shaders\PassConstants.hlsli" />
   </ItemGroup>

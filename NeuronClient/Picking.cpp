@@ -31,40 +31,40 @@ bool PlaneToNdc(const PlaneMapping& _mapping, const XMFLOAT2& _planeMetres, XMFL
   return true;
 }
 
-std::uint32_t PickPoint(std::span<const PickTarget> _targets, const XMFLOAT2& _planeMetres, float _minRadiusMetres) noexcept
+std::uint32_t PickPoint(std::span<const SceneEntity> _entities, const XMFLOAT2& _planeMetres, float _minRadiusMetres) noexcept
 {
-  std::uint32_t best = INVALID_PICK_ID;
+  std::uint32_t best = INVALID_ENTITY_ID;
   float bestDistanceSquared = 0.0f;
 
-  for (const PickTarget& target : _targets)
+  for (const SceneEntity& entity : _entities)
   {
-    if (target.id == INVALID_PICK_ID)
+    if (entity.id == INVALID_ENTITY_ID)
     {
       continue;
     }
 
-    const float dx = target.planeMetres.x - _planeMetres.x;
-    const float dy = target.planeMetres.y - _planeMetres.y;
+    const float dx = entity.planeMetres.x - _planeMetres.x;
+    const float dy = entity.planeMetres.y - _planeMetres.y;
     const float distanceSquared = dx * dx + dy * dy;
 
     // Squared throughout: the comparison is the same and the square root is
     // one per target in the hot path of every click and every hover.
-    const float radius = target.pickRadiusMetres > _minRadiusMetres ? target.pickRadiusMetres : _minRadiusMetres;
+    const float radius = entity.pickRadiusMetres > _minRadiusMetres ? entity.pickRadiusMetres : _minRadiusMetres;
     if (distanceSquared > radius * radius)
     {
       continue;
     }
 
-    if (best == INVALID_PICK_ID || distanceSquared < bestDistanceSquared)
+    if (best == INVALID_ENTITY_ID || distanceSquared < bestDistanceSquared)
     {
-      best = target.id;
+      best = entity.id;
       bestDistanceSquared = distanceSquared;
     }
   }
   return best;
 }
 
-void PickBox(std::span<const PickTarget> _targets, const PlaneMapping& _mapping, const XMFLOAT2& _ndcCornerA,
+void PickBox(std::span<const SceneEntity> _entities, const PlaneMapping& _mapping, const XMFLOAT2& _ndcCornerA,
              const XMFLOAT2& _ndcCornerB, std::vector<std::uint32_t>& _outIds)
 {
   const float minX = _ndcCornerA.x < _ndcCornerB.x ? _ndcCornerA.x : _ndcCornerB.x;
@@ -72,22 +72,22 @@ void PickBox(std::span<const PickTarget> _targets, const PlaneMapping& _mapping,
   const float minY = _ndcCornerA.y < _ndcCornerB.y ? _ndcCornerA.y : _ndcCornerB.y;
   const float maxY = _ndcCornerA.y < _ndcCornerB.y ? _ndcCornerB.y : _ndcCornerA.y;
 
-  for (const PickTarget& target : _targets)
+  for (const SceneEntity& entity : _entities)
   {
-    if (target.id == INVALID_PICK_ID)
+    if (entity.id == INVALID_ENTITY_ID)
     {
       continue;
     }
 
     XMFLOAT2 ndc{};
-    if (!PlaneToNdc(_mapping, target.planeMetres, ndc))
+    if (!PlaneToNdc(_mapping, entity.planeMetres, ndc))
     {
-      return; // Degenerate mapping: no target is inside anything.
+      return; // Degenerate mapping: nothing is inside anything.
     }
 
     if (ndc.x >= minX && ndc.x <= maxX && ndc.y >= minY && ndc.y <= maxY)
     {
-      _outIds.push_back(target.id);
+      _outIds.push_back(entity.id);
     }
   }
 }

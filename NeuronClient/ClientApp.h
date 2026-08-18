@@ -14,6 +14,7 @@
 #include "GpuUploadRing.h"
 #include "InputMap.h"
 #include "IsoCamera.h"
+#include "OverlayMark.h"
 #include "RenderWorld.h"
 #include "Selection.h"
 #include "SnapshotBuffer.h"
@@ -131,6 +132,11 @@ private:
   /// Client-only and never sent: the server learns what was selected only when
   /// an order names it (S9).
   Selection m_selection;
+
+  /// What the selection looks like: rings and gauge bars, rebuilt each frame
+  /// from the selection and the scene, and reused rather than reallocated.
+  OverlayMarkList m_overlayMarks;
+  OverlayTuning m_overlayTuning;
 
   GpuPtr<ID3D12CommandAllocator> m_commandAllocators[GpuSwapChain::BUFFER_COUNT];
   GpuPtr<ID3D12GraphicsCommandList> m_commandList;

@@ -37,7 +37,7 @@ void Selection::Set(std::span<const std::uint32_t> _ids)
 
 void Selection::Add(std::uint32_t _id)
 {
-  if (_id != INVALID_PICK_ID && !Contains(_id))
+  if (_id != INVALID_ENTITY_ID && !Contains(_id))
   {
     m_ids.push_back(_id);
   }
@@ -45,7 +45,7 @@ void Selection::Add(std::uint32_t _id)
 
 void Selection::Toggle(std::uint32_t _id)
 {
-  if (_id == INVALID_PICK_ID)
+  if (_id == INVALID_ENTITY_ID)
   {
     return;
   }
@@ -60,13 +60,13 @@ void Selection::Toggle(std::uint32_t _id)
   }
 }
 
-void Selection::Retain(std::span<const PickTarget> _targets)
+void Selection::Retain(std::span<const SceneEntity> _entities)
 {
   std::erase_if(m_ids,
-                [_targets](std::uint32_t _id)
+                [_entities](std::uint32_t _id)
                 {
-                  return std::find_if(_targets.begin(), _targets.end(),
-                                      [_id](const PickTarget& _target) { return _target.id == _id; }) == _targets.end();
+                  return std::find_if(_entities.begin(), _entities.end(),
+                                      [_id](const SceneEntity& _target) { return _target.id == _id; }) == _entities.end();
                 });
 }
 
@@ -100,7 +100,7 @@ bool Selection::DragIsBox() const noexcept
   return std::fabs(m_currentX - m_startX) > CLICK_SLOP_PIXELS || std::fabs(m_currentY - m_startY) > CLICK_SLOP_PIXELS;
 }
 
-void Selection::EndDrag(std::span<const PickTarget> _targets, const PlaneMapping& _mapping, std::uint32_t _viewportWidth,
+void Selection::EndDrag(std::span<const SceneEntity> _entities, const PlaneMapping& _mapping, std::uint32_t _viewportWidth,
                         std::uint32_t _viewportHeight, float _minRadiusMetres)
 {
   if (!m_dragging)
@@ -117,7 +117,7 @@ void Selection::EndDrag(std::span<const PickTarget> _targets, const PlaneMapping
     const XMFLOAT2 cornerB = PixelsToNdc(m_currentX, m_currentY, _viewportWidth, _viewportHeight);
 
     std::vector<std::uint32_t> inside;
-    PickBox(_targets, _mapping, cornerA, cornerB, inside);
+    PickBox(_entities, _mapping, cornerA, cornerB, inside);
 
     if (!additive)
     {
@@ -134,7 +134,7 @@ void Selection::EndDrag(std::span<const PickTarget> _targets, const PlaneMapping
   const XMFLOAT2 ndc = PixelsToNdc(m_currentX, m_currentY, _viewportWidth, _viewportHeight);
   const XMFLOAT2 planePoint{_mapping.origin.x + _mapping.rightPerNdc.x * ndc.x + _mapping.upPerNdc.x * ndc.y,
                             _mapping.origin.y + _mapping.rightPerNdc.y * ndc.x + _mapping.upPerNdc.y * ndc.y};
-  const std::uint32_t hit = PickPoint(_targets, planePoint, _minRadiusMetres);
+  const std::uint32_t hit = PickPoint(_entities, planePoint, _minRadiusMetres);
 
   if (additive)
   {

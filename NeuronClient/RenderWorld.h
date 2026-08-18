@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Picking.h"
-
 #include <DirectXMath.h>
 
 #include <cstdint>
@@ -25,6 +23,36 @@
 
 namespace Neuron
 {
+
+/// No entity. `0` is a legitimate ship id, so the sentinel cannot be zero.
+inline constexpr std::uint32_t INVALID_ENTITY_ID = 0xffffffffu;
+
+/*
+ * One ship, as everything that is not the opaque draw needs it.
+ *
+ * Picking needs an identity, a point and a radius; a selection ring needs the
+ * same point and radius; hull and shield bars need the gauges. Those could be
+ * three arrays kept in lockstep, and the first edit that appended to one and
+ * not the others would put a Carrier's shield bar over an Interceptor. One
+ * record, filled once per frame, cannot do that.
+ *
+ * Not `InstanceRecord`, which is the other half of the same sample: that is a
+ * vertex stream sorted by class for the draw, carrying a render classId rather
+ * than an identity, and it is twenty bytes because that is the stride the input
+ * layout declares. This one is free to grow.
+ *
+ * `id` is opaque. The engine hands back whatever the game put in and never
+ * interprets it (ADR-014).
+ */
+struct SceneEntity
+{
+  std::uint32_t id = INVALID_ENTITY_ID;
+  DirectX::XMFLOAT2 planeMetres{};  // Sim plane metres (ADR-001 §3), not render space.
+  float pickRadiusMetres = 0.0f;    // The class's, so a Battleship is easier to hit than a fighter.
+  std::uint8_t hullGauge = 0;    // 0-255, not a percentage. Full is 255.
+  std::uint8_t shieldGauge = 0;  // Likewise.
+  bool stale = false;               // Extrapolated past the cap and frozen (ADR-002 §4).
+};
 
 /// Per-instance data, matching ADR-006 §6 field for field.
 struct InstanceRecord
@@ -61,22 +89,16 @@ struct RenderScene
   std::vector<InstanceRange> classRanges;
 
   /*
-   * The same ships again, as circles on the plane (ADR-006 §11).
+   * The same ships again, in the shape everything that is not the draw needs
+   * (ADR-006 §11).
    *
-   * Not a duplicate of `instances`, and deliberately not derived from it.
-   * `instances` is a vertex stream: it is sorted by class for the draw, it
-   * carries a render classId rather than an identity, and it has no room for a
-   * radius -- it is twenty bytes and stays twenty bytes. Picking needs the
-   * opposite properties, so it gets its own array, built from the same sample
-   * in the same call.
-   *
-   * The overlay reads this too. A selection ring is drawn at a ship's position
-   * with a radius from its class, which is exactly what a pick target is, so
-   * ring and hit-test agree by construction rather than by two pieces of code
-   * being kept in step. ADR-006 §11's "same plane point feeds the order puck --
-   * one code path" is the same argument one call earlier.
+   * Picking runs over this, and so does the overlay: a selection ring is drawn
+   * at a ship's position with a radius from its class, which is exactly what
+   * the hit test uses, so ring and pick agree by construction rather than by
+   * two pieces of code being kept in step. ADR-006 §11's "same plane point
+   * feeds the order puck -- one code path" is that argument one call earlier.
    */
-  std::vector<PickTarget> pickTargets;
+  std::vector<SceneEntity> entities;
 
   void Clear() noexcept;
 
