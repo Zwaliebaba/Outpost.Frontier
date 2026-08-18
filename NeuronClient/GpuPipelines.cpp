@@ -7,6 +7,7 @@
 
 #include <d3dcompiler.h>
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -88,8 +89,9 @@ GpuPipelines::~GpuPipelines()
 bool GpuPipelines::CreateRootSignature(ID3D12Device* _device)
 {
   // One SRV table, holding the glyph atlas today and whatever the Ui and
-  // OverlayWorld passes sample tomorrow. DESCRIPTORS_VOLATILE because the heap
-  // contents are written at boot and the driver need not assume otherwise.
+  // OverlayWorld passes sample tomorrow. DATA_STATIC is the honest flag here:
+  // the atlas texture and its descriptor are both written once at boot and
+  // never touched again, which is exactly what the flag promises the driver.
   D3D12_DESCRIPTOR_RANGE1 textureRange{};
   textureRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
   textureRange.NumDescriptors = 1;
@@ -197,6 +199,16 @@ bool GpuPipelines::CreateOpaquePipeline(ID3D12Device* _device, std::string_view 
   // Slot 0 is the mesh, slot 1 is the instance stream. classId is not in the
   // layout: the draw call already knows the class, because the class is what
   // selected the mesh (RenderWorld.h).
+  //
+  // The offsets below are spelled by hand because that is what D3D12 asks for,
+  // which makes them a second copy of InstanceRecord's layout. This is the
+  // assert that keeps the two copies honest.
+  static_assert(offsetof(InstanceRecord, posWorld) == 0, "INSTANCE_POSITION is declared at offset 0");
+  static_assert(offsetof(InstanceRecord, heading) == 12, "INSTANCE_HEADING is declared at offset 12");
+  static_assert(offsetof(InstanceRecord, teamColorId) == 16, "INSTANCE_CHANNELS is declared at offset 16");
+  static_assert(offsetof(InstanceRecord, selectionAndLodBias) == 17, "INSTANCE_CHANNELS is two bytes wide");
+  static_assert(sizeof(MeshVertex) == 24 && offsetof(MeshVertex, normal) == 12, "NORMAL is declared at offset 12");
+
   const D3D12_INPUT_ELEMENT_DESC elements[] = {
       {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
       {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
