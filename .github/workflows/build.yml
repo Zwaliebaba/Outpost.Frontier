@@ -67,6 +67,37 @@ jobs:
           }
           Write-Host 'no header shadows a standard header'
 
+      # The other half of R14, and the half that had no mechanical check until
+      # now. Every project folder is on the include path and includes are
+      # unqualified (ADR-013 §4), so two files sharing a name across projects
+      # resolve to whichever root the compiler reaches first -- silently, and
+      # differently depending on which project is building. ADR-013 §3's registry
+      # is the discipline; this is the check.
+      - name: Check file names are unique repo-wide
+        shell: pwsh
+        run: |
+          $seen = @{}
+          $bad = @()
+          foreach ($dir in 'NeuronCore', 'GameLogic', 'NeuronServer', 'NeuronClient', 'Outpost', 'Tests')
+          {
+            Get-ChildItem -Path $dir -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              # pch.h/pch.cpp sit at every project root by design (ADR-013 §1)
+              # and are never included across a project boundary.
+              if ($_.Name -eq 'pch.h' -or $_.Name -eq 'pch.cpp') { return }
+
+              $key = $_.Name.ToLower()
+              $path = Resolve-Path -Relative $_.FullName
+              if ($seen.ContainsKey($key)) { $bad += "$path collides with $($seen[$key])" }
+              else { $seen[$key] = $path }
+            }
+          }
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_" }
+            throw 'file names must be unique repo-wide (ADR-013 §3)'
+          }
+          Write-Host "$($seen.Count) file names, all unique"
+
       # ADR-014: Neuron is a two-game engine, and the sibling repository ships
       # these same libraries around a different game. The moment an engine
       # project references GameLogic it stops being an engine and becomes this

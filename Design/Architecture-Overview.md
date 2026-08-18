@@ -1,6 +1,7 @@
 # Outpost: Frontier — Architecture Overview (MVP)
 
-**Status:** Session output 2026-08-17 · governed by [ADR-001…013](ADR/)
+**Status:** Session output 2026-08-17 · **revised 2026-08-18 after S5–S6** · governed by
+[ADR-001…014](ADR/)
 
 One Windows x64 executable hosts an authoritative game server and a DX12 client that talk
 exclusively over a UDP loopback socket behind a QUIC-shaped transport. The simulation is a 2D
@@ -14,7 +15,7 @@ flowchart LR
     subgraph EXE["Outpost.exe — composition root (ADR-008)"]
         subgraph MAINT["Main thread (ADR-007)"]
             IN[Win32 input] --> CA
-            CA["ClientApp<br/>(NeuronClient)"] --> RW["Extract →<br/>RenderWorld"] --> GPU["DX12 passes<br/>Clear·Opaque·Overlay·Ui (ADR-006)"]
+            CA["ClientApp<br/>(NeuronClient)"] --> RW["Extract →<br/>RenderWorld"] --> GPU["DX12 passes<br/>Clear·Opaque·Nebula·Overlay·Ui (ADR-006)"]
         end
         subgraph SIMT["Sim thread (ADR-007)"]
             SH["ServerHost<br/>(NeuronServer)"] --> W["Game::World<br/>authoritative (ADR-005)"]
@@ -28,13 +29,22 @@ flowchart LR
     EXE -.->|"headless mode proves it today"| FUT
 ```
 
-**Only `Outpost.exe` links GameLogic** (ADR-014). `Neuron*` is a shared engine — the sibling
-repository runs a different game on it — so the server hosts *a* `Simulation` and the client
-renders *a* `WorldView`, both engine-declared interfaces that GameLogic implements and the
-composition root injects. The client still runs the game's own validation and formation solve
-(the parity the HUD's ghost/bounce design requires); it reaches them through the seam rather
-than through a link. Neither half ever touches the other's world — single-writer ownership,
-enforced by debug asserts (ADR-007).
+**Only `Outpost.exe` links GameLogic** (ADR-014), and **CI fails the build if that stops being
+true.** `Neuron*` is a shared engine — the sibling repository runs a different game on it — so
+the server hosts *a* `Simulation` and the client renders *a* `WorldView`, both engine-declared
+interfaces injected by the composition root.
+
+*Who implements them was the one thing ADR-014 got wrong.* It said GameLogic does, and also
+that GameLogic depends on NeuronCore only; those cannot both hold, because the interfaces are
+declared in NeuronServer and NeuronClient. S5c settled it (ADR-014 §2a): **the composition root
+holds the vtable** and forwards to GameLogic's pure functions. GameLogic keeps its freedom from
+Windows, D3D12 and file IO — which is what lets `GameLogicTests` run with no device and no
+fixtures — and the adapter lives in the one project always allowed to know both halves.
+
+The client still runs the game's own validation and formation solve (the parity the HUD's
+ghost/bounce design requires); it reaches them through the seam rather than through a link.
+Neither half ever touches the other's world — single-writer ownership, enforced by debug
+asserts (ADR-007).
 
 ## The one data flow
 
@@ -46,7 +56,7 @@ adding a second loop.
 sequenceDiagram
     participant P as Player (mouse)
     participant C as ClientApp (Main thread)
-    participant G as GameLogic (linked both sides)
+    participant G as GameLogic (through the seam, ADR-014 §2a)
     participant S as ServerHost (Sim thread, 20 Hz)
 
     P->>C: click-drag: plane point + facing
@@ -96,12 +106,18 @@ MVP content is one authored system (Vesta-3: star, two planets, one station) loa
 `GameData/Universe/` by both halves and guarded by a `universeHash` in the handshake — the MVP
 boots from the universe definition rather than a hardcoded scene.
 
+**Celestials are data, not geometry** (ADR-009 §9a, owner decision). Nothing in the corpus
+draws a celestial body: the tactical print is empty space with an ambient haze, and the
+strategic map is a node graph that reports stations and gates as panel text. They give a system
+its identity, its layout and the coordinates the strategic map will place a node from; drawing
+them is not owed, and no slice does it.
+
 ## Library responsibilities (summary — see [Dependency-Map.md](Dependency-Map.md))
 
 | Project | One-line charter |
 |---|---|
 | **NeuronCore** | Engine primitives, zero game semantics: time, logging, telemetry lanes, ByteReader/Writer, **JSON parser/writer**, PCG32, task pool, `Transport` + UDP/QUIC implementations, framing wire messages. No math layer — DirectXMath is used natively (ADR-010). |
-| **GameLogic** | The deterministic planar sim: world tables, ship classes, orders/groups, formation solve, validation + reason codes, game wire schemas, snapshot emit/apply, universe definition + parsing. |
+| **GameLogic** | The deterministic planar sim: world tables, ship classes, orders/groups, formation solve, validation + reason codes, game wire schemas, snapshot emit/apply, universe definition + parsing. *Built so far: the universe model and parser (S5b), and the world — SoA tables, the closed eleven-class registry, seek-with-arrival steering, and the replay hash (S6).* |
 | **NeuronServer** | `ServerHost`: session table, tick-loop orchestration, connection handling, snapshot fan-out. |
 | **NeuronClient** | `ClientApp`: window/device, frame loop, snapshot buffering + interpolation, Extract, passes, camera, picking, HUD, audio (XAudio2 + X3DAudio), order pre-check UX. |
 | **Outpost.exe** | Composition root: `Outpost.json` → config structs → `ServerHost.Start()` → `ClientApp.Run()` → ordered shutdown. No argv, no environment (ADR-012). |
@@ -117,7 +133,7 @@ MVP scale it is microseconds. `tickOverrun` is a release counter.
 **Main thread, every frame** (vsync or free):
 `Pump Win32 → Poll transport → Buffer snapshots → Extract (interpolate → InstanceRecords +
 overlay lists + HUD state) → AudioUpdate (retire/start voices, X3DAudio from the same
-interpolated state) → Record (4 PSOs, one direct queue) → Present (flip, 2 in flight)`.
+interpolated state) → Record (5 PSOs, one direct queue) → Present (flip, 2 in flight)`.
 The `GAME/EXTRACT/RENDER/UI` stage timings are measured from the first slice — they are the
 corpus debug HUD's budget rows; `AUDIO` joins them as a fifth.
 
@@ -129,7 +145,7 @@ corpus debug HUD's budget rows; `AUDIO` joins them as a fifth.
 | Delta compression, interest mgmt | `Snapshot.baselineTick` field; per-client emit path (ADR-004). |
 | Client prediction | The `WorldView` seam already carries order encode/pre-check; snapshots carry tick + order acks (ADR-002, ADR-014). |
 | msquic in the first slices | `Transport` is QUIC-shaped; spike slice S13 (ADR-003). |
-| HDR, bloom, nebula, GPU cull | Reserved pass slots in the fixed pass list (ADR-006). |
+| HDR, bloom, GPU cull, depth pre-pass | Reserved pass slots in the fixed pass list (ADR-006). The **`Nebula` node is built** (S5d) — it was the first insertion into that reserved list, and cost one struct, one line in `Record`, one PSO and nothing else, which is the claim §1 made and had never tested. |
 | Multi-client, matchmaking | ServerHost session *table* (not a singleton session); `mode: "client"`. |
 | Persistence, accounts | Session-surfaces flow is post-MVP; schema-hash handshake already speaks `UpdateRequired`. |
 | Gates, docking, multi-system | Universe definition already models systems/gates/stations; MVP authors one system and anchors one grid (ADR-009 §9). |
