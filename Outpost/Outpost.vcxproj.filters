@@ -33,19 +33,4 @@
     <ClInclude Include="UniverseLoad.h" />
     <ClInclude Include="SelfTest.h" />
   </ItemGroup>
-  <ItemGroup>
-    <None Include="packages.config" />
-    <None Include="Shaders\PassConstants.hlsli" />
-    <None Include="Shaders\Nebula.hlsli">
-      <Filter>Shaders</Filter>
-    </None>
-    <None Include="Shaders\Opaque.hlsli">
-      <Filter>Shaders</Filter>
-    </None>
-  </ItemGroup>
-  <ItemGroup>
-    <Filter Include="Shaders">
-      <UniqueIdentifier>{2da60747-b34e-420c-9d18-88f545fbf9ea}</UniqueIdentifier>
-    </Filter>
-  </ItemGroup>
 </Project>
