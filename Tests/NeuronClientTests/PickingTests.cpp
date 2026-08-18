@@ -302,20 +302,63 @@ public:
 
   TEST_METHOD(TheBoxRotatesWithTheCamera)
   {
-    // The rectangle is axis-aligned on *screen* and a parallelogram on the
-    // plane. A ship that is inside at one yaw and outside at another is the
-    // behaviour; picking against plane-aligned bounds would not do this.
-    const XMFLOAT2 ship{2000.0f, 0.0f};
-    const std::vector<PickTarget> targets = {Target(1, ship.x, ship.y, 20.0f)};
+    /*
+     * The rectangle is axis-aligned on *screen* and a parallelogram on the
+     * plane. A ship that is inside at one yaw and outside at another is the
+     * behaviour; picking against plane-aligned bounds would not do this.
+     *
+     * The box was chosen from measured NDC rather than reasoned about, after an
+     * earlier version of this test asserted a case that sat exactly on an edge:
+     * a ship at (2000, 0) with an 8 km zoom lands at NDC (0.140625, 0) at yaw
+     * zero and at (0, 0.125) at a quarter turn, and the old box started at
+     * x = 0 -- so "outside" rested entirely on the sign of a zero, which g++
+     * and MSVC disagreed about. Every edge below clears its point by at least
+     * 0.05 of NDC, some forty pixels at this viewport.
+     */
+    const std::vector<PickTarget> targets = {Target(1, 2000.0f, 0.0f, 20.0f)};
+    const XMFLOAT2 cornerA{0.05f, -0.06f};
+    const XMFLOAT2 cornerB{0.30f, 0.06f};
 
     std::vector<std::uint32_t> atZero;
-    PickBox(targets, PickCamera(0.0f, 8000.0f).PlaneMappingForNdc(), XMFLOAT2{0.0f, -0.2f}, XMFLOAT2{0.6f, 0.2f}, atZero);
-    Assert::AreEqual<std::size_t>(1, atZero.size());
+    PickBox(targets, PickCamera(0.0f, 8000.0f).PlaneMappingForNdc(), cornerA, cornerB, atZero);
+    Assert::AreEqual<std::size_t>(1, atZero.size(), L"x 0.141 is inside [0.05, 0.30] and y 0 is inside [-0.06, 0.06]");
 
+    // At a quarter turn it is outside on *both* axes -- x by 0.05 and y by
+    // 0.065 -- so neither comparison alone is carrying the assertion.
     std::vector<std::uint32_t> atQuarterTurn;
-    PickBox(targets, PickCamera(XM_PIDIV2, 8000.0f).PlaneMappingForNdc(), XMFLOAT2{0.0f, -0.2f}, XMFLOAT2{0.6f, 0.2f},
-            atQuarterTurn);
+    PickBox(targets, PickCamera(XM_PIDIV2, 8000.0f).PlaneMappingForNdc(), cornerA, cornerB, atQuarterTurn);
     Assert::AreEqual<std::size_t>(0, atQuarterTurn.size());
+
+    // And at a half turn it is on the far side of the screen entirely.
+    std::vector<std::uint32_t> atHalfTurn;
+    PickBox(targets, PickCamera(XM_PI, 8000.0f).PlaneMappingForNdc(), cornerA, cornerB, atHalfTurn);
+    Assert::AreEqual<std::size_t>(0, atHalfTurn.size());
+  }
+
+  TEST_METHOD(TheBoxEdgeIsInclusive)
+  {
+    /*
+     * Pinned deliberately, because the previous test found this out by
+     * accident. The mapping is built by hand with axis-aligned axes and a
+     * power-of-two scale, so a target can sit *exactly* on an edge instead of a
+     * rounding away from it: 512 / 1024 is 0.5 with no error in binary, on any
+     * compiler.
+     */
+    PlaneMapping mapping;
+    mapping.origin = XMFLOAT2{0.0f, 0.0f};
+    mapping.rightPerNdc = XMFLOAT2{1024.0f, 0.0f};
+    mapping.upPerNdc = XMFLOAT2{0.0f, 1024.0f};
+
+    const std::vector<PickTarget> onTheEdge = {Target(1, 512.0f, 0.0f, 1.0f)};
+    std::vector<std::uint32_t> hits;
+    PickBox(onTheEdge, mapping, XMFLOAT2{-0.5f, -0.5f}, XMFLOAT2{0.5f, 0.5f}, hits);
+    Assert::AreEqual<std::size_t>(1, hits.size(), L"a ship exactly on the edge is in the box");
+
+    // One representable step further out is not.
+    const std::vector<PickTarget> justOutside = {Target(1, 513.0f, 0.0f, 1.0f)};
+    hits.clear();
+    PickBox(justOutside, mapping, XMFLOAT2{-0.5f, -0.5f}, XMFLOAT2{0.5f, 0.5f}, hits);
+    Assert::AreEqual<std::size_t>(0, hits.size());
   }
 
   TEST_METHOD(HitsAreAppendedRatherThanAssigned)
