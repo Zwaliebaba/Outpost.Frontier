@@ -3,6 +3,9 @@
 #include "AppConfig.h"
 #include "ConfigLoad.h"
 
+#include "ClientApp.h"
+#include "ClientConfig.h"
+
 #include "Clock.h"
 #include "Log.h"
 
@@ -55,6 +58,25 @@ void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigP
                   _config.client.renderer.vsync ? "on" : "off", _config.client.ui.scale);
 }
 
+/// Maps the file's settings onto what the client library asks for. The client
+/// never sees AppConfig: libraries take plain structs from the composition root.
+Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
+{
+  Neuron::ClientConfig client;
+  client.windowWidth = _config.client.window.width;
+  client.windowHeight = _config.client.window.height;
+  client.windowTitle = "Outpost: Frontier";
+  client.borderlessFullscreen = _config.client.window.mode == "borderless";
+  client.vsync = _config.client.renderer.vsync;
+  client.frameCap = _config.client.renderer.frameCap;
+  client.serverHost = _config.client.connectHost;
+  client.serverPort = _config.client.connectPort;
+#if defined(_DEBUG)
+  client.enableDebugLayer = true; // Every debug run gets the validation layer.
+#endif
+  return client;
+}
+
 } // namespace
 
 int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
@@ -78,23 +100,33 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   }
   LogResolvedConfig(config, paths);
 
-  // Slices S1 and S3 hang the client and the server off this switch; until then
-  // the boot path itself is what is being proved.
+  // Boot order is normative (ADR-008 §5): the server starts before the client,
+  // and the client is torn down first. ServerHost arrives in slice S3, so today
+  // only the client half of that order exists.
+  int exitCode = 0;
   switch (config.mode)
   {
     case Outpost::HostMode::Host:
-      NEURON_LOG_INFO("host mode: server and client will start here (slices S1, S3)");
+    case Outpost::HostMode::Client:
+    {
+      Neuron::ClientApp client;
+      if (!client.Initialise(MakeClientConfig(config)))
+      {
+        NEURON_LOG_ERROR("client failed to initialise");
+        Neuron::Log::Shutdown();
+        return 2;
+      }
+      exitCode = client.Run();
+      client.Shutdown();
       break;
+    }
+
     case Outpost::HostMode::Headless:
       NEURON_LOG_INFO("headless mode: server only (slice S3)");
       break;
-    case Outpost::HostMode::Client:
-      NEURON_LOG_INFO("client mode: connecting to %s:%u (slice S4)", config.client.connectHost.c_str(),
-                      static_cast<unsigned>(config.client.connectPort));
-      break;
   }
 
-  NEURON_LOG_INFO("Outpost: Frontier exiting cleanly");
+  NEURON_LOG_INFO("Outpost: Frontier exiting cleanly (%d)", exitCode);
   Neuron::Log::Shutdown();
-  return 0;
+  return exitCode;
 }
