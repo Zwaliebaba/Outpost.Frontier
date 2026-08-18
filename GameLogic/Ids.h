@@ -30,6 +30,28 @@ using CelestialId = std::uint16_t;
 using StationId = std::uint16_t;
 using GateId = std::uint16_t;
 
+/*
+ * Runtime identity (ADR-005 §1), and the opposite of the above in one respect:
+ * these are assigned by the simulation as ships spawn, not authored. What they
+ * share is stability -- a `ShipId` is the same number for a ship's whole life,
+ * on the wire and in every order that names it, which is why the world keeps an
+ * id-to-slot indirection rather than letting slots be the identity.
+ *
+ * `ShipId` is `u16` to match `Neuron::EntityRecord::id`, so a replicated record
+ * needs no translation on the way out. `OrderId` is `u32` because order ids are
+ * never reused within a session and 65k orders is a long evening.
+ */
+using ShipId = std::uint16_t;
+using WingId = std::uint8_t;
+using OrderId = std::uint32_t;
+
+/// No such ship. Matches `Neuron::INVALID_ENTITY_ID` so the two agree on the
+/// wire without either side owning the other's constant.
+inline constexpr ShipId INVALID_SHIP_ID = 0xffffu;
+
+/// No wing. Unlike ships, wings are authored-ish groupings and count from 1.
+inline constexpr WingId INVALID_WING_ID = 0;
+
 /// Reserved for "no such thing". Ids are authored from 1 so that a
 /// zero-initialised field is detectably empty rather than accidentally valid.
 inline constexpr std::uint16_t INVALID_ID = 0;

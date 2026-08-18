@@ -19,14 +19,20 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="ShipClass.cpp" />
     <ClCompile Include="Universe.cpp" />
     <ClCompile Include="UniverseParse.cpp" />
+    <ClCompile Include="World.cpp" />
+    <ClCompile Include="WorldHash.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="Ids.h" />
+    <ClInclude Include="ShipClass.h" />
     <ClInclude Include="Universe.h" />
     <ClInclude Include="UniverseParse.h" />
+    <ClInclude Include="World.h" />
+    <ClInclude Include="WorldHash.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\NeuronCore\NeuronCore.vcxproj">

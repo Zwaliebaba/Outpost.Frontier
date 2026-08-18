@@ -2,6 +2,15 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
+    <ClCompile Include="ShipClass.cpp">
+      <Filter>World</Filter>
+    </ClCompile>
+    <ClCompile Include="World.cpp">
+      <Filter>World</Filter>
+    </ClCompile>
+    <ClCompile Include="WorldHash.cpp">
+      <Filter>World</Filter>
+    </ClCompile>
     <ClCompile Include="Universe.cpp">
       <Filter>Universe</Filter>
     </ClCompile>
@@ -12,6 +21,15 @@
   <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="Ids.h">
+      <Filter>World</Filter>
+    </ClInclude>
+    <ClInclude Include="ShipClass.h">
+      <Filter>World</Filter>
+    </ClInclude>
+    <ClInclude Include="World.h">
+      <Filter>World</Filter>
+    </ClInclude>
+    <ClInclude Include="WorldHash.h">
       <Filter>World</Filter>
     </ClInclude>
     <ClInclude Include="Universe.h">

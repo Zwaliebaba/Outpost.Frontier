@@ -415,6 +415,61 @@ World tables, `ShipClassTable` (11-value enum, 9 with content — Fighter/Cruise
 movement envelope (top speed, turn radius, arrival overshoot < tolerance); zero clock/RNG
 imports outside the seeded PCG32 (grep-able rule, asserted in review); no `UniversePos` in
 per-tick sim math (grep rule, ADR-009 §2).
+**Built ✅ (code):**
+`ShipClass.h/.cpp` — the icon sheet's closed eleven, compiled in rather than authored: class
+parameters decide the movement envelope, and putting them in a file the two halves could
+disagree about would need the schema hash to grow to cover it. Fighter and Cruiser keep their
+ids with `hasContent = false` and cannot be spawned. `Structure` is in the table with zero
+speed, so a station is a ship that never moves and there is one movement path rather than two.
+`World.h/.cpp` — structure-of-arrays tables, stable `ShipId`↔slot indirection over swap-and-pop
+removal, seeded `Pcg32` in world state, and `Tick` running IngestOrders → Steering → Integrate.
+`GroupAdvance` (S10) and `EmitSnapshot` (S7) are absent rather than stubbed, so the pipeline
+reads as what it does.
+`WorldHash.h/.cpp` — FNV-1a over the state in dense-array order, folding **float bit patterns
+rather than values**: a tolerance would forgive exactly the class of bug this exists to find.
+`ComputeReplicatedHash` answers the weaker question — would the two runs have *looked* the
+same — which is what a desync report is actually about (F10).
+`Main.cpp` — the server advances a real world now. It does not yet say so: `WriteSnapshot` is
+still empty, so the fleet moves on the server and nothing sees it. That is one function away
+from not being true, and the function is S7's.
+
+**One departure from ADR-005 §1, recorded here because it is a real choice.** The ADR wrote
+guidance as `{mode, groupRef, stationIndex}` — a reference into the `OrderGroup` table. This
+carries the resolved target instead, which keeps `Steering` from knowing that groups exist:
+when S9 brings the group table and S10 the station solve, the group *writes* these fields and
+steering does not change. The cost is that a station will live in two places once groups exist,
+and the group is the authority. The benefit is that the movement model is testable with no
+order machinery at all, which is exactly what this slice's replay harness needed.
+
+**Two defects the harness found, both invisible to review.**
+*Ships orbited their targets.* A hull's turn radius at cruise is `speed / turnRate` — 477 m for
+a Battleship — so a target sixty metres astern sits deep inside the circle it can turn on. With
+only an alignment factor damping the approach, the ship held its speed, swept past, and came
+round again: **three full laps and a hundred seconds of simulated time to travel sixty metres.**
+Fixed by bounding speed at `omega · distance / (2 · error)` — the arc has to fit inside the
+distance remaining — measured across five hulls and five approach geometries to pick it.
+*Every fast hull overshot.* The textbook braking curve `v = sqrt(2 a s)` is exactly achievable
+only in continuous time; stepped at 20 Hz a ship sits fractionally above it, covers more ground
+per tick, finds the curve has dropped by more than one tick of braking, and falls further
+behind — compounding all the way in. An Interceptor braking flat-out from cruise arrived 1.2 m
+from its target still doing **38 m/s**, sailed through, and settled 5.9 m past it, three times
+the arrival tolerance. Fixed by solving the same equation for the steps actually taken:
+`v = -a·dt/2 + sqrt((a·dt/2)² + 2 a s)`. Every playable hull now stops at the ring edge with no
+overshoot at all.
+
+**Verified:** `GameLogicTests` is 32 cases, up from 15. Replay: 1,000 ticks of scripted orders
+run twice, fifty checkpoints, bit-identical — plus the control that makes it mean something,
+where **one order moved by one metre, once** changes every later checkpoint and none before it.
+Envelope: every playable hull over four approach geometries, asserting no tick exceeds its top
+speed, turn rate or acceleration; arrival inside tolerance with the commanded facing; overshoot
+bounded; and the orbit regression measured as accumulated bearing, because distance alone
+cannot tell circling from a wide approach. Tables: reserved classes refuse to spawn, an unknown
+class from the wire is refused rather than clamped, and ids survive the swap-and-pop that keeps
+the arrays dense. CI now fails GameLogic for reading a clock, drawing unseeded randomness,
+calling an `XM*Est` function, or naming a `UniversePos` in per-tick code.
+**Outstanding:** nothing replicates. The world moves and no one can see it until `EmitSnapshot`
+and the snapshot format land in S7 — which is also when the server gets a scripted patrol to
+give these ships somewhere to go.
 
 ### S7 — Snapshots over the wire → moving ships on screen
 `EmitSnapshot` (full, quantised) → datagram → `ReplicatedView.ApplySnapshot` →

@@ -106,6 +106,62 @@ jobs:
           }
           Write-Host 'the engine references no game'
 
+      # ADR-005 §5: same-binary replay determinism is bought by construction,
+      # and every one of these is a way to spend it by accident. The replay
+      # suite would catch most of them eventually; this says which line did it.
+      - name: Check GameLogic's determinism rules
+        shell: pwsh
+        run: |
+          $bad = @()
+          $sources = Get-ChildItem -Path GameLogic -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue |
+                     Where-Object { $_.Name -ne 'pch.h' -and $_.Name -ne 'pch.cpp' }
+
+          foreach ($file in $sources)
+          {
+            $text = Get-Content $file.FullName -Raw
+
+            # No clock. The tick index is the simulation's only clock (ADR-002 §1).
+            if ($text -match '#include\s*[<"](chrono|ctime|time\.h)[>"]' -or $text -match '#include\s*"Clock\.h"' -or
+                $text -match '\b(QueryPerformanceCounter|GetTickCount64|GetTickCount|GetSystemTime|std::chrono)\b')
+            {
+              $bad += "$($file.Name): reads a clock"
+            }
+
+            # No randomness but the seeded PCG32 carried in world state.
+            if ($text -match '#include\s*[<"]random[>"]' -or
+                $text -match '\b(std::random_device|std::mt19937|std::minstd_rand|srand|::rand)\b' -or
+                $text -match '[^_a-zA-Z]rand\s*\(')
+            {
+              $bad += "$($file.Name): uses a random source other than the seeded Pcg32"
+            }
+
+            # No DirectXMath estimate functions: their accuracy is documented as
+            # instruction-set dependent, so one of these silently makes replays
+            # per-machine rather than per-build (ADR-010 §6).
+            if ($text -match '\bXM\w*Est\s*\(')
+            {
+              $bad += "$($file.Name): calls an XM*Est estimate function"
+            }
+          }
+
+          # ADR-009 §2: universe coordinates are exact int64 metres and belong to
+          # placement, not to per-tick math. The tick runs in local float metres.
+          foreach ($file in @('GameLogic/World.h', 'GameLogic/World.cpp', 'GameLogic/ShipClass.h',
+                              'GameLogic/ShipClass.cpp', 'GameLogic/WorldHash.h', 'GameLogic/WorldHash.cpp'))
+          {
+            if ((Test-Path $file) -and ((Get-Content $file -Raw) -match '\b(UniversePos|UniverseDef)\b'))
+            {
+              $bad += "$($file): universe coordinates in per-tick simulation code"
+            }
+          }
+
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_" }
+            throw 'GameLogic broke a determinism rule'
+          }
+          Write-Host 'GameLogic reads no clock, draws no unseeded randomness, and keeps the universe out of the tick'
+
       # SolutionDir is passed explicitly (trailing backslash required): each
       # project lists the libraries it includes as $(SolutionDir)<Project>,
       # and $(SolutionDir) is empty when a .vcxproj is built directly. The

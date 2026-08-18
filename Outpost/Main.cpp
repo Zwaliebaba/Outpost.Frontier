@@ -6,6 +6,11 @@
 #include "SelfTest.h"
 #include "UniverseLoad.h"
 
+// GameLogic, reached only from here: the executable is the one project
+// entitled to know both halves (ADR-014 §1).
+#include "ShipClass.h"
+#include "World.h"
+
 #include "ClientApp.h"
 #include "ClientConfig.h"
 
@@ -19,9 +24,12 @@
 
 #include <DirectXMath.h>
 
+#include <cmath>
 #include <cstdio>
+#include <iterator>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 /*
@@ -92,43 +100,99 @@ void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigP
 /*
  * The simulation the server hosts until GameLogic supplies a real one (S5c).
  *
- * It advances nothing -- there is no world yet -- but it is emphatically not a
- * NullSimulation, because it has authored content behind it. The universe hash
- * is what the handshake fails closed on, and the grid anchor is what a client
- * in another process needs before it can place a single position. Those two
- * facts are exactly what S5b put in the tree, so the server has to be able to
- * state them.
+ * From S6 it advances a real `Game::World`: the tick loop the server has been
+ * driving since S3 now moves ships. What it does not yet do is *say* so --
+ * `WriteSnapshot` is still empty, because the snapshot format and its wire
+ * schema are S7 -- so the fleet moves on the server and nothing sees it. That
+ * is the honest state of the seam, and it is one function away from not being.
+ *
+ * The adapter holds the vtable and forwards; the simulation is GameLogic's
+ * (ADR-014 §2a). Everything in this class is a line of wiring.
  *
  * `SchemaHash` stays zero on purpose: that field means "the layout of the
- * *game's* wire types", and there are none until S6 writes snapshots. Returning
- * something plausible would be worse than returning nothing.
+ * *game's* wire types", and there are none until S7 writes snapshots. Returning
+ * something plausible would be worse than returning nothing -- two builds would
+ * agree about a layout that does not exist.
  */
 class UniverseSimulation final : public Neuron::Simulation
 {
 public:
-  UniverseSimulation(std::uint64_t _universeHash, Neuron::WorldMeta _world) noexcept
+  UniverseSimulation(std::uint64_t _universeHash, Neuron::WorldMeta _worldMeta, Game::World _world) noexcept
     : m_universeHash(_universeHash),
-      m_world(_world)
+      m_worldMeta(_worldMeta),
+      m_world(std::move(_world))
   {
   }
 
-  void AdvanceTick(std::uint32_t _tick) override { m_lastTick = _tick; }
+  void AdvanceTick(std::uint32_t _tick) override
+  {
+    // No orders yet: `ApplyOrderBytes` refuses everything, and the scripted
+    // patrol that gives these ships somewhere to go arrives with S7.
+    m_world.Tick(_tick, std::span<const Game::ScriptedMove>{});
+  }
+
   void WriteSnapshot(std::uint32_t, Neuron::ByteWriter&) override {}
 
   [[nodiscard]] Neuron::OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t>) override
   {
-    return Neuron::OrderVerdict{}; // Nothing to command yet.
+    return Neuron::OrderVerdict{}; // No order format to decode until S9.
   }
 
   [[nodiscard]] std::uint64_t SchemaHash() const override { return 0; }
   [[nodiscard]] std::uint64_t ContentHash() const override { return m_universeHash; }
-  [[nodiscard]] Neuron::WorldMeta World() const override { return m_world; }
+  [[nodiscard]] Neuron::WorldMeta World() const override { return m_worldMeta; }
 
 private:
   std::uint64_t m_universeHash = 0;
-  Neuron::WorldMeta m_world;
-  std::uint32_t m_lastTick = 0;
+  Neuron::WorldMeta m_worldMeta;
+  Game::World m_world;
 };
+
+/*
+ * The starting fleet, on the grid the universe definition anchored.
+ *
+ * Deliberately modest and deliberately here: what ships a session begins with
+ * is a scenario, not a rule, and a scenario belongs in the composition root
+ * until there is a save file to read one from. The layout mirrors the client's
+ * placeholder -- one wing per playable hull -- so that when S7 replaces the
+ * invented fleet with the replicated one, the picture on screen changes as
+ * little as possible and any difference is a real difference.
+ */
+[[nodiscard]] Game::World MakeStartingWorld(std::uint64_t _seed)
+{
+  Game::World world;
+  world.Reset(_seed);
+
+  constexpr Game::HullClass FLEET[] = {Game::HullClass::Interceptor, Game::HullClass::Bomber,  Game::HullClass::Corvette,
+                                       Game::HullClass::Frigate,     Game::HullClass::Hauler,  Game::HullClass::Miner,
+                                       Game::HullClass::Carrier,     Game::HullClass::Battleship};
+  constexpr std::uint32_t SHIPS_PER_WING = 5;
+  constexpr float WING_RADIUS_METRES = 1400.0f;
+
+  std::uint32_t wing = 0;
+  for (const Game::HullClass hullClass : FLEET)
+  {
+    const float wingAngle = (static_cast<float>(wing) / static_cast<float>(std::size(FLEET))) * DirectX::XM_2PI;
+    const float spacing = Game::ShipClass(hullClass).formationSpacingMetres;
+
+    for (std::uint32_t index = 0; index < SHIPS_PER_WING; ++index)
+    {
+      const float offset = (static_cast<float>(index) - 0.5f * static_cast<float>(SHIPS_PER_WING - 1)) * spacing;
+
+      Game::ShipSpawn spawn;
+      spawn.hullClass = hullClass;
+      spawn.wing = static_cast<Game::WingId>(wing + 1);
+      // Ships face the anchor, which is where the station is -- a fleet parked
+      // facing outward would read as a fleet about to leave.
+      spawn.headingRadians = wingAngle + DirectX::XM_PI;
+      spawn.xMetres = std::cos(wingAngle) * WING_RADIUS_METRES - std::sin(wingAngle) * offset;
+      spawn.yMetres = std::sin(wingAngle) * WING_RADIUS_METRES + std::cos(wingAngle) * offset;
+      (void)world.Spawn(spawn);
+    }
+    ++wing;
+  }
+  return world;
+}
 
 /// The universe's world meta, in the neutral terms the engine speaks
 /// (ADR-009 §8): which world, and where its tactical grid is anchored.
@@ -336,7 +400,8 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   // (ADR-014 §2). Until it does (S5c), the server hosts one that advances
   // nothing but knows its content hash and where its world is anchored -- which
   // is enough to prove the loop, the sessions, the wire and the handshake.
-  UniverseSimulation simulation{universe.universeHash, MakeWorldMeta(universe.universe)};
+  UniverseSimulation simulation{universe.universeHash, MakeWorldMeta(universe.universe),
+                                MakeStartingWorld(universe.universeHash)};
 
   // Before anything opens a window: the self test is a diagnostic, and its
   // answer is an exit code (Build Order S4).
