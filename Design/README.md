@@ -51,21 +51,38 @@ moves between the trees without a rename pass. Three things it changed in these 
   time model, frame/tick anatomy, deliberate omissions, corpus alignment.
 - [Dependency-Map.md](Dependency-Map.md) — allowed edges, per-project public surface
   (header-level), the session's dependency rulings.
-- [MVP-Build-Order.md](MVP-Build-Order.md) — S1–S15 vertical slices (S2b, S5b and S5c were
+- [MVP-Build-Order.md](MVP-Build-Order.md) — S1–S15 vertical slices (S2b, S5b, S5c and S5d were
   added by later directives) with acceptance criteria and a **Built** line per landed slice;
   milestones M0 (heartbeat) / M1 (first commanded fleet) / MVP.
 - [Risk-Register.md](Risk-Register.md) — R1–R14 with designed-in mitigations + standing spikes.
-  R14 is marked realised.
+  R6 and R14 are marked realised, with what actually happened.
 
 ## Implementation state (2026-08-18)
 
-Slices S1, S2, S2b, S3, S4, S5, S5b, S5c, S5d, S6 and S7 are in the tree and green in CI. The per-slice detail — what
-was built, and what a "done" slice still owes — lives in
+Slices S1, S2, S2b, S3, S4, S5, S5b, S5c, S5d, S6, S7, S8 and S9 are in the tree and green in
+CI. The per-slice detail — what was built, and what a "done" slice still owes — lives in
 [MVP-Build-Order.md](MVP-Build-Order.md); it is not repeated here.
 
-**Milestone M0 is complete (2026-08-18).** Its automated half is green: 122 tests across four
-assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
-handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. Its
+**Milestone M1 — first commanded fleet — is code-complete and awaiting its play test.** The lap
+the Architecture Overview calls "the one data flow" now runs end to end: a right-drag becomes a
+plane point and an arrival facing, the game pre-checks it against the replicated view, the
+client draws a PENDING ghost and sends the order on the reliable channel, the authority
+validates it with **the same function**, the ghost promotes when the snapshot agrees, and a
+refusal bounces over 150 ms carrying the game's own reason code. What is left of M1 is what a
+unit test cannot see: promotion arriving within 100 ms on screen, and a deliberate
+out-of-bounds order looking identical whether the local pre-check or the server refused it.
+
+**Two other things need a person and a GPU, and have needed one since S5.** The visual
+checkpoint against the prints, and the overlay's depth behaviour — that rings and footprints
+lie on the plane and are occluded by the hulls above them, while gauge bars never occlude. S9
+supplied an argument for why that matters beyond the look: **two overlay colours had been
+byte-swapped since S8** and nothing caught it, because a swapped colour and an unrun frame are
+the same blind spot.
+
+**Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
+across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
+handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. The
+suite now stands at **331** — 163 client, 85 GameLogic, 73 core, 10 server. Its
 visible half — window open, swapchain presenting, heartbeat live — together with the four
 other criteria that need a GPU and a person (five minutes clean under the debug layer,
 PresentMon showing the flip model, a clean exit, and the 60-second tick cadence on an idle
@@ -86,16 +103,21 @@ listed in R14 and the S4 notes was found by pushing and reading the log.
 
 ## Repo observations for the owner
 
-1. **Test project wiring — mostly done.** `NeuronCoreTests`, `NeuronServerTests` and
-   `NeuronClientTests` now carry `ProjectReference`s and include paths, and all four projects
-   were given `stdcpplatest` (they were generated without a `<LanguageStandard>`, defaulting to
-   C++14, which failed the moment a `<span>` appeared). **`GameLogicTests` is still unwired** —
-   its library is empty, so there is nothing to reference yet. Following ADR-014, each
-   references **only** its library and that library's own dependencies; the engine test projects
-   stay engine-only — they test the seam with a stub `Simulation`/`WorldView`, not with
-   GameLogic, and `NeuronServerTests` already does exactly that.
+1. ~~**Test project wiring — mostly done.**~~ **Done.** All four test projects carry
+   `ProjectReference`s and include paths and are on `stdcpplatest` (they were generated without
+   a `<LanguageStandard>`, defaulting to C++14, which failed the moment a `<span>` appeared);
+   `GameLogicTests` was wired with S5b, when its library stopped being empty. Following
+   ADR-014, each references **only** its library and that library's own dependencies, and the
+   engine test projects stay engine-only — they drive the seam with a stub
+   `Simulation`/`WorldView` rather than with GameLogic. **CI enforces it**: the build fails if
+   any `Neuron*` project or engine test project so much as names GameLogic.
 1b. **Filters:** semantic filters per ADR-013 §5 are maintained for the files added so far; the
    generated `Source Files`/`Header Files` buckets remain wherever no file has been added yet.
+   *Worth knowing:* Visual Studio regenerated `Outpost.vcxproj.filters` during the shader move
+   and dropped every `<Filter Include>` definition, leaving items pointing at a filter that no
+   longer existed. It was rebuilt by hand. Filters are IDE metadata and the IDE will rewrite
+   them, so a semantic tree is a thing to check after opening the solution, not a thing to set
+   once.
 1c. **Include roots stay per-project** (owner decision) — the qualified-include alternative was
    considered and declined; ADR-013 §4 records what that puts on the uniqueness rule, and R14
    records what it cost.

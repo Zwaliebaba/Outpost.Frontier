@@ -46,8 +46,9 @@ nobody wrote. We are not doing that.
    **Where DirectXMath offers an `LH`/`RH` pair, this tree always takes `LH`** — a standing
    rule, not a per-call judgement, because the render basis is left-handed and so is every SDK
    downstream of it (ADR-006 §3a has the rule, the table of call sites, and the argument), `XMMatrixAffineTransformation` or explicit `XMMatrixRotationY` × translation for
-   instances, `XMPlaneIntersectLine` for cursor-ray ∩ ground-plane picking, `XMVectorLerp` for
-   snapshot interpolation, `BoundingFrustum`/`BoundingBox` (DirectXCollision) when culling
+   instances, `XMVectorLerp` for snapshot interpolation
+   (`XMPlaneIntersectLine` was listed here for cursor-ray picking and is **not used** — the
+   ortho camera makes that mapping affine, ADR-006 §11a), `BoundingFrustum`/`BoundingBox` (DirectXCollision) when culling
    lands. If a genuinely missing operation appears, it is written as a **local free function in
    the one file that needs it**, with a comment saying why DirectXMath has no equivalent —
    never as a shared "math utils" header, which is the wrapper layer under another name.

@@ -58,13 +58,21 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
    | NeuronCore | plain area names | `Debug.h` `Log.h` `Clock.h` `Hash.h` `Random.h` `Arena.h` `RingBuffer.h` `TaskPool.h` `Telemetry.h` `ByteReader.h` `ByteWriter.h` `Json.h` `JsonWriter.h` `EntityRecord.h` `OrderIntent.h` `Transport.h` `UdpTransport.h` `QuicTransport.h` `Wire.h` `FileSys.h` `FileSys.cpp` `NeuronHelper.h` |
    | GameLogic | type + family names | `Ids.h` `ShipClass.h` `World.h` `ReplicatedView.h` `Orders.h` `Validate.h` `Formation.h` `WorldHash.h` `Snapshot.h` `OrderMessages.h` `SchemaHash.h` `Universe.h` `UniverseParse.h` |
    | NeuronServer | type names | `Simulation.h` `ServerHost.h` `ServerConfig.h` `Session.h` `SnapshotSender.h` |
-   | NeuronClient | type names (`Gpu`, `Hud`, `Audio` read as domain words, R4) | `ClientApp.h` `ClientConfig.h` `WorldView.h` `Window.h` `ClearColour.h` `ClientConnection.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuCom.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuMeshes.h` `GpuNebula.h` `GpuPasses.h` `GpuPipelines.h` `ObjMesh.h` `NebulaField.h` `GlyphAtlas.h` `IsoCamera.h` `Picking.h` `Selection.h` `OverlayMark.h` `InputMap.h` `HudLayout.h` `HudRoster.h` `OrderPuck.h` `AudioSystem.h` `AudioBank.h` `AudioListener.h` |
+   | NeuronClient | type names (`Gpu`, `Hud`, `Audio` read as domain words, R4) | `ClientApp.h` `ClientConfig.h` `WorldView.h` `Window.h` `ClearColour.h` `ClientConnection.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuCom.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuMeshes.h` `GpuNebula.h` `GpuPasses.h` `GpuPipelines.h` `ObjMesh.h` `NebulaField.h` `GlyphAtlas.h` `IsoCamera.h` `Picking.h` `Selection.h` `OverlayMark.h` `InputMap.h` `HudLayout.h` `HudRoster.h` `OrderPuck.h` `OrderGhost.h` `AudioSystem.h` `AudioBank.h` `AudioListener.h` |
    | Outpost | — | `Main.cpp` `AppConfig.h` `AppConfig.cpp` `ConfigLoad.h` `ConfigLoad.cpp` `UniverseLoad.h` `UniverseLoad.cpp` `ReplicatedWorldView.h` `ReplicatedWorldView.cpp` `ShaderTable.h` `ShaderTable.cpp` `SelfTest.h` `SelfTest.cpp` |
    | Outpost/Shaders | stage suffix on the pass name | `OpaqueVS.hlsl` `OpaquePS.hlsl` `NebulaVS.hlsl` `NebulaPS.hlsl` `OverlayVS.hlsl` `OverlayPS.hlsl` — plus `Opaque.hlsli` `Nebula.hlsli` `Overlay.hlsli` `FrameConstants.hlsli` `PassConstants.hlsli` for what stages share |
    | Outpost/CompiledShaders | generated; one per `.hlsl`, same stem | `OpaqueVS.h` `OpaquePS.h` `NebulaVS.h` `NebulaPS.h` `OverlayVS.h` `OverlayPS.h`, each defining `g_p<stem>` |
 
    If a genuine collision ever appears, the **newer** file is renamed to a more specific type name; the
    table above is the registry to check first.
+
+   **Some rows reserve a name rather than describe a file**, which is the point of §4: the
+   registry has to be written *before* the file exists or it cannot prevent anything. Not yet in
+   the tree, as of S9 — `QuicTransport.h` (S13), `Session.h` and `SnapshotSender.h` (both still
+   structures inside `ServerHost.cpp`), `HudLayout.h` and `HudRoster.h` (S11), and
+   `AudioSystem.h`, `AudioBank.h`, `AudioListener.h` (S15). Everything else listed is real. The
+   Dependency Map's per-project tables carry the same names and mark the same rows *(planned)*;
+   they are two views of one list, and updating one without the other is how both go stale.
 
 3b. **The rule is about names, not only file names.** `Neuron::INVALID_ENTITY_ID` was declared
    in `NeuronCore/EntityRecord.h` as `u16` and again in `NeuronClient/RenderWorld.h` as `u32`;
@@ -101,7 +109,19 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
    - **NeuronServer:** Host · Sessions · Replication
    - **NeuronClient:** App · Net · Extract · Gpu · Gpu\Passes · Assets · Camera · Input ·
      Hud · Audio
-   - **Outpost:** Boot · Config
+   - **Outpost:** Boot · Config · Shaders
+
+   *The taxonomy is about what a file is for, not what it is named.* `OrderPuck` is **Input**
+   (it turns pixels into a plane point) and `OrderGhost` is **Extract** (it decides what is on
+   screen), even though both begin with the same word — grouping them together because of the
+   prefix would put a gesture and a draw list in one folder and teach the wrong thing about
+   where each belongs.
+
+   **Filters are IDE metadata and the IDE rewrites them.** Visual Studio regenerated
+   `Outpost.vcxproj.filters` during the shader move (§1a) and dropped every `<Filter Include>`
+   definition, leaving four items referencing a `Shaders` filter that no longer existed — a
+   file that still builds and vanishes from the tree. Worth a glance after opening the
+   solution; it is not a set-once decision.
    Example (`NeuronCore.vcxproj.filters`):
    ```xml
    <ItemGroup>

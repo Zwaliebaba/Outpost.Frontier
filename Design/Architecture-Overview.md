@@ -1,6 +1,6 @@
 # Outpost: Frontier — Architecture Overview (MVP)
 
-**Status:** Session output 2026-08-17 · **revised 2026-08-18 after S5–S6** · governed by
+**Status:** Session output 2026-08-17 · **revised 2026-08-18 after S9** · governed by
 [ADR-001…014](ADR/)
 
 One Windows x64 executable hosts an authoritative game server and a DX12 client that talk
@@ -52,6 +52,15 @@ Input → order → server tick → snapshot → render. Everything the MVP does
 loop; every future feature (combat, economy, prediction) widens a station on it rather than
 adding a second loop.
 
+**As of S9 the diagram below is a description rather than a plan** — the lap runs end to end in
+code. Two arrows are drawn as the corpus specifies them and are not yet: the bounce *toast* and
+the per-leg *ETA* are text, so they arrive with the Ui pass (S11) and are log lines today. The
+bounce itself is not — a refused ghost retracts toward the fleet over 150 ms whether the local
+pre-check or the server said no, which is the half of BounceParity that had to be in the world
+rather than in a panel. What is still owed beyond that is what a unit test cannot see: that the
+promotion lands within 100 ms on screen, and that the two refusals are genuinely
+indistinguishable to a person watching.
+
 ```mermaid
 sequenceDiagram
     participant P as Player (mouse)
@@ -59,7 +68,7 @@ sequenceDiagram
     participant G as GameLogic (through the seam, ADR-014 §2a)
     participant S as ServerHost (Sim thread, 20 Hz)
 
-    P->>C: click-drag: plane point + facing
+    P->>C: right-drag: press names the place,<br/>the drag names the arrival facing
     C->>G: SolveFormation (footprint preview)<br/>ValidateOrder (pre-check, quantised view)
     alt pre-check fails
         C-->>P: bounce + reason toast (150 ms) — no send
@@ -117,9 +126,9 @@ them is not owed, and no slice does it.
 | Project | One-line charter |
 |---|---|
 | **NeuronCore** | Engine primitives, zero game semantics: time, logging, telemetry lanes, ByteReader/Writer, **JSON parser/writer**, PCG32, task pool, `Transport` + UDP/QUIC implementations, framing wire messages. No math layer — DirectXMath is used natively (ADR-010). |
-| **GameLogic** | The deterministic planar sim: world tables, ship classes, orders/groups, formation solve, validation + reason codes, game wire schemas, snapshot emit/apply, universe definition + parsing. *Built so far: the universe model and parser (S5b), and the world — SoA tables, the closed eleven-class registry, seek-with-arrival steering, and the replay hash (S6).* |
+| **GameLogic** | The deterministic planar sim: world tables, ship classes, orders/groups, formation solve, validation + reason codes, game wire schemas, snapshot emit/apply, universe definition + parsing. *All of it is built.* The universe model and parser landed with S5b; the world — SoA tables, the closed eleven-class registry, seek-with-arrival steering, the replay hash — with S6; snapshots with S7; and orders, validation, the Line solve and the group table with S9. |
 | **NeuronServer** | `ServerHost`: session table, tick-loop orchestration, connection handling, snapshot fan-out. |
-| **NeuronClient** | `ClientApp`: window/device, frame loop, snapshot buffering + interpolation, Extract, passes, camera, picking, HUD, audio (XAudio2 + X3DAudio), order pre-check UX. |
+| **NeuronClient** | `ClientApp`: window/device, frame loop, snapshot buffering + interpolation, Extract, passes, camera, picking and selection, the order puck and its ghosts, HUD *(S11)*, audio *(S15)*. It owns the gesture and the promise; **it owns no meaning** — which command a puck makes, whether an order is allowed, where a formation puts things and what a reason code is called are all the game's answers, reached through `WorldView`. |
 | **Outpost.exe** | Composition root: `Outpost.json` → config structs → `ServerHost.Start()` → `ClientApp.Run()` → ordered shutdown. No argv, no environment (ADR-012). |
 | **Tests/**\* | VS CppUnitTestFramework per-library suites; replay determinism and wire round-trips live in `GameLogicTests`. |
 
@@ -131,11 +140,16 @@ them is not owed, and no slice does it.
 MVP scale it is microseconds. `tickOverrun` is a release counter.
 
 **Main thread, every frame** (vsync or free):
-`Pump Win32 → Poll transport → Buffer snapshots → Extract (interpolate → InstanceRecords +
-overlay lists + HUD state) → AudioUpdate (retire/start voices, X3DAudio from the same
+`Pump Win32 → Poll transport → Game (camera, selection, orders) → Extract (interpolate →
+InstanceRecords + overlay marks) → AudioUpdate (retire/start voices, X3DAudio from the same
 interpolated state) → Record (5 PSOs, one direct queue) → Present (flip, 2 in flight)`.
 The `GAME/EXTRACT/RENDER/UI` stage timings are measured from the first slice — they are the
 corpus debug HUD's budget rows; `AUDIO` joins them as a fifth.
+
+*Orders sit in `Game` and the marks they produce are built in `Extract`, which is the right way
+round and worth stating: the gesture reads this frame's camera, and the ghost it creates has to
+be drawn in the same frame it was promised. A promise that appeared one frame late would be a
+promise made after the player had already looked.*
 
 ## Deliberate MVP omissions and their reserved seams
 
@@ -143,7 +157,7 @@ corpus debug HUD's budget rows; `AUDIO` joins them as a fifth.
 |---|---|
 | Combat, abilities, stances | Order kinds beyond `Move`; ability rack renders disabled. |
 | Delta compression, interest mgmt | `Snapshot.baselineTick` field; per-client emit path (ADR-004). |
-| Client prediction | The `WorldView` seam already carries order encode/pre-check; snapshots carry tick + order acks (ADR-002, ADR-014). |
+| Client prediction | The `WorldView` seam already carries order encode/pre-check; snapshots carry tick + order acks (ADR-002, ADR-014). The ghost is the MVP's whole answer, and deliberately so — it is client-side *optimism* about the order, never about the ships, which do not move until the server says they did. |
 | msquic in the first slices | `Transport` is QUIC-shaped; spike slice S13 (ADR-003). |
 | HDR, bloom, GPU cull, depth pre-pass | Reserved pass slots in the fixed pass list (ADR-006). The **`Nebula` node is built** (S5d) — it was the first insertion into that reserved list, and cost one struct, one line in `Record`, one PSO and nothing else, which is the claim §1 made and had never tested. |
 | Multi-client, matchmaking | ServerHost session *table* (not a singleton session); `mode: "client"`. |

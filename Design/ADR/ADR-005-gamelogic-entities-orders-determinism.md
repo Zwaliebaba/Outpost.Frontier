@@ -50,13 +50,46 @@ much determinism to buy, at what float-handling cost.
    the footprint be "the real formation solve", one tick per ship, never decorative.
    MVP formation set: `Line`, `Wedge`, `Claw` (crescent — the one on the prints).
 4. **Order validation is a pure function** in GameLogic:
-   `ValidateOrder(WorldView, OrderSubmit) → Accepted | ReasonCode` with the reason enum
+   `ValidateOrder(ValidationView, OrderSubmit) → Accepted | reason` with the reason enum
    (`EmptySelection, NotOwned, UnknownShip, QueueFull, OutOfBounds, InvalidFormation,
    TooManyShips`) defined beside it. **Parity rule: validation consumes wire-quantised values
    only** — the server quantises its own state to cm/turns16 before validating, exactly as the
    client's replicated view already is. Verdicts therefore cannot diverge on float noise; they
    can diverge on *staleness* (client view is ≤ a few ticks old), which is the designed and
    accepted reason a locally-passed order can still bounce from the server.
+
+4a. **What it actually takes, and the one thing the client cannot compute** (S9). The first
+   parameter was written `WorldView` above and is renamed here, because `Neuron::WorldView` is
+   now a real and entirely different type — the client seam (ADR-014 §2). The signature is
+   `ValidateOrder(const ValidationView&, const OrderSubmit&)`, and `ValidationView` is
+   deliberately the *intersection* of what the two sides have: a span of ship ids and the leg
+   count already queued. It is not a `World`, because the client has none — it has ids off a
+   snapshot — and a function the client could not call would make the parity claim a claim
+   about two different functions. The enum gained `UnknownKind` (and `Accepted` at zero) since
+   this section was written.
+
+   **The order of the checks is part of the contract.** An order that fails two rules must fail
+   the same one on both machines, or the player reads a different explanation depending on
+   which answered first. The sequence is: EmptySelection → TooManyShips → UnknownKind →
+   InvalidFormation → QueueFull → OutOfBounds → UnknownShip.
+
+   **`queuedLegs` is the asymmetry, and the client reports zero.** The server resolves it from
+   the group the first named ship belongs to; the client cannot, because a snapshot order record
+   carries a member *count* and not the members, so there is no way to ask which group a
+   selection is in. Zero means an append that would overflow the queue passes locally and is
+   refused a round trip later — the same designed-and-accepted case as staleness, and the
+   direction that costs least. **The other direction is worse:** a client guessing high would
+   locally refuse an order the server would have taken, and no amount of waiting gets the
+   player past a refusal that is wrong. Closing it properly means the snapshot carrying group
+   membership — two bytes per member per order against a 1,150-byte datagram — to make instant
+   a refusal that is already correct. Not paid.
+
+   *A defect this rule flushed out, worth recording because it was not a rounding curiosity:*
+   `MetresToCentimetres` cast a float straight to `int32`. Beyond ±21,474 km that is undefined
+   behaviour, and where it did not trap it wrapped — a target 10,000,000 km east arriving as
+   one somewhere west, small enough for the bounds check to wave through. Reachable from any
+   client that sends a large coordinate, so a validation hole rather than a quantisation
+   detail. It saturates now, and NaN saturates to the low end where validation refuses it.
 
 ### Determinism
 5. **Required: same-binary replay determinism.** Same build + same seed + same tick-stamped

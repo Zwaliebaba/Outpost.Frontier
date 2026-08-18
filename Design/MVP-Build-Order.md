@@ -57,8 +57,8 @@ frame loop registers `Main` and spans `Frame`, `Net`, `Render`; `wWinMain` calls
 **Outstanding:** ~~the `GAME/EXTRACT/RENDER/UI` rows the corpus HUD shows need those stages to
 exist — they arrive with S5.~~ **Closed by S5:** the frame loop now spans `Net`, `Game`,
 `Extract`, `Render` and `Ui`, and the opaque pass spans `Opaque` inside `Render`; `Ui` is
-declared and empty until S11 gives it something to draw. `GameLogicTests` is still unwired
-(its library is empty).
+declared and empty until S11 gives it something to draw. `GameLogicTests` was unwired at this
+point, its library being empty; S5b wired it.
 
 ### S2b — JSON parser & configuration
 `Json.h/.cpp` (iterative parse, flat-node DOM, exact `int64`, comments + trailing commas,
@@ -163,8 +163,9 @@ added the opaque pass, the pipeline state, the upload ring, a depth buffer and a
 texture upload — none of which existed when the debug layer was watched for five minutes. S5
 carries its own outstanding list for exactly that reason.
 
-Everything else is signed off by CI, which at the time of writing runs **122 tests across four
-assemblies with zero unique warnings** on every push.
+Everything else is signed off by CI, which at the time M0 closed ran **122 tests across four
+assemblies with zero unique warnings** on every push. *(As of S9 the same four assemblies run
+331: 163 client, 85 GameLogic, 73 core, 10 server.)*
 
 ---
 
@@ -802,6 +803,40 @@ acceptance criteria that need a running session — promotion ≤ 100 ms on scre
 deliberate out-of-bounds order bouncing identically local and remote — are a play test, not a
 unit test.
 
+## 🏁 M1 — first commanded fleet: **code-complete, awaiting a play test**, 2026-08-18
+
+**Every criterion a machine can check is green.** What is left is what no unit test can see —
+three things that need a GPU, a window and a person, and one of them (the overlay's depth
+behaviour) has been owed since S8.
+
+The slices M1 rests on are S5–S9. Their acceptance criteria, and how each stands:
+
+| Criterion | Slice | How it is verified | Status |
+|---|---|---|---|
+| OBJ parser: counts and submesh ranges vs the shipped meshes | S5 | `NeuronClientTests` | ✅ |
+| Replay hash equality, 1,000 ticks with scripted orders | S6 | `GameLogicTests`, with a control that moves one order by a metre and requires every later checkpoint to notice | ✅ |
+| Movement envelope: top speed, turn radius, arrival overshoot | S6 | `GameLogicTests` | ✅ |
+| No clock, no unseeded RNG, no `UniversePos` in per-tick math | S6 | CI grep steps, not review | ✅ |
+| Snapshot round-trip: emit → bytes → apply equals the quantised source | S7 | `GameLogicTests`, compared in **integers** rather than metres | ✅ |
+| Snapshot ≤ 1,152 B at 41 ships | S7 | static assert + runtime check | ✅ |
+| Picking: point and box against known layouts, floor-clamp cases | S8 | `NeuronClientTests` | ✅ |
+| Session-level order flow: submit → ack → state in the next snapshot | S9 | `NeuronServerTests`, over a real loopback socket, against an order format the *test* invented | ✅ |
+| Validation parity: identical verdict and reason on quantised inputs | S9 | `GameLogicTests`, a six-case matrix run through both a server view and a client view, checked for being neither all-accepted nor all-refused | ✅ |
+| A refused order bounces rather than vanishing, local and remote alike | S9 | `NeuronClientTests` compares the two ghosts field by field at the same instant | ✅ |
+| **Motion visually smooth at 144 Hz render / 20 Hz snapshots** | S7 | a person, at a machine with a GPU | ⏳ |
+| Induced 400 ms sim stall extrapolates, freezes, recovers clean | S7 | manual, with a debug key | ⏳ |
+| Visual checkpoint vs `tactical-hud.png`; frame time < 2 ms at 41 instances | S5 | manual | ⏳ |
+| **Rings occlude behind a Carrier hull; bars never do** | S8 | manual — `overlay-pass.png`'s rule, and the depth-bias pair is a guess until someone looks | ⏳ |
+| On-screen promotion ≤ 100 ms | S9 | manual | ⏳ |
+| The out-of-bounds bounce looks identical local vs server | S9 | manual — the code paths are asserted identical; whether a *person* can tell them apart is the actual criterion | ⏳ |
+
+**What the ⏳ rows have in common is worth saying once.** They are all the frame, and the frame
+has never been run since S5. S9 found the cost of that empirically: two overlay colours had
+been byte-swapped since S8 and every device-free test passed, because a swapped colour and an
+unrun frame are the same blind spot. The manual pass is not polish — it is the only instrument
+that covers a whole category of defect.
+
+
 ### S10 — Formations & the real footprint
 `SolveFormation` for Line/Wedge/Claw; puck footprint preview = the same solve (one tick per
 ship); arrival facing (drag-perpendicular or wheel while dragging); `GroupAdvance` leg
@@ -811,6 +846,15 @@ stable id→station assignment) + "preview equals outcome" (client-solve station
 final stations for same quantised inputs); fleet of 12 arrives in Claw matching the print's
 footprint pattern.
 
+**S9 took most of this.** Line is solved, `GroupAdvance` and the leg timeout are in `World`,
+the arrival facing is the puck's drag, and the footprint preview calls `SolveFormation` through
+the seam — so "preview equals outcome" is now structural rather than a test to write: the same
+function, the same quantised leg, the same sort by ascending `ShipId`. What is genuinely left
+is **Wedge and Claw** (named in the enum and refused as `InvalidFormation` until then, so a
+client sending one gets an answer rather than a silent Line), the per-leg re-solve, and the
+print's own open question — *what the puck should do when a station lands inside a gate or
+another fleet.* `puck-and-wheel.png` §6 lists that under OPEN and it is still open.
+
 ### S11 — HUD v1
 Glyph-quad Ui pass: top bar (ships, net RTT bars, sim indicator), fleet roster with wing rows
 + health strips, selection context bar (`N SHIPS : WING → FORMATION`), MOVE/FORMATION live +
@@ -819,6 +863,20 @@ ATTACK/STANCE/ABILITIES rendered disabled, order-pending indicator, minimal toas
 **Accept:** HUD state is a pure function of replicated fields + local UI state (F10 spot-
 check: kill the feed → HUD shows stale/empty, never invents); layout matches
 `tactical-hud.png` zones; UI scale multiplier honoured at 0.8/1.0/1.6.
+
+**Four things are already queued for this pass, and none of them is a widget** — worth listing
+so S11 is scoped against them rather than surprised by them. All four are screen-space quads or
+text, which is exactly what the Ui pass is (ADR-006 §10):
+
+- the **selection drag rectangle** (S8 deferred it: a screen-space quad, not a world mark);
+- the **bounce toast's reason string** (S9 — the code and the text both exist and cross the
+  seam through `WorldView::ReasonText`; only the drawing is missing, so it is a log line today);
+- the ghost's **dashed lane and per-leg ETA labels** (S9 — draw list *(B)*; a line between two
+  points is not a quad around one, and a label is text);
+- the **NET and tick readouts** the debug strip already logs.
+
+The risk this creates is R9's, restated: the pass existing invites a fifth thing that *is* a
+widget.
 
 ### S12 — Order queue & ETAs
 `queueMode=append` up to 4 legs; ghost polyline with per-leg ETA labels; `QueueFull` bounce;

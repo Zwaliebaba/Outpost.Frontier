@@ -310,9 +310,22 @@ Two things CI does that a local build does not, and that are easy to trip over:
   application, so until `Main.cpp` exists the link fails on `WinMain`; the step detects this
   and skips rather than leaving CI permanently red. It started building itself when slice S1
   landed, with no edit to the workflow.
-- **A header whose stem matches a standard one fails the build** before anything is compiled
-  (§3). This step exists because the alternative is two dozen errors inside `<ctime>` naming
-  nothing of ours.
+- **Five guards run before anything is compiled**, because each of them replaces a defect that
+  was found the hard way and could only be found at link or run time:
+  - a header whose stem matches a **standard** one (§3) — the alternative is two dozen errors
+    inside `<ctime>` naming nothing of ours;
+  - a **duplicate file name** across the five projects and `Tests/` (ADR-013 §3) — with every
+    project root on the include path, a duplicate resolves to whichever root comes first,
+    silently;
+  - the **same namespace-scope constant declared in two engine headers** (ADR-013 §3b) — added
+    after `INVALID_ENTITY_ID` was `u16` in one header and `u32` in another, which the file-name
+    check could not see because the files have different names;
+  - **any `Neuron*` project or engine test project naming GameLogic** (ADR-014) — the moment an
+    engine project references the game it stops being an engine;
+  - **GameLogic reading a clock, drawing unseeded randomness, calling an `XM*Est`, or naming a
+    `UniversePos` in per-tick code** (ADR-005, ADR-009 §2, ADR-010 §6) — the leaks that make a
+    replay lie, caught by the build rather than by the suite going red for an unexplained
+    reason months later.
 - **Failing tests are printed with their assertion messages**, and `test.log` is uploaded with
   `build.log`. Without that the one line that matters sits somewhere inside a 1,500-line log,
   which is worth knowing before you conclude a red job is a build failure.
@@ -346,6 +359,8 @@ slice" are different claims. Never imply the second when you only did the first.
       registered in **both** file-name registries: the Dependency Map's per-project tables and
       ADR-013 §3. They are two lists of the same thing; updating one and not the other is how
       both go stale.
+- [ ] A new namespace-scope `inline constexpr` in an **engine** header is not declared in
+      another one (ADR-013 §3b). Class members are exempt.
 - [ ] Every added/removed/moved file is in both the `.vcxproj` **and** the `.filters`.
 - [ ] No `argv`, no environment reads, no `XMVECTOR` stored in a struct or container.
 - [ ] GameLogic touched? The replay-determinism suite still passes.

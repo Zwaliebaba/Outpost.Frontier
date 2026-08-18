@@ -84,9 +84,14 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
 3a. **The tree is left-handed, and every handedness-parameterised entry point takes the `LH`
    form.** This is normative and it is a standing rule, not a per-call choice. Camera and
    picking use DirectXMath directly (ADR-010): `XMMatrixOrthographicOffCenterLH` +
-   `XMMatrixLookAtLH` for view/projection, `XMPlaneIntersectLine` for the cursor-ray ∩
-   ground-plane test, `XMVectorLerp` for snapshot interpolation. Matrices are stored as
-   `XMFLOAT4X4`, instance positions as `XMFLOAT3`.
+   `XMMatrixLookAtLH` for view/projection, and `XMVectorLerp` for snapshot interpolation.
+   Matrices are stored as `XMFLOAT4X4`, instance positions as `XMFLOAT3`.
+
+   *This section originally named `XMPlaneIntersectLine` for a cursor-ray ∩ ground-plane test.
+   **S8 built picking and there is no ray** — see §11a. An orthographic projection over a plane
+   makes the mapping affine, so a pixel becomes a plane point through three `float2`s and the
+   intersection never has to be computed. The handedness rule is unaffected; one of its example
+   call sites simply turned out not to exist.*
 
    **Why left-handed.** Two reasons, and the second is the load-bearing one:
 
@@ -185,6 +190,24 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
     point-pick = nearest ship within `max(class pickRadius, screen-floor-in-world)`;
     box-select = ship pos inside the screen rect's plane parallelogram. No GPU picking, no
     server round-trip. (Same plane point feeds the order puck — one code path.)
+
+    **11a. There is no ray** (S8, and it is the ortho camera's dividend rather than a shortcut).
+    The projection is orthographic and the world is a plane, so `PlaneMappingForNdc` is affine
+    and three `float2`s carry all of it: a pixel becomes a plane point by
+    `PixelsToNdc` then `NdcToPlane`, and picking is a distance test against circles. §2 fixed
+    the camera as ortho partly because "picking loses its uniform-direction ray" is what a
+    perspective camera costs; this is that cost never being paid.
+
+    "One code path" is now literal rather than aspirational — those two functions live in
+    `Picking.h` and box-select, point-pick and the order puck all call them. They were file-local
+    copies in two translation units first, which is exactly the arrangement where one of them
+    later gets a sign wrong.
+
+    Box-select needs the *inverse*, `PlaneToNdc`, because a drag rectangle is axis-aligned in
+    screen space and an arbitrary parallelogram on the plane — far easier to map ships into
+    screen space than four corners onto the plane. It is a hand-derived 2×2 inverse, which is
+    the kind of thing that reads correctly with one term's sign wrong, so it is asserted to
+    round-trip through the real view-projection rather than reviewed.
 
 ### Plumbing
 12. Two frames in flight; waitable swapchain (latency 1 waitable, 2 buffers min 3 recommended
