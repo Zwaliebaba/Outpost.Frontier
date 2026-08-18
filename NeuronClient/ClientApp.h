@@ -20,7 +20,10 @@
 #include "RenderWorld.h"
 #include "Selection.h"
 #include "SnapshotBuffer.h"
+#include "ToastStack.h"
 #include "TaskPool.h"
+#include "UiDrawList.h"
+#include "UiLayout.h"
 #include "Window.h"
 #include "WorldView.h"
 
@@ -86,6 +89,7 @@ private:
   void UpdateOrders();
   void CommitOrder(const PuckSample& _sample, double _nowSeconds);
   void ExtractScene();
+  void BuildHud();
   void RenderFrame();
   void HandleResize();
 
@@ -177,6 +181,17 @@ private:
   /// from the selection and the scene, and reused rather than reallocated.
   OverlayMarkList m_overlayMarks;
   OverlayTuning m_overlayTuning;
+
+  /*
+   * The HUD (ADR-006 §10). Rebuilt every frame from replicated fields and local
+   * UI state and nothing else -- which is the acceptance criterion for it, not
+   * a style: kill the feed and the readouts must go stale or empty rather than
+   * hold their last value, because a HUD that keeps talking after the world
+   * stopped is the one failure mode F10 exists to prevent.
+   */
+  UiDrawList m_ui;
+  UiTuning m_uiTuning;
+  ToastStack m_toasts;
 
   GpuPtr<ID3D12CommandAllocator> m_commandAllocators[GpuSwapChain::BUFFER_COUNT];
   GpuPtr<ID3D12GraphicsCommandList> m_commandList;

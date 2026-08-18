@@ -99,6 +99,8 @@ struct PipelineShaders
   std::span<const std::uint8_t> nebulaPixel;
   std::span<const std::uint8_t> overlayVertex;
   std::span<const std::uint8_t> overlayPixel;
+  std::span<const std::uint8_t> uiVertex;
+  std::span<const std::uint8_t> uiPixel;
 };
 
 /// Root parameter slots. Named because a bare index at a Set call site is the
@@ -144,17 +146,23 @@ public:
   [[nodiscard]] ID3D12PipelineState* OverlayRings() const noexcept { return m_overlayRings.get(); }
   [[nodiscard]] ID3D12PipelineState* OverlayBars() const noexcept { return m_overlayBars.get(); }
 
+  /// One pipeline for the whole HUD: panels and glyphs are the same quad in the
+  /// same space, and differ by a flag on the instance (ADR-006 §10).
+  [[nodiscard]] ID3D12PipelineState* Ui() const noexcept { return m_ui.get(); }
+
 private:
   [[nodiscard]] bool CreateRootSignature(ID3D12Device* _device);
   [[nodiscard]] bool CreateOpaquePipeline(ID3D12Device* _device, const PipelineShaders& _shaders);
   [[nodiscard]] bool CreateNebulaPipeline(ID3D12Device* _device, const PipelineShaders& _shaders);
   [[nodiscard]] bool CreateOverlayPipelines(ID3D12Device* _device, const PipelineShaders& _shaders);
+  [[nodiscard]] bool CreateUiPipeline(ID3D12Device* _device, const PipelineShaders& _shaders);
 
   GpuPtr<ID3D12RootSignature> m_rootSignature;
   GpuPtr<ID3D12PipelineState> m_opaque;
   GpuPtr<ID3D12PipelineState> m_nebula;
   GpuPtr<ID3D12PipelineState> m_overlayRings;
   GpuPtr<ID3D12PipelineState> m_overlayBars;
+  GpuPtr<ID3D12PipelineState> m_ui;
 };
 
 } // namespace Neuron

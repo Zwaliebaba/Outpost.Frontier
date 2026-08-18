@@ -56,6 +56,15 @@
     <ClCompile Include="OrderGhost.cpp">
       <Filter>Extract</Filter>
     </ClCompile>
+    <ClCompile Include="ToastStack.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
+    <ClCompile Include="UiDrawList.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
+    <ClCompile Include="UiLayout.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
     <ClCompile Include="Selection.cpp">
       <Filter>Input</Filter>
     </ClCompile>
@@ -140,6 +149,15 @@
     <ClInclude Include="OrderGhost.h">
       <Filter>Extract</Filter>
     </ClInclude>
+    <ClInclude Include="ToastStack.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClInclude Include="UiDrawList.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClInclude Include="UiLayout.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
     <ClInclude Include="Selection.h">
       <Filter>Input</Filter>
     </ClInclude>
@@ -173,6 +191,9 @@
     </Filter>
     <Filter Include="Input">
       <UniqueIdentifier>{9b06c3d7-51e4-4a28-b7f9-3d8e0a4c61b7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Hud">
+      <UniqueIdentifier>{7a2d5f18-93c4-4b6e-a0f7-52c81d4e9b03}</UniqueIdentifier>
     </Filter>
     <Filter Include="Gpu\Passes">
       <UniqueIdentifier>{f18a4d92-7c60-4e3b-95ad-0b26c8e7f341}</UniqueIdentifier>

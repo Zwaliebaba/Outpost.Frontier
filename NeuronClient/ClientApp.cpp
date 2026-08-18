@@ -7,6 +7,8 @@
 #include "Telemetry.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
 
 namespace Neuron
 {
@@ -14,6 +16,22 @@ namespace
 {
 
 using namespace DirectX;
+
+/*
+ * The HUD's palette, packed r-in-the-low-byte like every other colour the
+ * client sends (`OverlayMark::colourRgba`).
+ *
+ * The prints are a dark panel with green text and an amber accent for anything
+ * the player has to act on, and these are those four. Here rather than in
+ * `UiTuning` because a colour is not a size: the scale control retunes sizes,
+ * and nothing retunes these.
+ */
+constexpr std::uint32_t PANEL_COLOUR = 0xd8140f0au;       // Near-black, mostly opaque.
+constexpr std::uint32_t PANEL_EDGE_COLOUR = 0x60403020u;
+constexpr std::uint32_t TEXT_COLOUR = 0xff64e664u;        // The sheets' green.
+constexpr std::uint32_t TEXT_DIM_COLOUR = 0xa050a050u;
+constexpr std::uint32_t TOAST_URGENT_COLOUR = 0xff20b4ffu; // Amber: act on this.
+constexpr std::uint32_t TOAST_CRITICAL_COLOUR = 0xff4040ffu; // Red: act on it now.
 
 /// One descriptor for the glyph atlas, and room for the per-frame tables the
 /// overlay and UI passes will want. Small and fixed: a heap that grows is a
@@ -244,12 +262,7 @@ int ClientApp::Run()
       NEURON_SPAN("Extract");
       ExtractScene();
     }
-    {
-      // Declared, measured and empty. The Ui pass arrives in S11; the row it
-      // reports into is here now so the HUD does not have to add a stage
-      // boundary to itself later.
-      NEURON_SPAN("Ui");
-    }
+    BuildHud();
     m_swapChain.WaitForFrameLatency();
     {
       NEURON_SPAN("Render");
@@ -366,10 +379,14 @@ void ClientApp::UpdateOrders()
     m_ghosts.OnVerdict(verdict, nowSeconds);
     if (!verdict.accepted)
     {
-      // The bounce toast's text, from the game (ADR-014 §3). Logged rather than
-      // drawn until the Ui pass exists (S11); the ghost's own bounce is the
-      // part the player can already see.
-      NEURON_LOG_INFO("order %u refused by the server: %s", verdict.orderSeq, m_worldView->ReasonText(verdict.reasonCode));
+      // The bounce toast (`alerts-and-toasts.png` §3), which the sheet is
+      // explicit is not a new component: it is the same reason string the
+      // 150 ms ghost bounce is already showing, on the second of the two
+      // surfaces one refusal owes. Keyed on the reason code, so a burst of
+      // out-of-bounds clicks is one row with a count rather than five rows.
+      const char* reason = m_worldView->ReasonText(verdict.reasonCode);
+      (void)m_toasts.Raise(ToastPriority::Urgent, verdict.reasonCode, "ORDER REJECTED", reason, nowSeconds);
+      NEURON_LOG_INFO("order %u refused by the server: %s", verdict.orderSeq, reason);
     }
   }
   m_connection.ClearPendingVerdicts();
@@ -384,8 +401,11 @@ void ClientApp::UpdateOrders()
   {
     // The link went away. Every promise it was carrying died with it, and the
     // sequence numbers restart on a reconnect, so keeping them would leave one
-    // session's ghosts hanging over the next one's fleet.
+    // session's ghosts hanging over the next one's fleet. The toasts go with
+    // them for the same reason: last session's refusals over this session's
+    // fleet is the same mistake.
     m_ghosts.Clear();
+    m_toasts.Clear();
   }
 
   if (!m_input.windowFocused)
@@ -476,7 +496,13 @@ void ClientApp::CommitOrder(const PuckSample& _sample, double _nowSeconds)
     // ghost, same bounce, same reason string, one round trip sooner. That is
     // the whole reason the pre-check exists (ADR-014 §3).
     m_ghosts.Refuse(orderSeq, local.reasonCode, true, _nowSeconds);
-    NEURON_LOG_INFO("order %u refused locally: %s", orderSeq, m_worldView->ReasonText(local.reasonCode));
+
+    // The same toast the authority's refusal raises, from the same function.
+    // BounceParity is about the player being unable to tell which side said no,
+    // and two surfaces reading identically is most of what that means.
+    const char* reason = m_worldView->ReasonText(local.reasonCode);
+    (void)m_toasts.Raise(ToastPriority::Urgent, local.reasonCode, "ORDER REJECTED", reason, _nowSeconds);
+    NEURON_LOG_INFO("order %u refused locally: %s", orderSeq, reason);
     return;
   }
 
@@ -606,6 +632,93 @@ void ClientApp::HandleResize()
   m_camera.SetViewport(m_swapChain.Width(), m_swapChain.Height());
 }
 
+void ClientApp::BuildHud()
+{
+  NEURON_SPAN("Ui");
+
+  const double nowSeconds = Clock::SecondsSinceStart();
+  m_toasts.Advance(nowSeconds);
+
+  m_ui.Clear();
+
+  const UiLayout layout = ResolveUiLayout(m_input.viewportWidth, m_input.viewportHeight, m_config.uiScale, m_uiTuning);
+  if (layout.viewport.width <= 0.0f || layout.viewport.height <= 0.0f)
+  {
+    return; // A minimised window. Nothing to lay out and nothing to draw.
+  }
+
+  const float pad = m_uiTuning.padding * layout.scale;
+  const float cell = 8.0f * layout.scale; // The monospace grid, near enough for
+                                          // placement; the pass measures glyphs.
+
+  // --- the top status row -------------------------------------------------
+  //
+  // Everything on it is a replicated field or a link statistic, which is the
+  // whole acceptance criterion: kill the feed and these go stale rather than
+  // holding their last value.
+  m_ui.AddQuad(layout.topBar, PANEL_COLOUR);
+  m_ui.AddQuad(UiRect{0.0f, layout.topBar.Bottom() - 1.0f, layout.topBar.width, 1.0f}, PANEL_EDGE_COLOUR);
+
+  const float textY = layout.topBar.y + (layout.topBar.height - 13.0f * layout.scale) * 0.5f;
+  m_ui.AddText(pad, textY, m_uiTuning.bodySizeIndex, TEXT_DIM_COLOUR, "OUTPOST FRONTIER");
+
+  char buffer[96] = {};
+
+  // Ships, from the newest snapshot rather than from anything the client keeps.
+  const std::uint32_t shipCount = static_cast<std::uint32_t>(m_scene.entities.size());
+  std::snprintf(buffer, sizeof(buffer), "%u SHIPS", shipCount);
+  m_ui.AddText(layout.topBar.width * 0.5f, textY, m_uiTuning.bodySizeIndex, TEXT_COLOUR, buffer);
+
+  // The link. `--` rather than a stale number when there is no session, because
+  // a round-trip figure from a connection that has gone is a lie with a unit.
+  if (m_connection.State() == ClientLinkState::Joined)
+  {
+    std::snprintf(buffer, sizeof(buffer), "NET %.0f ms   TICK %u", m_connection.RoundTripMs(), m_connection.ServerTick());
+  }
+  else
+  {
+    std::snprintf(buffer, sizeof(buffer), "NET --   NO SESSION");
+  }
+  const auto netWidth = static_cast<float>(std::strlen(buffer)) * cell;
+  m_ui.AddText(layout.topBar.Right() - pad - netWidth, textY, m_uiTuning.bodySizeIndex, TEXT_DIM_COLOUR, buffer);
+
+  // --- the toast stack ----------------------------------------------------
+  //
+  // Criticals lead the visible list and go centre-top on their own surface;
+  // the rest stack bottom-right, clear of the context bar (§2).
+  const std::span<const Toast> toasts = m_toasts.Visible();
+  const std::size_t criticals = m_toasts.CriticalCount();
+
+  for (std::size_t index = 0; index < toasts.size(); ++index)
+  {
+    const Toast& toast = toasts[index];
+    const bool isCritical = index < criticals;
+    const UiRect rect = isCritical ? layout.criticalToast : layout.ToastSlot(index - criticals, m_uiTuning);
+    if (!isCritical && index - criticals >= ToastStack::MAX_VISIBLE)
+    {
+      break; // The stack showed what it can; the rest are already dropped.
+    }
+
+    const std::uint32_t accent = isCritical ? TOAST_CRITICAL_COLOUR : TOAST_URGENT_COLOUR;
+    m_ui.AddQuad(rect, PANEL_COLOUR);
+    m_ui.AddBorder(rect, 1.0f * layout.scale, accent);
+
+    // A count only when there is one to report -- the sheet draws the coalesced
+    // form as a suffix, and "x1" on every row would be noise.
+    if (toast.count > 1)
+    {
+      std::snprintf(buffer, sizeof(buffer), "%s x%u", toast.head.c_str(), toast.count);
+    }
+    else
+    {
+      std::snprintf(buffer, sizeof(buffer), "%s", toast.head.c_str());
+    }
+    m_ui.AddText(rect.x + pad, rect.y + pad * 0.5f, m_uiTuning.bodySizeIndex, accent, buffer);
+    m_ui.AddText(rect.x + pad, rect.y + pad * 0.5f + 15.0f * layout.scale, m_uiTuning.smallSizeIndex, TEXT_DIM_COLOUR,
+                 toast.detail);
+  }
+}
+
 void ClientApp::RenderFrame()
 {
   const std::uint32_t frameIndex = m_swapChain.CurrentIndex();
@@ -644,6 +757,8 @@ void ClientApp::RenderFrame()
   context.uploadRing = &m_uploadRing;
   context.pipelines = &m_pipelines;
   context.overlayMarks = &m_overlayMarks;
+  context.ui = &m_ui;
+  context.glyphAtlas = &m_glyphAtlas;
   context.meshes = &m_meshes;
   context.scene = &m_scene;
   context.renderTargetView = m_swapChain.CurrentRenderTargetView();

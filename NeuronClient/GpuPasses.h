@@ -1,8 +1,11 @@
 #pragma once
 
+#include "UiDrawList.h"
+
 #include <d3d12.h>
 
 #include <cstdint>
+#include <vector>
 
 /*
  * The frame, as a fixed list of named passes (ADR-006 §1).
@@ -31,6 +34,7 @@
 namespace Neuron
 {
 
+class GlyphAtlas;
 class GpuMeshTable;
 class GpuPipelines;
 class GpuUploadRing;
@@ -55,6 +59,15 @@ struct FrameContext
   std::uint32_t viewportWidth = 0;
   std::uint32_t viewportHeight = 0;
   float clearColour[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+
+  /// The frame's HUD, built by the client into screen-space quads and text runs.
+  /// Null or empty draws nothing, which is what a client with no HUD looks like.
+  const UiDrawList* ui = nullptr;
+
+  /// The baked glyphs the Ui pass turns text runs into quads against. Null
+  /// draws the panels and drops the text, which is a HUD that boots without a
+  /// font rather than one that does not boot.
+  const GlyphAtlas* glyphAtlas = nullptr;
 
   /// The frame's selection rings and gauge bars, built by `BuildOverlayMarks`.
   /// Null or empty draws nothing, which is what an empty selection looks like.
@@ -137,6 +150,41 @@ private:
 };
 
 /*
+ * The HUD (ADR-006 §9, §10).
+ *
+ * Last, and over everything: it is a readout, and the one thing that may
+ * composite over the world because it *is* the thing the player reads. No depth
+ * buffer is bound at all -- see `GpuPipelines::CreateUiPipeline`.
+ *
+ * One upload and one draw for the whole HUD. Panels and glyphs are the same
+ * instance stream and differ by a flag, so the natural build order (panel, text,
+ * panel, text) survives into the draw without a sort. Expanding text runs into
+ * glyph quads happens here because it is the only step that needs the atlas;
+ * everything upstream of it is device-free and tested without one.
+ */
+struct UiPass
+{
+  void Record(const FrameContext& _context);
+
+  /// What the last Record issued. The panels and the glyphs separately, because
+  /// "the HUD drew nothing" and "the HUD drew boxes with no words in them" are
+  /// different failures and the debug strip (S14) should not conflate them.
+  [[nodiscard]] std::uint32_t PanelCount() const noexcept { return m_panelCount; }
+  [[nodiscard]] std::uint32_t GlyphCount() const noexcept { return m_glyphCount; }
+
+  /// Characters the atlas had no glyph for. Non-zero means the HUD is asking
+  /// for something the bake did not cover -- a box-drawing character, say --
+  /// and the fix is the bake's alphabet, not the layout.
+  [[nodiscard]] std::uint64_t MissingGlyphCount() const noexcept { return m_missingGlyphs; }
+
+private:
+  std::vector<UiInstance> m_instances; // Reused across frames.
+  std::uint32_t m_panelCount = 0;
+  std::uint32_t m_glyphCount = 0;
+  std::uint64_t m_missingGlyphs = 0;
+};
+
+/*
  * The pass list itself.
  *
  * Reserved slots, in the order they will be inserted:
@@ -145,7 +193,6 @@ private:
  *                 into the soft SRV occlusion ADR-006 §8 wants
  *   Effects    -- corpus target
  *   Tonemap    -- arrives with HDR; the SDR path has nothing to tone-map
- *   Ui (S11)
  */
 class GpuPassList
 {
@@ -155,12 +202,14 @@ public:
   [[nodiscard]] const OpaquePass& Opaque() const noexcept { return m_opaque; }
   [[nodiscard]] const NebulaPass& Nebula() const noexcept { return m_nebula; }
   [[nodiscard]] const OverlayWorldPass& OverlayWorld() const noexcept { return m_overlayWorld; }
+  [[nodiscard]] const UiPass& Ui() const noexcept { return m_ui; }
 
 private:
   ClearPass m_clear;
   OpaquePass m_opaque;
   NebulaPass m_nebula;
   OverlayWorldPass m_overlayWorld;
+  UiPass m_ui;
 };
 
 } // namespace Neuron

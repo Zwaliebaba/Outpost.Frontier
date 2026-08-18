@@ -2,6 +2,7 @@
 
 #include "GpuPasses.h"
 
+#include "GlyphAtlas.h"
 #include "GpuMeshes.h"
 #include "GpuPipelines.h"
 #include "GpuUploadRing.h"
@@ -9,6 +10,8 @@
 #include "OverlayMark.h"
 #include "RenderWorld.h"
 #include "Telemetry.h"
+
+#include <algorithm>
 
 namespace Neuron
 {
@@ -216,14 +219,170 @@ void OverlayWorldPass::Record(const FrameContext& _context)
   NEURON_COUNTER("OverlayMarks", static_cast<std::int64_t>(marks.marks.size()));
 }
 
+namespace
+{
+
+/*
+ * Text runs into glyph quads.
+ *
+ * The pen walks the run in the baked size's own metrics: a bearing places the
+ * bitmap against the pen and the advance moves it on. The face is monospace, so
+ * the advance is the same for every glyph and the layout upstream could measure
+ * a string without asking -- but *placing* a glyph still needs its bitmap's
+ * offset, because a comma and a capital sit differently inside the same cell.
+ *
+ * `y` on a run is the top of the line rather than the baseline, so the ascent is
+ * added once here. Every layout number on the prints is a box, and converting at
+ * one place beats converting at every call site.
+ *
+ * A codepoint the bake has no glyph for is skipped and counted rather than
+ * substituted: the atlas's alphabet is a boot-time decision, and a run of boxes
+ * is a bake to fix rather than a layout to nudge.
+ */
+void ExpandTextRuns(const UiDrawList& _ui, const GlyphAtlas& _atlas, std::vector<UiInstance>& _outInstances,
+                    std::uint64_t& _outMissing)
+{
+  const float atlasWidth = static_cast<float>(_atlas.TextureWidth());
+  const float atlasHeight = static_cast<float>(_atlas.TextureHeight());
+  if (atlasWidth <= 0.0f || atlasHeight <= 0.0f || _atlas.SizeCount() == 0)
+  {
+    return;
+  }
+
+  for (const UiTextRun& run : _ui.Runs())
+  {
+    const std::uint32_t sizeIndex = std::min<std::uint32_t>(run.sizeIndex, _atlas.SizeCount() - 1);
+    const GlyphAtlasSize& size = _atlas.Size(sizeIndex);
+    const float baseline = run.y + size.ascentPixels;
+
+    float pen = run.x;
+    for (const char character : _ui.Text(run))
+    {
+      // ASCII only, which is the whole alphabet the bake covers (ADR-006 §9):
+      // no shaping, no combining marks, and a byte is a codepoint.
+      const auto codepoint = static_cast<char32_t>(static_cast<unsigned char>(character));
+      const GlyphMetrics* glyph = _atlas.Find(sizeIndex, codepoint);
+      if (glyph == nullptr)
+      {
+        ++_outMissing;
+        pen += size.cellWidthPixels; // Keep the column, so one gap does not
+                                     // shift the rest of the line.
+        continue;
+      }
+      if (glyph->width == 0 || glyph->height == 0)
+      {
+        pen += glyph->advancePixels; // A space. It advances and draws nothing.
+        continue;
+      }
+
+      UiInstance instance;
+      instance.rect[0] = pen + static_cast<float>(glyph->bearingX);
+      instance.rect[1] = baseline - static_cast<float>(glyph->bearingY);
+      instance.rect[2] = static_cast<float>(glyph->width);
+      instance.rect[3] = static_cast<float>(glyph->height);
+      instance.uv[0] = static_cast<float>(glyph->atlasX) / atlasWidth;
+      instance.uv[1] = static_cast<float>(glyph->atlasY) / atlasHeight;
+      instance.uv[2] = static_cast<float>(glyph->width) / atlasWidth;
+      instance.uv[3] = static_cast<float>(glyph->height) / atlasHeight;
+      instance.colourRgba = run.colourRgba;
+      instance.flags = UI_FLAG_GLYPH;
+      _outInstances.push_back(instance);
+
+      pen += glyph->advancePixels;
+    }
+  }
+}
+
+} // namespace
+
+void UiPass::Record(const FrameContext& _context)
+{
+  NEURON_SPAN("Ui");
+
+  m_panelCount = 0;
+  m_glyphCount = 0;
+  m_instances.clear();
+
+  if (_context.ui == nullptr || _context.pipelines == nullptr || _context.pipelines->Ui() == nullptr)
+  {
+    return;
+  }
+
+  const UiDrawList& ui = *_context.ui;
+
+  // Panels first and in order. The build order is the draw order because there
+  // is one pipeline and no sort: a panel added after a run of text is meant to
+  // be over it.
+  for (const UiQuad& quad : ui.Quads())
+  {
+    UiInstance instance;
+    instance.rect[0] = quad.rect.x;
+    instance.rect[1] = quad.rect.y;
+    instance.rect[2] = quad.rect.width;
+    instance.rect[3] = quad.rect.height;
+    instance.colourRgba = quad.colourRgba;
+    m_instances.push_back(instance);
+  }
+  m_panelCount = static_cast<std::uint32_t>(m_instances.size());
+
+  // Then the glyphs. This is the only step that needs the atlas, which is why
+  // everything upstream of it is device-free.
+  if (_context.glyphAtlas != nullptr)
+  {
+    ExpandTextRuns(ui, *_context.glyphAtlas, m_instances, m_missingGlyphs);
+  }
+  m_glyphCount = static_cast<std::uint32_t>(m_instances.size()) - m_panelCount;
+
+  if (m_instances.empty())
+  {
+    return;
+  }
+
+  const auto instanceBytes = static_cast<std::uint32_t>(m_instances.size() * sizeof(UiInstance));
+
+  GpuUploadRing::Allocation upload;
+  if (!_context.uploadRing->Write(m_instances.data(), instanceBytes, static_cast<std::uint32_t>(alignof(UiInstance)), upload))
+  {
+    NEURON_COUNTER("UiInstanceDrops", static_cast<std::int64_t>(m_instances.size()));
+    m_panelCount = 0;
+    m_glyphCount = 0;
+    return; // A frame short of memory drops the HUD rather than drawing half of
+            // it, which would read as the game having lost half its state.
+  }
+
+  D3D12_VERTEX_BUFFER_VIEW instanceView{};
+  instanceView.BufferLocation = upload.gpu;
+  instanceView.SizeInBytes = instanceBytes;
+  instanceView.StrideInBytes = static_cast<UINT>(sizeof(UiInstance));
+
+  ID3D12GraphicsCommandList* commandList = _context.commandList;
+  commandList->SetGraphicsRootSignature(_context.pipelines->RootSignature());
+  commandList->SetPipelineState(_context.pipelines->Ui());
+  commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+  commandList->IASetVertexBuffers(0, 1, &instanceView);
+
+  // PassConstants for the viewport size the pixel coordinates are converted
+  // against; the texture table for the atlas at t0. No FrameConstants: the HUD
+  // is in screen space and has no view to be projected through.
+  commandList->SetGraphicsRootConstantBufferView(static_cast<UINT>(RootSlot::PassConstants), _context.passConstants);
+  if (_context.textureTable.ptr != 0)
+  {
+    commandList->SetGraphicsRootDescriptorTable(static_cast<UINT>(RootSlot::Textures), _context.textureTable);
+  }
+
+  commandList->DrawInstanced(4, static_cast<UINT>(m_instances.size()), 0, 0);
+
+  NEURON_COUNTER("UiInstances", static_cast<std::int64_t>(m_instances.size()));
+}
+
 void GpuPassList::Record(const FrameContext& _context)
 {
   m_clear.Record(_context);
   m_opaque.Record(_context);
   m_nebula.Record(_context);
   m_overlayWorld.Record(_context);
-  // Ui (S11) is recorded here, after the world overlay. Present is the
-  // swapchain's, not a recorded pass.
+  m_ui.Record(_context);
+  // Present is the swapchain's, not a recorded pass.
 }
 
 } // namespace Neuron

@@ -532,9 +532,14 @@ pass a length check. That gap was found by a build failure, not by a test: `Make
 called `SpawnStations` before it was defined, and while fixing the one-line ordering slip it
 became clear `BroadcastSnapshot` had encoding tests on one side of it and clock tests on the
 other and nothing at all in between.
-**Outstanding:** the visual half. That motion *looks* smooth at 144 Hz, and that the induced
+**Outstanding:** ~~the visual half. That motion *looks* smooth at 144 Hz, and that the induced
 stall reads as extrapolate-then-freeze rather than as a stutter, are judgements no test here
-makes — they need a GPU. The numbers say both hold.
+makes — they need a GPU. The numbers say both hold.~~
+**Smoothness confirmed by the owner, 2026-08-18.** Interpolation at 144 Hz render over 20 Hz
+snapshots reads as motion, which is the claim `SnapshotBuffer` was built to make and the one
+its unit tests could only make in numbers. Still owed: the **induced 400 ms stall** reading as
+extrapolate-then-freeze rather than as a stutter — a separate gesture, and it needs the debug
+key that triggers it.
 
 ### S7a — Shaders are built, not loaded *(out of order, at the owner's request)*
 Owner directive: split each shader into a vertex and a pixel file, move them into
@@ -643,12 +648,16 @@ hull bar by exactly the configured gap, rings preceding bars so the contiguous s
 selected ship that has despawned drawing nothing. Mutation-tested again: scaling the gauge by 255
 instead of 257, and clamping the ring with `min` instead of `max`, each fail exactly the tests
 named for them.
-**Outstanding:** the visual half, and it is the whole acceptance criterion. That rings occlude
-behind a Carrier hull and bars never do is a depth state, and no test here can see a depth state
-— it needs a frame on a GPU. The depth bias on the ring pipeline (`-100`, slope-scaled `-1`) is
-the classic decal pair and is a guess until someone looks at a ring lying on the plane under a
-hull. The drag rectangle is deliberately not here: it is a screen-space quad, which ADR-006 §10
-puts in the Ui pass, and it arrives with the rest of that pass in S11.
+**Outstanding:** ~~the visual half, and it is the whole acceptance criterion.~~
+**Confirmed by the owner, 2026-08-18: rings occlude behind a Carrier hull and bars never do.**
+That is `overlay-pass.png`'s rule holding on a real frame, and it closes the one thing S8 was
+accepted without. The depth bias on the ring pipeline (`-100`, slope-scaled `-1`) was the
+classic decal pair chosen from the textbook and flagged here as a guess; it is a measurement
+now. Worth keeping the note, because the *next* plane-lying kind to join that pass inherits
+those numbers without re-earning them — S9's order footprints and station ticks already have.
+
+The drag rectangle is deliberately not here: it is a screen-space quad, which ADR-006 §10 puts
+in the Ui pass, and it arrives with the rest of that pass in S11.
 
 ### S9 — Move orders end-to-end 🏁 **M1**
 Right-drag order puck (plane point + facing), client pre-check via `WorldView::PreCheck`
@@ -851,20 +860,25 @@ The slices M1 rests on are S5–S9. Their acceptance criteria, and how each stan
 | Session-level order flow: submit → ack → state in the next snapshot | S9 | `NeuronServerTests`, over a real loopback socket, against an order format the *test* invented | ✅ |
 | Validation parity: identical verdict and reason on quantised inputs | S9 | `GameLogicTests`, a six-case matrix run through both a server view and a client view, checked for being neither all-accepted nor all-refused | ✅ |
 | A refused order bounces rather than vanishing, local and remote alike | S9 | `NeuronClientTests` compares the two ghosts field by field at the same instant | ✅ |
-| **Motion visually smooth at 144 Hz render / 20 Hz snapshots** | S7 | a person, at a machine with a GPU | ⏳ |
+| **Motion visually smooth at 144 Hz render / 20 Hz snapshots** | S7 | a person, at a machine with a GPU | ✅ **owner-validated 2026-08-18** |
 | Induced 400 ms sim stall extrapolates, freezes, recovers clean | S7 | manual, with a debug key | ⏳ |
 | Visual checkpoint vs `tactical-hud.png`; frame time < 2 ms at 41 instances | S5 | manual | ⏳ |
-| **Rings occlude behind a Carrier hull; bars never do** | S8 | manual — `overlay-pass.png`'s rule, and the depth-bias pair is a guess until someone looks | ⏳ |
+| **Rings occlude behind a Carrier hull; bars never do** | S8 | manual — `overlay-pass.png`'s rule; the depth-bias pair (`-100`, slope-scaled `-1`) was a guess and is now a measurement | ✅ **owner-validated 2026-08-18** |
 | Overlay marks are legible at fleet scale | S8, S9 | manual — **run once, 2026-08-18, and it failed**: ring thickness scaled with radius and the puck circumscribed the formation. Both fixed; needs a second look | ⏳ |
 | On-screen promotion ≤ 100 ms | S9 | manual | ⏳ |
 | The out-of-bounds bounce looks identical local vs server | S9 | manual — the code paths are asserted identical; whether a *person* can tell them apart is the actual criterion | ⏳ |
 
-**What the ⏳ rows have in common is worth saying once.** They are all the frame. It was run
-once, on 2026-08-18, and that single run found three defects no device-free test could reach:
-two overlay colours byte-swapped since S8, a ring whose thickness grew with its own radius, and
-a puck sized to circumscribe the formation rather than mark a point. Every unit test involved
-passed throughout. The manual pass is not polish — it is the only instrument that covers a
-whole category of defect, and its cost is measured in the three slices that shipped before
+**The frame has now been run, and it both found and closed things.** It found three defects no
+device-free test could reach — two overlay colours byte-swapped since S8, a ring whose
+thickness grew with its own radius, and a puck sized to circumscribe the formation rather than
+mark a point — with every unit test involved passing throughout. It also **closed two criteria
+that had been open since S7 and S8**: interpolated motion reads as motion at 144 Hz over 20 Hz
+snapshots, and rings occlude behind a Carrier hull while bars never do, which promotes the ring
+pipeline's depth bias from a guess to a measurement.
+
+That is the argument for the manual pass in one paragraph: it is not polish, it is the only
+instrument that covers a whole category of defect *and* the only one that can retire a
+criterion no number can settle. Its cost was measured in the three slices that shipped before
 anyone looked.
 
 
@@ -941,7 +955,56 @@ ATTACK/STANCE/ABILITIES rendered disabled, order-pending indicator, minimal toas
 check: kill the feed → HUD shows stale/empty, never invents); layout matches
 `tactical-hud.png` zones; UI scale multiplier honoured at 0.8/1.0/1.6.
 
-**Four things are already queued for this pass, and none of them is a widget** — worth listing
+**Built ✅ (S11a — the pass and its device-free half):**
+`UiDrawList.h/.cpp` — screen-space quads and *text runs*, in pixels with the origin top-left,
+which is the space the prints are drawn in. **Text stays text until the last moment:** a run
+carries a string and a position and the pass expands it against the atlas, so every decision
+about what the HUD *says* is device-free and a test asserts words rather than quads. Text goes
+into one pooled buffer with runs holding offsets, so a HUD rebuilt sixty times a second is not
+sixty allocations a second.
+`UiLayout.h/.cpp` — the print's zones from a viewport and a scale. Constants are pixels at 1.0
+rather than fractions of the viewport, because a HUD that scaled with the window would shrink
+its own text on a small screen — the opposite of what a scale control is for. The scale clamps
+to the settings sheet's 0.8–1.6×, and a viewport too small for its own chrome collapses rather
+than producing negative sizes.
+`ToastStack.h/.cpp` — `alerts-and-toasts.png`, which turned out to be the most precisely
+specified sheet in the corpus: five priorities, dwell per level, mandatory coalescing, a cap of
+five that drops oldest first, Urgent in the top slot, Critical centre-top on its own surface,
+and **no toast ever overlapping the context bar** — the bar is where orders are issued, and a
+toast covering ATTACK mid-fight is a lost engagement.
+`Ui.hlsli`/`UiVS.hlsl`/`UiPS.hlsl` and one pipeline. **Panels and glyphs are one instance
+stream** differing by a flag: same quad, same space, same blend, and two pipelines would mean
+two draws over one upload plus a sort to separate them — for a HUD whose natural build order is
+panel, text, panel, text. The atlas is R8 coverage, so a glyph is its run's colour with the
+coverage as alpha, which is what lets one bake serve every colour of text.
+
+**The bounce toast S9 has owed since the ghost landed is now raised**, from both refusal paths
+and through the same `ReasonText` call. The sheet is explicit that this is not a new component:
+it is the same reason string the 150 ms ghost bounce is already showing, on the second of the
+two surfaces one refusal owes. Keyed on the reason code, so a burst of out-of-bounds clicks is
+one row with a count rather than five rows.
+
+**Suppression is built and nothing drives it.** The sheet keys it on a replicated combat flag
+the MVP has no combat to set. It is here anyway because queue-not-drop is a property of the
+*type* — a held toast's dwell has to start when it is *shown*, and retrofitting that would mean
+rewriting when every dwell begins. What is deliberately not built is the collapsed "6
+SUPPRESSED" row, which is a rendering feature with no data behind it yet; `SuppressedCount` is
+what it would draw from.
+
+**Verified:** `NeuronClientTests` 165 → 188. Mutation-tested: a critical consuming a stack slot,
+suppressed toasts dropped instead of queued, dwell measured from when a toast was raised rather
+than shown, coalescing not restarting the dwell, and toasts anchored to the viewport instead of
+the context bar each fail exactly the tests named for them.
+
+**Outstanding for S11:** the content the pass now has somewhere to draw — the fleet roster with
+its wing rows, the selection context bar, the command row with MOVE and FORMATION live and the
+rest disabled, and the order-pending indicator. Plus the two world-space items S8 and S9 left
+here: the selection drag rectangle and the ghost's dashed lane with per-leg ETA labels. **The
+roster needs a decision first:** the print's rows are *wings*, `World` has a `WingId` per ship,
+and `EntityRecord` does not replicate it — so either the wire grows a field or the roster shows
+something other than what the print draws.
+
+**Four things were queued for this pass, and none of them is a widget** — worth listing
 so S11 is scoped against them rather than surprised by them. All four are screen-space quads or
 text, which is exactly what the Ui pass is (ADR-006 §10):
 

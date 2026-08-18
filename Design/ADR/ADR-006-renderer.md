@@ -214,6 +214,32 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
     stubs), top status row, toasts. Layout constants from the prints; UI scale is a multiplier
     from day one (settings sheet makes 0.8–1.6× a requirement).
 
+    **10a. One instance stream, and text stays text until the pass** (S11a). Panels and glyphs
+    are the same quad in the same space blended the same way, so they differ by a flag on the
+    instance rather than by a pipeline — two pipelines would mean two draws over one upload
+    and a sort to separate them, for a HUD whose natural build order is panel, text, panel,
+    text. The atlas is R8 coverage (§9), so a glyph is its run's colour with the coverage as
+    alpha, which is what lets one bake serve every colour of text on the HUD.
+
+    The draw list carries **text runs** rather than glyph quads, and expanding them is the only
+    step that needs the atlas. Everything upstream — what the HUD says, where its zones are,
+    which notifications are showing — is therefore device-free and asserted without a GPU, and
+    a test checks the words rather than the quads. The face being monospace (§9) is what makes
+    that affordable: a run's width is its length times the cell, so layout needs no measuring
+    pass and no per-glyph metrics.
+
+    **UI scale multiplies pixels, not fractions of the viewport.** A zone written as a fraction
+    would shrink its own text on a small screen, which is the opposite of what a scale control
+    is for. The scale clamps to the settings sheet's range; a viewport too small for its own
+    chrome collapses the world rect to nothing rather than producing a negative size, which is
+    reachable by dragging a window small and would otherwise put a flipped-winding quad on
+    screen.
+
+    **No depth buffer is bound at all.** The HUD is last and composites over everything, so a
+    depth test could only remove a pixel the player is meant to see. The pipeline declares
+    `DSVFormat = UNKNOWN` rather than merely disabling the test, because a pipeline with a
+    format and no test still expects a bound buffer.
+
 ### Picking
 11. Client-side, against the **interpolated render world**: cursor → ortho ray → plane point;
     point-pick = nearest ship within `max(class pickRadius, screen-floor-in-world)`;

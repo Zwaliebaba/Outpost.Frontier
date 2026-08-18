@@ -15,6 +15,8 @@
 #include "OpaqueVS.h"
 #include "OverlayPS.h"
 #include "OverlayVS.h"
+#include "UiPS.h"
+#include "UiVS.h"
 
 #include <cstdint>
 #include <span>
@@ -46,6 +48,8 @@ Neuron::PipelineShaders ShaderTable() noexcept
   shaders.nebulaPixel = Bytes(g_pNebulaPS);
   shaders.overlayVertex = Bytes(g_pOverlayVS);
   shaders.overlayPixel = Bytes(g_pOverlayPS);
+  shaders.uiVertex = Bytes(g_pUiVS);
+  shaders.uiPixel = Bytes(g_pUiPS);
   return shaders;
 }
 
