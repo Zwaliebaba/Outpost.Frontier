@@ -89,20 +89,40 @@ without saying what anchors them. This ADR says it.
    without the anchor it cannot place a single replicated position.
 9. **MVP content:** one authored system — **Vesta-3** (the system on the prints): star, two
    planets, one station. The MVP tactical grid is anchored at the station; the fleet flies
-   there; the station (Structure mesh) is on-grid scenery/landmark, celestials render as
-   backdrop. No docking, no gates traversal, no second system in MVP — but the MVP
-   boots *from the universe definition*, not from a hardcoded scene, so "more universe" is
-   authoring, not engineering.
+   there; the station (Structure mesh) is on-grid scenery/landmark. No docking, no gates
+   traversal, no second system in MVP — but the MVP boots *from the universe definition*, not
+   from a hardcoded scene, so "more universe" is authoring, not engineering.
 
-   **As authored (S5b), one refinement:** this clause said *distant* backdrop, written before
-   there was content to be distant. There is now, and one body is not. The Anchorage holds a
-   2,000 km orbit over Kessler, so from the grid the planet is 8,051 km away and 6,051 km in
-   radius — it fills about a hundred degrees of sky, while Vesta (107 million km) and Halgren
-   (234 million km) are points. Both extremes still belong to the same backdrop pass rather
-   than the opaque list, so the ruling is unchanged; only the word "distant" was wrong.
-   The orbit is kept because a station anchored to nothing is worse content than a station
-   over a planet, and because a backdrop pass that only ever has to draw points would be
-   built to the wrong requirement.
+9a. **Celestials are data, not geometry** (owner decision, 2026-08-18, replacing this clause's
+   original promise that they "render as distant backdrop").
+
+   Nothing in the corpus draws a celestial body. `tactical-hud.png` is near-black space, an
+   ambient haze behind the fleet and sparse star points — no star, no planet, no limb.
+   `strategic-map.png` draws systems as graph nodes and reports "STATIONS 2 · GATES 4" as
+   panel text. Neither screen has a celestial in it, and S5's acceptance was measured against
+   the first of them, so the prints are the governing artefact and this ADR's clause was the
+   outlier. It was written here before rendering had an owner for the claim.
+
+   So a `Celestial` earns its place in `UniverseDef` as **content the game reads, not content
+   the frame draws**: system identity and layout, landmarks for naming and orientation,
+   economy anchors later, and real coordinates for the strategic map to place a node from.
+   Parsing them, hashing them, and having both halves load the identical definition is the
+   requirement (§8 — they are never replicated; each side reads the file and the hash refuses a
+   mismatch at the door). Drawing them is not the requirement, and no slice owes it.
+
+   *Do not re-derive this from ADR-006's pass list.* Its reserved `Nebula` node is an ambient
+   haze composited **after** `Opaque` and before `Tonemap` — the green field the tactical print
+   shows behind the fleet, which is why `overlay-pass.png` §1 worries about "HDR drift between
+   a bright nebula and empty space". It is not a celestial renderer and was never a scheduled
+   home for one; reading it as one is the mistake this paragraph exists to stop.
+
+   **What this costs, stated so it is a decision rather than an omission:** if celestials are
+   ever drawn, the authored content already contains the hard case. The Anchorage holds a
+   2,000 km orbit over Kessler, so the planet is 8,051 km away and 6,051 km in radius — about
+   a hundred degrees of sky — while Vesta (107 million km) and Halgren (234 million km) are
+   points. A backdrop built only for points would be built to the wrong requirement. The orbit
+   stays: it is better content than a station anchored to nothing, and it keeps that
+   requirement visible in the data for whoever reopens this.
 
 ## Alternatives rejected
 

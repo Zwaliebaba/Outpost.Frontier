@@ -250,7 +250,7 @@ art direction's blue, but it is the first thing to delete if the visual checkpoi
 using S2b's parser); `GameData/Universe/` authored with Vesta-3 (star, two planets, one
 station); `universeHash` over canonical parsed content; hosts read
 the file via NeuronCore and both halves load it; grid anchored at the station; station renders
-with the `Structure` mesh, celestials as distant backdrop.
+with the `Structure` mesh; celestials are parsed and hashed but not drawn (ADR-009 §9a).
 **Accept:** `GameLogicTests` parse round-trip, malformed-input rejection, `universeHash`
 stability across reorderings that shouldn't matter and change on ones that should,
 anchor+local reconstruction property test; the client's rendered scene comes from the file
@@ -291,15 +291,15 @@ int64 plane, where an unguarded subtraction wraps a distant position into a fals
 at both ends: `NeuronCoreTests` round-trips a `Welcome` carrying a full-width negative anchor,
 and `NeuronServerTests` asserts the simulation's `WorldMeta` arrives intact at a raw
 core-level client.
-**Outstanding:** **celestials are parsed, hashed and loaded but not drawn.** Rendering them
-needs the backdrop that ADR-006 §1 reserves as the `Nebula` node, and the authored system shows
-why it cannot be an entry in the opaque list at either end of the range. Vesta is 107 million
-km away and Halgren 234 million — points at any zoom. Kessler is 8,051 km away and 6,051 km in
-radius, so from the Anchorage it fills roughly a hundred degrees of sky. Neither a point nor a
-planet-sized wall is a mesh you instance beside a Corvette; both are a skybox-class pass.
-Faking it by scaling the `Structure` hull would put a wrong thing on screen and call the slice
-done. The data is in place for that pass to read.
-Also still owed, and needing a GPU: confirming on screen that moving the station in the file
+**Closed, not built:** this slice was written owing "celestials as distant backdrop", and that
+debt turned out not to exist. No slice in S1–S15 schedules it, and neither print draws a
+celestial body — `tactical-hud.png` is empty space with an ambient haze, `strategic-map.png`
+is a node graph. ADR-006's reserved `Nebula` node is that haze, composited after `Opaque`, not
+a celestial renderer; reading it as one is what made a design gap look like queued work.
+Owner decision on 2026-08-18: celestials are data the game reads, not content the frame draws
+(ADR-009 §9a). Parsed, hashed, and loaded identically by both halves is the whole requirement,
+and it is met.
+**Outstanding, and needing a GPU:** confirming on screen that moving the station in the file
 moves it in the world. The demonstration is to edit `stations[0].position` and restart — the
 logged grid anchor moves with it, and a second station added to the array appears at its
 offset, with nothing rebuilt.

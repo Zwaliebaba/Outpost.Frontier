@@ -23,6 +23,12 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
    order are the corpus target list with unbuilt nodes absent; `GpuCull`, `DepthPre`,
    `Effects`, `Nebula`, `Tonemap` are **reserved slots** documented in code, so growth is
    insertion, not redesign. Revisit a real graph only when transient-resource management hurts.
+   *`Nebula` is an ambient haze* — it sits after `Opaque` and before `Tonemap` because it
+   composites over the scene, and it is the green field `tactical-hud.png` shows behind the
+   fleet (hence `overlay-pass.png` §1 on "HDR drift between a bright nebula and empty space").
+   It is **not** a celestial or skybox renderer, and no reserved slot here is: the prints draw
+   no celestial body on either screen, and ADR-009 §9a settles that they are data rather than
+   geometry.
 2. **SDR first.** Swapchain `R8G8B8A8_UNORM` (flip model forbids `_SRGB` swapchain formats)
    with an `_SRGB` RTV; linear-space lighting; no tonemap node yet. The Darwinia look —
    near-black space, saturated emissives — survives SDR; HDR+Tonemap is a reserved node.

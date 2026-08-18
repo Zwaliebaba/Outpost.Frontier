@@ -32,12 +32,16 @@
       // (ADR-009 §3). Positions *within* a system are gameplay-real.
       "centre": { "x": 4200000000, "y": -1750000000 },
 
-      // Landmarks, and later economy anchors. Distances here are real: Kessler
-      // orbits at 0.72 AU and Halgren at 1.0 AU, which puts the nearest one --
-      // Kessler, which the station orbits -- 8,051 km away, or 400 times the
-      // tactical grid's half-extent, and the star a hundred million kilometres
-      // out. That is why they are backdrop rather than anywhere the fleet flies
-      // (ADR-009 §9): at tactical zoom every one of them is a point.
+      // Landmarks, and later economy anchors. Nothing draws them: celestials are
+      // data the game reads, not content the frame puts on screen (ADR-009 §9a).
+      // They give the system its identity and its layout, and the strategic map
+      // will place a node from these coordinates.
+      //
+      // Distances are real anyway, because getting them wrong here would be a
+      // lie the moment anything did read them. Kessler orbits at 0.72 AU and
+      // Halgren at 1.0 AU; the station orbits Kessler, 8,051 km out -- 400 times
+      // the tactical grid's half-extent -- and Vesta is a hundred million
+      // kilometres away.
       //
       // Radii are Sol's, Venus's and Earth's. Getting them right costs nothing
       // and means a body never has to be re-placed once something draws it.
