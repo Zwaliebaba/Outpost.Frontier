@@ -46,7 +46,6 @@
 
 namespace
 {
-
 volatile bool g_stopRequested = false;
 
 BOOL WINAPI ConsoleHandler(DWORD _type)
@@ -86,9 +85,7 @@ void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigP
 {
   NEURON_LOG_INFO("config: %s", _paths.base.c_str());
   if (!_paths.userLayer.empty())
-  {
     NEURON_LOG_INFO("user settings: %s", _paths.userLayer.c_str());
-  }
   NEURON_LOG_INFO("mode: %s%s", Outpost::HostModeText(_config.mode), _config.selfTest ? " (self test)" : "");
   NEURON_LOG_INFO("server: port %u, max sessions %u", static_cast<unsigned>(_config.server.port),
                   static_cast<unsigned>(_config.server.maxSessions));
@@ -111,11 +108,10 @@ void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigP
  * The adapter holds the vtable and forwards; the simulation is GameLogic's
  * (ADR-014 §2a). Everything in this class is a line of wiring.
  */
-class UniverseSimulation final : public Neuron::Simulation
+class UniverseSimulation final : public Simulation
 {
 public:
-  UniverseSimulation(std::uint64_t _universeHash, Neuron::WorldMeta _worldMeta, Game::World _world,
-                     std::vector<Game::ShipId> _patrolShips)
+  UniverseSimulation(std::uint64_t _universeHash, WorldMeta _worldMeta, Game::World _world, std::vector<Game::ShipId> _patrolShips)
     : m_universeHash(_universeHash),
       m_worldMeta(_worldMeta),
       m_world(std::move(_world)),
@@ -158,23 +154,34 @@ public:
 
   /// The tick argument is the loop's; the world knows its own and they are the
   /// same number. Writing the world's is the one that cannot drift.
-  [[nodiscard]] bool WriteSnapshot(std::uint32_t, Neuron::ByteWriter& _writer) override
+  [[nodiscard]] bool WriteSnapshot(std::uint32_t, ByteWriter& _writer) override
   {
     return Game::WriteSnapshot(m_world, _writer);
   }
 
-  [[nodiscard]] Neuron::OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t>) override
+  [[nodiscard]] OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t>) override
   {
-    return Neuron::OrderVerdict{}; // No order format to decode until S9.
+    return OrderVerdict{}; // No order format to decode until S9.
   }
 
-  [[nodiscard]] std::uint64_t SchemaHash() const override { return Game::GameSchemaHash(); }
-  [[nodiscard]] std::uint64_t ContentHash() const override { return m_universeHash; }
-  [[nodiscard]] Neuron::WorldMeta World() const override { return m_worldMeta; }
+  [[nodiscard]] std::uint64_t SchemaHash() const override
+  {
+    return Game::GameSchemaHash();
+  }
+
+  [[nodiscard]] std::uint64_t ContentHash() const override
+  {
+    return m_universeHash;
+  }
+
+  [[nodiscard]] WorldMeta World() const override
+  {
+    return m_worldMeta;
+  }
 
 private:
   std::uint64_t m_universeHash = 0;
-  Neuron::WorldMeta m_worldMeta;
+  WorldMeta m_worldMeta;
   Game::World m_world;
 
   /// The mobile half of the fleet. The station is deliberately absent: sending
@@ -203,9 +210,7 @@ void SpawnStations(const Game::UniverseDef& _universe, Game::World& _world)
   const Game::GridAnchor anchor = _universe.StartAnchor();
   const Game::SolarSystem* system = _universe.FindSystem(anchor.system);
   if (system == nullptr)
-  {
     return;
-  }
 
   for (const Game::Station& station : system->stations)
   {
@@ -253,20 +258,20 @@ void SpawnStations(const Game::UniverseDef& _universe, Game::World& _world)
   // wrong.
   SpawnStations(_universe, world);
 
-  constexpr Game::HullClass FLEET[] = {Game::HullClass::Interceptor, Game::HullClass::Bomber,  Game::HullClass::Corvette,
-                                       Game::HullClass::Frigate,     Game::HullClass::Hauler,  Game::HullClass::Miner,
+  constexpr Game::HullClass FLEET[] = {Game::HullClass::Interceptor, Game::HullClass::Bomber,    Game::HullClass::Corvette,
+                                       Game::HullClass::Frigate,     Game::HullClass::Hauler,    Game::HullClass::Miner,
                                        Game::HullClass::Carrier,     Game::HullClass::Battleship};
-  constexpr std::uint32_t SHIPS_PER_WING = 5;
-  constexpr float WING_RADIUS_METRES = 1400.0f;
 
   std::uint32_t wing = 0;
   for (const Game::HullClass hullClass : FLEET)
   {
+    constexpr std::uint32_t SHIPS_PER_WING = 5;
     const float wingAngle = (static_cast<float>(wing) / static_cast<float>(std::size(FLEET))) * DirectX::XM_2PI;
     const float spacing = Game::ShipClass(hullClass).formationSpacingMetres;
 
     for (std::uint32_t index = 0; index < SHIPS_PER_WING; ++index)
     {
+      constexpr float WING_RADIUS_METRES = 1400.0f;
       const float offset = (static_cast<float>(index) - 0.5f * static_cast<float>(SHIPS_PER_WING - 1)) * spacing;
 
       Game::ShipSpawn spawn;
@@ -280,9 +285,7 @@ void SpawnStations(const Game::UniverseDef& _universe, Game::World& _world)
 
       const Game::ShipId id = world.Spawn(spawn);
       if (id != Game::INVALID_SHIP_ID)
-      {
         _outPatrolShips.push_back(id);
-      }
     }
     ++wing;
   }
@@ -291,10 +294,10 @@ void SpawnStations(const Game::UniverseDef& _universe, Game::World& _world)
 
 /// The universe's world meta, in the neutral terms the engine speaks
 /// (ADR-009 §8): which world, and where its tactical grid is anchored.
-Neuron::WorldMeta MakeWorldMeta(const Game::UniverseDef& _universe)
+WorldMeta MakeWorldMeta(const Game::UniverseDef& _universe)
 {
   const Game::GridAnchor anchor = _universe.StartAnchor();
-  return Neuron::WorldMeta{anchor.system, anchor.origin.x, anchor.origin.y};
+  return WorldMeta{anchor.system, anchor.origin.x, anchor.origin.y};
 }
 
 void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
@@ -325,8 +328,7 @@ void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
  * content drifted is refused at the door instead of rendering a world nobody
  * is simulating.
  */
-Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _config,
-                                                     const Outpost::UniverseLoadResult& _universe)
+Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _config, const Outpost::UniverseLoadResult& _universe)
 {
   // The mesh list, by name, is the renderer's classId order. Matching on the
   // authored file name rather than on position means reordering the list in
@@ -336,11 +338,11 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
     Game::HullClass hullClass;
     std::string_view meshFile;
   } MESH_FOR_HULL[] = {
-      {Game::HullClass::Interceptor, "Interceptor.obj"}, {Game::HullClass::Bomber, "Bomber.obj"},
-      {Game::HullClass::Corvette, "Corvette.obj"},       {Game::HullClass::Frigate, "Frigate.obj"},
-      {Game::HullClass::Hauler, "Hauler.obj"},           {Game::HullClass::Miner, "Miner.obj"},
-      {Game::HullClass::Carrier, "Carrier.obj"},         {Game::HullClass::Battleship, "Battleship.obj"},
-      {Game::HullClass::Structure, "Structure.obj"},
+    {Game::HullClass::Interceptor, "Interceptor.obj"}, {Game::HullClass::Bomber, "Bomber.obj"},
+    {Game::HullClass::Corvette, "Corvette.obj"},       {Game::HullClass::Frigate, "Frigate.obj"},
+    {Game::HullClass::Hauler, "Hauler.obj"},           {Game::HullClass::Miner, "Miner.obj"},
+    {Game::HullClass::Carrier, "Carrier.obj"},         {Game::HullClass::Battleship, "Battleship.obj"},
+    {Game::HullClass::Structure, "Structure.obj"},
   };
 
   Outpost::ReplicatedWorldView::Desc desc;
@@ -375,9 +377,9 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
 }
 
 /// The server takes the same treatment: a plain struct, assembled here.
-Neuron::ServerConfig MakeServerConfig(const Outpost::AppConfig& _config)
+ServerConfig MakeServerConfig(const Outpost::AppConfig& _config)
 {
-  Neuron::ServerConfig server;
+  ServerConfig server;
   server.port = _config.server.port;
   server.maxSessions = _config.server.maxSessions;
   return server;
@@ -385,9 +387,9 @@ Neuron::ServerConfig MakeServerConfig(const Outpost::AppConfig& _config)
 
 /// Maps the file's settings onto what the client library asks for. The client
 /// never sees AppConfig: libraries take plain structs from the composition root.
-Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
+ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
 {
-  Neuron::ClientConfig client;
+  ClientConfig client;
   client.windowWidth = _config.client.window.width;
   client.windowHeight = _config.client.window.height;
   client.windowTitle = "Outpost: Frontier";
@@ -432,7 +434,6 @@ Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
 #endif
   return client;
 }
-
 } // namespace
 
 int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
@@ -448,12 +449,19 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     return 4;
   }
 
-  Neuron::Clock::Initialise();
+  wchar_t filename[MAX_PATH];
+  GetModuleFileNameW(nullptr, filename, MAX_PATH);
+  auto path = std::wstring(filename);
+  path = path.substr(0, path.find_last_of('\\'));
+
+  FileSys::SetHomeDirectory(path);
+
+  Clock::Initialise();
   SetConsoleCtrlHandler(&ConsoleHandler, TRUE);
 
   // The composition root owns the Main lane so headless mode -- which never
   // constructs a ClientApp -- still has one (ADR-007 §8).
-  (void)Neuron::Telemetry::RegisterLane("Main");
+  (void)Telemetry::RegisterLane("Main");
 
   Outpost::AppConfig config;
   Outpost::ConfigPaths paths;
@@ -464,12 +472,10 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     return 1;
   }
 
-  Neuron::Log::Initialise(config.logging.file, config.logging.level);
+  Log::Initialise(config.logging.file, config.logging.level);
   NEURON_LOG_INFO("Outpost: Frontier starting");
   for (const std::string& warning : diagnostics.warnings)
-  {
     NEURON_LOG_WARNING("%s", warning.c_str());
-  }
   LogResolvedConfig(config, paths);
 
   // The universe, read here and parsed by GameLogic (ADR-009 §7). Both halves
@@ -483,11 +489,9 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     Outpost::ConfigDiagnostics universeDiagnostics;
     universeDiagnostics.errors = universeErrors;
     for (const std::string& error : universeErrors)
-    {
       NEURON_LOG_ERROR("%s", error.c_str());
-    }
     ReportStartupFailure(universeDiagnostics);
-    Neuron::Log::Shutdown();
+    Log::Shutdown();
     return 1;
   }
   LogResolvedUniverse(universe);
@@ -498,28 +502,27 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   // is enough to prove the loop, the sessions, the wire and the handshake.
   std::vector<Game::ShipId> patrolShips;
   UniverseSimulation simulation{universe.universeHash, MakeWorldMeta(universe.universe),
-                                MakeStartingWorld(universe.universe, universe.universeHash, patrolShips),
-                                std::move(patrolShips)};
+                                MakeStartingWorld(universe.universe, universe.universeHash, patrolShips), std::move(patrolShips)};
 
   // Before anything opens a window: the self test is a diagnostic, and its
   // answer is an exit code (Build Order S4).
   if (config.selfTest)
   {
     const int result = Outpost::RunSelfTest(config, simulation);
-    Neuron::Log::Shutdown();
+    Log::Shutdown();
     return result;
   }
 
   // Boot order is normative (ADR-008 §5): the server starts before the client,
   // and the client is torn down first.
-  Neuron::ServerHost server;
+  ServerHost server;
 
   int exitCode = 0;
   const bool hostsServer = config.mode != Outpost::HostMode::Client;
   if (hostsServer && !server.Start(MakeServerConfig(config), simulation))
   {
     NEURON_LOG_ERROR("server failed to start");
-    Neuron::Log::Shutdown();
+    Log::Shutdown();
     return 2;
   }
 
@@ -533,7 +536,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     case Outpost::HostMode::Host:
     case Outpost::HostMode::Client:
     {
-      Neuron::ClientConfig clientConfig = MakeClientConfig(config);
+      ClientConfig clientConfig = MakeClientConfig(config);
       if (config.mode == Outpost::HostMode::Host)
       {
         // Port 0 asked the OS to choose, so the client is told what it chose.
@@ -549,7 +552,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
       // sides state their own hashes rather than sharing a variable.
       Outpost::ReplicatedWorldView worldView{MakeWorldViewDesc(config, universe)};
 
-      Neuron::ClientApp client;
+      ClientApp client;
       if (!client.Initialise(clientConfig, worldView))
       {
         NEURON_LOG_ERROR("client failed to initialise");
@@ -575,10 +578,10 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     }
     }
   }
-  catch (const winrt::hresult_error& error)
+  catch (const hresult_error& error)
   {
     const std::string text = std::format("fatal error 0x{:08x}: {}", static_cast<std::uint32_t>(static_cast<std::int32_t>(error.code())),
-                                         winrt::to_string(error.message()));
+                                         to_string(error.message()));
     NEURON_LOG_ERROR("%s", text.c_str());
     ReportFatal(text);
     exitCode = 5;
@@ -599,6 +602,6 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   }
 
   NEURON_LOG_INFO("Outpost: Frontier exiting cleanly (%d)", exitCode);
-  Neuron::Log::Shutdown();
+  Log::Shutdown();
   return exitCode;
 }

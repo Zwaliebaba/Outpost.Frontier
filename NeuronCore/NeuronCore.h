@@ -68,3 +68,9 @@
 #include <winrt/Windows.System.h>
 
 using namespace winrt;
+
+#include "Debug.h"
+#include "FileSys.h"
+#include "NeuronHelper.h"
+
+using namespace Neuron;

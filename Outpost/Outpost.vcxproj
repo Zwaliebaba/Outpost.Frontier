@@ -48,6 +48,10 @@
     <ClInclude Include="UniverseLoad.h" />
     <ClInclude Include="SelfTest.h" />
   </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Shaders\Nebula.hlsl" />
+    <FxCompile Include="Shaders\Opaque.hlsl" />
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>

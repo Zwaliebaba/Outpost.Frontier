@@ -1,26 +1,22 @@
-[   0.017] info  | Outpost: Frontier starting
+[   0.019] info  | Outpost: Frontier starting
 [   0.019] info  | config: Outpost.json
 [   0.019] info  | user settings: C:\Users\zwali\AppData\Local\Outpost.Frontier\Settings.json
 [   0.019] info  | mode: host
-[   0.020] info  | server: port 7777, max sessions 8
-[   0.020] info  | universe: GameData/Universe/Frontier.json
-[   0.020] info  | window: 1600x900 windowed, vsync on, ui scale 1.00
-[   0.023] info  | udp transport listening on 127.0.0.1:7777
-[   0.023] info  | server host started on port 7777 at 20 Hz
-[   0.060] info  | window created: 1600x900 client
-[   0.073] info  | d3d12 debug layer enabled
-[   1.824] info  | d3d12 device created on NVIDIA GeForce RTX 3070 Ti Laptop GPU (tearing supported)
-[   1.911] info  | udp transport connecting to 127.0.0.1:7777 from local port 52261
-[   1.912] info  | client initialised (NVIDIA GeForce RTX 3070 Ti Laptop GPU, vsync on)
-[   1.912] info  | entering frame loop
-[   1.926] info  | client 1 joined as '(unnamed)'
-[   1.933] info  | joined as client 1 (server at tick 37, 20 Hz)
-[   1.978] info  | first pong: server tick 38, round trip 45.384 ms
-[   5.026] info  | net(session 1): rtt 49.48 ms, resends 0, dropped 0, dgrams 9/9, bytes 189/155
-[   6.936] info  | net(client 1): rtt 17.84 ms, ping loss 0.0% (0/15), resends 0, dgrams 17/17, bytes 291/357
-[   7.720] info  | frame loop ended after 680 frames
-[   7.726] info  | connection 1 said goodbye
-[   7.726] info  | client 1 left (reason 1)
-[   7.825] info  | server host stopped after 156 ticks (0 overruns)
-[   7.826] info  | server ran 156 ticks (0 overruns)
-[   7.826] info  | Outpost: Frontier exiting cleanly (0)
+[   0.019] info  | server: port 7777, max sessions 8
+[   0.019] info  | universe: GameData/Universe/Frontier.json
+[   0.019] info  | content: 9 meshes from GameData/Meshes, shaders from GameData/Shaders
+[   0.019] info  | window: 1600x900 windowed, vsync on, ui scale 1.00
+[   0.028] info  | universe: 'Frontier' from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Universe/Frontier.json (1 system(s), hash e7f5cdf74857f6b1)
+[   0.028] info  | start: system 1 'Vesta-3', grid anchored at (111700000000, -1741949000)
+[   0.036] info  | udp transport listening on 127.0.0.1:7777
+[   0.037] info  | server host started on port 7777 at 20 Hz
+[   0.069] info  | window created: 1600x900 client
+[   0.077] info  | d3d12 debug layer enabled
+[   0.138] info  | d3d12 device created on Qualcomm(R) Adreno(TM) X1-85 GPU (tearing supported)
+[   0.168] info  | task pool started with 9 worker(s)
+[   0.171] error | could not compile GameData/Shaders/Opaque.hlsl:VertexMain as vs_5_1 (hr 0x80070003)
+[   0.175] info  | task pool stopped after 0 task(s)
+[   0.176] error | client failed to initialise
+[   0.239] info  | server host stopped after 4 ticks (0 overruns)
+[   0.241] info  | server ran 4 ticks (0 overruns)
+[   0.241] info  | Outpost: Frontier exiting cleanly (2)

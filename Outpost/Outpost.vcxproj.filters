@@ -10,6 +10,9 @@
     <Filter Include="Project Files">
       <UniqueIdentifier>{5f83fdad-674d-492b-8102-e14c89b3a2c4}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Shaders">
+      <UniqueIdentifier>{73249d42-f4d6-4494-8e1d-a8b317b4a698}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config">
@@ -54,5 +57,13 @@
     <ClInclude Include="UniverseLoad.h">
       <Filter>Config</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Shaders\Nebula.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\Opaque.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
   </ItemGroup>
 </Project>
