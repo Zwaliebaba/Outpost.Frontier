@@ -90,9 +90,19 @@ without saying what anchors them. This ADR says it.
 9. **MVP content:** one authored system — **Vesta-3** (the system on the prints): star, two
    planets, one station. The MVP tactical grid is anchored at the station; the fleet flies
    there; the station (Structure mesh) is on-grid scenery/landmark, celestials render as
-   distant backdrop. No docking, no gates traversal, no second system in MVP — but the MVP
+   backdrop. No docking, no gates traversal, no second system in MVP — but the MVP
    boots *from the universe definition*, not from a hardcoded scene, so "more universe" is
    authoring, not engineering.
+
+   **As authored (S5b), one refinement:** this clause said *distant* backdrop, written before
+   there was content to be distant. There is now, and one body is not. The Anchorage holds a
+   2,000 km orbit over Kessler, so from the grid the planet is 8,051 km away and 6,051 km in
+   radius — it fills about a hundred degrees of sky, while Vesta (107 million km) and Halgren
+   (234 million km) are points. Both extremes still belong to the same backdrop pass rather
+   than the opaque list, so the ruling is unchanged; only the word "distant" was wrong.
+   The orbit is kept because a station anchored to nothing is worse content than a station
+   over a planet, and because a backdrop pass that only ever has to draw points would be
+   built to the wrong requirement.
 
 ## Alternatives rejected
 

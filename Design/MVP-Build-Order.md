@@ -292,10 +292,13 @@ at both ends: `NeuronCoreTests` round-trips a `Welcome` carrying a full-width ne
 and `NeuronServerTests` asserts the simulation's `WorldMeta` arrives intact at a raw
 core-level client.
 **Outstanding:** **celestials are parsed, hashed and loaded but not drawn.** Rendering them
-needs the backdrop that ADR-006 §1 reserves as the `Nebula` node — at tactical zoom a planet
-300 million kilometres away is a point, so a "distant backdrop" is a skybox-class pass, not a
-mesh in the opaque list. Faking it by scaling the `Structure` hull would put a wrong thing on
-screen and call the slice done. The data is in place for that pass to read.
+needs the backdrop that ADR-006 §1 reserves as the `Nebula` node, and the authored system shows
+why it cannot be an entry in the opaque list at either end of the range. Vesta is 107 million
+km away and Halgren 234 million — points at any zoom. Kessler is 8,051 km away and 6,051 km in
+radius, so from the Anchorage it fills roughly a hundred degrees of sky. Neither a point nor a
+planet-sized wall is a mesh you instance beside a Corvette; both are a skybox-class pass.
+Faking it by scaling the `Structure` hull would put a wrong thing on screen and call the slice
+done. The data is in place for that pass to read.
 Also still owed, and needing a GPU: confirming on screen that moving the station in the file
 moves it in the world. The demonstration is to edit `stations[0].position` and restart — the
 logged grid anchor moves with it, and a second station added to the array appears at its
