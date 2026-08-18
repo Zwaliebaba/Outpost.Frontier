@@ -82,10 +82,10 @@ public:
   [[nodiscard]] float DragCurrentX() const noexcept { return m_currentX; }
   [[nodiscard]] float DragCurrentY() const noexcept { return m_currentY; }
 
-  [[nodiscard]] std::span<const std::uint32_t> Ids() const noexcept { return m_ids; }
+  [[nodiscard]] std::span<const std::uint16_t> Ids() const noexcept { return m_ids; }
   [[nodiscard]] std::size_t Count() const noexcept { return m_ids.size(); }
   [[nodiscard]] bool Empty() const noexcept { return m_ids.empty(); }
-  [[nodiscard]] bool Contains(std::uint32_t _id) const noexcept;
+  [[nodiscard]] bool Contains(std::uint16_t _id) const noexcept;
 
   void Clear() noexcept { m_ids.clear(); }
 
@@ -99,12 +99,12 @@ public:
   void Retain(std::span<const SceneEntity> _entities);
 
   /// Directly, for tests and for the HUD's select-all (S11).
-  void Set(std::span<const std::uint32_t> _ids);
-  void Add(std::uint32_t _id);
-  void Toggle(std::uint32_t _id);
+  void Set(std::span<const std::uint16_t> _ids);
+  void Add(std::uint16_t _id);
+  void Toggle(std::uint16_t _id);
 
 private:
-  std::vector<std::uint32_t> m_ids;
+  std::vector<std::uint16_t> m_ids;
 
   bool m_dragging = false;
   bool m_additive = false;

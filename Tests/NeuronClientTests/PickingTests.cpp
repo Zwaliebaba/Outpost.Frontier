@@ -52,7 +52,7 @@ namespace
   return camera;
 }
 
-[[nodiscard]] SceneEntity Target(std::uint32_t _id, float _x, float _y, float _radius)
+[[nodiscard]] SceneEntity Target(std::uint16_t _id, float _x, float _y, float _radius)
 {
   SceneEntity entity;
   entity.id = _id;
@@ -154,8 +154,8 @@ public:
     const std::vector<SceneEntity> targets = {Target(7, 0.0f, 0.0f, INTERCEPTOR_RADIUS_METRES),
                                              Target(9, 500.0f, 0.0f, INTERCEPTOR_RADIUS_METRES)};
 
-    Assert::AreEqual<std::uint32_t>(7, PickPoint(targets, XMFLOAT2{3.0f, 2.0f}, 0.0f));
-    Assert::AreEqual<std::uint32_t>(9, PickPoint(targets, XMFLOAT2{498.0f, -1.0f}, 0.0f));
+    Assert::AreEqual<std::uint16_t>(7, PickPoint(targets, XMFLOAT2{3.0f, 2.0f}, 0.0f));
+    Assert::AreEqual<std::uint16_t>(9, PickPoint(targets, XMFLOAT2{498.0f, -1.0f}, 0.0f));
   }
 
   TEST_METHOD(EmptySpacePicksNothing)
@@ -176,13 +176,13 @@ public:
     const std::vector<SceneEntity> targets = {Target(1, 0.0f, 0.0f, 100.0f), Target(2, 40.0f, 0.0f, 100.0f),
                                              Target(3, 80.0f, 0.0f, 100.0f)};
 
-    Assert::AreEqual<std::uint32_t>(1, PickPoint(targets, XMFLOAT2{5.0f, 0.0f}, 0.0f));
-    Assert::AreEqual<std::uint32_t>(2, PickPoint(targets, XMFLOAT2{45.0f, 0.0f}, 0.0f));
-    Assert::AreEqual<std::uint32_t>(3, PickPoint(targets, XMFLOAT2{85.0f, 0.0f}, 0.0f));
+    Assert::AreEqual<std::uint16_t>(1, PickPoint(targets, XMFLOAT2{5.0f, 0.0f}, 0.0f));
+    Assert::AreEqual<std::uint16_t>(2, PickPoint(targets, XMFLOAT2{45.0f, 0.0f}, 0.0f));
+    Assert::AreEqual<std::uint16_t>(3, PickPoint(targets, XMFLOAT2{85.0f, 0.0f}, 0.0f));
 
     // Reversing the array must not reverse the answer.
     const std::vector<SceneEntity> reversed = {targets[2], targets[1], targets[0]};
-    Assert::AreEqual<std::uint32_t>(2, PickPoint(reversed, XMFLOAT2{45.0f, 0.0f}, 0.0f));
+    Assert::AreEqual<std::uint16_t>(2, PickPoint(reversed, XMFLOAT2{45.0f, 0.0f}, 0.0f));
   }
 
   TEST_METHOD(ABiggerHullIsEasierToHitBecauseItIsBigger)
@@ -192,7 +192,7 @@ public:
 
     // 50 m from each: inside the Carrier, outside the Interceptor.
     Assert::AreEqual(INVALID_ENTITY_ID, PickPoint(targets, XMFLOAT2{50.0f, 0.0f}, 0.0f));
-    Assert::AreEqual<std::uint32_t>(2, PickPoint(targets, XMFLOAT2{1050.0f, 0.0f}, 0.0f));
+    Assert::AreEqual<std::uint16_t>(2, PickPoint(targets, XMFLOAT2{1050.0f, 0.0f}, 0.0f));
   }
 
   TEST_METHOD(TheScreenFloorMakesADistantInterceptorClickable)
@@ -206,7 +206,7 @@ public:
     Assert::IsTrue(floorMetres > INTERCEPTOR_RADIUS_METRES * 10.0f, L"the floor should dominate a hull radius at 40 km");
 
     Assert::AreEqual(INVALID_ENTITY_ID, PickPoint(targets, XMFLOAT2{200.0f, 0.0f}, 0.0f));
-    Assert::AreEqual<std::uint32_t>(1, PickPoint(targets, XMFLOAT2{200.0f, 0.0f}, floorMetres));
+    Assert::AreEqual<std::uint16_t>(1, PickPoint(targets, XMFLOAT2{200.0f, 0.0f}, floorMetres));
   }
 
   TEST_METHOD(TheFloorIsAFloorAndNotAReplacement)
@@ -219,7 +219,7 @@ public:
     Assert::IsTrue(floorMetres < CARRIER_RADIUS_METRES, L"a close-in floor should be smaller than a capital hull");
 
     // 80 m out: inside the hull radius, outside the floor. The hull wins.
-    Assert::AreEqual<std::uint32_t>(1, PickPoint(targets, XMFLOAT2{80.0f, 0.0f}, floorMetres));
+    Assert::AreEqual<std::uint16_t>(1, PickPoint(targets, XMFLOAT2{80.0f, 0.0f}, floorMetres));
   }
 
   TEST_METHOD(TheScreenFloorTracksZoomAndUndoesTheForeshortening)
@@ -253,12 +253,12 @@ public:
     const std::vector<SceneEntity> targets = {Target(1, inside.x, inside.y, 20.0f), Target(2, outside.x, outside.y, 20.0f),
                                              Target(3, alsoInside.x, alsoInside.y, 20.0f)};
 
-    std::vector<std::uint32_t> hits;
+    std::vector<std::uint16_t> hits;
     PickBox(targets, mapping, XMFLOAT2{-0.5f, -0.5f}, XMFLOAT2{0.5f, 0.5f}, hits);
 
     Assert::AreEqual<std::size_t>(2, hits.size());
-    Assert::AreEqual<std::uint32_t>(1, hits[0]);
-    Assert::AreEqual<std::uint32_t>(3, hits[1]);
+    Assert::AreEqual<std::uint16_t>(1, hits[0]);
+    Assert::AreEqual<std::uint16_t>(3, hits[1]);
   }
 
   TEST_METHOD(ADragInAnyDirectionIsTheSameBox)
@@ -276,10 +276,10 @@ public:
 
     for (const auto& corners : CORNERS)
     {
-      std::vector<std::uint32_t> hits;
+      std::vector<std::uint16_t> hits;
       PickBox(targets, mapping, corners[0], corners[1], hits);
       Assert::AreEqual<std::size_t>(1, hits.size());
-      Assert::AreEqual<std::uint32_t>(42, hits[0]);
+      Assert::AreEqual<std::uint16_t>(42, hits[0]);
     }
   }
 
@@ -295,7 +295,7 @@ public:
     const XMFLOAT2 justOutside = PlanePointForNdc(mapping, 0.55f, 0.0f);
     const std::vector<SceneEntity> targets = {Target(1, justOutside.x, justOutside.y, 4000.0f)};
 
-    std::vector<std::uint32_t> hits;
+    std::vector<std::uint16_t> hits;
     PickBox(targets, mapping, XMFLOAT2{-0.5f, -0.5f}, XMFLOAT2{0.5f, 0.5f}, hits);
     Assert::AreEqual<std::size_t>(0, hits.size());
   }
@@ -319,18 +319,18 @@ public:
     const XMFLOAT2 cornerA{0.05f, -0.06f};
     const XMFLOAT2 cornerB{0.30f, 0.06f};
 
-    std::vector<std::uint32_t> atZero;
+    std::vector<std::uint16_t> atZero;
     PickBox(targets, PickCamera(0.0f, 8000.0f).PlaneMappingForNdc(), cornerA, cornerB, atZero);
     Assert::AreEqual<std::size_t>(1, atZero.size(), L"x 0.141 is inside [0.05, 0.30] and y 0 is inside [-0.06, 0.06]");
 
     // At a quarter turn it is outside on *both* axes -- x by 0.05 and y by
     // 0.065 -- so neither comparison alone is carrying the assertion.
-    std::vector<std::uint32_t> atQuarterTurn;
+    std::vector<std::uint16_t> atQuarterTurn;
     PickBox(targets, PickCamera(XM_PIDIV2, 8000.0f).PlaneMappingForNdc(), cornerA, cornerB, atQuarterTurn);
     Assert::AreEqual<std::size_t>(0, atQuarterTurn.size());
 
     // And at a half turn it is on the far side of the screen entirely.
-    std::vector<std::uint32_t> atHalfTurn;
+    std::vector<std::uint16_t> atHalfTurn;
     PickBox(targets, PickCamera(XM_PI, 8000.0f).PlaneMappingForNdc(), cornerA, cornerB, atHalfTurn);
     Assert::AreEqual<std::size_t>(0, atHalfTurn.size());
   }
@@ -350,7 +350,7 @@ public:
     mapping.upPerNdc = XMFLOAT2{0.0f, 1024.0f};
 
     const std::vector<SceneEntity> onTheEdge = {Target(1, 512.0f, 0.0f, 1.0f)};
-    std::vector<std::uint32_t> hits;
+    std::vector<std::uint16_t> hits;
     PickBox(onTheEdge, mapping, XMFLOAT2{-0.5f, -0.5f}, XMFLOAT2{0.5f, 0.5f}, hits);
     Assert::AreEqual<std::size_t>(1, hits.size(), L"a ship exactly on the edge is in the box");
 
@@ -368,10 +368,10 @@ public:
     const XMFLOAT2 middle = PlanePointForNdc(mapping, 0.0f, 0.0f);
     const std::vector<SceneEntity> targets = {Target(5, middle.x, middle.y, 20.0f)};
 
-    std::vector<std::uint32_t> hits = {99};
+    std::vector<std::uint16_t> hits = {99};
     PickBox(targets, mapping, XMFLOAT2{-0.5f, -0.5f}, XMFLOAT2{0.5f, 0.5f}, hits);
     Assert::AreEqual<std::size_t>(2, hits.size());
-    Assert::AreEqual<std::uint32_t>(99, hits[0]);
+    Assert::AreEqual<std::uint16_t>(99, hits[0]);
   }
 };
 
@@ -579,7 +579,7 @@ public:
   TEST_METHOD(RetainDropsShipsThatAreNoLongerThere)
   {
     Selection selection;
-    selection.Set(std::vector<std::uint32_t>{1, 2, 3});
+    selection.Set(std::vector<std::uint16_t>{1, 2, 3});
 
     const std::vector<SceneEntity> stillAlive = {Target(1, 0.0f, 0.0f, 10.0f), Target(3, 100.0f, 0.0f, 10.0f)};
     selection.Retain(stillAlive);

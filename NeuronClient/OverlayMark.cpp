@@ -14,7 +14,7 @@ namespace
 /// The entity with this id, or null. Linear because a selection is a handful
 /// of ships and the entity list is a few hundred: a map would cost more to
 /// build every frame than the scan costs to run.
-[[nodiscard]] const SceneEntity* FindEntity(std::span<const SceneEntity> _entities, std::uint32_t _id) noexcept
+[[nodiscard]] const SceneEntity* FindEntity(std::span<const SceneEntity> _entities, std::uint16_t _id) noexcept
 {
   const auto found = std::find_if(_entities.begin(), _entities.end(), [_id](const SceneEntity& _e) { return _e.id == _id; });
   return found == _entities.end() ? nullptr : &*found;
@@ -30,7 +30,7 @@ namespace
 
 } // namespace
 
-void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const std::uint32_t> _selectedIds,
+void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const std::uint16_t> _selectedIds,
                        const OverlayTuning& _tuning, float _metresPerPixel, OverlayMarkList& _outMarks)
 {
   _outMarks.Clear();
@@ -43,7 +43,7 @@ void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const s
   // different depth state and the split has to be a contiguous range.
   const float minRadiusMetres = _tuning.ringMinRadiusPixels * _metresPerPixel;
 
-  for (const std::uint32_t id : _selectedIds)
+  for (const std::uint16_t id : _selectedIds)
   {
     const SceneEntity* entity = FindEntity(_entities, id);
     if (entity == nullptr)
@@ -60,7 +60,7 @@ void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const s
   }
   _outMarks.ringCount = static_cast<std::uint32_t>(_outMarks.marks.size());
 
-  for (const std::uint32_t id : _selectedIds)
+  for (const std::uint16_t id : _selectedIds)
   {
     const SceneEntity* entity = FindEntity(_entities, id);
     if (entity == nullptr)

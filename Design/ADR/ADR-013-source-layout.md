@@ -66,6 +66,14 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
    If a genuine collision ever appears, the **newer** file is renamed to a more specific type name; the
    table above is the registry to check first.
 
+3b. **The rule is about names, not only file names.** `Neuron::INVALID_ENTITY_ID` was declared
+   in `NeuronCore/EntityRecord.h` as `u16` and again in `NeuronClient/RenderWorld.h` as `u32`;
+   the two files have different names, so §3's check passed, and every translation unit that
+   saw both failed with C2371. Namespace-scope constants share one flat namespace exactly the
+   way file names share one flat include path, and for the same reason — so CI now fails the
+   build on a constant declared in two engine headers. Class members are exempt: they are
+   scoped by their class and may repeat freely.
+
 3a. **Names must also be unique against the CRT, the STL and the Windows SDK — case-insensitively.**
    This is not hypothetical: `NeuronCore/Time.h` shadowed `<time.h>` the moment the folder
    joined an include path, and `<ctime>` produced two dozen errors deep inside the STL with

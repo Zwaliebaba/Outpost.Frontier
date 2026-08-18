@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EntityRecord.h"
+
 #include <DirectXMath.h>
 
 #include <cstdint>
@@ -24,9 +26,6 @@
 namespace Neuron
 {
 
-/// No entity. `0` is a legitimate ship id, so the sentinel cannot be zero.
-inline constexpr std::uint32_t INVALID_ENTITY_ID = 0xffffffffu;
-
 /*
  * One ship, as everything that is not the opaque draw needs it.
  *
@@ -42,11 +41,16 @@ inline constexpr std::uint32_t INVALID_ENTITY_ID = 0xffffffffu;
  * layout declares. This one is free to grow.
  *
  * `id` is opaque. The engine hands back whatever the game put in and never
- * interprets it (ADR-014).
+ * interprets it (ADR-014). It is `EntityRecord::id`'s type, and
+ * `Neuron::INVALID_ENTITY_ID` is NeuronCore's sentinel rather than a second one
+ * -- a u32 version of that name compiled here and collided there, which is what
+ * ADR-013 §3's uniqueness rule is about when the duplicate is an identifier
+ * rather than a file. Sixteen bits is also what `OrderIntent::entityIds` wants,
+ * so a selection feeds an order with no conversion.
  */
 struct SceneEntity
 {
-  std::uint32_t id = INVALID_ENTITY_ID;
+  std::uint16_t id = INVALID_ENTITY_ID;
   DirectX::XMFLOAT2 planeMetres{};  // Sim plane metres (ADR-001 §3), not render space.
   float pickRadiusMetres = 0.0f;    // The class's, so a Battleship is easier to hit than a fighter.
   std::uint8_t hullGauge = 0;    // 0-255, not a percentage. Full is 255.

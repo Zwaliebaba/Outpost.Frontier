@@ -138,7 +138,7 @@ struct OverlayMarkList
  * the second line of defence, because a ring at (0,0) is a bug that looks like
  * a feature.
  */
-void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const std::uint32_t> _selectedIds,
+void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const std::uint16_t> _selectedIds,
                        const OverlayTuning& _tuning, float _metresPerPixel, OverlayMarkList& _outMarks);
 
 } // namespace Neuron

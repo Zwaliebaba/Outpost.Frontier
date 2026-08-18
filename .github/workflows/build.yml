@@ -98,6 +98,44 @@ jobs:
           }
           Write-Host "$($seen.Count) file names, all unique"
 
+      # ADR-013 §3 one level down. The rule makes *file* names unique repo-wide
+      # because every project root is on the include path; the same argument
+      # applies to a namespace-scope constant, and `Neuron::INVALID_ENTITY_ID`
+      # proved it -- NeuronCore declared it u16, NeuronClient declared it u32,
+      # and every translation unit that saw both failed with C2371. The file
+      # check could not see it because the two files have different names.
+      - name: Check the engine declares no constant twice
+        shell: pwsh
+        run: |
+          $seen = @{}
+          $bad = @()
+          foreach ($dir in 'NeuronCore', 'NeuronClient', 'NeuronServer')
+          {
+            Get-ChildItem -Path $dir -Filter *.h -ErrorAction SilentlyContinue | ForEach-Object {
+              $file = $_.Name
+              $number = 0
+              foreach ($line in Get-Content $_.FullName)
+              {
+                $number++
+                # Namespace scope only: indented ones are class members, which
+                # are scoped by their class and may repeat freely.
+                if ($line -match '^\s{0,2}inline\s+constexpr\s+[\w:<>,\s\*&]+?\b(\w+)\s*(=|\{)')
+                {
+                  $name = $Matches[1]
+                  $where = "${file}:${number}"
+                  if ($seen.ContainsKey($name)) { $bad += "$name at $where also at $($seen[$name])" }
+                  else { $seen[$name] = $where }
+                }
+              }
+            }
+          }
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_" }
+            throw 'two engine headers declare the same constant (ADR-013 §3)'
+          }
+          Write-Host "$($seen.Count) namespace-scope constants, all declared once"
+
       # ADR-014: Neuron is a two-game engine, and the sibling repository ships
       # these same libraries around a different game. The moment an engine
       # project references GameLogic it stops being an engine and becomes this

@@ -70,7 +70,7 @@ namespace Neuron
  * answer a player can predict. Ties go to the earlier target, which only
  * matters for two ships at exactly the same point.
  */
-[[nodiscard]] std::uint32_t PickPoint(std::span<const SceneEntity> _entities, const DirectX::XMFLOAT2& _planeMetres,
+[[nodiscard]] std::uint16_t PickPoint(std::span<const SceneEntity> _entities, const DirectX::XMFLOAT2& _planeMetres,
                                       float _minRadiusMetres) noexcept;
 
 /*
@@ -86,6 +86,6 @@ namespace Neuron
  * beside it.
  */
 void PickBox(std::span<const SceneEntity> _entities, const PlaneMapping& _mapping, const DirectX::XMFLOAT2& _ndcCornerA,
-             const DirectX::XMFLOAT2& _ndcCornerB, std::vector<std::uint32_t>& _outIds);
+             const DirectX::XMFLOAT2& _ndcCornerB, std::vector<std::uint16_t>& _outIds);
 
 } // namespace Neuron
