@@ -56,6 +56,9 @@
     <ClCompile Include="OrderGhost.cpp">
       <Filter>Extract</Filter>
     </ClCompile>
+    <ClCompile Include="CommandRow.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
     <ClCompile Include="GhostLane.cpp">
       <Filter>Hud</Filter>
     </ClCompile>
@@ -151,6 +154,9 @@
     </ClInclude>
     <ClInclude Include="OrderGhost.h">
       <Filter>Extract</Filter>
+    </ClInclude>
+    <ClInclude Include="CommandRow.h">
+      <Filter>Hud</Filter>
     </ClInclude>
     <ClInclude Include="GhostLane.h">
       <Filter>Hud</Filter>

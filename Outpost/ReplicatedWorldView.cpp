@@ -354,6 +354,29 @@ std::uint32_t ReplicatedWorldView::OrderOptions(std::uint16_t _kind, std::span<O
   return count;
 }
 
+std::uint32_t ReplicatedWorldView::OrderKinds(std::span<OrderKindOption> _outKinds) const
+{
+  // Every kind the game has a value for, including the three with no content.
+  // Reporting only the working one would give the row a single button today and
+  // five later, moving the one the player had learned to reach for -- which is
+  // the same argument `puck-and-wheel.png` §3 makes for the wheel's sectors
+  // keeping fixed positions.
+  std::uint32_t count = 0;
+  for (const Game::OrderKind kind : Game::ORDER_KIND_IDS)
+  {
+    if (count >= _outKinds.size())
+    {
+      break;
+    }
+    _outKinds[count].kind = static_cast<std::uint16_t>(kind);
+    _outKinds[count].name = Game::OrderKindName(kind);
+    _outKinds[count].parameterName = Game::OrderKindParameterName(kind);
+    _outKinds[count].available = Game::OrderKindHasContent(kind);
+    ++count;
+  }
+  return count;
+}
+
 std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const std::uint16_t> _selectedIds,
                                               std::span<RosterRow> _outRows) const
 {

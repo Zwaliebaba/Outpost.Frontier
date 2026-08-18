@@ -3,6 +3,7 @@
 
 #include "Eta.h"
 #include "Formation.h"
+#include "SchemaHash.h"
 #include "OrderMessages.h"
 #include "Orders.h"
 #include "ShipClass.h"
@@ -1363,6 +1364,97 @@ public:
       Assert::IsNotNull(FormationName(formation));
       Assert::IsTrue(std::string_view{FormationName(formation)}.size() > 0);
     }
+  }
+};
+
+/*
+ * The command row's commands (S11d).
+ *
+ * Three of the four are reserved -- nameable, numbered, never submittable, the
+ * same arrangement `HullClass`'s Fighter and Cruiser have (ADR-009 §6).
+ */
+TEST_CLASS(OrderKindTests)
+{
+public:
+  TEST_METHOD(EveryKindIsNamedAndOnlyMoveHasContent)
+  {
+    // A greyed ATTACK button still has to be *named* by something, and the
+    // engine may not name it -- so a null here is a button with no word on it.
+    Assert::AreEqual<std::size_t>(4, std::size(ORDER_KIND_IDS));
+    for (const OrderKind kind : ORDER_KIND_IDS)
+    {
+      Assert::IsNotNull(OrderKindName(kind));
+      Assert::IsTrue(std::string_view{OrderKindName(kind)}.size() > 0);
+    }
+
+    Assert::IsTrue(OrderKindHasContent(OrderKind::Move));
+    Assert::IsFalse(OrderKindHasContent(OrderKind::Attack));
+    Assert::IsFalse(OrderKindHasContent(OrderKind::Stance));
+    Assert::IsFalse(OrderKindHasContent(OrderKind::Abilities));
+  }
+
+  TEST_METHOD(AReservedKindIsRefusedRatherThanSimulated)
+  {
+    /*
+     * The half that matters. `OrderKindHasContent` says a surface may not
+     * *offer* it; this says the world will not *act* on it -- and the two are
+     * separate on purpose, so a kind gaining content has to change both rather
+     * than one of them silently letting it through.
+     *
+     * Reserved kinds are on the wire the moment they are enumerated, so this is
+     * also the check that a client from a build that has Attack cannot make
+     * this build do anything with it.
+     */
+    World world;
+    world.Reset(4);
+    ShipSpawn spawn;
+    spawn.hullClass = HullClass::Corvette;
+    const ShipId ship = world.Spawn(spawn);
+
+    for (const OrderKind kind : ORDER_KIND_IDS)
+    {
+      OrderSubmit order;
+      order.orderSeq = 1;
+      order.kind = kind;
+      Assert::IsTrue(order.AddShip(ship));
+      order.target.xCm = Neuron::MetresToCentimetres(1000.0f);
+
+      const auto verdict = world.SubmitOrder(order);
+      if (OrderKindHasContent(kind))
+      {
+        Assert::IsTrue(verdict.accepted, L"the one kind with content has to work");
+      }
+      else
+      {
+        Assert::IsFalse(verdict.accepted, L"a reserved kind must never be acted on");
+        Assert::IsTrue(verdict.reason == OrderReason::UnknownKind, L"and must say why in the game's own words");
+      }
+    }
+  }
+
+  TEST_METHOD(OnlyTheKindsThatVaryHaveAParameterName)
+  {
+    // `FORMATION` is the word for what a Move varies by. Attack takes a target
+    // rather than a parameter, and a button labelled with nothing is still a
+    // button -- so it answers null rather than an empty string.
+    Assert::IsNotNull(OrderKindParameterName(OrderKind::Move));
+    Assert::AreEqual(std::string_view{"Formation"}, std::string_view{OrderKindParameterName(OrderKind::Move)});
+    Assert::IsNull(OrderKindParameterName(OrderKind::Attack));
+    Assert::IsNotNull(OrderKindParameterName(OrderKind::Stance));
+    Assert::IsNotNull(OrderKindParameterName(OrderKind::Abilities));
+  }
+
+  TEST_METHOD(TheKindsAreOnTheSchemaAndNumberedFromZero)
+  {
+    // They cross the wire in `OrderSubmit`, so two builds disagreeing about the
+    // numbering would misread every order between them.
+    Assert::AreEqual<std::uint8_t>(0, static_cast<std::uint8_t>(OrderKind::Move));
+    for (std::size_t index = 0; index < std::size(ORDER_KIND_IDS); ++index)
+    {
+      Assert::AreEqual<std::size_t>(index, static_cast<std::size_t>(ORDER_KIND_IDS[index]),
+                                    L"contiguous from zero, in the order a surface shows them");
+    }
+    Assert::IsTrue(GAME_SCHEMA_TEXT.find("OrderKind:Move=0,Attack=1,Stance=2,Abilities=3") != std::string_view::npos);
   }
 };
 

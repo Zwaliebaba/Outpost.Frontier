@@ -233,9 +233,20 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
    2–3 sizes), rendered as instanced quads in the Ui pass. This keeps one graphics API in the
    frame. **Rejected:** D3D11On12/D2D interop — a second device, wrapped-resource sync, and
    the largest boilerplate item in the codebase for richer typography than the prints use.
-10. **Ui pass** (screen-space quads + text): fleet roster, context bar, ability rack (visual
-    stubs), top status row, toasts. Layout constants from the prints; UI scale is a multiplier
-    from day one (settings sheet makes 0.8–1.6× a requirement).
+10. **Ui pass** (screen-space quads + text): fleet roster, context bar, command row, ability
+    rack (visual stubs), top status row, toasts. Layout constants from the prints; UI scale is
+    a multiplier from day one (settings sheet makes 0.8–1.6× a requirement).
+
+    **10b. A control is laid out and hit-tested in one place** (S11d). The command row's
+    buttons are built in the frame's *update* and only drawn in the HUD build, so the rect a
+    click is tested against and the rect a quad is emitted for come from one call. The
+    alternative — laying out in the renderer and hit-testing in the input handler — is the HUD
+    bug where the thing you press is not the thing you see, and it is untestable by
+    construction because the two halves never meet.
+
+    It also made a bug from S11b visible: a press anywhere outside the world started a box
+    selection across the fleet *under* the panel. A drag may now only **begin** in the `world`
+    rect, which is the one place the zone table was already reporting and nothing was reading.
 
     **10a. One instance stream, and text stays text until the pass** (S11a). Panels and glyphs
     are the same quad in the same space blended the same way, so they differ by a flag on the

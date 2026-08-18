@@ -52,7 +52,8 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "quantisation{position=cm,velocity=cm/s,heading=turns/65536}"
     "hull{11 classes,Fighter+Cruiser reserved}"
     "caps{shipsPerOrder=64,ordersPerSnapshot=16}"
-    "enums{OrderKind:Move=0;FormationId:Line=0,Wedge=1,Claw=2;QueueMode:Replace=0,Append=1;"
+    "enums{OrderKind:Move=0,Attack=1,Stance=2,Abilities=3;FormationId:Line=0,Wedge=1,Claw=2;"
+    "QueueMode:Replace=0,Append=1;"
     "OrderState:Underway=0,Arriving=1,Done=2}";
 
 /// Stable across runs and builds by construction: FNV-1a over the text above,

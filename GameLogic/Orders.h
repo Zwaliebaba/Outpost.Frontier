@@ -25,12 +25,36 @@
 namespace Game
 {
 
-/// What kind of command this is. Move is the MVP's only one; the enum exists so
-/// that adding Attack or Dock is a value rather than a second message.
+/*
+ * What kind of command this is.
+ *
+ * Move is the only one with content. The other three are **reserved** in
+ * exactly the sense `HullClass`'s Fighter and Cruiser are (ADR-009 §6):
+ * nameable, numbered, and never submittable. `ValidateOrder` refuses anything
+ * but Move with `UnknownKind`, so a reserved kind that somehow reached the wire
+ * bounces with a reason rather than being acted on.
+ *
+ * They are here because the command row draws them (`tactical-hud.png`) and the
+ * command wheel will (`puck-and-wheel.png` §3, eight sectors with the illegal
+ * ones greyed). A greyed ATTACK button has to be *named* by something, and the
+ * engine may not name it -- so the name is here, beside the value it belongs
+ * to, rather than as a string in a client that is meant to serve a second game.
+ *
+ * Numbered contiguously from zero and never renumbered: the value crosses the
+ * wire in `OrderSubmit`.
+ */
 enum class OrderKind : std::uint8_t
 {
-  Move = 0
+  Move = 0,
+  Attack = 1,   // Reserved: no validation, no simulation.
+  Stance = 2,   // Reserved.
+  Abilities = 3 // Reserved.
 };
+
+/// All of them, in the order a command surface should offer them -- the print's
+/// own left-to-right. An array for the same reason `FORMATION_IDS` is one.
+inline constexpr OrderKind ORDER_KIND_IDS[] = {OrderKind::Move, OrderKind::Attack, OrderKind::Stance,
+                                               OrderKind::Abilities};
 
 /// Replace the queue or append to it (ADR-004 §7).
 enum class QueueMode : std::uint8_t
@@ -70,6 +94,21 @@ inline constexpr FormationId FORMATION_IDS[] = {FormationId::Line, FormationId::
 /// because a label naming one and not the other would be half a sentence, and
 /// because the engine is allowed to name neither (ADR-014 §2b).
 [[nodiscard]] const char* OrderKindName(OrderKind _kind) noexcept;
+
+/// False for the three reserved kinds. Asked rather than remembered, the same
+/// as `HullClassHasContent` -- a command surface greys what this answers no to.
+[[nodiscard]] bool OrderKindHasContent(OrderKind _kind) noexcept;
+
+/*
+ * What a kind's `OrderIntent::parameter` is called, or null when it has none.
+ *
+ * The print's command row draws `FORMATION` next to `MOVE` and puts a dropdown
+ * caret on it: the button is not a command, it is the *name of the thing that
+ * command varies by*. `OrderOptions` already reports the values that parameter
+ * may take; this is the word for the parameter itself, and without it a client
+ * can offer the choice but cannot say what is being chosen.
+ */
+[[nodiscard]] const char* OrderKindParameterName(OrderKind _kind) noexcept;
 
 /*
  * Why an order was refused, or that it was not (ADR-005 §4).

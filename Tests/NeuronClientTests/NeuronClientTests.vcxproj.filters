@@ -48,6 +48,9 @@
     <ClCompile Include="GhostTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="CommandTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="LaneTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

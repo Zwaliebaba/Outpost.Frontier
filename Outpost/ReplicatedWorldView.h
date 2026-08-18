@@ -79,6 +79,7 @@ public:
   [[nodiscard]] bool EncodeOrder(const Neuron::OrderIntent& _intent, Neuron::ByteWriter& _writer) override;
   [[nodiscard]] Neuron::OrderDefaults DefaultOrder() const override;
   [[nodiscard]] std::uint32_t OrderOptions(std::uint16_t _kind, std::span<Neuron::OrderOption> _outOptions) const override;
+  [[nodiscard]] std::uint32_t OrderKinds(std::span<Neuron::OrderKindOption> _outKinds) const override;
   [[nodiscard]] std::uint32_t BuildRoster(std::span<const std::uint16_t> _selectedIds,
                                           std::span<Neuron::RosterRow> _outRows) const override;
   void PollOrderFeedback(Neuron::OrderFeedback& _outFeedback) override;

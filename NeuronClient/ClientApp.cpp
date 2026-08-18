@@ -87,7 +87,12 @@ bool ClientApp::Initialise(const ClientConfig& _config, const PipelineShaders& _
   // is one command until the wheel exists, and asking every frame would be
   // asking a question whose answer is compiled in.
   m_orderDefaults = _worldView.DefaultOrder();
+  m_selectedKind = m_orderDefaults.kind;
   m_orderOptionCount = _worldView.OrderOptions(m_orderDefaults.kind, m_orderOptions);
+
+  // The command row's buttons. Asked once: a game's command list does not
+  // change while a session runs, and asking every frame would imply it could.
+  m_orderKindCount = _worldView.OrderKinds(m_orderKinds);
 
   // Start on the game's own default rather than on the list's first entry.
   // They are the same today, and "the default is whatever happens to be first"
@@ -269,6 +274,7 @@ int ClientApp::Run()
     {
       NEURON_SPAN("Game");
       UpdateCamera(deltaSeconds);
+      UpdateHud();
       UpdateSelection();
       UpdateOrders();
     }
@@ -346,6 +352,54 @@ void ClientApp::UpdateCamera(float _deltaSeconds)
  * Nothing here reaches the server. A selection is a client-side fact until an
  * order names it (ADR-006 §11: no round trip).
  */
+void ClientApp::UpdateHud()
+{
+  m_uiLayout = ResolveUiLayout(m_input.viewportWidth, m_input.viewportHeight, m_config.uiScale, m_uiTuning);
+
+  m_commandButtonCount =
+      BuildCommandRow(std::span<const OrderKindOption>{m_orderKinds, m_orderKindCount}, m_selectedKind,
+                      std::span<const OrderOption>{m_orderOptions, m_orderOptionCount}, m_orderOptionIndex,
+                      m_uiLayout.commandRow, m_uiLayout.scale, m_commandTuning, m_commandButtons);
+
+  if (!m_input.windowFocused || !m_input.Pressed(InputButton::Left))
+  {
+    return;
+  }
+
+  const CommandButton* pressed =
+      HitCommandRow(std::span<const CommandButton>{m_commandButtons, m_commandButtonCount},
+                    static_cast<float>(m_input.cursorX), static_cast<float>(m_input.cursorY));
+  if (pressed == nullptr)
+  {
+    return;
+  }
+
+  switch (pressed->action)
+  {
+  case CommandAction::SelectKind:
+    // Only the kind changes. The options and the chosen index belong to it, so
+    // both are re-asked -- a formation index left over from another command
+    // would index a list that is not the one it came from.
+    if (pressed->payload != m_selectedKind)
+    {
+      m_selectedKind = pressed->payload;
+      m_orderOptionCount = m_worldView->OrderOptions(m_selectedKind, m_orderOptions);
+      m_orderOptionIndex = 0;
+    }
+    break;
+
+  case CommandAction::CycleParameter:
+    // The same step the `F` binding makes, through the same index, because a
+    // button and a key that did the same thing by two routes would drift.
+    if (m_orderOptionCount > 0)
+    {
+      m_orderOptionIndex = (m_orderOptionIndex + 1) % m_orderOptionCount;
+      NEURON_LOG_INFO("%s: %s", pressed->label, m_orderOptions[m_orderOptionIndex].name);
+    }
+    break;
+  }
+}
+
 void ClientApp::UpdateSelection()
 {
   if (!m_input.windowFocused)
@@ -360,9 +414,22 @@ void ClientApp::UpdateSelection()
   const auto cursorX = static_cast<float>(m_input.cursorX);
   const auto cursorY = static_cast<float>(m_input.cursorY);
 
+  /*
+   * A drag may only *begin* in the world zone.
+   *
+   * The HUD is a border rather than an overlay (`UiLayout`), so everything
+   * outside `world` has a panel on it -- and until now a press on the roster or
+   * the command row also started a box selection across the fleet underneath.
+   * Once begun a drag may leave the zone freely: the box is meant to extend to
+   * wherever the cursor goes, and a selection that cancelled when it touched
+   * the ability rack would be worse than the bug.
+   */
   if (m_input.Pressed(InputButton::Left))
   {
-    m_selection.BeginDrag(cursorX, cursorY, m_input.Down(InputAction::SelectAdd));
+    if (m_uiLayout.world.Contains(cursorX, cursorY))
+    {
+      m_selection.BeginDrag(cursorX, cursorY, m_input.Down(InputAction::SelectAdd));
+    }
   }
   else if (m_selection.Dragging())
   {
@@ -475,8 +542,10 @@ void ClientApp::CommitOrder(const PuckSample& _sample, double _nowSeconds)
   const std::uint32_t orderSeq = m_nextOrderSeq++;
 
   // The game's kind, and whichever of the game's parameters is selected. Both
-  // are numbers this client copies and never reads.
+  // are numbers this client copies and never reads. The kind is the command row's
+  // now rather than the default's -- the default is only where it started.
   OrderDefaults chosen = m_orderDefaults;
+  chosen.kind = m_selectedKind;
   if (m_orderOptionIndex < m_orderOptionCount)
   {
     chosen.parameter = m_orderOptions[m_orderOptionIndex].parameter;
@@ -655,7 +724,9 @@ void ClientApp::BuildHud()
 
   m_ui.Clear();
 
-  const UiLayout layout = ResolveUiLayout(m_input.viewportWidth, m_input.viewportHeight, m_config.uiScale, m_uiTuning);
+  // Resolved in `UpdateHud`, so the button a click lands on and the button that
+  // is drawn are laid out from one answer rather than two.
+  const UiLayout& layout = m_uiLayout;
   if (layout.viewport.width <= 0.0f || layout.viewport.height <= 0.0f)
   {
     return; // A minimised window. Nothing to lay out and nothing to draw.
@@ -860,6 +931,46 @@ void ClientApp::BuildHud()
     const auto pendingWidth = static_cast<float>(std::strlen(buffer)) * cell;
     m_ui.AddText(layout.contextBar.Right() - pad - pendingWidth, contextY, m_uiTuning.bodySizeIndex, TOAST_URGENT_COLOUR,
                  buffer);
+  }
+
+  // --- the command row ----------------------------------------------------
+  //
+  // Laid out in `UpdateHud` and only drawn here. Every word on it came from the
+  // game through `OrderKinds`: a row that spelled MOVE and ATTACK in this file
+  // would be one game's verbs compiled into a two-game engine (ADR-014 §2b).
+  m_ui.AddQuad(layout.commandRow, PANEL_COLOUR);
+  m_ui.AddQuad(UiRect{0.0f, layout.commandRow.y, layout.commandRow.width, 1.0f}, PANEL_EDGE_COLOUR);
+
+  for (std::uint32_t index = 0; index < m_commandButtonCount; ++index)
+  {
+    const CommandButton& button = m_commandButtons[index];
+
+    // Three states, three treatments: the active command is filled and lit, an
+    // available one is outlined, and one with no content behind it is drawn
+    // flat and grey. The print keeps all three in the row -- greying rather
+    // than hiding is what lets the row stay the same shape as content arrives.
+    const std::uint32_t edge = button.active ? TEXT_COLOUR : (button.enabled ? TEXT_DIM_COLOUR : TEXT_DISABLED_COLOUR);
+    const std::uint32_t text = button.enabled ? (button.active ? TEXT_COLOUR : TEXT_DIM_COLOUR) : TEXT_DISABLED_COLOUR;
+
+    m_ui.AddQuad(button.rect, button.active ? ROW_SELECTED_COLOUR : BAR_TRACK_COLOUR);
+    m_ui.AddBorder(button.rect, 1.0f * layout.scale, edge);
+
+    // Centred, and measured the same way every other centred label on this HUD
+    // is -- length times the cell, because the face is fixed-pitch.
+    const auto labelWidth = static_cast<float>(std::strlen(button.label)) * cell;
+    const float labelY = button.value != nullptr ? button.rect.y + pad * 0.6f
+                                                 : button.rect.y + (button.rect.height - 13.0f * layout.scale) * 0.5f;
+    m_ui.AddText(button.rect.x + (button.rect.width - labelWidth) * 0.5f, labelY, m_commandTuning.labelSizeIndex, text,
+                 button.label);
+
+    // The parameter's current value, under its name. `FORMATION` over `Claw`,
+    // which is the print's two-line dropdown without the dropdown.
+    if (button.value != nullptr)
+    {
+      const auto valueWidth = static_cast<float>(std::strlen(button.value)) * cell;
+      m_ui.AddText(button.rect.x + (button.rect.width - valueWidth) * 0.5f, labelY + 15.0f * layout.scale,
+                   m_commandTuning.valueSizeIndex, text, button.value);
+    }
   }
 
   // --- the toast stack ----------------------------------------------------

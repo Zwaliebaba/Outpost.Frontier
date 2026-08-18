@@ -231,6 +231,55 @@ struct OrderOption
 inline constexpr std::uint32_t MAX_ORDER_OPTIONS = 8;
 
 /*
+ * One command the game offers, for the command row to draw (S11d).
+ *
+ * `OrderOption` reports the values one command's parameter may take;
+ * this reports **the commands themselves**. Without it a client drawing the
+ * print's `MOVE | ATTACK | FORMATION | STANCE | ABILITIES` row would be
+ * spelling those five words in the engine -- which is this game's command
+ * vocabulary living in a library that is meant to serve a second game with
+ * different verbs (ADR-014 §2b). No CI rule would have caught it either: a
+ * string is not an include.
+ *
+ * The same list is what the command wheel's eight sectors will be built from
+ * (`puck-and-wheel.png` §3), which is why it arrives shaped for that rather
+ * than for a row of five.
+ */
+struct OrderKindOption
+{
+  std::uint16_t kind = 0;
+  const char* name = nullptr;
+
+  /*
+   * What this command's parameter is called -- `Formation` for a Move -- or
+   * null when it has none.
+   *
+   * The print draws `FORMATION` as a button in the row with a dropdown caret,
+   * beside the commands rather than inside one. It is not a command: it is the
+   * *name of the thing the command varies by*, and a client can offer the
+   * choice through `OrderOptions` but cannot say what is being chosen without
+   * this.
+   */
+  const char* parameterName = nullptr;
+
+  /*
+   * False for a command this build has no content for.
+   *
+   * Drawn greyed rather than omitted, which is the sheet's rule and not a
+   * convenience: `puck-and-wheel.png` §3 keeps the wheel's eight sectors in
+   * fixed positions "so the ring stays learnable as a shape rather than a
+   * lookup", and a row whose buttons moved as content arrived would be the same
+   * mistake in a line. It also means a player can see what the game *will*
+   * offer, which is worth more than a tidier row.
+   */
+  bool available = false;
+};
+
+/// How many commands a client will ask for -- the wheel's eight sectors again,
+/// and for the same reason.
+inline constexpr std::uint32_t MAX_ORDER_KINDS = 8;
+
+/*
  * One order the authority is still working on, as the client's ghost needs it.
  *
  * Every field is a number: two identities and three counters. `state` is the

@@ -105,6 +105,7 @@
     <ClCompile Include="OverlayTests.cpp" />
     <ClCompile Include="PickingTests.cpp" />
     <ClCompile Include="PuckTests.cpp" />
+    <ClCompile Include="CommandTests.cpp" />
     <ClCompile Include="LaneTests.cpp" />
     <ClCompile Include="UiTests.cpp" />
     <ClCompile Include="SceneTests.cpp" />

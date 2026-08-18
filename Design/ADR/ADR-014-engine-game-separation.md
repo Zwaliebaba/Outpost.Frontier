@@ -39,7 +39,7 @@ makes those libraries worth having.
      `BuildScene(renderTick, RenderScene&)`, `PreCheck(const OrderIntent&) → verdict`,
      `SolvePreview(const OrderIntent&, FormationPreview&)`, `EncodeOrder(const OrderIntent&,
      ByteWriter&)`. `ClientApp` owns window, device, passes, camera, picking and HUD; the game
-     supplies meaning. **S9 added three, S10 a fourth and S11b a fifth** — see §2c.
+     supplies meaning. **S9 added three, S10 a fourth, S11b a fifth and S11d a sixth** — see §2c.
 2a. **Who holds the vtable** (settled by S5c, because the ADR as written could not be
    implemented). §1 says GameLogic depends on **NeuronCore only**. §2 says **GameLogic
    implements** `Neuron::Simulation` and `Neuron::WorldView`. Those interfaces are declared in
@@ -124,6 +124,22 @@ makes those libraries worth having.
    these libraries reads squads or convoys off the same panel and the pass does not change.
 
    The same rule is why the wire byte is called `groupId` rather than `wingId` (§4).
+
+   **A sixth arrived with S11d, and it is the one that would have slipped through.**
+   `OrderKinds() → [{kind, name, parameterName, available}]` is what the command row's buttons
+   are made of. The tempting version is five string literals in `ClientApp` — `MOVE`, `ATTACK`,
+   `FORMATION`, `STANCE`, `ABILITIES` — and it is wrong in exactly the way this ADR exists to
+   prevent: those are one game's verbs, compiled into a library that is meant to serve a second
+   game with different ones. **No CI rule would have caught it.** The build's engine-references-
+   game check greps for includes and project references; a string literal is neither. That is
+   worth naming, because it is the first time the seam had to be held by judgement rather than
+   by the guard.
+
+   The three reserved kinds cross too, marked `available = false`, and the engine greys them.
+   That is `HullClass`'s Fighter and Cruiser again (ADR-009 §6): nameable, numbered, never
+   acted on. The row draws them rather than hiding them because `puck-and-wheel.png` §3 keeps
+   the wheel's sectors in fixed positions "so the ring stays learnable as a shape rather than a
+   lookup" — and a row whose buttons moved as content arrived is the same mistake in a line.
 
 3. **BounceParity survives intact.** The client still runs the *identical* validation function
    — it is reached through an interface instead of a link-time symbol. Same code, same reason

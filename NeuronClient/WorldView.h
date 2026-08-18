@@ -134,6 +134,19 @@ public:
   [[nodiscard]] virtual std::uint32_t OrderOptions(std::uint16_t _kind, std::span<OrderOption> _outOptions) const = 0;
 
   /*
+   * Which commands this game offers, in the order a surface should show them.
+   *
+   * The command row's buttons and, later, the wheel's sectors. The engine draws
+   * a name and greys the ones marked unavailable, and never learns that the
+   * first is a movement order -- which is the point: a second game on these
+   * libraries has different verbs, and a row that spelled `MOVE` and `ATTACK`
+   * in NeuronClient would be this game's vocabulary compiled into the engine.
+   *
+   * Writes at most `_outKinds.size()` and returns how many.
+   */
+  [[nodiscard]] virtual std::uint32_t OrderKinds(std::span<OrderKindOption> _outKinds) const = 0;
+
+  /*
    * The fleet roster's rows, for the HUD's left column (`tactical-hud.png`).
    *
    * Writes at most `_outRows.size()` and returns how many. `_selectedIds` is
@@ -226,6 +239,7 @@ public:
   [[nodiscard]] OrderDefaults DefaultOrder() const override { return OrderDefaults{}; }
 
   [[nodiscard]] std::uint32_t OrderOptions(std::uint16_t, std::span<OrderOption>) const override { return 0; }
+  [[nodiscard]] std::uint32_t OrderKinds(std::span<OrderKindOption>) const override { return 0; }
 
   [[nodiscard]] std::uint32_t BuildRoster(std::span<const std::uint16_t>, std::span<RosterRow>) const override { return 0; }
 

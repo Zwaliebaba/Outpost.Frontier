@@ -173,6 +173,22 @@ public:
     return 2;
   }
 
+  /*
+   * Two commands, one of them with no content -- the shape the command row is
+   * built against. A stub that reported only working commands would let a row
+   * that quietly dropped the greyed ones pass.
+   */
+  [[nodiscard]] std::uint32_t OrderKinds(std::span<OrderKindOption> _outKinds) const override
+  {
+    if (_outKinds.size() < 2)
+    {
+      return 0;
+    }
+    _outKinds[0] = OrderKindOption{7, "Shove", "Shape", true};
+    _outKinds[1] = OrderKindOption{9, "Smite", nullptr, false};
+    return 2;
+  }
+
   [[nodiscard]] const char* ReasonText(std::uint16_t _reasonCode) const override
   {
     return _reasonCode == REFUSE_REASON ? "the stub said no" : "something else";

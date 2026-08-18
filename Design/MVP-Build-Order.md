@@ -1098,22 +1098,66 @@ does not retract, a label drawn for an off-screen footprint) and three on the se
 fastest member's ETA instead of the slowest, distances from the anchor instead of each ship's
 own station, a label that names the kind twice). Each fails exactly the test named for it.
 
-**Outstanding for S11:** the command row with MOVE and FORMATION live and ATTACK/STANCE/
-ABILITIES rendered disabled.
+**Built ✅ (S11d — the command row):** `MOVE | FORMATION | ATTACK | STANCE | ABILITIES`, with
+the three commands this build has no content for drawn greyed and refused by the hit test.
+**S11 is complete.**
 
-**Four things were queued for this pass, and none of them is a widget** — worth listing
-so S11 is scoped against them rather than surprised by them. All four are screen-space quads or
-text, which is exactly what the Ui pass is (ADR-006 §10):
+**The row's words come from the game, and that is the whole design.** The tempting version is
+five string literals in `ClientApp`, and it is wrong in the way ADR-014 exists to prevent:
+those are this game's verbs compiled into a library meant to serve a second game with different
+ones. **No CI rule would have caught it** — the engine-references-game check greps includes and
+project references, and a string literal is neither. So `OrderKinds()` is the sixth seam call,
+and `OrderKind` gained `Attack`, `Stance` and `Abilities` as **reserved** enumerators: nameable,
+numbered, never submittable, exactly as `HullClass` holds Fighter and Cruiser (ADR-009 §6).
+`ValidateOrder` already refused everything but Move, so the reserved three were refused the day
+they were added — and there is a test that walks every kind and checks precisely that, because
+"the validator happens to be strict enough" is not a property to leave unasserted.
 
-- the **selection drag rectangle** (S8 deferred it: a screen-space quad, not a world mark);
-- the **bounce toast's reason string** (S9 — the code and the text both exist and cross the
-  seam through `WorldView::ReasonText`; only the drawing is missing, so it is a log line today);
-- the ghost's **dashed lane and per-leg ETA labels** (S9 — draw list *(B)*; a line between two
-  points is not a quad around one, and a label is text);
-- the **NET and tick readouts** the debug strip already logs.
+`CommandRow.h/.cpp` is a **layout and a hit test in one file**, which is the point rather than
+tidiness: a HUD that lays out in the renderer and hit-tests in the input handler is a HUD where
+the thing you press is not the thing you see, and no test can catch it because the two never
+meet. The row is built in `UpdateHud` — before `UpdateSelection` — and only *drawn* in
+`BuildHud`, so the click and the quads come from one answer.
 
-The risk this creates is R9's, restated: the pass existing invites a fifth thing that *is* a
-widget.
+Three decisions worth keeping:
+- **The parameter button is not a command.** `FORMATION` sits in the row beside the verbs and
+  is a different kind of thing — the name of what the selected command varies by, with the
+  current choice under it. It is placed immediately after the command it belongs to, so the
+  pair reads as one control, and it is disabled when there is only one value: a button that
+  visibly does nothing when pressed is worse than one that is visibly not for pressing.
+- **A narrow row drops buttons rather than wrapping or shrinking them.** Reflowing is where a
+  zone table becomes the layout engine R9 says this pass must not become.
+- **A drag may only *begin* in the world zone.** Until now a press on the roster or the command
+  row also started a box selection across the fleet underneath it — a bug that arrived with the
+  panels in S11b and had nothing to catch it. Once begun a drag may leave freely: a selection
+  that cancelled when it touched the ability rack would be worse than the bug.
+
+**Verified:** `GameLogicTests` 101 → 105, `NeuronClientTests` 158 → 172. Nine mutations —
+greyed commands dropped instead of drawn, the hit test returning disabled buttons, a parameter
+button on every command rather than the selected one, a single-value parameter left live,
+buttons shrunk instead of dropped, a parameter marked active, a reserved kind claiming content,
+validation no longer refusing an unknown kind, and Attack growing a parameter name — each fails
+exactly the test named for it. One of them segfaulted the first time rather than failing: the
+tests dereferenced a lookup that had become null, so they now assert before dereferencing. A
+suite has to survive the code being wrong, which is the situation it exists for.
+
+**Four things were queued for this pass and all four are drawn.** They were listed at S9 so
+S11 would be scoped against them rather than surprised by them, and the list is worth keeping
+now that it is closed — the queue emptied without growing, which is what R9 was watching for:
+
+- the **selection drag rectangle** (S8 deferred it: a screen-space quad, not a world mark) —
+  S11c;
+- the **bounce toast's reason string** (S9; the code and the text both crossed the seam through
+  `WorldView::ReasonText` and only the drawing was missing) — S11a;
+- the ghost's **dashed lane and per-leg ETA labels** (S9 — draw list *(B)*) — S11c;
+- the **NET and tick readouts** the debug strip logged — S11a's top bar.
+
+**None of them was a widget, and one of them cost a primitive.** The lane needed an oriented
+quad, because the pass could place a rect and a lane at 45° is not one (ADR-006 §8c). That is
+the shape to watch next: not a widget, but the pass's vocabulary growing an entry at a time.
+The test of whether it was the right entry is that `overlay-pass.png`'s two remaining
+mechanism-B classes — engagement arcs and off-screen indicators — are already expressible with
+it.
 
 ### S12 — Order queue & ETAs
 `queueMode=append` up to 4 legs; ghost polyline with per-leg ETA labels; `QueueFull` bounce;

@@ -11,6 +11,7 @@
 #include "GpuPasses.h"
 #include "GpuPipelines.h"
 #include "GpuSwapChain.h"
+#include "CommandRow.h"
 #include "GhostLane.h"
 #include "GpuUploadRing.h"
 #include "HudRoster.h"
@@ -87,6 +88,16 @@ private:
   [[nodiscard]] bool CreateContent();
   void PollNetwork();
   void UpdateCamera(float _deltaSeconds);
+  /*
+   * The HUD's own update: resolve the zones, lay the command row out, and let
+   * it take a click before the world sees one.
+   *
+   * Before `UpdateSelection` in the frame, which is the whole point -- chrome
+   * gets first refusal on the pointer, so pressing FORMATION does not also
+   * start a box selection across the fleet underneath it.
+   */
+  void UpdateHud();
+
   void UpdateSelection();
   void UpdateOrders();
   void CommitOrder(const PuckSample& _sample, double _nowSeconds);
@@ -194,7 +205,32 @@ private:
   UiDrawList m_ui;
   UiTuning m_uiTuning;
   GhostLaneTuning m_laneTuning;
+  CommandRowTuning m_commandTuning;
   ToastStack m_toasts;
+
+  /*
+   * The HUD's zones, resolved once a frame in `UpdateHud` and read by both the
+   * input path and the draw.
+   *
+   * A member rather than a local in `BuildHud` because the command row has to
+   * be hit-tested *before* the frame is drawn and laid out in the same place it
+   * is hit-tested from. Two resolutions -- one for the click, one for the quads
+   * -- would be two chances to disagree about where a button is, which is the
+   * classic HUD bug where the thing you press is not the thing you see.
+   */
+  UiLayout m_uiLayout;
+
+  /// The game's commands, asked once at startup: this list does not change
+  /// while a session runs, and asking every frame would imply it could.
+  OrderKindOption m_orderKinds[MAX_ORDER_KINDS] = {};
+  std::uint32_t m_orderKindCount = 0;
+
+  /// Which command the puck will issue. The game's number, chosen from the list
+  /// above and never invented here.
+  std::uint16_t m_selectedKind = 0;
+
+  CommandButton m_commandButtons[MAX_COMMAND_BUTTONS] = {};
+  std::uint32_t m_commandButtonCount = 0;
 
   /// The roster's rows, asked of the game once a frame. A fixed array because
   /// the count is capped and a HUD must not allocate to describe itself.
