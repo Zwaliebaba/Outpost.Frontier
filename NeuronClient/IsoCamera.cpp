@@ -147,17 +147,17 @@ XMFLOAT2 IsoCamera::ScreenUpOnPlane() const noexcept
 }
 
 /*
- * The LH entry points, not the RH ones (ADR-006 §3a).
+ * LH, because the whole tree is left-handed (ADR-006 §3a).
  *
- * ADR-001 fixes render space as world = (sim.x, cosmetic height, sim.y) with +Y
- * up, which puts east on +X, up on +Y and north on +Z -- a left-handed basis.
- * Handing that to XMMatrixLookAtRH mirrors the view: with the camera south of
- * the focus looking north, east lands on the *left* of the screen. The RH
- * variants are right for a world where +Z is south; this is not that world.
+ * Not a decision taken here: render space is (east, up, north), which is a
+ * left-handed basis, and Direct3D, DirectXCollision and X3DAudio are all
+ * left-handed too. Where an API offers an LH/RH pair, this tree takes LH every
+ * time, and that is also every one of those APIs' default.
  *
- * The corpus meshes then come out clockwise-in-NDC where they face the camera,
- * which is D3D12's front-face convention with FrontCounterClockwise = FALSE, so
- * the opaque pass takes the default rasteriser state.
+ * Worth knowing while reading this file: the RH variants do not *fail* here,
+ * they mirror. Built with XMMatrixLookAtRH the camera still produces a
+ * plausible frame, with east on the left of the screen. Only a projection test
+ * catches it, which is why NeuronClientTests has one.
  */
 XMFLOAT4X4 IsoCamera::ViewMatrix() const noexcept
 {

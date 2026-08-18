@@ -187,17 +187,35 @@ mesh file names move into `Outpost.json` under `content`, and their order *is* t
 order: the engine loads the list it is handed and has no opinion about which index is a Carrier
 (ADR-014).
 
-**One design correction, made here rather than papered over.** ADR-006 §3a named the `RH`
-DirectXMath entry points, and ADR-001 §3 fixes render space as `(sim.x, h, sim.y)` with `+Y`
-up — which is a *left*-handed basis. Together they mirror the view: with the camera south of
-the focus looking north, east projected to the **left** of the screen. It was caught by pushing
-a viewport corner through the matrices in a test rather than by reading the code. ADR-001 is
-the root decision and its conventions are normative, so ADR-006 yielded: the camera now uses
-`XMMatrixLookAtLH` / `XMMatrixOrthographicOffCenterLH`, and ADR-006 §3a and ADR-010 §5 record
-why. `NeuronClientTests` keeps an `EastIsOnTheRightOfTheScreen` case so it cannot come back.
+**One convention settled here rather than papered over.** ADR-006 §3a named the `RH`
+DirectXMath entry points, while ADR-001 §3 fixes render space as `(sim.x, h, sim.y)` with `+Y`
+up — `(east, up, north)`, which is a **left-handed** basis. Together they mirrored the view:
+east projected to the *left* of the screen. An `RH` call over a left-handed world does not
+fail, it mirrors, so nothing but a projection test could have caught it — and one did.
+
+Rather than patch the camera, the tree now **standardises on left-handed** and ADR-006 §3a
+states it as a standing rule with the call sites enumerated: DirectXMath's `LH` matrices,
+D3D12's default winding, `BoundingFrustum`'s `rhcoords: false`, and X3DAudio's native
+coordinates. That last one is the reason to hold the line rather than merely fix the camera —
+a right-handed tree owes X3DAudio a `.z` negation on four fields of two structures on every
+listener update, forever, and X3DAudio is what ADR-011's audio slice is built on. Left-handed
+is also every one of those APIs' own default, so the convention costs no conversion anywhere.
+ADR-001 §3, ADR-010 §5, ADR-011 §4 and AGENTS.md §5 were brought in line;
+`NeuronClientTests`' `EastIsOnTheRightOfTheScreen` is the guard.
+
+**A content correction fell out of the same work.** ADR-006 §5 said the corpus carries per-face
+normals so "plain vertex normals shade flat". Mostly true, and now measured: 152 of
+`Structure.obj`'s 1,784 faces carry a different normal per corner, around a curved section, and
+a few faces in four other meshes do too. Nothing had to change — the loader keys a vertex on
+(position, normal), so a smooth corner becomes its own vertex and interpolates — but the ADR no
+longer claims a property the content does not have. It surfaced because the first version of
+the handedness test asserted the derived normal *equalled* the authored one; that assertion was
+testing flatness, not handedness, and the corpus said so.
 
 **Verified:** `NeuronClientTests` covers the OBJ parser against hand-written text *and* against
-the nine shipped meshes' real counts and ranges, eight malformed-input diagnostics, camera
+the nine shipped meshes' real counts and ranges, eight malformed-input diagnostics, the
+derived-normal fallback's orientation against all 5,276 authored triangles (the loader's one
+handedness-sensitive path, and the only one the corpus does not otherwise exercise), camera
 projection at six yaws (focus centred, viewport edges exact, ground circles 2:1, cosmetic height
 lifts without shifting, the whole 40 km grid inside the depth range), zoom/detent/pan state, the
 input bindings, and the extract layout.

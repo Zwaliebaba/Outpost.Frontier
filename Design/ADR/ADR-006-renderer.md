@@ -34,28 +34,51 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
    varies across the view, and picking loses its uniform-direction ray. Ortho keeps scale
    uniform (tonnage stays readable — the icon sheet's size channel), makes zoom one number
    (ortho half-height), and matches the prints.
-3a. **Camera and picking use DirectXMath directly** (ADR-010): `XMMatrixOrthographicOffCenterLH`
-   + `XMMatrixLookAtLH` for view/projection, `XMPlaneIntersectLine` for the cursor-ray ∩
+3a. **The tree is left-handed, and every handedness-parameterised entry point takes the `LH`
+   form.** This is normative and it is a standing rule, not a per-call choice. Camera and
+   picking use DirectXMath directly (ADR-010): `XMMatrixOrthographicOffCenterLH` +
+   `XMMatrixLookAtLH` for view/projection, `XMPlaneIntersectLine` for the cursor-ray ∩
    ground-plane test, `XMVectorLerp` for snapshot interpolation. Matrices are stored as
    `XMFLOAT4X4`, instance positions as `XMFLOAT3`.
 
-   **The `LH` suffix is a correction, made in slice S5 (2026-08-18), and it is forced by
-   ADR-001.** This ADR originally named the `RH` variants. ADR-001 §3 fixes render space as
-   `world = (sim.x, h_cosmetic, sim.y)` with `+Y` up — so `+X` is east, `+Y` is up and `+Z` is
-   north, and that basis is **left-handed** (a right-handed basis with east and up in those
-   places puts `+Z` due *south*). Feeding a left-handed world to `XMMatrixLookAtRH` mirrors the
-   view: with the camera south of the focus looking north, east projects to the *left* of the
-   screen. That is not a taste question, it is a map that reads backwards, and it was caught by
-   projecting the corner of a viewport through both variants rather than by looking at it.
+   **Why left-handed.** Two reasons, and the second is the load-bearing one:
 
-   Of the two ways to make them agree — negate `sim.y` on the way into render space, or use the
-   `LH` entry points — the `LH` entry points win, because ADR-001 is the root decision this ADR
-   depends on and its coordinate conventions are marked normative. Handedness was never part of
-   *this* ADR's argument, which is about orthographic versus perspective; the suffix was
-   incidental detail, and incidental detail yields to a normative convention. Consequences are
-   confined to the camera: `LH` clips depth to `[0,1]` exactly as `RH` does, and the corpus
-   meshes come out clockwise-in-NDC front-facing, which is D3D12's default rasteriser state
-   (`FrontCounterClockwise = FALSE`).
+   1. ADR-001 §3 fixes render space as `world = (sim.x, h_cosmetic, sim.y)` with `+Y` up — so
+      `+X` is east, `+Y` is up, `+Z` is north. That triad *is* left-handed: geographic
+      East-North-Up is right-handed, and putting **up** between the two plane axes swaps a
+      pair. So the basis was never a choice this ADR got to make; it follows from ADR-001.
+   2. Direct3D is itself documented as left-handed, and the SDKs we are committed to agree:
+      every `LH`/`RH` pair in DirectXMath has an `LH` member, DirectXCollision's frustum
+      defaults to left-handed, D3D12's default rasteriser state matches left-handed winding,
+      and X3DAudio is left-handed with no option. Standardising on `LH` therefore means
+      **taking every default and writing no conversion anywhere**.
+
+   **The rule, concretely.** Wherever an SDK asks which handedness it is dealing with, the
+   answer is *left*:
+
+   | Where | The left-handed form |
+   |---|---|
+   | View / projection (DirectXMath) | `XMMatrixLookAtLH`, `XMMatrixOrthographicOffCenterLH` — and the `LH` member of every other pair, including the `Perspective*` ones if a second camera mode ever wants them |
+   | Rasteriser winding (D3D12) | front faces come out clockwise in NDC ⇒ `FrontCounterClockwise = FALSE`, which is D3D12's own default |
+   | Frustum culling (DirectXCollision, reserved) | `BoundingFrustum::CreateFromMatrix(…, rhcoords: false)` — also the default |
+   | 3D audio (X3DAudio, ADR-011) | native. Right-handed would mean negating `.z` on every listener and emitter `Position`, `Velocity`, `OrientFront` and `OrientTop`, on every update, forever |
+   | Derived geometry (mesh normals, overlay rings, formation ticks) | cross products follow the authored winding; `ObjMesh`'s missing-normal fallback is asserted against the corpus's authored normals rather than assumed |
+
+   The audio row is the one that pays for the rest. A right-handed tree owes X3DAudio a
+   negation pass on four fields of two structures every time the listener moves, and forgetting
+   it on one field is a sound arriving from the wrong side of the player — a bug that is
+   audible, intermittent, and almost impossible to attribute.
+
+   **How it was found**, recorded because the failure mode is invisible by inspection. This ADR
+   originally named the `RH` variants and nobody noticed, because an `RH` view matrix over a
+   left-handed world does not fail — it *mirrors*. With the camera south of the focus looking
+   north, east projected to the **left** of the screen: a map that reads backwards, in a game
+   whose whole interaction model is reading a map. It surfaced in slice S5 only by projecting a
+   viewport corner through the real matrices in a test. `NeuronClientTests`'
+   `EastIsOnTheRightOfTheScreen` is the guard that keeps it surfaced, and the rasteriser
+   winding above was measured against the shipped meshes rather than reasoned about, for the
+   same reason. Nothing about depth changes: `LH` clips to `[0,1]` exactly as `RH` does.
+
 4. **Elevation fixed at 30°**; this is normative because the corpus specifies selection rings
    as **2:1 plane ellipses** — an ortho ground circle projects at `sin(elevation)`, and
    `sin 30° = 0.5`. Yaw: free orbit about the focus point with 45° snap detents. Zoom:
@@ -65,8 +88,14 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
 ### Meshes & materials
 5. **Hand-rolled OBJ/MTL loader** in NeuronClient at boot (no external lib; format is ours).
    Faces sorted by material into **submesh ranges**; one static VB/IB per class (positions +
-   per-face normals as authored — vertices are already duplicated per face, so plain vertex
-   normals shade flat).
+   normals as authored — the exporter has already duplicated the corners that need it, so
+   plain vertex normals shade flat with no shader work).
+   *Measured, because the original wording claimed more than the content delivers:* the corpus
+   is **mostly** flat-shaded, not entirely. 152 of `Structure.obj`'s 1,784 faces carry a
+   different normal per corner, around a curved section, and a handful of faces in four other
+   meshes do the same. Nothing needs to change for this — the loader keys a vertex on
+   (position, normal), so a smooth corner simply becomes its own vertex and interpolates —
+   but "every face is flat" is not a property anything may rely on.
 6. **One opaque PSO.** Per-draw: instanced per ship class; per-instance data =
    `InstanceRecord{ XMFLOAT3 posWorld, float heading, u8 teamColorId, u8 selectionAndLodBias,
    u16 classId }` (field names deliberately match the corpus). Per-submesh root constants pick

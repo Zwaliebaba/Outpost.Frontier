@@ -231,9 +231,11 @@ bool GpuPipelines::CreateOpaquePipeline(ID3D12Device* _device, std::string_view 
 
   desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
   desc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
-  // FALSE, and measured rather than assumed: with ADR-001's render basis and
-  // ADR-006 §3a's LH matrices, the corpus meshes come out clockwise in NDC
-  // where they face the camera, which is D3D12's front-face convention here.
+  // FALSE, and measured against the shipped meshes rather than assumed: under
+  // the tree's left-handed convention (ADR-006 §3a) the corpus comes out
+  // clockwise in NDC where it faces the camera, which is what D3D12 calls a
+  // front face by default. Standardising on LH is what makes this the default
+  // rather than an override.
   desc.RasterizerState.FrontCounterClockwise = FALSE;
   desc.RasterizerState.DepthClipEnable = TRUE;
 

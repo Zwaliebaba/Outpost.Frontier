@@ -233,6 +233,13 @@ Format the lines you write. Do not reformat files you are only passing through.
   `XMFLOAT2/3/4`, `XMFLOAT4X4`; compute in `XMVECTOR`/`XMMATRIX` as locals and parameters with
   the `XM_CALLCONV` conventions. Never a stored `XMVECTOR` or a `std::vector<XMVECTOR>`.
   (ADR-010.)
+- **This tree is left-handed. Where an API offers `LH` and `RH`, take `LH`** — every time,
+  without deliberating: `XMMatrixLookAtLH`, `XMMatrixOrthographicOffCenterLH`,
+  `BoundingFrustum::CreateFromMatrix(…, rhcoords: false)`, X3DAudio positions passed through
+  unmodified. Render space is `(east, up, north)`, which is a left-handed basis, and Direct3D
+  and X3DAudio are left-handed too, so `LH` is also every SDK's default. **An `RH` call does
+  not fail, it mirrors** — east ends up on the left of the screen, or a sound arrives from the
+  wrong side — so nothing catches this but the rule. (ADR-006 §3a.)
 - **GameLogic is deterministic.** No wall clock, no OS entropy, no pointers as keys, no
   iteration order that isn't dense-array order, one seeded PCG32. `XM*Est` functions are
   **banned** in GameLogic, `/fp:fast` is banned there, and `/arch` stays uniform across the

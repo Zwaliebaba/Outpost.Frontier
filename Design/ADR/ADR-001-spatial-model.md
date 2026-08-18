@@ -62,9 +62,17 @@ without touching the core model. Do not pre-pay.
    Cosmetic z is derived client-side from replicated planar state and is never replicated,
    never simulated, never pickable.
 3. **Coordinate conventions (normative):**
-   - Sim space: right-handed 2D, `x` east, `y` north, metres, `heading` in radians CCW from +x.
-   - Render space: `world = (sim.x, h_cosmetic, sim.y)`, +Y up. Mesh forward axis is −Z (as
-     authored in `GameData/Meshes`); model yaw maps heading onto −Z.
+   - Sim space: 2D, `x` east, `y` north, metres, `heading` in radians CCW from +x — the
+     standard map orientation, north up and east right. This fixes the plane's *rotation
+     sense* and says nothing about 3D handedness; the two read alike and have been confused
+     here before, which is why the next bullet spells the 3D basis out.
+   - Render space: `world = (sim.x, h_cosmetic, sim.y)`, +Y up — so `+X` east, `+Y` up, `+Z`
+     north. **That basis is left-handed**, and left-handed is the tree's convention everywhere
+     (ADR-006 §3a, which is where the rule and its consequences live). It comes out
+     left-handed because geographic East-North-Up is right-handed and inserting *up* between
+     the two plane axes swaps a pair — a consequence of this bullet, not an independent
+     decision. Mesh forward axis is −Z (as authored in `GameData/Meshes`); model yaw maps
+     heading onto −Z.
    - One play area ("grid") per session for MVP: 40 km × 40 km centred on origin. `float32`
      gives ~5 mm resolution at that extent — ample. Galaxy-scale later = many grids, each
      anchored at an exact `int64` universe position; see **ADR-009**, which makes this

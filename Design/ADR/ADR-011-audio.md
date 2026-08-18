@@ -45,6 +45,14 @@ RTS audio failure: sounds that pan wrongly, or that ignore zoom entirely.
    left/right panning maps to screen left/right because the listener's basis is the camera's.
    *Rejected alternative:* placing the listener at the ortho camera's nominal eye — it is an
    arbitrary distance away, so attenuation and zoom stop correlating.
+
+   **Positions and orientations go to X3DAudio unmodified.** X3DAudio's coordinate system is
+   left-handed, and so is this tree's (ADR-006 §3a) — so `Position`, `Velocity`, `OrientFront`
+   and `OrientTop` are the render-space values as they stand. A right-handed tree would have to
+   negate `.z` on all four fields of both structures on every update; that conversion does not
+   exist here, and no code should be written that reintroduces it. `OrientFront` and
+   `OrientTop` must still be orthonormal to within 1e-5, which X3DAudio checks and which the
+   camera's basis satisfies by construction.
 5. **Emitters are the render positions** (plane position + cosmetic hover height, ADR-001),
    `ChannelCount = 1` — **all spatialised assets are mono**, which X3DAudio requires for
    meaningful positioning. `CurveDistanceScaler` is set in metres to match world units

@@ -3,6 +3,7 @@
 
 #include "ObjMesh.h"
 
+#include <DirectXMath.h>
 #include <windows.h>
 
 #include <cmath>
@@ -331,6 +332,61 @@ public:
       Assert::IsTrue(mesh.radiusMetres > 0.0f, name.c_str());
       Assert::IsTrue(mesh.palette.defined[static_cast<std::uint32_t>(MeshMaterial::Hull)], name.c_str());
     }
+  }
+
+  TEST_METHOD(ADerivedNormalPointsTheSameWayAsAnAuthoredOne)
+  {
+    // The missing-normal fallback takes a cross product, which is the one place
+    // in the loader that depends on the tree being left-handed (ADR-006 §3a).
+    // Nothing in the shipped corpus exercises it -- every mesh authors its
+    // normals -- so if the operands were ever swapped, no mesh we ship would
+    // say so and the first normal-less OBJ anyone hand-edits would light
+    // inside out. Recomputing the corpus's own normals from its own winding is
+    // what keeps the fallback honest.
+    //
+    // The assertion is on the *sign*, and only the sign, because that is what
+    // handedness decides. It is deliberately not "the derived normal equals the
+    // authored one": a minority of the corpus is smooth-shaded (152 of
+    // Structure's 1,784 faces carry a different normal per corner), so on those
+    // faces the geometric normal legitimately differs from the authored one by
+    // tens of degrees. Measured across the nine meshes the worst alignment is
+    // about +0.70 and none is negative; swapping the cross operands would make
+    // all 5,276 of them negative at once.
+    const std::string directory = FindMeshDirectory();
+    const char* files[] = {"Interceptor.obj", "Bomber.obj",  "Corvette.obj",   "Frigate.obj", "Hauler.obj",
+                           "Miner.obj",       "Carrier.obj", "Battleship.obj", "Structure.obj"};
+
+    std::uint32_t compared = 0;
+    for (const char* file : files)
+    {
+      ObjMesh mesh;
+      ObjDiagnostic error;
+      Assert::IsTrue(LoadObjMesh(directory, file, mesh, error));
+
+      for (std::size_t triangle = 0; triangle + 2 < mesh.indices.size(); triangle += 3)
+      {
+        const MeshVertex& a = mesh.vertices[mesh.indices[triangle]];
+        const MeshVertex& b = mesh.vertices[mesh.indices[triangle + 1]];
+        const MeshVertex& c = mesh.vertices[mesh.indices[triangle + 2]];
+
+        const DirectX::XMVECTOR edge0 = DirectX::XMVectorSubtract(DirectX::XMLoadFloat3(&b.position),
+                                                                  DirectX::XMLoadFloat3(&a.position));
+        const DirectX::XMVECTOR edge1 = DirectX::XMVectorSubtract(DirectX::XMLoadFloat3(&c.position),
+                                                                  DirectX::XMLoadFloat3(&a.position));
+        DirectX::XMFLOAT3 derived;
+        DirectX::XMStoreFloat3(&derived, DirectX::XMVector3Normalize(DirectX::XMVector3Cross(edge0, edge1)));
+
+        const float alignment = derived.x * a.normal.x + derived.y * a.normal.y + derived.z * a.normal.z;
+        Assert::IsTrue(alignment > 0.1f, L"a normal derived from the winding must not point against the authored one");
+        ++compared;
+      }
+    }
+
+    // 5,276 triangles across the nine meshes. The bound is a floor rather than
+    // the exact count so a re-export does not fail here instead of failing the
+    // count test above, but it is high enough that a silently empty loop --
+    // which would make every assertion above vacuous -- cannot pass.
+    Assert::IsTrue(compared > 5000, L"the comparison must actually have run over the corpus");
   }
 
   TEST_METHOD(OnlyFrigateLacksGlassAndTheRestSharePalettes)
