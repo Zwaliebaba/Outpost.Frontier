@@ -6,7 +6,6 @@
 #include <deque>
 #include <functional>
 #include <mutex>
-#include <string>
 #include <thread>
 #include <vector>
 

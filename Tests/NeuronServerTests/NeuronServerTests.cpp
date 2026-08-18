@@ -97,8 +97,11 @@ public:
 
   TEST_METHOD(SurvivesRepeatedStartStopCycles)
   {
+    // A hundred cycles, per S3's acceptance: enough that a leaked socket, a
+    // leaked thread or a handle left open shows up as a failure to bind rather
+    // than as something noticed weeks later.
     NullSimulation simulation;
-    for (int i = 0; i < 10; ++i)
+    for (int i = 0; i < 100; ++i)
     {
       ServerHost host;
       ServerConfig config;
