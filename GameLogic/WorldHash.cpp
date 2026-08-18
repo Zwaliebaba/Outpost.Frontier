@@ -85,39 +85,46 @@ std::uint64_t ComputeWorldHash(const World& _world) noexcept
    * Both are state a replay has to reproduce (ADR-005 §5). Two worlds whose
    * ships are identical but whose plans differ have already diverged -- the
    * next leg is where it shows, and by then the divergence is a hundred ticks
-   * from its cause. The pending queue is included for the same reason: an
-   * order submitted before a tick and one submitted after are different worlds.
+   * from its cause.
+   *
+   * The pending queue contributes its **count** and not its contents, which is
+   * narrower than it sounds: an order submitted before a tick and one submitted
+   * after are different worlds and the count says so, and the contents are
+   * ingested on the very next tick, where they become groups and are folded in
+   * full. The window in which two worlds could agree here and differ in fact is
+   * one tick wide, and the tick that closes it is the one that catches them.
    */
-  const auto foldGroups = [](std::span<const OrderGroup> _groups, std::uint64_t _hash) noexcept
+  const auto foldGroup = [](const OrderGroup& group, std::uint64_t _hash) noexcept
   {
-    _hash = Neuron::HashValue(static_cast<std::uint32_t>(_groups.size()), _hash);
-    for (const OrderGroup& group : _groups)
+    _hash = Neuron::HashValue(group.serverOrderId, _hash);
+    _hash = Neuron::HashValue(group.clientOrderSeq, _hash);
+    _hash = Neuron::HashValue(static_cast<std::uint8_t>(group.formation), _hash);
+    _hash = Neuron::HashValue(static_cast<std::uint8_t>(group.state), _hash);
+    _hash = Neuron::HashValue(group.legStartTick, _hash);
+    // The leg's deadline is state, not a constant, since S12 made it
+    // proportional to the leg. A replay that diverged on it would advance a leg
+    // a tick apart and then diverge on everything.
+    _hash = Neuron::HashValue(group.legDeadlineTick, _hash);
+    _hash = Neuron::HashValue(group.memberCount, _hash);
+    for (std::uint16_t index = 0; index < group.memberCount; ++index)
     {
-      _hash = Neuron::HashValue(group.serverOrderId, _hash);
-      _hash = Neuron::HashValue(group.clientOrderSeq, _hash);
-      _hash = Neuron::HashValue(static_cast<std::uint8_t>(group.formation), _hash);
-      _hash = Neuron::HashValue(static_cast<std::uint8_t>(group.state), _hash);
-      _hash = Neuron::HashValue(group.legStartTick, _hash);
-      // The leg's deadline is state, not a constant, since S12 made it
-      // proportional to the leg. A replay that diverged on it would
-      // advance a leg a tick apart and then diverge on everything.
-      _hash = Neuron::HashValue(group.legDeadlineTick, _hash);
-      _hash = Neuron::HashValue(group.memberCount, _hash);
-      for (std::uint16_t index = 0; index < group.memberCount; ++index)
-      {
-        _hash = Neuron::HashValue(group.members[index], _hash);
-      }
-      _hash = Neuron::HashValue(group.legCount, _hash);
-      _hash = Neuron::HashValue(group.legIndex, _hash);
-      for (std::uint8_t index = 0; index < group.legCount; ++index)
-      {
-        _hash = FoldVector2(group.legs[index].anchorMetres, _hash);
-        _hash = FoldFloat(group.legs[index].facingRadians, _hash);
-      }
+      _hash = Neuron::HashValue(group.members[index], _hash);
+    }
+    _hash = Neuron::HashValue(group.legCount, _hash);
+    _hash = Neuron::HashValue(group.legIndex, _hash);
+    for (std::uint8_t index = 0; index < group.legCount; ++index)
+    {
+      _hash = FoldVector2(group.legs[index].anchorMetres, _hash);
+      _hash = FoldFloat(group.legs[index].facingRadians, _hash);
     }
     return _hash;
   };
-  hash = foldGroups(_world.Groups(), hash);
+
+  hash = Neuron::HashValue(static_cast<std::uint32_t>(_world.Groups().size()), hash);
+  for (const OrderGroup& group : _world.Groups())
+  {
+    hash = foldGroup(group, hash);
+  }
   hash = Neuron::HashValue(_world.LastOrderSeqProcessed(), hash);
   hash = Neuron::HashValue(_world.PendingOrderCount(), hash);
 

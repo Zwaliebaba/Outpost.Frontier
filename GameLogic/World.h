@@ -128,6 +128,25 @@ struct OrderGroup
   std::uint32_t legDeadlineTick = 0;
 };
 
+/*
+ * An accepted order that has not been ingested yet.
+ *
+ * The queue mode rides *beside* the group rather than inside it, and that is
+ * the point of the type existing at all: it was smuggled through `legIndex`
+ * -- one meaning "append" -- which worked, was hashed by accident, and read as
+ * a leg number to everyone including the line that overwrote it two statements
+ * later. A mode is not a leg index.
+ *
+ * It is only meaningful before ingest, which is why it is not a field on
+ * `OrderGroup`: a group in `m_groups` has already been placed and has no mode
+ * left to have.
+ */
+struct PendingOrder
+{
+  OrderGroup group;
+  QueueMode queueMode = QueueMode::Replace;
+};
+
 /// What a ship looks like at the moment it enters the world.
 struct ShipSpawn
 {
@@ -327,7 +346,7 @@ private:
 
   /// Accepted, waiting for the next tick to ingest. World state, so a replay
   /// reproduces orders that were in flight across a tick boundary.
-  std::vector<OrderGroup> m_pending;
+  std::vector<PendingOrder> m_pending;
 
   std::uint32_t m_nextOrderId = 1; // Zero means "no order" in the verdict.
   std::uint32_t m_lastOrderSeqProcessed = 0;

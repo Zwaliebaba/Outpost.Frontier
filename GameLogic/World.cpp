@@ -239,8 +239,27 @@ OrderVerdict World::SubmitOrder(const OrderSubmit& _order)
     return verdict;
   }
 
+  const bool append = _order.queueMode == QueueMode::Append;
+
   OrderGroup group;
-  group.serverOrderId = m_nextOrderId;
+
+  /*
+   * An append is **not given an id here**, and that is the correction (S12b).
+   *
+   * It used to take the next one, and `IngestOrders` then threw it away when
+   * the append landed on an existing group -- so the ack named an order that
+   * appeared in no snapshot, ever, and the sequence counter skipped a number
+   * per queued waypoint. Zero is already the verdict's "no order" (`World.h`),
+   * and the client learns the real id from the order record the next snapshot
+   * carries, which is a path `OnFeedback` already walks.
+   *
+   * Why the id cannot simply be resolved here: the group an append joins is
+   * found at *ingest*, not at submit, and it has to be. A Replace and an Append
+   * submitted between the same pair of ticks are both pending when the second
+   * one is validated, so at submit the Append can only see the group the
+   * Replace is about to destroy. Resolving early would append to a corpse.
+   */
+  group.serverOrderId = append ? 0 : m_nextOrderId;
   group.clientOrderSeq = _order.orderSeq;
   group.formation = _order.formation;
   group.state = OrderState::Underway;
@@ -259,12 +278,11 @@ OrderVerdict World::SubmitOrder(const OrderSubmit& _order)
   group.legStartTick = m_tick;
   group.legDeadlineTick = 0; // Sized by ApplyLeg, which is where the stations exist.
 
-  // Marked with the mode it will be applied with. Append is resolved at ingest,
-  // where the group it appends to is still there to be found.
-  group.legIndex = _order.queueMode == QueueMode::Append ? 1 : 0;
-
-  m_pending.push_back(group);
-  ++m_nextOrderId;
+  m_pending.push_back(PendingOrder{group, _order.queueMode});
+  if (!append)
+  {
+    ++m_nextOrderId;
+  }
 
   OrderVerdict accepted;
   accepted.accepted = true;
@@ -278,14 +296,12 @@ void World::IngestOrders()
   // Drained in arrival order, and within an order in the order the ships were
   // listed. Both are part of the replay contract: the same log has to produce
   // the same assignment every time (ADR-005 §5).
-  for (OrderGroup& submitted : m_pending)
+  for (PendingOrder& pending : m_pending)
   {
+    OrderGroup& submitted = pending.group;
     m_lastOrderSeqProcessed = std::max(m_lastOrderSeqProcessed, submitted.clientOrderSeq);
 
-    // `legIndex` carried the queue mode out of SubmitOrder: 1 meant append.
-    const bool append = submitted.legIndex == 1;
-    submitted.legIndex = 0;
-
+    const bool append = pending.queueMode == QueueMode::Append;
     if (append)
     {
       OrderGroup* existing = nullptr;
@@ -300,14 +316,35 @@ void World::IngestOrders()
       }
       if (existing != nullptr && existing->legCount < MAX_ORDER_LEGS)
       {
-        // The group keeps its id and its ghost; only the plan grew.
+        // The group keeps its id and its ships; only the plan grew.
         existing->legs[existing->legCount] = submitted.legs[0];
         ++existing->legCount;
         existing->state = OrderState::Underway;
+
+        /*
+         * And it **takes the appending order's sequence** (S12b).
+         *
+         * A group is reported under one `clientOrderSeq`, and the client
+         * matches its ghosts by that. Keeping the original meant the appended
+         * order's sequence appeared in no record ever: the high-water mark
+         * passed it, `OnFeedback` read that as "decided and no longer running",
+         * and the ghost the player had just created retired without a bounce or
+         * a promotion -- the silent disappearance `puck-and-wheel.png` §4
+         * forbids outright.
+         *
+         * Naming the group after the most recent order that shaped it is what
+         * makes the newest ghost the one that gets promoted, and it is also the
+         * ghost that knows about the whole queue.
+         */
+        existing->clientOrderSeq = submitted.clientOrderSeq;
         continue;
       }
+
       // Nothing to append to. Validation passed because there was no group and
-      // therefore no full queue, so this becomes the first leg of a new one.
+      // therefore no full queue, so this becomes the first leg of a new one --
+      // and *now* it needs an id, which submit deliberately did not give it.
+      submitted.serverOrderId = m_nextOrderId;
+      ++m_nextOrderId;
     }
 
     // Replace: the members leave whatever they were doing. A ship may belong to

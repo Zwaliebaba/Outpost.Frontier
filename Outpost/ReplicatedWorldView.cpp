@@ -223,6 +223,22 @@ OrderVerdict ReplicatedWorldView::PreCheck(const OrderIntent& _intent)
    * Fixing it properly means the snapshot carrying group membership -- two
    * bytes per member per order, against a 1,150-byte datagram -- to make one
    * refusal instant that is already correct. Not paid.
+   *
+   * **Rechecked in S12 and still zero.** The queue slice replicates
+   * `legCount`, which looks like the missing number and is not: it is per
+   * *order record*, and the question here is which record a *selection* belongs
+   * to -- still unanswerable from a member count. The client could instead
+   * track membership itself, since it built every order it sent, but the rule
+   * that resolves it ("the group the first named ship is in") is a game rule
+   * and the ghost list it would read is engine state; wiring one to the other
+   * to save a round trip is a seam crossing for a refusal that already works.
+   *
+   * S12's own acceptance criterion says **wire**-enforced, and this is what
+   * that means: the fifth leg bounces from the authority with `QueueFull`,
+   * through the same ack, the same 150 ms retraction and the same reason string
+   * as any other refusal. ADR-005 §4's parity claim is that a local refusal and
+   * a remote one are indistinguishable *to the player*, not that every refusal
+   * is local.
    */
   view.queuedLegs = 0;
 

@@ -1210,12 +1210,49 @@ for it. Two survived the first pass and both were the same weakness — every ET
 single ship on a straight run, where speed-toward equals speed-outright and a station equals the
 anchor. A redirected fleet and a wide Line separate them.
 
-**Outstanding for S12:** the append's identity — `SubmitOrder` returns a fresh `serverOrderId`
-that `IngestOrders` then discards, so the ack names an order no snapshot ever reports and the
-appended order's ghost retires silently. The client's pre-check still passes `queuedLegs = 0`,
-so a fifth leg bounces on the wire but not locally (BounceParity). And the queued chain itself:
-`puck-and-wheel.png` §4 draws **one** polyline with a label per leg, which means an append joins
-the existing ghost rather than making a second one.
+**Built ✅ (S12b — the append's identity, and the wire-enforced cap):**
+
+`SubmitOrder` used to take the next server order id for an appending order, and `IngestOrders`
+threw it away the moment the append landed on an existing group. So the ack named an order that
+appeared in no snapshot ever, and the counter skipped a number per queued waypoint. An append is
+now acked with `serverOrderId = 0` — already the verdict's "no order" — and the client learns the
+real id from the next snapshot, a path `OnFeedback` already walked.
+
+**It cannot be resolved any earlier, and that is worth writing down.** The group an append joins
+is found at *ingest*. A Replace and an Append submitted between the same pair of ticks are both
+pending when the second is validated, so at submit the Append can only see the group the Replace
+is about to destroy — resolving early would append to a corpse.
+
+**The worse half was the sequence.** The group kept the *original* order's `clientOrderSeq`, so
+the appending order's sequence was reported by nothing: the client's high-water mark passed it,
+`OnFeedback` read that as "decided and no longer running", and the ghost the player had just
+created retired with no bounce and no promotion. The group is now named after the most recent
+order that shaped it, which makes the newest ghost the one that gets promoted — and it is also
+the ghost that knows about the whole queue.
+
+**The queue mode stopped riding in `legIndex`.** It was smuggled as "1 means append", which
+worked, and read as a leg number to everyone including the line that overwrote it two statements
+later. `m_pending` now holds a `PendingOrder` — the group and its mode — and `WorldHash`'s
+group fold was split so it can be reused per group.
+
+**`queuedLegs = 0` in the client's pre-check was rechecked and kept.** `legCount` looks like the
+missing number and is not: it is per *order record*, and the question is which record a
+*selection* belongs to, still unanswerable from a member count. S12's criterion says
+**wire**-enforced, and that is what this is — the fifth leg bounces from the authority with
+`QueueFull`, through the same ack, the same 150 ms retraction and the same reason string as any
+other refusal. ADR-005 §4's parity claim is that a local refusal and a remote one are
+indistinguishable *to the player*, not that every refusal is local.
+
+**Verified:** `GameLogicTests` 114 → 118. Four mutations — an append burning an id, the group
+keeping the original sequence, the append fallback taking no id, and the queue mode ignored
+entirely — each failing exactly the test named for it. The fallback one survived first time:
+nothing covered an append with no group to join, which is reachable by holding the queue
+modifier with nothing previously ordered and would have left a live group carrying the
+"no order" id.
+
+**Outstanding for S12:** the queued chain itself. `puck-and-wheel.png` §4 draws **one** polyline
+with a label per leg, which means an append joins the existing ghost rather than making a second
+one, and `GhostLane` walks the legs rather than drawing a single lane.
 
 ### S13 — msquic behind the same interface ⚡ spike
 `QuicTransport`: ALPN `opf/1`, in-memory self-signed cert (`CertCreateSelfSignCertificate` +

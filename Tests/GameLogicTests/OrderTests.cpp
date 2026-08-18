@@ -848,6 +848,178 @@ public:
     Assert::IsTrue(finished >= arrived, L"the order must not end before the fleet gets there");
   }
 
+  TEST_METHOD(AnAppendJoinsTheOrderItAppendsToRatherThanInventingOne)
+  {
+    /*
+     * The defect S12 found (S12b).
+     *
+     * `SubmitOrder` took the next server order id for an appending order, and
+     * `IngestOrders` threw it away the moment the append landed on an existing
+     * group. So the ack named an order that appeared in no snapshot ever, and
+     * the counter skipped a number per queued waypoint.
+     *
+     * Worse was the sequence: the group kept the *original* order's
+     * `clientOrderSeq`, so the appending order's sequence was never reported by
+     * anything. The client's high-water mark passed it, `OnFeedback` read that
+     * as "decided and no longer running", and the ghost the player had just
+     * created retired with no bounce and no promotion -- the silent
+     * disappearance `puck-and-wheel.png` §4 forbids.
+     */
+    World world;
+    world.Reset(17);
+    const ShipId ship = SpawnAt(world, HullClass::Corvette, 0.0f, 0.0f);
+
+    OrderSubmit first = Order({ship}, 2000.0f, 0.0f);
+    first.orderSeq = 100;
+    const OrderVerdict firstVerdict = world.SubmitOrder(first);
+    Assert::IsTrue(firstVerdict.accepted);
+    Assert::AreEqual<std::uint32_t>(1, firstVerdict.serverOrderId, L"the first order gets the first id");
+    world.Tick(1);
+
+    OrderSubmit queued = Order({ship}, 4000.0f, 0.0f);
+    queued.orderSeq = 101;
+    queued.queueMode = QueueMode::Append;
+    const OrderVerdict appendVerdict = world.SubmitOrder(queued);
+    Assert::IsTrue(appendVerdict.accepted);
+    Assert::AreEqual<std::uint32_t>(0, appendVerdict.serverOrderId,
+                                    L"an append joins an existing order, and cannot name it until ingest");
+    world.Tick(2);
+
+    Assert::AreEqual<std::size_t>(1, world.Groups().size(), L"one group, two legs");
+    Assert::AreEqual<std::uint8_t>(2, world.Groups()[0].legCount);
+    Assert::AreEqual<std::uint32_t>(1, world.Groups()[0].serverOrderId, L"and it kept the id it was acked under");
+    Assert::AreEqual<std::uint32_t>(101, world.Groups()[0].clientOrderSeq,
+                                    L"named after the most recent order that shaped it, so that ghost is promoted");
+
+    // A third order still gets id 2: the append burned nothing.
+    OrderSubmit third = Order({ship}, 1000.0f, 0.0f);
+    third.orderSeq = 102;
+    Assert::AreEqual<std::uint32_t>(2, world.SubmitOrder(third).serverOrderId, L"the append must not consume an id");
+  }
+
+  TEST_METHOD(AnAppendWithNothingToJoinBecomesAnOrderOfItsOwn)
+  {
+    /*
+     * The fallback, and it needs an id or it is not an order.
+     *
+     * Reachable the ordinary way: the player holds the queue modifier and drags
+     * with nothing previously ordered, or with a selection whose group has
+     * already finished. Validation passes -- there is no group, so there is no
+     * full queue -- and the append has nowhere to land.
+     *
+     * Submit deliberately withholds an id from an appending order, so this is
+     * the path that has to take one. Zero is the verdict's "no order" sentinel
+     * (`World.h`), and a group carrying it would be a live order that every
+     * client reads as the absence of one.
+     */
+    World world;
+    world.Reset(29);
+    const ShipId ship = SpawnAt(world, HullClass::Corvette, 0.0f, 0.0f);
+
+    OrderSubmit lonely = Order({ship}, 3000.0f, 0.0f);
+    lonely.orderSeq = 42;
+    lonely.queueMode = QueueMode::Append;
+    Assert::IsTrue(world.SubmitOrder(lonely).accepted, L"nothing queued means nothing full");
+    world.Tick(1);
+
+    Assert::AreEqual<std::size_t>(1, world.Groups().size());
+    Assert::AreEqual<std::uint8_t>(1, world.Groups()[0].legCount, L"its own first leg");
+    Assert::IsTrue(world.Groups()[0].serverOrderId != 0, L"a group with the no-order id is unidentifiable");
+    Assert::AreEqual<std::uint32_t>(42, world.Groups()[0].clientOrderSeq);
+
+    // And it did not take an id twice: the next real order follows it.
+    OrderSubmit next = Order({ship}, 500.0f, 0.0f);
+    next.orderSeq = 43;
+    const OrderVerdict verdict = world.SubmitOrder(next);
+    Assert::IsTrue(verdict.accepted);
+    Assert::IsTrue(verdict.serverOrderId > world.Groups()[0].serverOrderId, L"ids move forward, once each");
+  }
+
+  TEST_METHOD(TheAppendedOrdersSequenceIsActuallyReported)
+  {
+    /*
+     * The half a client can see, and the half that was broken: the appending
+     * order's sequence has to reach the snapshot, or the ghost it belongs to
+     * has nothing to be promoted by.
+     */
+    World world;
+    world.Reset(19);
+    const ShipId ship = SpawnAt(world, HullClass::Corvette, 0.0f, 0.0f);
+
+    OrderSubmit first = Order({ship}, 2000.0f, 0.0f);
+    first.orderSeq = 700;
+    Assert::IsTrue(world.SubmitOrder(first).accepted);
+    world.Tick(1);
+
+    OrderSubmit queued = Order({ship}, 4000.0f, 0.0f);
+    queued.orderSeq = 701;
+    queued.queueMode = QueueMode::Append;
+    Assert::IsTrue(world.SubmitOrder(queued).accepted);
+    world.Tick(2);
+
+    std::array<std::uint8_t, 2048> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteSnapshot(world, writer));
+
+    Neuron::ByteReader reader{writer.Written()};
+    SnapshotHeader header;
+    std::vector<Neuron::EntityRecord> ships;
+    std::vector<OrderStateRecord> orders;
+    Assert::IsTrue(ReadSnapshot(reader, header, ships, orders));
+
+    Assert::AreEqual<std::size_t>(1, orders.size());
+    Assert::AreEqual<std::uint32_t>(701, orders[0].clientOrderSeq, L"the ghost the player is watching");
+    Assert::AreEqual<std::uint32_t>(1, orders[0].serverOrderId);
+    Assert::AreEqual<std::uint8_t>(2, orders[0].legCount);
+    Assert::AreEqual<std::uint32_t>(701, header.lastOrderSeqProcessed);
+  }
+
+  TEST_METHOD(TheFifthLegBouncesFromTheAuthorityWithQueueFull)
+  {
+    /*
+     * S12's acceptance criterion: a **wire-enforced** four-leg cap, the fifth
+     * bouncing. Wire-enforced is the whole phrase -- the client's pre-check
+     * reports `queuedLegs = 0` on purpose (see `ReplicatedWorldView::PreCheck`),
+     * because a snapshot carries a member count and not the members, so no
+     * client can tell which group a selection is in. The refusal is the
+     * authority's, and it comes back through the same ack and the same reason
+     * string as any other.
+     */
+    World world;
+    world.Reset(23);
+    const ShipId ship = SpawnAt(world, HullClass::Corvette, 0.0f, 0.0f);
+
+    OrderSubmit first = Order({ship}, 1000.0f, 0.0f);
+    first.orderSeq = 1;
+    Assert::IsTrue(world.SubmitOrder(first).accepted);
+    world.Tick(1);
+
+    // Fill it to the cap.
+    for (std::uint32_t leg = 2; leg <= MAX_ORDER_LEGS; ++leg)
+    {
+      OrderSubmit more = Order({ship}, 1000.0f + static_cast<float>(leg) * 100.0f, 0.0f);
+      more.orderSeq = leg;
+      more.queueMode = QueueMode::Append;
+      Assert::IsTrue(world.SubmitOrder(more).accepted, L"every leg up to the cap is taken");
+      world.Tick(1 + leg);
+    }
+    Assert::AreEqual<std::uint8_t>(static_cast<std::uint8_t>(MAX_ORDER_LEGS), world.Groups()[0].legCount);
+
+    // And the one past it bounces.
+    OrderSubmit overflow = Order({ship}, 5000.0f, 0.0f);
+    overflow.orderSeq = MAX_ORDER_LEGS + 1;
+    overflow.queueMode = QueueMode::Append;
+    const OrderVerdict refused = world.SubmitOrder(overflow);
+    Assert::IsFalse(refused.accepted);
+    Assert::IsTrue(refused.reason == OrderReason::QueueFull);
+    Assert::IsNotNull(OrderReasonText(refused.reason), L"a refusal the player can be told about");
+
+    // Refused, and therefore not queued: the plan is untouched.
+    world.Tick(MAX_ORDER_LEGS + 2);
+    Assert::AreEqual<std::uint8_t>(static_cast<std::uint8_t>(MAX_ORDER_LEGS), world.Groups()[0].legCount,
+                                   L"a refused append must not land anyway");
+  }
+
   TEST_METHOD(EachLegOfALongQueueGetsItsOwnDeadline)
   {
     /*
