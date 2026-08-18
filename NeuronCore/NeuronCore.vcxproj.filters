@@ -2,6 +2,9 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
+    <ClCompile Include="JsonWriter.cpp">
+      <Filter>Json</Filter>
+    </ClCompile>
     <ClCompile Include="Json.cpp">
       <Filter>Json</Filter>
     </ClCompile>
@@ -20,6 +23,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="JsonWriter.h">
+      <Filter>Json</Filter>
+    </ClInclude>
     <ClInclude Include="Json.h">
       <Filter>Json</Filter>
     </ClInclude>

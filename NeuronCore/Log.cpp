@@ -120,7 +120,7 @@ void Log::Write(LogLevel _level, const char* _format, ...) noexcept
 
   char line[1152];
   const int lineLength =
-    snprintf(line, sizeof(line), "[%8.3f] %s | %s\n", Time::SecondsSinceStart(), LevelText(_level), message);
+    snprintf(line, sizeof(line), "[%8.3f] %s | %s\n", Clock::SecondsSinceStart(), LevelText(_level), message);
   if (lineLength < 0)
   {
     return;

@@ -2,8 +2,10 @@
 #include "CppUnitTest.h"
 
 #include "Json.h"
+#include "JsonWriter.h"
 
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -258,6 +260,136 @@ public:
     Assert::IsTrue(root.At(1).Name() == "second");
     Assert::AreEqual<std::uint32_t>(2, root.At(0).Line());
     Assert::AreEqual<std::uint32_t>(3, root.At(1).Line());
+  }
+};
+
+TEST_CLASS(JsonWriterTests)
+{
+public:
+  TEST_METHOD(WritesStrictJsonTheParserReadsBack)
+  {
+    std::string text;
+    {
+      JsonWriter writer{text};
+      writer.BeginObject();
+      writer.Member("mode", std::string_view{"host"});
+      writer.Member("port", std::int64_t{7777});
+      writer.Member("scale", 1.25);
+      writer.Member("vsync", true);
+      writer.Key("hosts");
+      writer.BeginArray();
+      writer.String("a");
+      writer.String("b");
+      writer.EndArray();
+      writer.EndObject();
+      Assert::IsTrue(writer.Complete(), L"writer left a container open");
+    }
+
+    // The round trip is the contract: what we emit, we can read.
+    JsonDocument document;
+    std::vector<JsonError> errors;
+    Assert::IsTrue(JsonDocument::Parse(text, document, errors, {}));
+
+    const JsonValue root = document.Root();
+    Assert::IsTrue(root.Member("mode").AsString() == "host");
+    Assert::AreEqual<std::int64_t>(7777, root.Member("port").AsInt64());
+    Assert::AreEqual(1.25, root.Member("scale").AsDouble(), 1e-12);
+    Assert::IsTrue(root.Member("vsync").AsBool());
+    Assert::AreEqual<std::size_t>(2, root.Member("hosts").Count());
+  }
+
+  TEST_METHOD(EmitsNoCommentsOrTrailingCommas)
+  {
+    // The parser tolerates both; the writer must not produce them, or the file
+    // stops being something other tools can read.
+    std::string text;
+    JsonWriter writer{text};
+    writer.BeginObject();
+    writer.Member("a", std::int64_t{1});
+    writer.Member("b", std::int64_t{2});
+    writer.EndObject();
+
+    Assert::IsTrue(text.find("//") == std::string::npos);
+    Assert::IsTrue(text.find(",\n}") == std::string::npos);
+    Assert::IsTrue(text.find(", }") == std::string::npos);
+  }
+
+  TEST_METHOD(EscapesWhatMustBeEscaped)
+  {
+    std::string text;
+    {
+      JsonWriter writer{text};
+      writer.BeginObject();
+      writer.Member("quote", std::string_view{"say \"hi\""});
+      writer.Member("path", std::string_view{"a\\b"});
+      writer.Member("lines", std::string_view{"one\ntwo\tthree"});
+      writer.Member("control", std::string_view{"bell\x01here"});
+      writer.Member("utf8", std::string_view{"\xf0\x9f\x9a\x80"});
+      writer.EndObject();
+    }
+
+    JsonDocument document;
+    std::vector<JsonError> errors;
+    Assert::IsTrue(JsonDocument::Parse(text, document, errors, {}));
+
+    const JsonValue root = document.Root();
+    Assert::IsTrue(root.Member("quote").AsString() == "say \"hi\"");
+    Assert::IsTrue(root.Member("path").AsString() == "a\\b");
+    Assert::IsTrue(root.Member("lines").AsString() == "one\ntwo\tthree");
+    Assert::IsTrue(root.Member("control").AsString() == "bell\x01here");
+    Assert::IsTrue(root.Member("utf8").AsString() == "\xf0\x9f\x9a\x80"); // passes through unescaped
+    Assert::IsTrue(text.find("\\u0001") != std::string::npos);
+  }
+
+  TEST_METHOD(EmptyContainersStayOnOneLine)
+  {
+    std::string text;
+    JsonWriter writer{text};
+    writer.BeginObject();
+    writer.Key("empty");
+    writer.BeginObject();
+    writer.EndObject();
+    writer.Key("none");
+    writer.BeginArray();
+    writer.EndArray();
+    writer.EndObject();
+
+    Assert::IsTrue(writer.Complete());
+    Assert::IsTrue(text.find("{}") != std::string::npos);
+    Assert::IsTrue(text.find("[]") != std::string::npos);
+  }
+
+  TEST_METHOD(RefusesMisuseAndNonFiniteNumbers)
+  {
+    {
+      std::string text;
+      JsonWriter writer{text};
+      writer.BeginObject();
+      writer.Int(1); // A value where a key belongs.
+      Assert::IsFalse(writer.Ok());
+    }
+    {
+      std::string text;
+      JsonWriter writer{text};
+      writer.BeginObject();
+      writer.EndArray(); // Closing the wrong container.
+      Assert::IsFalse(writer.Ok());
+    }
+    {
+      std::string text;
+      JsonWriter writer{text};
+      writer.BeginObject();
+      writer.Key("nan");
+      writer.Number(std::numeric_limits<double>::quiet_NaN());
+      // JSON has no NaN: emitting one would produce a file our own parser rejects.
+      Assert::IsFalse(writer.Ok());
+    }
+    {
+      std::string text;
+      JsonWriter writer{text};
+      writer.BeginObject(); // Never closed.
+      Assert::IsFalse(writer.Complete());
+    }
   }
 };
 

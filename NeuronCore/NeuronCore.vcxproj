@@ -22,6 +22,7 @@
     <ClCompile Include="Debug.cpp" />
     <ClCompile Include="EntityRecord.cpp" />
     <ClCompile Include="Json.cpp" />
+    <ClCompile Include="JsonWriter.cpp" />
     <ClCompile Include="Log.cpp" />
     <ClCompile Include="Clock.cpp" />
   </ItemGroup>
@@ -34,6 +35,7 @@
     <ClInclude Include="EntityRecord.h" />
     <ClInclude Include="Hash.h" />
     <ClInclude Include="Json.h" />
+    <ClInclude Include="JsonWriter.h" />
     <ClInclude Include="Log.h" />
     <ClInclude Include="Random.h" />
     <ClInclude Include="RingBuffer.h" />
