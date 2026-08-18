@@ -534,39 +534,62 @@ public:
                    L"the bounce fades as it travels");
   }
 
-  TEST_METHOD(TheFootprintNeverShrinksBelowItsScreenFloor)
+  TEST_METHOD(ThePuckIsTheSameSizeWhateverTheFleetIs)
   {
-    // The same clamp a selection ring has, and for the same reason: at 40 km of
-    // zoom a four-ship Line is a few pixels across, and a footprint smaller
-    // than the cursor is a footprint nobody can read.
-    OrderGhostList ghosts;
-    OrderIntent intent = Intent(1);
-    OrderPreview tiny = Preview(1);
-    tiny.extentMetres = 1.0f;
-    Assert::IsTrue(ghosts.Add(intent, tiny, XMFLOAT2{0.0f, 0.0f}, 10.0));
-
+    /*
+     * The bug this pins, which reached a screenshot before it reached a test.
+     *
+     * The puck used to be `max(preview.extentMetres, floor)`, and the extent of
+     * a Line is *half its length* — so eleven ships put a green ellipse across
+     * the whole viewport, circumscribing a formation it touches at two points.
+     * The ticks are the footprint; the ring marks where the player pointed, and
+     * where they pointed is one place regardless of how many ships are going.
+     */
     const OverlayTuning tuning;
-    OverlayMarkList marks;
-    BuildGhostMarks(ghosts.Ghosts(), tuning, 40.0f, 10.0, marks); // 40 m per pixel: fully zoomed out.
 
-    Assert::AreEqual(tuning.ghostMinRadiusPixels * 40.0f, marks.marks[0].radiusMetres, L"clamped to the floor");
+    OrderGhostList small;
+    OrderPreview twoShips = Preview(2);
+    twoShips.extentMetres = 60.0f;
+    Assert::IsTrue(small.Add(Intent(1), twoShips, XMFLOAT2{0.0f, 0.0f}, 10.0));
+    OverlayMarkList smallMarks;
+    BuildGhostMarks(small.Ghosts(), tuning, 1.0f, 10.0, smallMarks);
+
+    OrderGhostList large;
+    OrderPreview manyShips = Preview(40);
+    manyShips.extentMetres = 5000.0f; // A Battleship line, kilometres across.
+    Assert::IsTrue(large.Add(Intent(1), manyShips, XMFLOAT2{0.0f, 0.0f}, 10.0));
+    OverlayMarkList largeMarks;
+    BuildGhostMarks(large.Ghosts(), tuning, 1.0f, 10.0, largeMarks);
+
+    Assert::AreEqual(smallMarks.marks[0].radiusMetres, largeMarks.marks[0].radiusMetres,
+                     L"the puck is where the order points, not how big the fleet is");
+    Assert::AreEqual(tuning.puckRadiusPixels, largeMarks.marks[0].radiusMetres, L"and it is its own size, in pixels");
+
+    // The shape is still reported, and reported truthfully: forty ships get
+    // forty ticks, spread over the kilometres the extent describes.
+    Assert::AreEqual<std::size_t>(41, largeMarks.marks.size(), L"one puck and forty stations");
+    Assert::AreEqual<std::size_t>(3, smallMarks.marks.size(), L"one puck and two stations");
   }
 
-  TEST_METHOD(TheFloorIsAFloorAndNotAReplacement)
+  TEST_METHOD(ThePuckTracksZoomRatherThanTheWorld)
   {
-    // The mutation this catches is `min` for `max`, which passes the test above
-    // and makes every footprint the same size.
-    OrderGhostList ghosts;
-    OrderIntent intent = Intent(1);
-    OrderPreview wide = Preview(1);
-    wide.extentMetres = 5000.0f;
-    Assert::IsTrue(ghosts.Add(intent, wide, XMFLOAT2{0.0f, 0.0f}, 10.0));
-
+    // Pixels through `_metresPerPixel`, like the gauge bars: the mark holds its
+    // size on screen while the world under it shrinks. The mutation this
+    // catches is anyone reinstating `extentMetres` as the radius, which would
+    // make the two answers below identical.
     const OverlayTuning tuning;
-    OverlayMarkList marks;
-    BuildGhostMarks(ghosts.Ghosts(), tuning, 1.0f, 10.0, marks);
+    OrderGhostList ghosts;
+    Assert::IsTrue(ghosts.Add(Intent(1), Preview(3), XMFLOAT2{0.0f, 0.0f}, 10.0));
 
-    Assert::AreEqual(5000.0f, marks.marks[0].radiusMetres, L"a big formation stays big");
+    OverlayMarkList closeUp;
+    BuildGhostMarks(ghosts.Ghosts(), tuning, 1.0f, 10.0, closeUp);
+
+    OverlayMarkList zoomedOut;
+    BuildGhostMarks(ghosts.Ghosts(), tuning, 40.0f, 10.0, zoomedOut); // 40 m per pixel.
+
+    Assert::AreEqual(tuning.puckRadiusPixels * 1.0f, closeUp.marks[0].radiusMetres, L"close up");
+    Assert::AreEqual(tuning.puckRadiusPixels * 40.0f, zoomedOut.marks[0].radiusMetres, L"and zoomed out");
+    Assert::AreEqual(tuning.stationRadiusPixels * 40.0f, zoomedOut.marks[1].radiusMetres, L"the ticks do the same");
   }
 };
 

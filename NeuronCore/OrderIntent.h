@@ -115,7 +115,20 @@ struct OrderPreview
   float markYMetres[MAX_ORDER_PREVIEW_MARKS] = {};
   std::uint32_t markCount = 0;
 
-  /// Radius of the whole arrangement, for the ring the puck draws around it.
+  /*
+   * Radius of the whole arrangement -- how much room the formation needs.
+   *
+   * **Not what the puck's ring is sized from**, and that is worth saying here
+   * because this field's own comment used to claim it was. A circle at this
+   * radius circumscribes a Line rather than enclosing it, so at fleet scale it
+   * became an ellipse across the viewport touching the formation at two points.
+   * The marks the client draws are one tick per station, which describe the
+   * shape truthfully for every formation (`OverlayTuning::puckRadiusPixels`).
+   *
+   * It stays because it answers a question the ticks do not: *how big is this
+   * order*, as one number. The HUD's context bar wants that (S11), and so does
+   * any later check about whether an arrangement fits where it is being sent.
+   */
   float extentMetres = 0.0f;
 
   void Clear() noexcept

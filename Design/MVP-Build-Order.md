@@ -795,6 +795,34 @@ the tests named for them — **and one mutation caught a bad test again**. Repla
 area *before* the staleness check changed nothing, because the test asserted on the header's
 high-water mark, which the frame ring already protects. It asserts on the records now.
 
+**First frame on a screen, and it found three things** (2026-08-18, owner ran it). This is the
+run R1 has been owed since S5, and it earned its keep immediately:
+
+1. **The ring's thickness grew with its radius.** `RingAlpha` took
+   `max(fwidth(distance) * 1.2, 0.03)`. `fwidth` of a normalised distance is about
+   `1 / radiusInPixels`, so the first term is a constant *screen* thickness — correct — and the
+   floor is a constant *fraction of the radius*, which past about forty pixels overtakes it. A
+   700-pixel footprint came out as a forty-pixel green band. The floor's comment said it kept
+   the ring from disappearing when the derivative is tiny; a tiny derivative is exactly the
+   large-ring case where `fwidth` is already right. It is an epsilon against zero now.
+2. **The puck was sized to circumscribe the formation.** `max(extentMetres, floor)`, and the
+   extent of a Line is *half its length* — so eleven ships drew a circle touching the fleet at
+   two points and spanning the viewport. The station ticks are the footprint and always were;
+   the ring marks **where the player pointed**, so it is a fixed 22 px. An outline that hugs a
+   formation is a polyline, which is draw list *(B)*.
+3. **Every mesh buffer logged a D3D12 warning.** `CreateCommittedResource` was given
+   `COPY_DEST` for a `DEFAULT`-heap buffer; buffers are effectively created in `COMMON`
+   whatever is asked for, and the debug layer says so (#1328). Harmless — common-state
+   promotion means the copy still works and the barrier after it is still valid — but it is
+   eighteen lines of noise per boot, which is how a real message gets missed. `CreateBuffer`
+   now derives the state from the heap type, so the choice cannot be made wrongly again.
+
+*The first two are one lesson.* Both are cases where a number that reads as a safety floor is
+actually a size, and neither is visible in any device-free test: the mark builder's arithmetic
+was right, the shader's arithmetic was right, and the *product* of the two was a green ellipse
+across the screen. That is the third defect this slice found which only a frame could find,
+after S8's byte-swapped colours.
+
 **Outstanding:** draw list *(B)* — the dashed lane from the fleet to the destination and the
 per-leg ETA labels. A line between two points is not a quad around one and a label is text,
 so both belong with the Ui pass (ADR-006 §10) and arrive with it in S11; the reason toast
@@ -827,14 +855,17 @@ The slices M1 rests on are S5–S9. Their acceptance criteria, and how each stan
 | Induced 400 ms sim stall extrapolates, freezes, recovers clean | S7 | manual, with a debug key | ⏳ |
 | Visual checkpoint vs `tactical-hud.png`; frame time < 2 ms at 41 instances | S5 | manual | ⏳ |
 | **Rings occlude behind a Carrier hull; bars never do** | S8 | manual — `overlay-pass.png`'s rule, and the depth-bias pair is a guess until someone looks | ⏳ |
+| Overlay marks are legible at fleet scale | S8, S9 | manual — **run once, 2026-08-18, and it failed**: ring thickness scaled with radius and the puck circumscribed the formation. Both fixed; needs a second look | ⏳ |
 | On-screen promotion ≤ 100 ms | S9 | manual | ⏳ |
 | The out-of-bounds bounce looks identical local vs server | S9 | manual — the code paths are asserted identical; whether a *person* can tell them apart is the actual criterion | ⏳ |
 
-**What the ⏳ rows have in common is worth saying once.** They are all the frame, and the frame
-has never been run since S5. S9 found the cost of that empirically: two overlay colours had
-been byte-swapped since S8 and every device-free test passed, because a swapped colour and an
-unrun frame are the same blind spot. The manual pass is not polish — it is the only instrument
-that covers a whole category of defect.
+**What the ⏳ rows have in common is worth saying once.** They are all the frame. It was run
+once, on 2026-08-18, and that single run found three defects no device-free test could reach:
+two overlay colours byte-swapped since S8, a ring whose thickness grew with its own radius, and
+a puck sized to circumscribe the formation rather than mark a point. Every unit test involved
+passed throughout. The manual pass is not polish — it is the only instrument that covers a
+whole category of defect, and its cost is measured in the three slices that shipped before
+anyone looked.
 
 
 ### S10 — Formations & the real footprint

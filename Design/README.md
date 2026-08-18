@@ -72,12 +72,17 @@ refusal bounces over 150 ms carrying the game's own reason code. What is left of
 unit test cannot see: promotion arriving within 100 ms on screen, and a deliberate
 out-of-bounds order looking identical whether the local pre-check or the server refused it.
 
-**Two other things need a person and a GPU, and have needed one since S5.** The visual
-checkpoint against the prints, and the overlay's depth behaviour — that rings and footprints
-lie on the plane and are occluded by the hulls above them, while gauge bars never occlude. S9
-supplied an argument for why that matters beyond the look: **two overlay colours had been
-byte-swapped since S8** and nothing caught it, because a swapped colour and an unrun frame are
-the same blind spot.
+**The frame was run for the first time since S5, and it found three defects in one sitting.**
+Two overlay colours byte-swapped since S8; a ring whose thickness scaled with its own radius,
+so a large footprint drew as a forty-pixel band; and a puck sized to circumscribe the formation
+rather than mark the point the order was given, which for an eleven-ship Line put an ellipse
+across the whole viewport. All three are fixed. Every device-free test passed throughout — each
+defect lives in the product of two pieces of arithmetic that are individually right, which is
+the category a unit test cannot reach.
+
+**What still needs a person and a GPU:** a second look at the overlay after those fixes, the
+visual checkpoint against the prints, and the depth behaviour — that rings and footprints lie
+on the plane and are occluded by the hulls above them while gauge bars never do.
 
 **Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole

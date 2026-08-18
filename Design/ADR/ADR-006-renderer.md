@@ -177,6 +177,35 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
    state. Two orderings that had to agree became one that cannot disagree — and a ghost mark
    appended past the split would be drawn in the half that never depth-tests, where a
    footprint lying under a Carrier would refuse to be occluded by it.
+
+   **8b. A mark's size and a mark's line width are both screen quantities, and a "floor" on
+   either is usually a size in disguise** (S9, from the first frame anyone looked at).
+
+   Two defects, one shape. The overlay ring's thickness was
+   `max(fwidth(distance) * 1.2, 0.03)`: `fwidth` of a normalised distance is about
+   `1 / radiusInPixels`, so the first term is a constant *screen* thickness and the second is a
+   constant *fraction of the radius*. Past about forty pixels the floor wins and the ring's
+   thickness grows linearly with what it encloses — a 700-pixel footprint drew as a forty-pixel
+   band. And the order puck was `max(formationExtent, minimum)`, where the extent of a Line is
+   half its length, so an eleven-ship order drew a circle spanning the viewport and touching
+   the fleet at two points.
+
+   The rules that fall out, and they apply to every mark this pass gains:
+
+   - **A line's width comes from `fwidth` and nothing else.** A floor in normalised units is a
+     fraction of the radius; the only floor a line width needs is an epsilon against a
+     derivative of zero. (A *filled* shape's soft rim is a different case and may keep a
+     normalised floor, because a disc does not grow a band as it grows.)
+   - **A mark that means "here" is sized in pixels; a mark that means "this area" is sized in
+     metres.** The puck means *where the player pointed* and is 22 px. The station ticks mean
+     *where each ship is going* and are plane positions. Nothing on this pass is sized from a
+     bounding radius, because a circle around a formation is an outline only for formations
+     that happen to be round — the honest enclosing shape is a polyline, which is draw list
+     *(B)*.
+
+   Neither defect is visible to a device-free test: the mark builder's arithmetic was right,
+   the shader's arithmetic was right, and the product of the two was wrong. That is the whole
+   argument for §8's manual acceptance criteria being criteria rather than polish.
 9. **Text = DirectWrite-baked glyph atlas** at boot (ASCII + box glyphs, one monospace face,
    2–3 sizes), rendered as instanced quads in the Ui pass. This keeps one graphics API in the
    frame. **Rejected:** D3D11On12/D2D interop — a second device, wrapped-resource sync, and

@@ -111,11 +111,23 @@ struct OverlayTuning
   float barGapPixels = 5.0f;
 
   /*
-   * The ghost's footprint ring, and its floor. Larger than a selection ring's
-   * because it encloses a whole formation rather than one hull, and a footprint
-   * that clamps to the same size as a ring would read as one.
+   * The puck: a fixed mark on screen at the point the order was given.
+   *
+   * **A size, not a floor, and that is the correction.** It was the formation's
+   * extent clamped up to a minimum, which is defensible for a compact Claw and
+   * badly wrong for a Line: the extent of a line is *half its length*, so a
+   * circle drawn at that radius circumscribes a formation it barely touches at
+   * two points, and eleven ships put a green ellipse across the whole viewport.
+   *
+   * The footprint is the **station ticks** — one per ship, at the exact place
+   * that ship is going (ADR-005 §3). They already say what shape the fleet will
+   * take and how much room it needs, and they say it truthfully for every
+   * formation. The ring's job is the other half of `puck-and-wheel.png` §2: it
+   * marks where the player pointed. A shape that hugs the formation is the
+   * print's enclosing outline, and that is a polyline — draw list *(B)*, with
+   * the Ui pass.
    */
-  float ghostMinRadiusPixels = 22.0f;
+  float puckRadiusPixels = 22.0f;
 
   /// One tick per ship at the station it is being sent to (ADR-005 §3: "one
   /// station tick per ship, never decorative"). Small, because at fleet scale
