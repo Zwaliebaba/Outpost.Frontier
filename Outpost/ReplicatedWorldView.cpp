@@ -4,6 +4,7 @@
 
 #include "SchemaHash.h"
 
+#include <algorithm>
 #include <utility>
 
 using namespace Neuron;

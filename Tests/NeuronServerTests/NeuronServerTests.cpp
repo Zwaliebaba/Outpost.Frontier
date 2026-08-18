@@ -266,6 +266,90 @@ public:
     host.Join();
   }
 
+  /*
+   * The loop closes: a joined client is sent the simulation's own bytes, on the
+   * unreliable channel, without having asked (ADR-004 §6).
+   *
+   * This is the only place a snapshot is watched crossing a real socket. The
+   * GameLogic suite proves the encoding round-trips and the client suite proves
+   * the clock behaves; the server's fan-out sits between them and nothing else
+   * touches it. The payload is checked for the simulation's marker rather than
+   * merely for length, because the failure worth catching is the engine sending
+   * something of its own devising -- a snapshot it framed but did not get from
+   * the game would still be the right size.
+   */
+  TEST_METHOD(BroadcastsTheSimulationsOwnBytesToAJoinedClient)
+  {
+    CountingSimulation simulation;
+    ServerHost host;
+    ServerConfig config;
+    config.port = 0;
+    Assert::IsTrue(host.Start(config, simulation));
+
+    UdpTransport client;
+    const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
+    Assert::IsTrue(link != INVALID_CONNECTION);
+
+    std::array<std::uint8_t, 256> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::Hello);
+    Write(writer, Hello{PROTOCOL_VERSION, simulation.SchemaHash(), simulation.ContentHash(), "harness"});
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, writer.Written()));
+
+    // Nothing is sent to a room of nobody, so the join has to land first.
+    bool joined = false;
+    std::uint32_t snapshotTick = 0;
+    std::uint32_t marker = 0;
+    std::uint32_t snapshotsSeen = 0;
+
+    const bool sawSnapshots = WaitUntil(client,
+                                        [&]
+                                        {
+                                          TransportEvent event;
+                                          while (client.NextEvent(event))
+                                          {
+                                            if (event.type != TransportEvent::Type::Message)
+                                            {
+                                              continue;
+                                            }
+                                            ByteReader reader{event.payload};
+                                            const WireType type = ReadWireType(reader);
+                                            if (type == WireType::Welcome)
+                                            {
+                                              joined = true;
+                                            }
+                                            else if (type == WireType::Snapshot)
+                                            {
+                                              // Recorded only once the whole
+                                              // payload has been read, so a
+                                              // truncated datagram cannot
+                                              // overwrite a good one.
+                                              const std::uint32_t tick = reader.ReadUInt32();
+                                              const std::uint32_t payloadMarker = reader.ReadUInt32();
+                                              if (reader.Ok())
+                                              {
+                                                snapshotTick = tick;
+                                                marker = payloadMarker;
+                                                ++snapshotsSeen;
+                                              }
+                                            }
+                                          }
+                                          // Two, so this cannot pass on a single
+                                          // snapshot that happened to be sent.
+                                          return joined && snapshotsSeen >= 2;
+                                        });
+
+    Assert::IsTrue(sawSnapshots, L"the server never broadcast a snapshot to a joined client");
+    Assert::AreEqual(CountingSimulation::SNAPSHOT_MARKER, marker, L"the payload was not the simulation's");
+    Assert::IsTrue(snapshotTick > 0, L"a snapshot was sent for a tick the world never ran");
+    Assert::IsTrue(snapshotTick <= host.TickCount(), L"a snapshot ran ahead of the tick counter");
+    Assert::IsTrue(simulation.SnapshotsWritten() >= snapshotsSeen, L"more snapshots arrived than were written");
+    Assert::AreEqual<std::uint32_t>(0, host.SnapshotFailureCount());
+
+    host.Stop();
+    host.Join();
+  }
+
   TEST_METHOD(RefusesAMismatchedBuildAtTheDoor)
   {
     // Fail closed: a client built against different content is turned away with

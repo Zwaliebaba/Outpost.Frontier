@@ -75,6 +75,13 @@ public:
   {
     return m_sessionCount.load(std::memory_order_relaxed);
   }
+  /// Ticks whose snapshot could not be sent. Non-zero means clients have seen
+  /// the world stop moving, so it belongs on the HUD next to the others rather
+  /// than only in the log line that fires once.
+  [[nodiscard]] std::uint32_t SnapshotFailureCount() const noexcept
+  {
+    return m_snapshotFailures.load(std::memory_order_relaxed);
+  }
 
 private:
   void SimThread();

@@ -184,14 +184,63 @@ private:
 };
 
 /*
+ * Spawns the authored stations into the world, in the grid's local frame.
+ *
+ * Until S7 these were `ScenePlacement`s handed to the renderer -- authored
+ * scenery on one side of the seam and an invented fleet on the other. They are
+ * ships now: a `Structure` has zero speed and zero turn rate (ADR-005 §1), so a
+ * station is a ship-table entry that never moves, and it replicates through the
+ * same twenty bytes as everything else. One path instead of two, and a station
+ * that can be selected and targeted by the code that already does those things.
+ *
+ * This remains the one place the universe's exact integer metres become the
+ * sim's local floats, and it is deliberately in the composition root: GameLogic
+ * owns the coordinates, the engine owns the drawing, and the conversion belongs
+ * to the thing that knows both (ADR-014).
+ */
+void SpawnStations(const Game::UniverseDef& _universe, Game::World& _world)
+{
+  const Game::GridAnchor anchor = _universe.StartAnchor();
+  const Game::SolarSystem* system = _universe.FindSystem(anchor.system);
+  if (system == nullptr)
+  {
+    return;
+  }
+
+  for (const Game::Station& station : system->stations)
+  {
+    Game::LocalOffsetCm local;
+    if (!Game::LocalFromUniverse(anchor.origin, station.position, local))
+    {
+      // Refused rather than wrapped (ADR-009 §2). A station further than the
+      // grid's half-extent from the anchor is a content error, and placing it
+      // at a folded coordinate would hide that.
+      NEURON_LOG_WARNING("station '%s' is outside the tactical grid and was not spawned", station.name.c_str());
+      continue;
+    }
+
+    Game::ShipSpawn spawn;
+    spawn.hullClass = Game::HullClass::Structure;
+    spawn.xMetres = static_cast<float>(local.x) * 0.01f;
+    spawn.yMetres = static_cast<float>(local.y) * 0.01f;
+    (void)_world.Spawn(spawn);
+  }
+}
+
+/*
  * The starting fleet, on the grid the universe definition anchored.
  *
  * Deliberately modest and deliberately here: what ships a session begins with
  * is a scenario, not a rule, and a scenario belongs in the composition root
- * until there is a save file to read one from. The layout mirrors the client's
- * placeholder -- one wing per playable hull -- so that when S7 replaces the
- * invented fleet with the replicated one, the picture on screen changes as
- * little as possible and any difference is a real difference.
+ * until there is a save file to read one from.
+ *
+ * The layout -- one wing per playable hull -- was chosen in S6 to match the
+ * client's placeholder, so that when the replicated fleet replaced the invented
+ * one the picture would change as little as possible and any difference would be
+ * a real difference. The placeholder is gone and this is now the only fleet
+ * there is, but the layout stays: it puts every hull class on screen at once,
+ * which is what makes a rendering or replication fault obvious rather than
+ * subtle.
  */
 [[nodiscard]] Game::World MakeStartingWorld(const Game::UniverseDef& _universe, std::uint64_t _seed,
                                             std::vector<Game::ShipId>& _outPatrolShips)
@@ -246,50 +295,6 @@ Neuron::WorldMeta MakeWorldMeta(const Game::UniverseDef& _universe)
 {
   const Game::GridAnchor anchor = _universe.StartAnchor();
   return Neuron::WorldMeta{anchor.system, anchor.origin.x, anchor.origin.y};
-}
-
-/*
- * Spawns the authored stations into the world, in the grid's local frame.
- *
- * Until S7 these were `ScenePlacement`s handed to the renderer -- authored
- * scenery on one side of the seam and an invented fleet on the other. They are
- * ships now: a `Structure` has zero speed and zero turn rate (ADR-005 §1), so a
- * station is a ship-table entry that never moves, and it replicates through the
- * same twenty bytes as everything else. One path instead of two, and a station
- * that can be selected and targeted by the code that already does those things.
- *
- * This remains the one place the universe's exact integer metres become the
- * sim's local floats, and it is deliberately in the composition root: GameLogic
- * owns the coordinates, the engine owns the drawing, and the conversion belongs
- * to the thing that knows both (ADR-014).
- */
-void SpawnStations(const Game::UniverseDef& _universe, Game::World& _world)
-{
-  const Game::GridAnchor anchor = _universe.StartAnchor();
-  const Game::SolarSystem* system = _universe.FindSystem(anchor.system);
-  if (system == nullptr)
-  {
-    return;
-  }
-
-  for (const Game::Station& station : system->stations)
-  {
-    Game::LocalOffsetCm local;
-    if (!Game::LocalFromUniverse(anchor.origin, station.position, local))
-    {
-      // Refused rather than wrapped (ADR-009 §2). A station further than the
-      // grid's half-extent from the anchor is a content error, and placing it
-      // at a folded coordinate would hide that.
-      NEURON_LOG_WARNING("station '%s' is outside the tactical grid and was not spawned", station.name.c_str());
-      continue;
-    }
-
-    Game::ShipSpawn spawn;
-    spawn.hullClass = Game::HullClass::Structure;
-    spawn.xMetres = static_cast<float>(local.x) * 0.01f;
-    spawn.yMetres = static_cast<float>(local.y) * 0.01f;
-    (void)_world.Spawn(spawn);
-  }
 }
 
 void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
