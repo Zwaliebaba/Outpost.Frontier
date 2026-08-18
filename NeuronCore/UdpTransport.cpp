@@ -8,6 +8,9 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
+// SIO_UDP_CONNRESET lives here, not in winsock2.h.
+#include <mstcpip.h>
+
 #include <cstring>
 
 #pragma comment(lib, "ws2_32.lib")
