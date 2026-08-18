@@ -242,10 +242,15 @@ Format the lines you write. Do not reformat files you are only passing through.
 - **Single-writer state.** The authoritative world belongs to the Sim thread, render state to
   Main. Foreign threads (msquic workers, XAudio2 callbacks) enqueue to a ring and touch
   nothing else.
-- **COM lifetimes are RAII.** Prefer `winrt::com_ptr` and `winrt::check_hresult` (C++/WinRT is
-  already referenced and is header-only) over raw `Release()` calls or `Microsoft::WRL`. This
-  is the COM-helper sanction only — do not reach for the WinRT projection as a UI or async
-  framework.
+- **COM lifetimes are RAII, through `winrt::com_ptr`** (aliased as `Neuron::GpuPtr`), not
+  `Microsoft::WRL::ComPtr` and never raw `Release()` calls. Two idioms: create with
+  `Thing(__uuidof(IThing), thing.put_void())`, query with `thing.try_as<IOther>()`.
+  `IID_PPV_ARGS` does **not** work — it needs `operator&`, which `com_ptr` deliberately lacks,
+  and `put()` asserts the pointer is empty rather than silently releasing what was there.
+  Include `<unknwn.h>` before `<winrt/base.h>` or classic COM interfaces are unsupported.
+  This is the COM-helper sanction only — do not reach for the WinRT projection as a UI or
+  async framework. A project that includes these headers needs the C++/WinRT package, so keep
+  them out of headers that test projects consume.
 - **No external libraries without the owner's explicit approval.** Pre-approved: the Windows
   SDK (Win32, Winsock2, D3D12/DXGI, DirectXMath, DirectWrite, XAudio2/X3DAudio), **msquic** via
   NuGet, and C++/WinRT as above. If you believe a third-party library is justified, present the

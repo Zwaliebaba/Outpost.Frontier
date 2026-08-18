@@ -5,24 +5,8 @@
 #include "Clock.h"
 #include "Log.h"
 
-#include <cmath>
-
 namespace Neuron
 {
-
-ClearColour AnimatedClearColour(double _seconds) noexcept
-{
-  // A 6-second cycle, staying in the dark blues the art direction lives in.
-  const auto phase = static_cast<float>(std::sin(_seconds * (2.0 * 3.14159265358979323846 / 6.0)));
-  const float wave = 0.5f * (phase + 1.0f); // sin is [-1,1]; colours are not.
-
-  ClearColour colour;
-  colour.red = 0.010f + 0.010f * wave;
-  colour.green = 0.020f + 0.020f * wave;
-  colour.blue = 0.040f + 0.030f * wave;
-  colour.alpha = 1.0f;
-  return colour;
-}
 
 ClientApp::~ClientApp()
 {
@@ -70,15 +54,16 @@ bool ClientApp::CreateFrameResources()
   // beside it is what proves that it is safe.
   for (std::uint32_t i = 0; i < GpuSwapChain::BufferCount; ++i)
   {
-    if (FAILED(m_device.Device()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_commandAllocators[i]))))
+    if (FAILED(m_device.Device()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, __uuidof(ID3D12CommandAllocator),
+                                                         m_commandAllocators[i].put_void())))
     {
       NEURON_LOG_ERROR("CreateCommandAllocator failed for frame %u", i);
       return false;
     }
   }
 
-  if (FAILED(m_device.Device()->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[0].Get(), nullptr,
-                                                 IID_PPV_ARGS(&m_commandList))))
+  if (FAILED(m_device.Device()->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_commandAllocators[0].get(), nullptr,
+                                                 __uuidof(ID3D12GraphicsCommandList), m_commandList.put_void())))
   {
     NEURON_LOG_ERROR("CreateCommandList failed");
     return false;
@@ -146,7 +131,7 @@ void ClientApp::RenderFrame()
   // This slot's previous frame must be off the GPU before its allocator is reset.
   m_device.WaitForValue(m_frameFenceValues[frameIndex]);
 
-  ID3D12CommandAllocator* allocator = m_commandAllocators[frameIndex].Get();
+  ID3D12CommandAllocator* allocator = m_commandAllocators[frameIndex].get();
   allocator->Reset();
   m_commandList->Reset(allocator, nullptr);
 
@@ -175,7 +160,7 @@ void ClientApp::RenderFrame()
 
   m_commandList->Close();
 
-  ID3D12CommandList* lists[] = {m_commandList.Get()};
+  ID3D12CommandList* lists[] = {m_commandList.get()};
   m_device.Queue()->ExecuteCommandLists(1, lists);
 
   m_swapChain.Present(m_config.vsync);
@@ -190,10 +175,10 @@ void ClientApp::Shutdown()
     m_device.WaitForIdle(); // Release nothing the GPU is still using.
   }
 
-  m_commandList.Reset();
+  m_commandList = nullptr;
   for (GpuPtr<ID3D12CommandAllocator>& allocator : m_commandAllocators)
   {
-    allocator.Reset();
+    allocator = nullptr;
   }
 
   m_swapChain.Destroy();

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ClearColour.h"
 #include "ClientConfig.h"
 #include "GpuCom.h"
 #include "GpuDevice.h"
@@ -20,19 +21,6 @@
 
 namespace Neuron
 {
-
-/// The animated clear colour, factored out so it can be tested without a device.
-struct ClearColour
-{
-  float red = 0.0f;
-  float green = 0.0f;
-  float blue = 0.0f;
-  float alpha = 1.0f;
-};
-
-/// Slow breathing between two near-black blues -- proof the loop is running
-/// without pretending to be art (the real look arrives with ADR-006's passes).
-[[nodiscard]] ClearColour AnimatedClearColour(double _seconds) noexcept;
 
 class ClientApp
 {

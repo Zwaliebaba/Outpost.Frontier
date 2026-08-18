@@ -42,7 +42,7 @@ bool GpuDevice::Create(bool _enableDebugLayer)
   {
     // Must happen before the device exists, or the layer is not attached.
     GpuPtr<ID3D12Debug> debug;
-    if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debug))))
+    if (SUCCEEDED(D3D12GetDebugInterface(__uuidof(ID3D12Debug), debug.put_void())))
     {
       debug->EnableDebugLayer();
       factoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
@@ -54,7 +54,7 @@ bool GpuDevice::Create(bool _enableDebugLayer)
     }
   }
 
-  if (!Check(CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&m_factory)), "CreateDXGIFactory2"))
+  if (!Check(CreateDXGIFactory2(factoryFlags, __uuidof(IDXGIFactory6), m_factory.put_void()), "CreateDXGIFactory2"))
   {
     return false;
   }
@@ -71,7 +71,8 @@ bool GpuDevice::Create(bool _enableDebugLayer)
     return false;
   }
 
-  if (!Check(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_device)), "D3D12CreateDevice"))
+  if (!Check(D3D12CreateDevice(adapter.get(), D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), m_device.put_void()),
+                 "D3D12CreateDevice"))
   {
     return false;
   }
@@ -80,8 +81,8 @@ bool GpuDevice::Create(bool _enableDebugLayer)
   {
     // Break where the mistake is made. Corruption and errors only: warnings
     // include plenty the runtime raises for legitimate patterns.
-    GpuPtr<ID3D12InfoQueue> infoQueue;
-    if (SUCCEEDED(m_device.As(&infoQueue)))
+    const GpuPtr<ID3D12InfoQueue> infoQueue = m_device.try_as<ID3D12InfoQueue>();
+    if (infoQueue)
     {
       infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
       infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE);
@@ -92,12 +93,12 @@ bool GpuDevice::Create(bool _enableDebugLayer)
   queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
   queueDesc.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL;
   queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-  if (!Check(m_device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&m_queue)), "CreateCommandQueue"))
+  if (!Check(m_device->CreateCommandQueue(&queueDesc, __uuidof(ID3D12CommandQueue), m_queue.put_void()), "CreateCommandQueue"))
   {
     return false;
   }
 
-  if (!Check(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)), "CreateFence"))
+  if (!Check(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, __uuidof(ID3D12Fence), m_fence.put_void()), "CreateFence"))
   {
     return false;
   }
@@ -120,8 +121,8 @@ bool GpuDevice::PickAdapter(GpuPtr<IDXGIAdapter1>& _outAdapter)
   for (UINT index = 0;; ++index)
   {
     GpuPtr<IDXGIAdapter1> adapter;
-    if (m_factory->EnumAdapterByGpuPreference(index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter)) ==
-        DXGI_ERROR_NOT_FOUND)
+    if (m_factory->EnumAdapterByGpuPreference(index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, __uuidof(IDXGIAdapter1),
+                                              adapter.put_void()) == DXGI_ERROR_NOT_FOUND)
     {
       break;
     }
@@ -132,7 +133,7 @@ bool GpuDevice::PickAdapter(GpuPtr<IDXGIAdapter1>& _outAdapter)
       continue;
     }
     // Probe with a null device: cheaper than creating one to find out.
-    if (FAILED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), nullptr)))
+    if (FAILED(D3D12CreateDevice(adapter.get(), D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), nullptr)))
     {
       continue;
     }
@@ -145,7 +146,7 @@ bool GpuDevice::PickAdapter(GpuPtr<IDXGIAdapter1>& _outAdapter)
   // WARP keeps the client running on a machine with no usable GPU -- slowly,
   // but well enough to see that everything else works.
   GpuPtr<IDXGIAdapter1> warp;
-  if (SUCCEEDED(m_factory->EnumWarpAdapter(IID_PPV_ARGS(&warp))))
+  if (SUCCEEDED(m_factory->EnumWarpAdapter(__uuidof(IDXGIAdapter1), warp.put_void())))
   {
     NEURON_LOG_WARNING("no hardware adapter supports d3d12; falling back to WARP");
     strncpy_s(m_adapterName, "WARP (software)", _TRUNCATE);
@@ -160,7 +161,7 @@ bool GpuDevice::PickAdapter(GpuPtr<IDXGIAdapter1>& _outAdapter)
 std::uint64_t GpuDevice::Signal()
 {
   ++m_lastSignalled;
-  if (FAILED(m_queue->Signal(m_fence.Get(), m_lastSignalled)))
+  if (FAILED(m_queue->Signal(m_fence.get(), m_lastSignalled)))
   {
     NEURON_LOG_ERROR("queue signal failed");
   }
@@ -197,10 +198,10 @@ void GpuDevice::Destroy()
     CloseHandle(m_fenceEvent);
     m_fenceEvent = nullptr;
   }
-  m_fence.Reset();
-  m_queue.Reset();
-  m_device.Reset();
-  m_factory.Reset();
+  m_fence = nullptr;
+  m_queue = nullptr;
+  m_device = nullptr;
+  m_factory = nullptr;
 }
 
 } // namespace Neuron

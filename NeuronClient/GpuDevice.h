@@ -31,9 +31,9 @@ public:
   [[nodiscard]] bool Create(bool _enableDebugLayer);
   void Destroy();
 
-  [[nodiscard]] ID3D12Device* Device() const noexcept { return m_device.Get(); }
-  [[nodiscard]] ID3D12CommandQueue* Queue() const noexcept { return m_queue.Get(); }
-  [[nodiscard]] IDXGIFactory6* Factory() const noexcept { return m_factory.Get(); }
+  [[nodiscard]] ID3D12Device* Device() const noexcept { return m_device.get(); }
+  [[nodiscard]] ID3D12CommandQueue* Queue() const noexcept { return m_queue.get(); }
+  [[nodiscard]] IDXGIFactory6* Factory() const noexcept { return m_factory.get(); }
   [[nodiscard]] bool TearingSupported() const noexcept { return m_tearingSupported; }
   [[nodiscard]] const char* AdapterName() const noexcept { return m_adapterName; }
 

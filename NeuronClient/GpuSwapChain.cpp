@@ -54,7 +54,7 @@ bool GpuSwapChain::Create(GpuDevice& _device, HWND _window, std::uint32_t _width
   }
 
   GpuPtr<IDXGISwapChain1> swapChain1;
-  if (!Check(_device.Factory()->CreateSwapChainForHwnd(_device.Queue(), _window, &desc, nullptr, nullptr, &swapChain1),
+  if (!Check(_device.Factory()->CreateSwapChainForHwnd(_device.Queue(), _window, &desc, nullptr, nullptr, swapChain1.put()),
              "CreateSwapChainForHwnd"))
   {
     return false;
@@ -63,8 +63,10 @@ bool GpuSwapChain::Create(GpuDevice& _device, HWND _window, std::uint32_t _width
   // DXGI's own Alt+Enter would fight the client's fullscreen handling.
   _device.Factory()->MakeWindowAssociation(_window, DXGI_MWA_NO_ALT_ENTER);
 
-  if (!Check(swapChain1.As(&m_swapChain), "IDXGISwapChain3 query"))
+  m_swapChain = swapChain1.try_as<IDXGISwapChain3>();
+  if (!m_swapChain)
   {
+    NEURON_LOG_ERROR("the swapchain does not implement IDXGISwapChain3");
     return false;
   }
 
@@ -77,7 +79,8 @@ bool GpuSwapChain::Create(GpuDevice& _device, HWND _window, std::uint32_t _width
   heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
   heapDesc.NumDescriptors = BufferCount;
   heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE; // RTVs are never shader-visible.
-  if (!Check(_device.Device()->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_rtvHeap)), "CreateDescriptorHeap"))
+  if (!Check(_device.Device()->CreateDescriptorHeap(&heapDesc, __uuidof(ID3D12DescriptorHeap), m_rtvHeap.put_void()),
+             "CreateDescriptorHeap"))
   {
     return false;
   }
@@ -95,11 +98,11 @@ bool GpuSwapChain::CreateRenderTargets()
   D3D12_CPU_DESCRIPTOR_HANDLE handle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
   for (std::uint32_t i = 0; i < BufferCount; ++i)
   {
-    if (!Check(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_backBuffers[i])), "swapchain GetBuffer"))
+    if (!Check(m_swapChain->GetBuffer(i, __uuidof(ID3D12Resource), m_backBuffers[i].put_void()), "swapchain GetBuffer"))
     {
       return false;
     }
-    m_device->Device()->CreateRenderTargetView(m_backBuffers[i].Get(), &viewDesc, handle);
+    m_device->Device()->CreateRenderTargetView(m_backBuffers[i].get(), &viewDesc, handle);
     handle.ptr += m_rtvStride;
   }
 
@@ -111,7 +114,9 @@ void GpuSwapChain::ReleaseRenderTargets()
 {
   for (GpuPtr<ID3D12Resource>& buffer : m_backBuffers)
   {
-    buffer.Reset();
+    // put() asserts the pointer is empty, so every buffer must be released
+    // before CreateRenderTargets fills them again.
+    buffer = nullptr;
   }
 }
 
@@ -181,13 +186,13 @@ D3D12_CPU_DESCRIPTOR_HANDLE GpuSwapChain::CurrentRenderTargetView() const noexce
 void GpuSwapChain::Destroy()
 {
   ReleaseRenderTargets();
-  m_rtvHeap.Reset();
+  m_rtvHeap = nullptr;
   if (m_frameLatencyWaitable != nullptr)
   {
     CloseHandle(m_frameLatencyWaitable);
     m_frameLatencyWaitable = nullptr;
   }
-  m_swapChain.Reset();
+  m_swapChain = nullptr;
   m_device = nullptr;
 }
 

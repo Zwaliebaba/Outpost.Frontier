@@ -13,7 +13,8 @@
 
 #include <d3d12.h>
 #include <dxgi1_6.h>
-#include <wrl/client.h>
+#include <unknwn.h>
+#include <winrt/base.h>
 
 #include <cstddef>
 #include <cstdint>

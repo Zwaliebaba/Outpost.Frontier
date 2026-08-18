@@ -45,7 +45,7 @@ public:
   void Present(bool _vsync);
 
   [[nodiscard]] std::uint32_t CurrentIndex() const noexcept { return m_currentIndex; }
-  [[nodiscard]] ID3D12Resource* CurrentBackBuffer() const noexcept { return m_backBuffers[m_currentIndex].Get(); }
+  [[nodiscard]] ID3D12Resource* CurrentBackBuffer() const noexcept { return m_backBuffers[m_currentIndex].get(); }
   [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE CurrentRenderTargetView() const noexcept;
   [[nodiscard]] std::uint32_t Width() const noexcept { return m_width; }
   [[nodiscard]] std::uint32_t Height() const noexcept { return m_height; }

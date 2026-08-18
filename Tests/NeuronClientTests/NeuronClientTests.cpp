@@ -1,7 +1,9 @@
 #include "pch.h"
 #include "CppUnitTest.h"
 
-#include "ClientApp.h"
+#include <cstdint>
+
+#include "ClearColour.h"
 #include "ClientConfig.h"
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
