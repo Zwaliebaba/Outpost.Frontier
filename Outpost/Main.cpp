@@ -6,6 +6,7 @@
 #include "Clock.h"
 #include "Log.h"
 
+#include <cstdio>
 #include <string>
 
 /*

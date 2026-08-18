@@ -3,7 +3,7 @@
 #include "AppConfig.h"
 
 #include <algorithm>
-#include <array>
+#include <initializer_list>
 
 namespace Outpost
 {
@@ -29,7 +29,8 @@ void WarnUnknownKeys(const JsonValue& _object, std::initializer_list<const char*
     const bool known = std::any_of(_known.begin(), _known.end(), [name](const char* _k) { return name == _k; });
     if (!known)
     {
-      _diagnostics.warnings.push_back(std::string(_path) + "." + std::string(name) + " is not a known setting (ignored)");
+      const std::string prefix = _path.empty() ? std::string{} : std::string(_path) + ".";
+      _diagnostics.warnings.push_back(prefix + std::string(name) + " is not a known setting (ignored)");
     }
   }
 }
