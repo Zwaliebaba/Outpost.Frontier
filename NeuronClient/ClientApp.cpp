@@ -45,9 +45,10 @@ ClientApp::~ClientApp()
   Shutdown();
 }
 
-bool ClientApp::Initialise(const ClientConfig& _config)
+bool ClientApp::Initialise(const ClientConfig& _config, WorldView& _worldView)
 {
   m_config = _config;
+  m_worldView = &_worldView;
 
   WindowDesc windowDesc;
   windowDesc.width = _config.windowWidth;
@@ -83,7 +84,11 @@ bool ClientApp::Initialise(const ClientConfig& _config)
 
   // After the device: a network failure should not arrive dressed as a
   // graphics one, and the window is worth having either way.
-  if (!m_connection.Connect(_config.serverHost, _config.serverPort, _config.schemaHash, _config.contentHash, _config.playerName))
+  // Asked of the world view rather than read from configuration (ADR-014 §2).
+  // A client told its own content hash cannot detect that its content changed;
+  // a client that asks the game reports what it actually loaded.
+  if (!m_connection.Connect(_config.serverHost, _config.serverPort, m_worldView->SchemaHash(), m_worldView->ContentHash(),
+                            _config.playerName))
   {
     NEURON_LOG_ERROR("could not open a connection to %s:%u", _config.serverHost.c_str(), static_cast<unsigned>(_config.serverPort));
     return false;
@@ -259,24 +264,15 @@ void ClientApp::UpdateCamera(float _deltaSeconds)
 
 void ClientApp::ExtractScene()
 {
-  // Two sources, and the difference between them is the point of S5b.
+  // The world, from the other side of the seam (ADR-014 §2). This function used
+  // to invent a fleet and merge in authored scenery; it now asks for a scene
+  // and has no idea what it is getting -- which is the entire point of S5c.
   //
-  // The ships are still invented here (Build Order S5) and S7 replaces them
-  // with the interpolated replicated world. The scenery is not invented: it is
-  // the universe definition, read from GameData by the composition root and
-  // converted into this grid's local frame. Move the station in that file and
-  // it moves here, with nothing rebuilt.
-  ParkedFleetDesc fleet;
-  fleet.shipClassCount = m_meshes.Count() > 0 ? m_meshes.Count() - 1 : 0;
-  BuildParkedFleet(fleet, m_meshes.ClassRadii(), m_scene);
-
-  AddScenery(m_config.staticScenery, m_scene);
-
-  // BuildParkedFleet leaves its own scene sorted -- it is a standalone fake
-  // with standalone tests -- so this re-sorts a merged array rather than an
-  // unsorted one. Forty-odd instances make that free, and the alternative is a
-  // producer whose output is only valid if you remember to finish it.
-  m_scene.SortByClass(m_meshes.Count());
+  // The render tick is the server's, unsmoothed. Interpolating between
+  // snapshots is the snapshot buffer's job and arrives with S7; pretending to
+  // interpolate before there is anything to interpolate between would be a
+  // fiction this seam then has to keep telling.
+  m_worldView->BuildScene(static_cast<double>(m_connection.ServerTick()), m_scene);
 }
 
 FrameConstants ClientApp::BuildFrameConstants() const

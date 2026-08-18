@@ -40,6 +40,41 @@ makes those libraries worth having.
      `SolvePreview(const OrderIntent&, FormationPreview&)`, `EncodeOrder(const OrderIntent&,
      ByteWriter&)`. `ClientApp` owns window, device, passes, camera, picking and HUD; the game
      supplies meaning.
+2a. **Who holds the vtable** (settled by S5c, because the ADR as written could not be
+   implemented). §1 says GameLogic depends on **NeuronCore only**. §2 says **GameLogic
+   implements** `Neuron::Simulation` and `Neuron::WorldView`. Those interfaces are declared in
+   NeuronServer and NeuronClient, so a GameLogic class implementing one would need that
+   project on its include path. Both statements cannot hold.
+
+   **Resolved in favour of §1: the composition root holds the vtable.** GameLogic supplies
+   pure types and pure functions; `Outpost.exe` implements the engine's interfaces by
+   forwarding to them. That is wiring rather than logic, which §6 already allows.
+
+   The deciding argument is what §1 is protecting. GameLogic's freedom from Windows, D3D12,
+   sockets and file IO is why `GameLogicTests` runs with no device, no fixtures and no
+   filesystem — a property S5b leaned on hard, since the whole universe parser is tested on
+   text held in the test file. Putting `$(SolutionDir)NeuronClient` on GameLogic's include
+   path would make every D3D12-bearing header in that project reachable from the game, and the
+   discipline would survive only as long as everyone remembered it. A structural guarantee is
+   worth an adapter.
+
+   What it costs, stated rather than discovered later: the adapters live in the one project
+   with no test project of its own. The mitigation is to keep them thin enough that there is
+   nothing to test — they hold data and forward — and to put the *stubs* in the test projects,
+   where they prove the interfaces are implementable with no game in sight.
+
+2b. **`FormationPreview` is `OrderPreview`** (S5c). §2 named the preview type
+   `FormationPreview`, and §4 of this same ADR is why it could not keep that name: `EntityRecord`
+   earns its place in the engine by naming "no ship, order, formation or hull class", and a
+   type called `FormationPreview` fails that test in the library the test was written for. What
+   the engine needs to know is that a proposed command has marks and an extent worth drawing.
+   That some games arrange them into a formation is the game's business.
+
+   `OrderIntent`, `OrderVerdict` and `OrderPreview` live in **NeuronCore**, not beside either
+   seam: `WorldView::PreCheck` and `Simulation::ApplyOrderBytes` must return the same verdict
+   type or §3's BounceParity is a claim nothing can check — and NeuronClient cannot see
+   NeuronServer, so the shared type has to sit below both.
+
 3. **BounceParity survives intact.** The client still runs the *identical* validation function
    — it is reached through an interface instead of a link-time symbol. Same code, same reason
    codes, same bounce. This was the one thing worth checking before accepting the ruling, and
@@ -77,6 +112,10 @@ makes those libraries worth having.
 
 ## Consequences
 
+- **The build enforces it.** From S5c, CI fails if any engine or test `.vcxproj` names
+  GameLogic, or if any engine source includes a GameLogic header. This ruling is a property
+  nobody can hold in their head across a year of slices; the one that matters most is the one
+  worth automating.
 - The engine libraries become genuinely reusable, which is the point: improvements flow between
   Frontier and Warzone instead of forking.
 - Two interfaces must be designed *before* the slices that cross them — `Simulation` before S7
@@ -86,6 +125,6 @@ makes those libraries worth having.
 - The engine cannot inspect game state, so anything the engine needs *about* entities must be
   in the neutral record or exposed through the seam. Interest management later needs a generic
   relevance hook on `Simulation` — designable, and better than the engine reading ship tables.
-- Watch for leakage: if `RenderScene`, `OrderIntent` or `FormationPreview` start growing
+- Watch for leakage: if `RenderScene`, `OrderIntent` or `OrderPreview` start growing
   fleet-shaped fields, the seam is failing and the fifth-project question reopens rather than
   being answered by quietly re-adding the dependency.

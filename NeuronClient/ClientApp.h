@@ -17,6 +17,7 @@
 #include "RenderWorld.h"
 #include "TaskPool.h"
 #include "Window.h"
+#include "WorldView.h"
 
 #include <cstdint>
 
@@ -31,9 +32,12 @@
  * boundaries have to exist before the HUD does -- retrofitting a measurement
  * means retrofitting the boundary it measures.
  *
- * What is deliberately still missing: the world. S5 renders a parked fleet the
- * client makes up for itself, because the seam that supplies a real one
- * (WorldView, ADR-014) lands in S5c and snapshots in S7.
+ * From S5c the world arrives through `Neuron::WorldView`, injected by the
+ * composition root. This class no longer invents a scene, holds one, or knows
+ * what is in it: it asks for one per frame and draws what it gets. The parked
+ * fleet still exists, but it is on the other side of the seam now -- which is
+ * the difference between a placeholder the engine ships and a placeholder the
+ * game supplies. S7 replaces the implementation and nothing here changes.
  */
 
 namespace Neuron
@@ -48,7 +52,10 @@ public:
   ClientApp(const ClientApp&) = delete;
   ClientApp& operator=(const ClientApp&) = delete;
 
-  [[nodiscard]] bool Initialise(const ClientConfig& _config);
+  /// The world view is borrowed, not owned, and must outlive the client --
+  /// the same contract `ServerHost::Start` has with its simulation. The
+  /// composition root owns both (ADR-008).
+  [[nodiscard]] bool Initialise(const ClientConfig& _config, WorldView& _worldView);
 
   /// Runs until the window closes. Returns a process exit code.
   [[nodiscard]] int Run();
@@ -68,6 +75,7 @@ private:
   [[nodiscard]] PassConstants BuildPassConstants() const;
 
   ClientConfig m_config;
+  WorldView* m_worldView = nullptr;
   Window m_window;
   ClientConnection m_connection;
   GpuDevice m_device;

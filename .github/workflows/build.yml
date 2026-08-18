@@ -67,6 +67,45 @@ jobs:
           }
           Write-Host 'no header shadows a standard header'
 
+      # ADR-014: Neuron is a two-game engine, and the sibling repository ships
+      # these same libraries around a different game. The moment an engine
+      # project references GameLogic it stops being an engine and becomes this
+      # game's client. That is a property nobody can hold in their head across
+      # a year of slices, so the build holds it instead.
+      - name: Check that only Outpost references GameLogic
+        shell: pwsh
+        run: |
+          $bad = @()
+          foreach ($project in 'NeuronCore', 'NeuronServer', 'NeuronClient')
+          {
+            $file = "$project/$project.vcxproj"
+            if ((Get-Content $file -Raw) -match 'GameLogic') { $bad += $file }
+          }
+          # The test projects too: a test that links GameLogic to drive an
+          # engine library proves the opposite of what the seam suite claims.
+          foreach ($project in 'NeuronCoreTests', 'NeuronServerTests', 'NeuronClientTests')
+          {
+            $file = "Tests/$project/$project.vcxproj"
+            if ((Get-Content $file -Raw) -match 'GameLogic') { $bad += $file }
+          }
+          # Source, not just project files: an include would fail to compile
+          # without the reference, but it is worth naming the real mistake.
+          foreach ($dir in 'NeuronCore', 'NeuronServer', 'NeuronClient')
+          {
+            Get-ChildItem -Path $dir -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              if ((Get-Content $_.FullName -Raw) -match '#include\s*"(Universe|UniverseParse|World|Orders|Validate|Formation|ShipClass|Snapshot|OrderMessages|SchemaHash|WorldHash|ReplicatedView)\.h"')
+              {
+                $bad += $_.FullName
+              }
+            }
+          }
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_ references GameLogic; only Outpost.exe may (ADR-014)" }
+            throw 'the engine has grown a dependency on the game'
+          }
+          Write-Host 'the engine references no game'
+
       # SolutionDir is passed explicitly (trailing backslash required): each
       # project lists the libraries it includes as $(SolutionDir)<Project>,
       # and $(SolutionDir) is empty when a .vcxproj is built directly. The

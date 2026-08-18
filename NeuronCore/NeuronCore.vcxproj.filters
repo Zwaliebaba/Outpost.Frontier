@@ -80,6 +80,9 @@
     <ClInclude Include="EntityRecord.h">
       <Filter>Serialization</Filter>
     </ClInclude>
+    <ClInclude Include="OrderIntent.h">
+      <Filter>Serialization</Filter>
+    </ClInclude>
     <ClInclude Include="NeuronCore.h" />
     <ClInclude Include="Debug.h" />
   </ItemGroup>

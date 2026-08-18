@@ -68,6 +68,9 @@
     <ClInclude Include="ClientConfig.h">
       <Filter>App</Filter>
     </ClInclude>
+    <ClInclude Include="WorldView.h">
+      <Filter>App</Filter>
+    </ClInclude>
     <ClInclude Include="Window.h">
       <Filter>App</Filter>
     </ClInclude>

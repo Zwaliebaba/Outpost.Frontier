@@ -44,6 +44,7 @@
     <ClInclude Include="ClearColour.h" />
     <ClInclude Include="ClientApp.h" />
     <ClInclude Include="ClientConfig.h" />
+    <ClInclude Include="WorldView.h" />
     <ClInclude Include="ClientConnection.h" />
     <ClInclude Include="GpuCom.h" />
     <ClInclude Include="GpuDevice.h" />

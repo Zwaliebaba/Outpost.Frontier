@@ -37,6 +37,7 @@
     <ClInclude Include="ByteReader.h" />
     <ClInclude Include="ByteWriter.h" />
     <ClInclude Include="EntityRecord.h" />
+    <ClInclude Include="OrderIntent.h" />
     <ClInclude Include="Hash.h" />
     <ClInclude Include="Json.h" />
     <ClInclude Include="JsonWriter.h" />

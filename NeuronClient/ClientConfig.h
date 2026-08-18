@@ -1,7 +1,6 @@
 #pragma once
 
 #include "NebulaField.h"
-#include "RenderWorld.h"
 
 #include <cstdint>
 #include <string>
@@ -54,31 +53,21 @@ struct ClientConfig
   /// sheet makes 0.8-1.6x a requirement rather than a nicety.
   float uiScale = 1.0f;
 
-  /*
-   * The world the session plays in, read from the universe definition by the
-   * composition root (ADR-009). The engine is handed placements and an origin;
-   * it never learns that one of those placements is a station.
-   *
-   * `staticScenery` is in local metres relative to the anchor. The anchor is
-   * the grid's origin on the universe plane, in whole metres -- exact, and
-   * never held as a float, because that is the whole point of ADR-009 §1.
-   */
-  std::vector<ScenePlacement> staticScenery;
-  std::uint16_t worldId = 0;
-  std::int64_t gridAnchorXMetres = 0;
-  std::int64_t gridAnchorYMetres = 0;
+  // The world used to be here: authored scenery, a world id and a grid anchor,
+  // passed in as configuration. S5c moved all three behind `Neuron::WorldView`,
+  // where they belong -- configuration is how the client is set up, not what it
+  // is looking at, and an engine carrying world data in its config struct is an
+  // engine that has an opinion about worlds (ADR-014).
 
   /// The ambient field behind the fleet (ADR-006 §1). A field that will not
   /// bake costs the frame its haze and nothing else -- the pass draws nothing
   /// rather than the client refusing to start.
   NebulaSettings nebula;
 
-  /// The game's message layout and authored content, as the simulation reports
-  /// them. Compared at the handshake so mismatched builds refuse each other
-  /// rather than disagreeing quietly (ADR-004 §3). The composition root supplies
-  /// both: it is the only place that knows the engine and the game (ADR-014).
-  std::uint64_t schemaHash = 0;
-  std::uint64_t contentHash = 0;
+  // The handshake hashes used to be here. S5c moved them behind
+  // `Neuron::WorldView`, which is asked for them at connect time: they describe
+  // the *game* the client loaded, and a client told its own content hash by its
+  // configuration cannot notice that its content changed underneath it.
 };
 
 } // namespace Neuron

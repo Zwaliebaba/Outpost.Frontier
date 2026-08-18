@@ -359,11 +359,53 @@ makes. The knobs for that are in `client.nebula` and take effect on restart.
 ### S5c — The engine/game seams
 `Neuron::Simulation` (NeuronServer) and `Neuron::WorldView` (NeuronClient) declared, with the
 neutral types they speak — `EntityRecord` (NeuronCore), `RenderScene`, `OrderIntent`,
-`FormationPreview`; stub implementations in the test projects; `ServerHost` and `ClientApp`
+`OrderPreview` (ADR-014 §2b renamed it from `FormationPreview`); stub implementations in the
+test projects; `ServerHost` and `ClientApp`
 take them by reference; `Outpost.exe` constructs the GameLogic-backed ones (ADR-014).
 **Accept:** `NeuronServerTests` and `NeuronClientTests` drive their library against a **stub**
 simulation/world view with no GameLogic in sight — the proof the engine is game-free;
 `Outpost.exe` is the only project referencing GameLogic (grep rule on the vcxprojs).
+**Built ✅ (code):**
+`NeuronCore/OrderIntent.h` — `OrderIntent`, `OrderVerdict` and `OrderPreview`, in NeuronCore
+rather than beside either seam because both seams speak them: `WorldView::PreCheck` and
+`Simulation::ApplyOrderBytes` must return the same verdict type or ADR-014 §3's BounceParity is
+unverifiable, and NeuronClient cannot see NeuronServer. `OrderVerdict` moved down out of
+`Simulation.h` for exactly that reason.
+`NeuronClient/WorldView.h` — the client seam: `ApplySnapshot`, `BuildScene`, `PreCheck`,
+`SolvePreview`, `EncodeOrder`, `SchemaHash`, `ContentHash`, plus `NullWorldView`, which builds
+an *empty* scene because a client wired to nothing should look like one.
+`Outpost/ParkedFleetView.h/.cpp` — the placeholder world, now on the game's side of the seam.
+`ClientApp::Initialise` takes a `WorldView&` the way `ServerHost::Start` takes a `Simulation&`,
+and `ExtractScene` is one `BuildScene` call.
+
+**The engine stopped carrying world data.** `ClientConfig` lost `staticScenery`, `worldId`,
+`gridAnchorXMetres`, `gridAnchorYMetres`, `schemaHash` and `contentHash`. Configuration is how
+the client is *set up*, not what it is *looking at*, and the handshake hashes are now asked of
+the world view at connect time — a client told its own content hash by its configuration cannot
+notice that its content changed underneath it.
+
+**ADR-014 could not be implemented as written, and S5c is where that surfaced.** §1 says
+GameLogic depends on NeuronCore only; §2 says GameLogic implements interfaces declared in
+NeuronServer and NeuronClient. A class cannot implement an interface it may not include.
+Resolved in favour of §1 — the composition root holds the vtable — because GameLogic's freedom
+from Windows, D3D12 and file IO is what lets `GameLogicTests` run with no device and no
+fixtures, which is precisely what S5b leaned on. Recorded as ADR-014 §2a, with the cost stated:
+the adapters sit in the one project with no test project, so they are kept thin enough that
+there is nothing in them to test. `FormationPreview` became `OrderPreview` in the same pass,
+against ADR-014 §4's own rule that the engine may name no formation (§2b).
+
+**Verified:** `NeuronClientTests` is 71 cases, up from 59. The twelve new ones write a world
+view out of nothing but engine headers and drive it through every method — a scene that is
+rebuilt rather than accumulated, a snapshot that crosses as bytes nothing reinterprets, a
+verdict whose reason code the engine never reads, a preview that reports its cap instead of
+truncating quietly, and an encode that refuses rather than sending half an order. The file
+includes no GameLogic header and the project references no GameLogic, which is the claim.
+CI now fails if any engine or test project names GameLogic, or if any engine source includes a
+GameLogic header.
+**Outstanding:** the seam is declared and driven, but nothing real is behind it yet —
+`ParkedFleetView` invents a fleet and refuses every order, because GameLogic has no world until
+S6 and no snapshots until S7. `ClientApp` calling `BuildScene` every frame is not covered by a
+test: that needs a device and a window, and remains a manual checkpoint.
 
 ### S6 — GameLogic sim + replay determinism
 World tables, `ShipClassTable` (11-value enum, 9 with content — Fighter/Cruiser reserved),

@@ -2,6 +2,7 @@
 
 #include "AppConfig.h"
 #include "ConfigLoad.h"
+#include "ParkedFleetView.h"
 #include "SelfTest.h"
 #include "UniverseLoad.h"
 
@@ -189,6 +190,30 @@ void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
                   static_cast<long long>(anchor.origin.y));
 }
 
+/*
+ * The client's half of the seam (ADR-014 §2a).
+ *
+ * The placeholder world, assembled from the same universe definition the server
+ * simulates against. Both halves load the identical file, so the client hashes
+ * what it read rather than being told (ADR-009 §8) -- in `mode: "client"` that
+ * is the whole safety property, because a client whose content drifted is
+ * refused at the door instead of rendering a world nobody is simulating.
+ */
+Outpost::ParkedFleetView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _config, const Outpost::UniverseLoadResult& _universe)
+{
+  // The structure mesh is the last entry in the content list by convention
+  // (AppConfig.h), which is the only place that convention is spelled -- the
+  // engine is handed a classId and never learns what it stands for.
+  const auto classCount = static_cast<std::uint32_t>(_config.content.meshes.size());
+  const auto structureClassId = static_cast<std::uint16_t>(classCount == 0 ? 0 : classCount - 1);
+
+  Outpost::ParkedFleetView::Desc desc;
+  desc.scenery = BuildScenery(_universe.universe, structureClassId);
+  desc.classCount = classCount;
+  desc.contentHash = _universe.universeHash;
+  return desc;
+}
+
 /// The server takes the same treatment: a plain struct, assembled here.
 Neuron::ServerConfig MakeServerConfig(const Outpost::AppConfig& _config)
 {
@@ -200,7 +225,7 @@ Neuron::ServerConfig MakeServerConfig(const Outpost::AppConfig& _config)
 
 /// Maps the file's settings onto what the client library asks for. The client
 /// never sees AppConfig: libraries take plain structs from the composition root.
-Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config, const Outpost::UniverseLoadResult& _universe)
+Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
 {
   Neuron::ClientConfig client;
   client.windowWidth = _config.client.window.width;
@@ -239,22 +264,9 @@ Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config, const O
   client.cameraYawSnapDegrees = static_cast<float>(_config.client.camera.yawSnapDegrees);
   client.uiScale = static_cast<float>(_config.client.ui.scale);
 
-  // The world, from the universe definition. The structure mesh is the last
-  // entry in the content list by convention (AppConfig.h), which is the only
-  // place that convention is spelled -- the engine just gets a classId.
-  const Game::GridAnchor anchor = _universe.universe.StartAnchor();
-  const auto structureClassId =
-      static_cast<std::uint16_t>(_config.content.meshes.empty() ? 0 : _config.content.meshes.size() - 1);
-  client.worldId = anchor.system;
-  client.gridAnchorXMetres = anchor.origin.x;
-  client.gridAnchorYMetres = anchor.origin.y;
-  client.staticScenery = BuildScenery(_universe.universe, structureClassId);
-
-  // Both halves load the identical definition, so the client hashes what it
-  // read rather than being told (ADR-009 §8). In `mode: "client"` that is the
-  // whole safety property: a client whose content drifted is refused at the
-  // door instead of rendering a world the server is not simulating.
-  client.contentHash = _universe.universeHash;
+  // The world is not here any more. Scenery, the grid anchor and the handshake
+  // hashes went behind `Neuron::WorldView` with S5c: configuration is how the
+  // client is set up, not what it is looking at.
 #if defined(_DEBUG)
   client.enableDebugLayer = true; // Every debug run gets the validation layer.
 #endif
@@ -358,7 +370,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     case Outpost::HostMode::Host:
     case Outpost::HostMode::Client:
     {
-      Neuron::ClientConfig clientConfig = MakeClientConfig(config, universe);
+      Neuron::ClientConfig clientConfig = MakeClientConfig(config);
       if (config.mode == Outpost::HostMode::Host)
       {
         // Port 0 asked the OS to choose, so the client is told what it chose.
@@ -366,15 +378,16 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
         // the only thing the two halves share besides the socket.
         clientConfig.serverHost = "127.0.0.1";
         clientConfig.serverPort = server.BoundPort();
-        // The schema hash is the simulation's to state, and in one process
-        // there is exactly one simulation to ask. The content hash is not taken
-        // from it: the client hashes the universe it loaded itself, so hosting
-        // exercises the same comparison a separate client would (ADR-009 §8).
-        clientConfig.schemaHash = simulation.SchemaHash();
       }
 
+      // Engine meets game here and nowhere else (ADR-014 §6). The client gets
+      // a world view by reference and never learns what is behind it; hosting
+      // exercises exactly the handshake a separate client would, because both
+      // sides state their own hashes rather than sharing a variable.
+      Outpost::ParkedFleetView worldView{MakeWorldViewDesc(config, universe)};
+
       Neuron::ClientApp client;
-      if (!client.Initialise(clientConfig))
+      if (!client.Initialise(clientConfig, worldView))
       {
         NEURON_LOG_ERROR("client failed to initialise");
         exitCode = 2;

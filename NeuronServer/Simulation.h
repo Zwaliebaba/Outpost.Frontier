@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ByteWriter.h"
+#include "OrderIntent.h"
 
 #include <cstdint>
 #include <span>
@@ -20,15 +21,10 @@
 namespace Neuron
 {
 
-/// What the authority decided about a submitted order. The reason code is
-/// GameLogic's enum; the engine passes the number through without reading it,
-/// so the client's bounce and the server's refusal cannot say different things.
-struct OrderVerdict
-{
-  bool accepted = false;
-  std::uint16_t reasonCode = 0;
-  std::uint32_t serverOrderId = 0;
-};
+// `OrderVerdict` used to be declared here. It moved to NeuronCore with S5c,
+// because `WorldView::PreCheck` (NeuronClient) has to return the same type this
+// returns or ADR-014 §3's BounceParity is unverifiable -- and NeuronClient
+// cannot see NeuronServer. A shared type belongs below both, not beside one.
 
 /*
  * Where the simulation's world sits, for a client that must place itself before
