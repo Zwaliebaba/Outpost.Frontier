@@ -13,6 +13,9 @@
 
 #include "Clock.h"
 #include "Log.h"
+#include "Telemetry.h"
+
+#include <DirectXMath.h>
 
 #include <cstdio>
 #include <string>
@@ -108,8 +111,24 @@ Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
 
 int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
 {
+  // Before anything computes with DirectXMath: the library is compiled for the
+  // instruction set /arch selects, and running it on a CPU without that set is
+  // an illegal instruction somewhere far from here (ADR-010, Risk R11).
+  // Called directly rather than through a helper -- DirectXMath is used
+  // natively, and boot is the use site.
+  if (!DirectX::XMVerifyCPUSupport())
+  {
+    MessageBoxW(nullptr, L"This CPU does not support the instruction set this build requires.", L"Outpost: Frontier",
+                MB_OK | MB_ICONERROR);
+    return 4;
+  }
+
   Neuron::Clock::Initialise();
   SetConsoleCtrlHandler(&ConsoleHandler, TRUE);
+
+  // The composition root owns the Main lane so headless mode -- which never
+  // constructs a ClientApp -- still has one (ADR-007 §8).
+  (void)Neuron::Telemetry::RegisterLane("Main");
 
   Outpost::AppConfig config;
   Outpost::ConfigPaths paths;

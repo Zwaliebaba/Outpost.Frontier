@@ -4,6 +4,7 @@
 
 #include "Clock.h"
 #include "Log.h"
+#include "Telemetry.h"
 
 namespace Neuron
 {
@@ -89,6 +90,11 @@ int ClientApp::Run()
     return 1;
   }
 
+  // The client's owned lane (ADR-007 §8). The GAME/EXTRACT/RENDER/UI rows the
+  // corpus HUD shows arrive with the stages themselves in S5; what exists today
+  // is the frame and the two things inside it.
+  (void)Telemetry::RegisterLane("Main");
+
   NEURON_LOG_INFO("entering frame loop");
   while (m_window.PumpMessages())
   {
@@ -97,14 +103,23 @@ int ClientApp::Run()
     if (m_window.Minimised())
     {
       // Nothing to present to, and a zero-sized swapchain is an error. Idle
-      // politely instead of spinning.
+      // politely instead of spinning. Deliberately outside the Frame span: a
+      // blocked WaitMessage is not a slow frame, and recording it as one would
+      // put a multi-second maximum in the row that is supposed to say 2 ms.
       WaitMessage();
       continue;
     }
 
-    PollNetwork();
+    NEURON_SPAN("Frame");
+    {
+      NEURON_SPAN("Net");
+      PollNetwork();
+    }
     m_swapChain.WaitForFrameLatency();
-    RenderFrame();
+    {
+      NEURON_SPAN("Render");
+      RenderFrame();
+    }
   }
 
   NEURON_LOG_INFO("frame loop ended after %llu frames", static_cast<unsigned long long>(m_frameCount));

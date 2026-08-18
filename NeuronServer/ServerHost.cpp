@@ -6,6 +6,7 @@
 #include "ByteWriter.h"
 #include "Clock.h"
 #include "Log.h"
+#include "Telemetry.h"
 #include "UdpTransport.h"
 #include "Wire.h"
 
@@ -258,6 +259,10 @@ void ServerHost::PollTransport()
 
 void ServerHost::SimThread()
 {
+  // One of the two owned lanes MVP registers (ADR-007 §8). Named for the role,
+  // not the thread, so a restarted host reuses it.
+  (void)Telemetry::RegisterLane("Sim");
+
   WaitableTimer timer;
   const std::int64_t frequency = Clock::Frequency();
   const auto tickInterval = static_cast<std::int64_t>(static_cast<double>(frequency) / TickRate);
@@ -271,7 +276,10 @@ void ServerHost::SimThread()
   {
     timer.WaitUntil(nextDeadline);
 
-    PollTransport();
+    {
+      NEURON_SPAN("Poll");
+      PollTransport();
+    }
 
     if (!m_sessions.empty() && Clock::MillisecondsBetween(m_lastStatsCounter, Clock::Counter()) >= StatsIntervalMs)
     {
@@ -279,7 +287,12 @@ void ServerHost::SimThread()
     }
 
     const std::uint32_t tick = m_tick.fetch_add(1, std::memory_order_relaxed) + 1;
-    m_simulation->AdvanceTick(tick);
+    {
+      // The row the debug HUD and the server's metrics both read. Measured from
+      // the first slice that has a tick, so the budget is never retrofitted.
+      NEURON_SPAN("Tick");
+      m_simulation->AdvanceTick(tick);
+    }
 
     nextDeadline += tickInterval;
 
@@ -290,6 +303,7 @@ void ServerHost::SimThread()
       // Too far behind to catch up honestly: drop the debt and say so, rather
       // than sprinting through ticks the world never really experienced.
       m_overruns.fetch_add(1, std::memory_order_relaxed);
+      NEURON_COUNTER("TickOverrun", 1); // A shipping counter, not a debug one (ADR-002, Risk R10).
       NEURON_LOG_WARNING("tick loop %.0f ms behind; dropping the debt", behindMs);
       nextDeadline = now + tickInterval;
     }
@@ -300,8 +314,12 @@ void ServerHost::SimThread()
       for (std::uint32_t i = 0; i < owed && i < MaxCatchUpTicks; ++i)
       {
         const std::uint32_t extra = m_tick.fetch_add(1, std::memory_order_relaxed) + 1;
-        m_simulation->AdvanceTick(extra);
+        {
+          NEURON_SPAN("Tick"); // Same row as a scheduled tick: it is the same work.
+          m_simulation->AdvanceTick(extra);
+        }
         nextDeadline += tickInterval;
+        NEURON_COUNTER("TickCatchUp", 1);
       }
     }
   }

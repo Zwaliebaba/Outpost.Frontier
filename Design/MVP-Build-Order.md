@@ -35,13 +35,24 @@ telemetry lane registry + `NEURON_SPAN/COUNTER`, `TaskPool`. **No math layer** �
 is called natively at use sites (ADR-010).
 **Accept:** `NeuronCoreTests`: byte IO round-trip + underrun bounds, ring stress (2 threads),
 PCG32 vectors, span timing sanity, `XMVerifyCPUSupport` gate.
-**Built — partial ⚠:** `Debug.h/.cpp`, `Log.h/.cpp`, `Clock.h/.cpp`, `Hash.h`, `Random.h`,
-`ByteReader.h`, `ByteWriter.h`, `RingBuffer.h`, `Arena.h`, `EntityRecord.h/.cpp`. Test
-ProjectReferences are wired for the three engine test projects.
-**Still owed by this slice:** `TaskPool.h` and `Telemetry.h` — neither exists. Nothing needs
-them until the S5 atlas bake (TaskPool) and the S14 debug strip (Telemetry), but the
-`tickOverrun` counter R10 relies on is a plain atomic today, not a lane, and `NEURON_SPAN` /
-`NEURON_COUNTER` do not exist. `GameLogicTests` is still unwired (its library is empty).
+**Built ✅:** `Debug.h/.cpp`, `Log.h/.cpp`, `Clock.h/.cpp`, `Hash.h`, `Random.h`,
+`ByteReader.h`, `ByteWriter.h`, `Arena.h`, `EntityRecord.h/.cpp`; `RingBuffer.h` carries both
+the SPSC ring and `MpscRingBuffer` (Vyukov bounded queue — sequence numbers per slot, so a
+producer cannot claim a slot the consumer has not finished with); `Telemetry.h/.cpp` (lane
+registry capped at 16, per-lane SPSC rings, `NEURON_SPAN` / `NEURON_COUNTER`, and
+`TelemetrySnapshot` to aggregate a drain by name); `TaskPool.h/.cpp` (`Submit`, `WaitGroup`,
+and a `Wait` that runs tasks on the calling thread so a zero-worker pool still makes progress).
+
+A lane is a **role, not a thread** — re-registering a name adopts the existing lane, so a task
+pool that stops and starts reuses `Worker 0` instead of eating the cap a restart at a time.
+
+Wired at the use sites rather than left as a library nobody calls: the sim thread registers
+`Sim` and spans `Poll` and `Tick`, with `TickOverrun` and `TickCatchUp` as counters (R10, and
+ADR-002's "release counter" taken literally — telemetry is not compiled out of Release); the
+frame loop registers `Main` and spans `Frame`, `Net`, `Render`; `wWinMain` calls
+`DirectX::XMVerifyCPUSupport()` before anything computes (ADR-010, R11).
+**Outstanding:** the `GAME/EXTRACT/RENDER/UI` rows the corpus HUD shows need those stages to
+exist — they arrive with S5. `GameLogicTests` is still unwired (its library is empty).
 
 ### S2b — JSON parser & configuration
 `Json.h/.cpp` (iterative parse, flat-node DOM, exact `int64`, comments + trailing commas,

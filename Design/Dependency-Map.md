@@ -68,9 +68,9 @@ library. C++/WinRT only where genuinely useful (none identified in MVP).
 | Area | Files | Notes |
 |---|---|---|
 | Foundation | `Debug.h` (asserts) `Log.h` `Clock.h` (QPC + `WaitableTimer`) `Hash.h` (FNV-1a) `Random.h` (PCG32) | Named to avoid shadowing `<assert.h>`/`<time.h>` (ADR-013 §3a); no game types anywhere below |
-| Memory/containers | `Arena.h` `RingBuffer.h` (SPSC/MPSC) | std containers allowed; arenas for frame/tick scratch |
-| Tasking | `TaskPool.h` (`Submit`, `WaitGroup`) | Boot bakes only in MVP (ADR-007 §4) |
-| Telemetry | `Telemetry.h` (`NEURON_COUNTER`, `NEURON_SPAN`, lane registry) | Per-lane SPSC rings, owner-drained |
+| Memory/containers | `Arena.h` `RingBuffer.h` (`RingBuffer` SPSC + `MpscRingBuffer`) | std containers allowed; arenas for frame/tick scratch. Both bounded and allocation-free: a full queue drops and counts rather than stalling the thread that pushed |
+| Tasking | `TaskPool.h` (`Submit`, `WaitGroup`, `Wait`) | Boot bakes only in MVP (ADR-007 §4). Mutex + condvar + `std::function` on purpose: a lock-free queue here would be fixed-capacity and would have to drop work, which for a mesh load is a bug rather than a trade |
+| Telemetry | `Telemetry.h` (`NEURON_COUNTER`, `NEURON_SPAN`, lane registry, `TelemetrySnapshot`) | Per-lane SPSC rings drained by one collector; cap 16; a lane is a role, not a thread, so re-registering a name adopts it. Compiled into Release — `tickOverrun` ships (ADR-002) |
 | Serialization | `ByteReader.h` `ByteWriter.h` `EntityRecord.h` | Bounds-checked, little-endian; `EntityRecord` is the neutral 20-byte replication record the engine speaks instead of a game type (ADR-014 §3) |
 | JSON | `Json.h` (flat-node DOM, iterative parse, `int64`-exact numbers, diagnostics) `JsonWriter.h` (strict output) | Config + universe + sound banks (ADR-012 §C) |
 | Transport | `Transport.h` (`Transport`, `Connection`, `Listener`, `Stats`) `UdpTransport.h` `QuicTransport.h` | QUIC-shaped contract, `Poll()` delivery, 1,152 B datagram cap (ADR-003) |

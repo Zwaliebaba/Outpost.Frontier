@@ -17,6 +17,12 @@
     <ClCompile Include="Debug.cpp">
       <Filter>Foundation</Filter>
     </ClCompile>
+    <ClCompile Include="TaskPool.cpp">
+      <Filter>Tasking</Filter>
+    </ClCompile>
+    <ClCompile Include="Telemetry.cpp">
+      <Filter>Telemetry</Filter>
+    </ClCompile>
     <ClCompile Include="Log.cpp">
       <Filter>Foundation</Filter>
     </ClCompile>
@@ -62,6 +68,12 @@
     <ClInclude Include="Arena.h">
       <Filter>Memory</Filter>
     </ClInclude>
+    <ClInclude Include="TaskPool.h">
+      <Filter>Tasking</Filter>
+    </ClInclude>
+    <ClInclude Include="Telemetry.h">
+      <Filter>Telemetry</Filter>
+    </ClInclude>
     <ClInclude Include="RingBuffer.h">
       <Filter>Memory</Filter>
     </ClInclude>
@@ -81,6 +93,12 @@
     </Filter>
     <Filter Include="Memory">
       <UniqueIdentifier>{aed4b368-18e9-4f25-9bf1-b38e9705a03d}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Tasking">
+      <UniqueIdentifier>{4fef16d4-dfbf-4905-9c3b-aa074b2f55b8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Telemetry">
+      <UniqueIdentifier>{9ff275b5-1bb5-44e8-b7a4-8fe9923dd44b}</UniqueIdentifier>
     </Filter>
     <Filter Include="Serialization">
       <UniqueIdentifier>{acbee4ba-8057-4b3f-8686-3303043c7b48}</UniqueIdentifier>

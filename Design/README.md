@@ -59,8 +59,8 @@ moves between the trees without a rename pass. Three things it changed in these 
 
 ## Implementation state (2026-08-18)
 
-Slices S1, S2b, S3 and S4 are in the tree and green in CI; S2 is partly done. The per-slice
-detail — what was built, and what a "done" slice still owes — lives in
+Slices S1, S2, S2b, S3 and S4 are in the tree and green in CI. The per-slice detail — what was
+built, and what a "done" slice still owes — lives in
 [MVP-Build-Order.md](MVP-Build-Order.md); it is not repeated here.
 
 **Milestone M0** is half proven. Its automated half is green: 64 tests across four assemblies,
