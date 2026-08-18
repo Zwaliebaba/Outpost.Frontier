@@ -21,6 +21,9 @@
     <ClCompile Include="Main.cpp">
       <Filter>Boot</Filter>
     </ClCompile>
+    <ClCompile Include="SelfTest.cpp">
+      <Filter>Boot</Filter>
+    </ClCompile>
     <ClCompile Include="AppConfig.cpp">
       <Filter>Config</Filter>
     </ClCompile>
@@ -30,6 +33,9 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="SelfTest.h">
+      <Filter>Boot</Filter>
+    </ClInclude>
     <ClInclude Include="AppConfig.h">
       <Filter>Config</Filter>
     </ClInclude>

@@ -2,6 +2,7 @@
 
 #include "AppConfig.h"
 #include "ConfigLoad.h"
+#include "SelfTest.h"
 
 #include "ClientApp.h"
 #include "ClientConfig.h"
@@ -127,13 +128,22 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   }
   LogResolvedConfig(config, paths);
 
-  // Boot order is normative (ADR-008 §5): the server starts before the client,
-  // and the client is torn down first. ServerHost arrives in slice S3, so today
-  // only the client half of that order exists.
   // GameLogic implements Simulation and the composition root injects it
   // (ADR-014 §2). Until that exists, the server hosts a simulation that does
   // nothing -- which is enough to prove the loop, the sessions and the wire.
   Neuron::NullSimulation simulation;
+
+  // Before anything opens a window: the self test is a diagnostic, and its
+  // answer is an exit code (Build Order S4).
+  if (config.selfTest)
+  {
+    const int result = Outpost::RunSelfTest(config, simulation);
+    Neuron::Log::Shutdown();
+    return result;
+  }
+
+  // Boot order is normative (ADR-008 §5): the server starts before the client,
+  // and the client is torn down first.
   Neuron::ServerHost server;
 
   int exitCode = 0;

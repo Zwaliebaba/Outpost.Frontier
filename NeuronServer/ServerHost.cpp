@@ -26,6 +26,11 @@ constexpr double TickIntervalMs = 1000.0 / TickRate;
 constexpr double MaxTickDebtMs = 250.0;
 constexpr std::uint32_t MaxCatchUpTicks = 2;
 
+/// How often each session's NET line goes to the log. The client logs the same
+/// cadence from its own side, so a disagreement between the two is itself the
+/// diagnosis (S4).
+constexpr double StatsIntervalMs = 5000.0;
+
 } // namespace
 
 ServerHost::~ServerHost()
@@ -197,6 +202,20 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
   }
 }
 
+void ServerHost::LogNetStats()
+{
+  m_lastStatsCounter = Clock::Counter();
+  for (const SessionInfo& session : m_sessions)
+  {
+    const TransportStats stats = m_transport->Stats(session.connection);
+    NEURON_LOG_INFO("net(session %u): rtt %.2f ms, resends %llu, dropped %llu, dgrams %llu/%llu, bytes %llu/%llu",
+                    session.clientId, stats.roundTripMs, static_cast<unsigned long long>(stats.controlResends),
+                    static_cast<unsigned long long>(stats.datagramsDropped), static_cast<unsigned long long>(stats.datagramsSent),
+                    static_cast<unsigned long long>(stats.datagramsReceived), static_cast<unsigned long long>(stats.bytesSent),
+                    static_cast<unsigned long long>(stats.bytesReceived));
+  }
+}
+
 void ServerHost::PollTransport()
 {
   m_transport->Poll();
@@ -246,12 +265,18 @@ void ServerHost::SimThread()
   // Absolute schedule: each deadline is derived from the last one, so a slow
   // tick is absorbed instead of added to every tick after it (ADR-002 §2).
   std::int64_t nextDeadline = Clock::Counter() + tickInterval;
+  m_lastStatsCounter = Clock::Counter();
 
   while (!m_stopRequested.load(std::memory_order_acquire))
   {
     timer.WaitUntil(nextDeadline);
 
     PollTransport();
+
+    if (!m_sessions.empty() && Clock::MillisecondsBetween(m_lastStatsCounter, Clock::Counter()) >= StatsIntervalMs)
+    {
+      LogNetStats();
+    }
 
     const std::uint32_t tick = m_tick.fetch_add(1, std::memory_order_relaxed) + 1;
     m_simulation->AdvanceTick(tick);

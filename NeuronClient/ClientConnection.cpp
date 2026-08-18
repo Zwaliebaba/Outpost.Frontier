@@ -20,6 +20,10 @@ namespace
 /// snapshot traffic.
 constexpr double PingIntervalMs = 250.0;
 
+/// How often the NET line goes to the log. Frequent enough to see a link
+/// degrade, rare enough that nobody turns logging off because of it.
+constexpr double StatsIntervalMs = 5000.0;
+
 } // namespace
 
 ClientConnection::~ClientConnection()
@@ -85,6 +89,30 @@ void ClientConnection::SendPing()
   // measure the wrong thing.
   (void)m_transport->Send(m_connection, TransportChannel::State, writer.Written());
   m_lastPingCounter = Clock::Counter();
+  ++m_pingCount;
+}
+
+TransportStats ClientConnection::Stats() const
+{
+  return m_transport == nullptr ? TransportStats{} : m_transport->Stats(m_connection);
+}
+
+void ClientConnection::LogNetStats()
+{
+  const TransportStats stats = Stats();
+
+  // Unreliable loss is the honest measure here: pings that never came back.
+  // The reliable channel reports its own losses as resends, so both channels
+  // are visible rather than one being inferred from the other (S4).
+  const std::uint64_t lost = m_pingCount > m_pongCount ? m_pingCount - m_pongCount : 0;
+  const double lossPercent = m_pingCount == 0 ? 0.0 : 100.0 * static_cast<double>(lost) / static_cast<double>(m_pingCount);
+
+  NEURON_LOG_INFO("net(client %u): rtt %.2f ms, ping loss %.1f%% (%llu/%llu), resends %llu, dgrams %llu/%llu, bytes %llu/%llu",
+                  m_clientId, m_roundTripMs, lossPercent, static_cast<unsigned long long>(lost),
+                  static_cast<unsigned long long>(m_pingCount), static_cast<unsigned long long>(stats.controlResends),
+                  static_cast<unsigned long long>(stats.datagramsSent), static_cast<unsigned long long>(stats.datagramsReceived),
+                  static_cast<unsigned long long>(stats.bytesSent), static_cast<unsigned long long>(stats.bytesReceived));
+  m_lastStatsCounter = Clock::Counter();
 }
 
 void ClientConnection::HandleMessage(const TransportEvent& _event)
@@ -103,6 +131,7 @@ void ClientConnection::HandleMessage(const TransportEvent& _event)
       m_serverTick = welcome.tick;
       m_serverTickRate = welcome.tickRate;
       m_state = ClientLinkState::Joined;
+      m_lastStatsCounter = Clock::Counter(); // The first NET line is due a full interval after joining.
       NEURON_LOG_INFO("joined as client %u (server at tick %u, %u Hz)", m_clientId, m_serverTick,
                       static_cast<unsigned>(m_serverTickRate));
       return;
@@ -198,9 +227,19 @@ void ClientConnection::Poll()
     SendHello(); // The socket refused it earlier; try again now.
   }
 
-  if (m_state == ClientLinkState::Joined && Clock::MillisecondsBetween(m_lastPingCounter, Clock::Counter()) >= PingIntervalMs)
+  if (m_state != ClientLinkState::Joined)
+  {
+    return;
+  }
+
+  const std::int64_t now = Clock::Counter();
+  if (Clock::MillisecondsBetween(m_lastPingCounter, now) >= PingIntervalMs)
   {
     SendPing();
+  }
+  if (Clock::MillisecondsBetween(m_lastStatsCounter, now) >= StatsIntervalMs)
+  {
+    LogNetStats();
   }
 }
 

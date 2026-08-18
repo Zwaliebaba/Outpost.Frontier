@@ -120,8 +120,8 @@ for the atlas bake, **XAudio2 + X3DAudio**). No GameLogic (ADR-014).
 Allowed deps: NeuronServer, NeuronClient (and transitively the rest). Files: `Main.cpp`
 (`wWinMain`, **arguments ignored**), `ConfigLoad.h/.cpp` (locate + parse + merge
 `Outpost.json` and the user layer), `AppConfig.h/.cpp` (JSON → `ServerConfig`/`ClientConfig`
-structs), boot/shutdown ordering (ADR-008), `selfTest` driver. **Nothing else.** Nothing
-depends on it.
+structs), boot/shutdown ordering (ADR-008), `SelfTest.h/.cpp` (the `selfTest` driver: server
+up, handshake, heartbeat, exit code). **Nothing else.** Nothing depends on it.
 
 ### Tests/* — VS CppUnitTestFramework (added on main, 2026-08-17)
 Each test project depends on its library under test plus that library's allowed deps.

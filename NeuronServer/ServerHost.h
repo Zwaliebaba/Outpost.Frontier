@@ -64,6 +64,7 @@ public:
 private:
   void SimThread();
   void PollTransport();
+  void LogNetStats();
   void HandleMessage(const TransportEvent& _event);
   void SendTo(ConnectionId _connection, TransportChannel _channel, const class ByteWriter& _writer);
   [[nodiscard]] SessionInfo* FindSession(ConnectionId _connection);
@@ -73,6 +74,7 @@ private:
   std::unique_ptr<Transport> m_transport;
   std::vector<SessionInfo> m_sessions;
   std::uint32_t m_nextClientId = 1;
+  std::int64_t m_lastStatsCounter = 0; // Sim thread only; nothing else reads it.
 
   std::thread m_thread;
   std::atomic<bool> m_running{false};

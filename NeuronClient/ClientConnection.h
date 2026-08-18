@@ -52,10 +52,17 @@ public:
   [[nodiscard]] double RoundTripMs() const noexcept { return m_roundTripMs; }
   [[nodiscard]] std::uint64_t PongCount() const noexcept { return m_pongCount; }
 
+  /// Datagram counters for the HUD's NET readout. Loss on the reliable channel
+  /// shows up as controlResends; on the unreliable one it is the gap between
+  /// pings sent and pongs counted.
+  [[nodiscard]] TransportStats Stats() const;
+  [[nodiscard]] std::uint64_t PingCount() const noexcept { return m_pingCount; }
+
 private:
   void HandleMessage(const TransportEvent& _event);
   void SendHello();
   void SendPing();
+  void LogNetStats();
 
   std::unique_ptr<Transport> m_transport;
   ConnectionId m_connection = InvalidConnection;
@@ -69,8 +76,10 @@ private:
   std::uint32_t m_serverTick = 0;
   std::uint16_t m_serverTickRate = 0;
   double m_roundTripMs = 0.0;
+  std::uint64_t m_pingCount = 0;
   std::uint64_t m_pongCount = 0;
   std::int64_t m_lastPingCounter = 0;
+  std::int64_t m_lastStatsCounter = 0;
   bool m_helloSent = false;
 };
 
