@@ -15,10 +15,13 @@ public:
   {
     return m_homeDir;
   }
-  [[nodiscard]] static std::string GetHomeDirectoryA()
-  {
-    return std::string(m_homeDir.begin(), m_homeDir.end());
-  }
+  /// The same directory as UTF-8, for the parts of the tree that speak
+  /// `std::string` (config paths, mesh names, log lines). Defined out of line
+  /// because it is a real encoding conversion rather than a cast: the
+  /// wchar_t-by-wchar_t copy it replaced silently truncated every character
+  /// above U+00FF, so a user whose profile folder is not pure ASCII got a path
+  /// that did not exist.
+  [[nodiscard]] static std::string GetHomeDirectoryA();
 
 protected:
   inline static std::wstring m_homeDir;

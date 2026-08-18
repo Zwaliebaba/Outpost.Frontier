@@ -91,8 +91,16 @@ void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigP
   NEURON_LOG_INFO("server: port %u, max sessions %u", static_cast<unsigned>(_config.server.port),
                   static_cast<unsigned>(_config.server.maxSessions));
   NEURON_LOG_INFO("universe: %s", _config.universeDefinition.c_str());
+  const std::string meshDirectory = Outpost::ResolveContentPath(_config.content.meshDirectory);
+  if (meshDirectory.empty())
+  {
+    // Said once, here, with both places named. Nine "could not read" lines from
+    // the mesh loader say the same thing nine times and none of them says why.
+    NEURON_LOG_ERROR("content: '%s' is not in the working directory or beside the executable (%s)",
+                     _config.content.meshDirectory.c_str(), Outpost::ExecutableDirectory().c_str());
+  }
   NEURON_LOG_INFO("content: %u meshes from %s", static_cast<unsigned>(_config.content.meshes.size()),
-                  _config.content.meshDirectory.c_str());
+                  meshDirectory.empty() ? _config.content.meshDirectory.c_str() : meshDirectory.c_str());
   NEURON_LOG_INFO("window: %ux%u %s, vsync %s, ui scale %.2f", static_cast<unsigned>(_config.client.window.width),
                   static_cast<unsigned>(_config.client.window.height), _config.client.window.mode.c_str(),
                   _config.client.renderer.vsync ? "on" : "off", _config.client.ui.scale);
@@ -403,7 +411,15 @@ ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
   // Content: where it is and which meshes to load, in classId order. The client
   // opens the files, but it is told what to open -- the engine has no opinion
   // about which index is a Carrier (ADR-014).
-  client.meshDirectory = _config.content.meshDirectory;
+  //
+  // Resolved here rather than passed through, because resolving is the
+  // composition root's job and the engine's rule is "open what you are handed".
+  // A bare `GameData/Meshes` is relative to the working directory, which is the
+  // project folder when Visual Studio launches the debugger and the deployment
+  // folder when anything else does; the universe file has always been found by
+  // this rule and the meshes were the one content path that was not.
+  const std::string meshDirectory = Outpost::ResolveContentPath(_config.content.meshDirectory);
+  client.meshDirectory = meshDirectory.empty() ? _config.content.meshDirectory : meshDirectory;
   client.meshFiles = _config.content.meshes;
   client.fontFamily = _config.client.ui.font;
 
