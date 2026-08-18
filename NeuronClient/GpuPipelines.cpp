@@ -88,13 +88,13 @@ GpuPipelines::~GpuPipelines()
 
 bool GpuPipelines::CreateRootSignature(ID3D12Device* _device)
 {
-  // One SRV table, holding the glyph atlas today and whatever the Ui and
-  // OverlayWorld passes sample tomorrow. DATA_STATIC is the honest flag here:
-  // the atlas texture and its descriptor are both written once at boot and
-  // never touched again, which is exactly what the flag promises the driver.
+  // One SRV table: t0 is the glyph atlas, t1 the baked nebula field, and
+  // whatever the Ui and OverlayWorld passes sample tomorrow follows. DATA_STATIC
+  // is the honest flag for both -- each texture and its descriptor are written
+  // once at boot and never touched again, which is what the flag promises.
   D3D12_DESCRIPTOR_RANGE1 textureRange{};
   textureRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-  textureRange.NumDescriptors = 1;
+  textureRange.NumDescriptors = 2;
   textureRange.BaseShaderRegister = 0;
   textureRange.RegisterSpace = 0;
   textureRange.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC;
@@ -131,23 +131,37 @@ bool GpuPipelines::CreateRootSignature(ID3D12Device* _device)
   textures.DescriptorTable.pDescriptorRanges = &textureRange;
   textures.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
-  // One static sampler: the glyph atlas wants linear filtering and clamping,
-  // and a static sampler costs no descriptor heap space at all.
-  D3D12_STATIC_SAMPLER_DESC sampler{};
-  sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-  sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-  sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-  sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
-  sampler.MaxLOD = D3D12_FLOAT32_MAX;
-  sampler.ShaderRegister = 0;
-  sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+  // Two static samplers, both linear and neither costing a descriptor heap slot.
+  // They differ only in addressing, and that difference is load-bearing: a glyph
+  // sampled with wrap bleeds its neighbour into its edge, and a periodic field
+  // sampled with clamp stops being periodic -- which is the whole reason
+  // NebulaField bakes a tile that wraps.
+  D3D12_STATIC_SAMPLER_DESC samplers[2]{};
+
+  D3D12_STATIC_SAMPLER_DESC& clampSampler = samplers[0];
+  clampSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+  clampSampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+  clampSampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+  clampSampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+  clampSampler.MaxLOD = D3D12_FLOAT32_MAX;
+  clampSampler.ShaderRegister = 0;
+  clampSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+  D3D12_STATIC_SAMPLER_DESC& wrapSampler = samplers[1];
+  wrapSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+  wrapSampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+  wrapSampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+  wrapSampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+  wrapSampler.MaxLOD = D3D12_FLOAT32_MAX;
+  wrapSampler.ShaderRegister = 1;
+  wrapSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
   D3D12_VERSIONED_ROOT_SIGNATURE_DESC desc{};
   desc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
   desc.Desc_1_1.NumParameters = static_cast<UINT>(_countof(parameters));
   desc.Desc_1_1.pParameters = parameters;
-  desc.Desc_1_1.NumStaticSamplers = 1;
-  desc.Desc_1_1.pStaticSamplers = &sampler;
+  desc.Desc_1_1.NumStaticSamplers = static_cast<UINT>(_countof(samplers));
+  desc.Desc_1_1.pStaticSamplers = samplers;
   // Denying the stages the frame does not use keeps the signature small, and
   // the MVP has no tessellation, no geometry shader and no mesh pipeline.
   desc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
@@ -250,6 +264,68 @@ bool GpuPipelines::CreateOpaquePipeline(ID3D12Device* _device, std::string_view 
   return true;
 }
 
+/*
+ * The Nebula node (ADR-006 §1), and the first insertion into the reserved list.
+ *
+ * No input layout and no vertex buffer: the vertex shader builds one oversized
+ * triangle from SV_VertexID. Additive, because the field adds light to a scene
+ * that is otherwise near-black -- and depth-blind, because it composites over
+ * everything the Opaque pass drew, which is the position the corpus frame gives
+ * it and the reason hulls read as being inside the cloud.
+ */
+bool GpuPipelines::CreateNebulaPipeline(ID3D12Device* _device, std::string_view _shaderDirectory)
+{
+  const std::string path = JoinPath(_shaderDirectory, "Nebula.hlsl");
+
+  GpuPtr<ID3DBlob> vertexShader;
+  GpuPtr<ID3DBlob> pixelShader;
+  if (!CompileShader(path, "VertexMain", "vs_5_1", vertexShader) || !CompileShader(path, "PixelMain", "ps_5_1", pixelShader))
+  {
+    return false;
+  }
+
+  D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
+  desc.pRootSignature = m_rootSignature.get();
+  desc.VS = {vertexShader->GetBufferPointer(), vertexShader->GetBufferSize()};
+  desc.PS = {pixelShader->GetBufferPointer(), pixelShader->GetBufferSize()};
+  desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+  desc.NumRenderTargets = 1;
+  desc.RTVFormats[0] = RENDER_TARGET_FORMAT;
+  // Declared even though depth is disabled below: a DSV is bound when this pass
+  // records, and a PSO claiming DXGI_FORMAT_UNKNOWN against a bound DSV is a
+  // debug-layer error rather than a no-op.
+  desc.DSVFormat = DEPTH_FORMAT;
+  desc.SampleDesc.Count = 1;
+  desc.SampleMask = UINT_MAX;
+
+  desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+  // The full-screen triangle has one winding and no back to cull; culling
+  // nothing means its winding never has to agree with the meshes'.
+  desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+  desc.RasterizerState.FrontCounterClockwise = FALSE;
+  desc.RasterizerState.DepthClipEnable = TRUE;
+
+  D3D12_RENDER_TARGET_BLEND_DESC& blend = desc.BlendState.RenderTarget[0];
+  blend.BlendEnable = TRUE;
+  blend.SrcBlend = D3D12_BLEND_ONE;
+  blend.DestBlend = D3D12_BLEND_ONE;
+  blend.BlendOp = D3D12_BLEND_OP_ADD;
+  // Colour only. The back buffer's alpha is not the haze's business, and
+  // accumulating into it would leave the flip model a surface it can present
+  // differently depending on the compositor.
+  blend.SrcBlendAlpha = D3D12_BLEND_ZERO;
+  blend.DestBlendAlpha = D3D12_BLEND_ONE;
+  blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+  blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+  desc.DepthStencilState.DepthEnable = FALSE;
+  desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+
+  check_hresult(_device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(m_nebula.put())));
+  NAME_D3D12_OBJECT(m_nebula);
+  return true;
+}
+
 bool GpuPipelines::Create(ID3D12Device* _device, std::string_view _shaderDirectory)
 {
   if (_device == nullptr)
@@ -267,13 +343,18 @@ bool GpuPipelines::Create(ID3D12Device* _device, std::string_view _shaderDirecto
   {
     return false;
   }
+  if (!CreateNebulaPipeline(_device, _shaderDirectory))
+  {
+    return false;
+  }
 
-  NEURON_LOG_INFO("pipelines: opaque built from %s", std::string(_shaderDirectory).c_str());
+  NEURON_LOG_INFO("pipelines: opaque and nebula built from %s", std::string(_shaderDirectory).c_str());
   return true;
 }
 
 void GpuPipelines::Destroy()
 {
+  m_nebula = nullptr;
   m_opaque = nullptr;
   m_rootSignature = nullptr;
 }

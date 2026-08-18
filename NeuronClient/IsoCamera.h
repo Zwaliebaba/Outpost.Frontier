@@ -30,6 +30,27 @@
 namespace Neuron
 {
 
+/*
+ * How a normalised device coordinate lands on the plane.
+ *
+ * `plane = origin + rightPerNdc * ndc.x + upPerNdc * ndc.y`, exactly -- the
+ * projection is orthographic, so the mapping is affine and three float2s carry
+ * all of it. A pass that has to know where on the plane a pixel is takes this
+ * rather than an inverse matrix and a ray/plane intersection.
+ *
+ * It is the inverse of `ViewProjectionMatrix()` restricted to y = 0, which is
+ * not a claim to take on trust: `NeuronClientTests` projects plane points
+ * through the real matrix and maps the resulting NDC back through this. That
+ * guard exists because ADR-006 §3a's handedness defect was invisible to review
+ * and visible only to a round trip through the real matrices.
+ */
+struct PlaneMapping
+{
+  DirectX::XMFLOAT2 origin{};      // The plane point at the centre of the view.
+  DirectX::XMFLOAT2 rightPerNdc{}; // Plane metres per unit of NDC x.
+  DirectX::XMFLOAT2 upPerNdc{};    // Plane metres per unit of NDC y.
+};
+
 class IsoCamera
 {
 public:
@@ -99,6 +120,11 @@ public:
   /// player experiences them, which is what pan and box-select are defined in.
   [[nodiscard]] DirectX::XMFLOAT2 ScreenRightOnPlane() const noexcept;
   [[nodiscard]] DirectX::XMFLOAT2 ScreenUpOnPlane() const noexcept;
+
+  /// Where the view's NDC square lands on the plane. The Nebula pass anchors
+  /// its field with this so the haze belongs to the world rather than to the
+  /// monitor, and the S8 overlay will want the same mapping.
+  [[nodiscard]] PlaneMapping PlaneMappingForNdc() const noexcept;
 
   /// Row-major, as DirectXMath stores them. The upload transposes for HLSL.
   [[nodiscard]] DirectX::XMFLOAT4X4 ViewMatrix() const noexcept;

@@ -146,6 +146,25 @@ XMFLOAT2 IsoCamera::ScreenUpOnPlane() const noexcept
   return XMFLOAT2{std::sin(m_yawRadians), std::cos(m_yawRadians)};
 }
 
+PlaneMapping IsoCamera::PlaneMappingForNdc() const noexcept
+{
+  const XMFLOAT2 right = ScreenRightOnPlane();
+  const XMFLOAT2 up = ScreenUpOnPlane();
+
+  // The projection's half-height is the zoom, so NDC y = 1 is exactly one zoom
+  // of view-space height -- and one zoom / sin(elevation) of plane distance,
+  // the same foreshortening PanPixels undoes and the same factor that makes a
+  // ground circle a 2:1 ellipse. Half-width is the zoom times the aspect.
+  const float rightMetresPerNdc = m_zoomMetres * AspectRatio();
+  const float upMetresPerNdc = m_zoomMetres / ELEVATION_SINE;
+
+  PlaneMapping mapping;
+  mapping.origin = m_focusMetres;
+  mapping.rightPerNdc = XMFLOAT2{right.x * rightMetresPerNdc, right.y * rightMetresPerNdc};
+  mapping.upPerNdc = XMFLOAT2{up.x * upMetresPerNdc, up.y * upMetresPerNdc};
+  return mapping;
+}
+
 /*
  * LH, because the whole tree is left-handed (ADR-006 §3a).
  *

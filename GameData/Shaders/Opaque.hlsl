@@ -31,10 +31,19 @@ cbuffer FrameConstants : register(b0)
 // Per-pass, and deliberately bound even though the opaque pass reads nothing
 // from it: the slot is ADR-006 §12's, and OverlayWorld and Ui are written
 // against these numbers (S8, S11).
+//
+// Must match PassConstants in GpuPipelines.h and the declaration in Nebula.hlsl.
+// Two shaders declaring one cbuffer differently is a class of bug with no error
+// message, so the three are edited together or not at all.
 cbuffer PassConstants : register(b1)
 {
-  float4 g_viewportSize;   // xy = pixels, zw = 1/pixels.
-  float4 g_planeAxes;      // xy = screen-right on the plane, zw = screen-up.
+  float4 g_viewportSize;      // xy = pixels, zw = 1/pixels.
+  float4 g_planeAxes;         // xy = screen-right on the plane, zw = screen-up.
+  float4 g_planeOrigin;       // xy = the plane point at the centre of the view.
+  float4 g_planeRightPerNdc;  // xy = plane metres per unit of NDC x.
+  float4 g_planeUpPerNdc;     // xy = plane metres per unit of NDC y.
+  float4 g_nebulaTint;        // rgb = linear tint, w = peak intensity.
+  float4 g_nebulaTile;        // x = 1 / tile metres.
 };
 
 cbuffer DrawConstants : register(b2)

@@ -145,6 +145,19 @@ bool ClientApp::CreateContent()
     ok = m_glyphAtlas.Create(m_device, atlasDesc, m_taskPool, m_srvHeap->GetCPUDescriptorHandleForHeapStart());
   }
 
+  if (ok)
+  {
+    // Slot 1, straight after the atlas: t0 and t1 of the root signature's one
+    // descriptor table (GpuPipelines::CreateRootSignature).
+    D3D12_CPU_DESCRIPTOR_HANDLE nebulaSlot = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
+    nebulaSlot.ptr += m_device.Device()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+    // Not part of `ok`. A configuration that cannot describe a field is a frame
+    // without haze, not a client that refuses to start -- the pass checks
+    // `nebulaReady` and draws nothing. GpuNebula has already logged why.
+    (void)m_nebula.Create(m_device, m_config.nebula, nebulaSlot);
+  }
+
   // Stopped here rather than at shutdown, and that is the rule rather than
   // tidiness: this pool is for boot bakes, and a pool that outlives boot is a
   // pool something will eventually submit a frame's work to (ADR-007 §4).
@@ -307,9 +320,21 @@ PassConstants ClientApp::BuildPassConstants() const
   const auto width = static_cast<float>(m_swapChain.Width());
   const auto height = static_cast<float>(m_swapChain.Height());
 
+  // The affine NDC->plane map, which is what anchors the nebula to the world
+  // (and what the S8 overlay will want). NeuronClientTests round-trips it
+  // against the real view-projection rather than trusting the algebra.
+  const PlaneMapping mapping = m_camera.PlaneMappingForNdc();
+  const NebulaSettings& nebula = m_config.nebula;
+  const float tile = nebula.tileMetres > 0.0f ? 1.0f / nebula.tileMetres : 0.0f;
+
   PassConstants constants{};
   constants.viewportSize = XMFLOAT4{width, height, width > 0.0f ? 1.0f / width : 0.0f, height > 0.0f ? 1.0f / height : 0.0f};
   constants.planeAxes = XMFLOAT4{right.x, right.y, up.x, up.y};
+  constants.planeOrigin = XMFLOAT4{mapping.origin.x, mapping.origin.y, 0.0f, 0.0f};
+  constants.planeRightPerNdc = XMFLOAT4{mapping.rightPerNdc.x, mapping.rightPerNdc.y, 0.0f, 0.0f};
+  constants.planeUpPerNdc = XMFLOAT4{mapping.upPerNdc.x, mapping.upPerNdc.y, 0.0f, 0.0f};
+  constants.nebulaTint = XMFLOAT4{nebula.tintRed, nebula.tintGreen, nebula.tintBlue, nebula.intensity};
+  constants.nebulaTile = XMFLOAT4{tile, 0.0f, 0.0f, 0.0f};
   return constants;
 }
 
@@ -363,7 +388,11 @@ void ClientApp::RenderFrame()
   ID3D12DescriptorHeap* heaps[] = {m_srvHeap.get()};
   m_commandList->SetDescriptorHeaps(1, heaps);
 
-  const ClearColour colour = AnimatedClearColour(Clock::SecondsSinceStart());
+  // Static, and near-black. The breathing clear was S1's proof that the loop
+  // ran when nothing else was on screen; there is a fleet and a nebula on
+  // screen now, and a background that changes on its own is a background
+  // competing with them (ADR-006 §2).
+  const ClearColour colour = SpaceClearColour();
 
   FrameContext context;
   context.commandList = m_commandList.get();
@@ -380,6 +409,7 @@ void ClientApp::RenderFrame()
   context.clearColour[1] = colour.green;
   context.clearColour[2] = colour.blue;
   context.clearColour[3] = colour.alpha;
+  context.nebulaReady = m_nebula.Ready();
 
   // Constants first, so a frame that cannot fit them draws nothing rather than
   // drawing this frame's geometry through last frame's camera.

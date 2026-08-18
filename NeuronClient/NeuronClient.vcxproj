@@ -27,11 +27,13 @@
     <ClCompile Include="Window.cpp" />
     <ClCompile Include="GlyphAtlas.cpp" />
     <ClCompile Include="GpuMeshes.cpp" />
+    <ClCompile Include="GpuNebula.cpp" />
     <ClCompile Include="GpuPasses.cpp" />
     <ClCompile Include="GpuPipelines.cpp" />
     <ClCompile Include="GpuUploadRing.cpp" />
     <ClCompile Include="InputMap.cpp" />
     <ClCompile Include="IsoCamera.cpp" />
+    <ClCompile Include="NebulaField.cpp" />
     <ClCompile Include="ObjMesh.cpp" />
     <ClCompile Include="RenderWorld.cpp" />
   </ItemGroup>
@@ -49,11 +51,13 @@
     <ClInclude Include="Window.h" />
     <ClInclude Include="GlyphAtlas.h" />
     <ClInclude Include="GpuMeshes.h" />
+    <ClInclude Include="GpuNebula.h" />
     <ClInclude Include="GpuPasses.h" />
     <ClInclude Include="GpuPipelines.h" />
     <ClInclude Include="GpuUploadRing.h" />
     <ClInclude Include="InputMap.h" />
     <ClInclude Include="IsoCamera.h" />
+    <ClInclude Include="NebulaField.h" />
     <ClInclude Include="ObjMesh.h" />
     <ClInclude Include="RenderWorld.h" />
   </ItemGroup>

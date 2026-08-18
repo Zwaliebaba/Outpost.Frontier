@@ -234,7 +234,7 @@ void ReadClient(const JsonValue& _root, ClientSettings& _settings, ConfigDiagnos
   {
     return;
   }
-  WarnUnknownKeys(client, {"connect", "window", "renderer", "camera", "audio", "ui"}, "client", _diagnostics);
+  WarnUnknownKeys(client, {"connect", "window", "renderer", "camera", "nebula", "audio", "ui"}, "client", _diagnostics);
 
   const JsonValue connect = client.Member("connect");
   if (connect.Valid())
@@ -253,6 +253,29 @@ void ReadClient(const JsonValue& _root, ClientSettings& _settings, ConfigDiagnos
     WarnUnknownKeys(camera, {"zoomMetres", "yawSnapDegrees"}, "client.camera", _diagnostics);
     ReadDouble(camera, "zoomMetres", _settings.camera.zoomMetres, 500.0, 40000.0, "client.camera", _diagnostics);
     ReadDouble(camera, "yawSnapDegrees", _settings.camera.yawSnapDegrees, 0.0, 180.0, "client.camera", _diagnostics);
+  }
+
+  const JsonValue nebula = client.Member("nebula");
+  if (nebula.Valid())
+  {
+    WarnUnknownKeys(nebula,
+                    {"tintRed", "tintGreen", "tintBlue", "intensity", "tileMetres", "resolution", "octaves", "coverage",
+                     "contrast", "seed"},
+                    "client.nebula", _diagnostics);
+    // The tint is linear rgb, so 1.0 is the ceiling and there is no headroom
+    // above it to allow for: the pass adds, and the target is SDR (ADR-006 §2).
+    ReadDouble(nebula, "tintRed", _settings.nebula.tintRed, 0.0, 1.0, "client.nebula", _diagnostics);
+    ReadDouble(nebula, "tintGreen", _settings.nebula.tintGreen, 0.0, 1.0, "client.nebula", _diagnostics);
+    ReadDouble(nebula, "tintBlue", _settings.nebula.tintBlue, 0.0, 1.0, "client.nebula", _diagnostics);
+    ReadDouble(nebula, "intensity", _settings.nebula.intensity, 0.0, 1.0, "client.nebula", _diagnostics);
+    // A tile smaller than the play area repeats inside one screen; the upper
+    // bound just keeps a typo from flattening the field to a constant.
+    ReadDouble(nebula, "tileMetres", _settings.nebula.tileMetres, 1000.0, 10000000.0, "client.nebula", _diagnostics);
+    ReadUInt(nebula, "resolution", _settings.nebula.resolution, 16, 2048, "client.nebula", _diagnostics);
+    ReadUInt(nebula, "octaves", _settings.nebula.octaves, 1, 8, "client.nebula", _diagnostics);
+    ReadDouble(nebula, "coverage", _settings.nebula.coverage, 0.0, 0.99, "client.nebula", _diagnostics);
+    ReadDouble(nebula, "contrast", _settings.nebula.contrast, 0.01, 8.0, "client.nebula", _diagnostics);
+    ReadUInt(nebula, "seed", _settings.nebula.seed, 0, 0xffffffffu, "client.nebula", _diagnostics);
   }
 
   ReadAudio(client, _settings.audio, _diagnostics);

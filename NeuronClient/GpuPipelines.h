@@ -48,11 +48,25 @@ struct FrameConstants
   DirectX::XMFLOAT4 teamEmissive[TEAM_COLOUR_COUNT];
 };
 
-/// Mirrors `cbuffer PassConstants : register(b1)`.
+/*
+ * Mirrors `cbuffer PassConstants : register(b1)`, which BOTH Opaque.hlsl and
+ * Nebula.hlsl declare. Two shaders declaring one cbuffer differently is a bug
+ * with no error message anywhere, so this struct and those two declarations
+ * are edited together or not at all.
+ *
+ * The plane mapping is three float2s in float4 slots. The padding is deliberate:
+ * packing them into two registers saves 16 bytes on a buffer written once a
+ * frame and costs a reader the ability to see what a field is.
+ */
 struct PassConstants
 {
-  DirectX::XMFLOAT4 viewportSize;
-  DirectX::XMFLOAT4 planeAxes;
+  DirectX::XMFLOAT4 viewportSize;     // xy = pixels, zw = 1/pixels.
+  DirectX::XMFLOAT4 planeAxes;        // xy = screen-right on the plane, zw = screen-up.
+  DirectX::XMFLOAT4 planeOrigin;      // xy = the plane point at the centre of the view.
+  DirectX::XMFLOAT4 planeRightPerNdc; // xy = plane metres per unit of NDC x.
+  DirectX::XMFLOAT4 planeUpPerNdc;    // xy = plane metres per unit of NDC y.
+  DirectX::XMFLOAT4 nebulaTint;       // rgb = linear tint, w = peak intensity.
+  DirectX::XMFLOAT4 nebulaTile;       // x = 1 / tile metres.
 };
 
 /// Root parameter slots. Named because a bare index at a Set call site is the
@@ -82,13 +96,16 @@ public:
 
   [[nodiscard]] ID3D12RootSignature* RootSignature() const noexcept { return m_rootSignature.get(); }
   [[nodiscard]] ID3D12PipelineState* Opaque() const noexcept { return m_opaque.get(); }
+  [[nodiscard]] ID3D12PipelineState* Nebula() const noexcept { return m_nebula.get(); }
 
 private:
   [[nodiscard]] bool CreateRootSignature(ID3D12Device* _device);
   [[nodiscard]] bool CreateOpaquePipeline(ID3D12Device* _device, std::string_view _shaderDirectory);
+  [[nodiscard]] bool CreateNebulaPipeline(ID3D12Device* _device, std::string_view _shaderDirectory);
 
   GpuPtr<ID3D12RootSignature> m_rootSignature;
   GpuPtr<ID3D12PipelineState> m_opaque;
+  GpuPtr<ID3D12PipelineState> m_nebula;
 };
 
 } // namespace Neuron

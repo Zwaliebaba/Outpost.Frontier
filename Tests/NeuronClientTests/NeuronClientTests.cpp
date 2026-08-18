@@ -25,38 +25,31 @@ public:
   {
     // A clear colour outside [0,1] is not an artistic choice, it is a bug that
     // shows up as a flash on some drivers and not others.
-    for (int i = 0; i <= 240; ++i)
-    {
-      const double seconds = i * 0.05;
-      const ClearColour colour = AnimatedClearColour(seconds);
+    const ClearColour colour = SpaceClearColour();
 
-      Assert::IsTrue(colour.red >= 0.0f && colour.red <= 1.0f);
-      Assert::IsTrue(colour.green >= 0.0f && colour.green <= 1.0f);
-      Assert::IsTrue(colour.blue >= 0.0f && colour.blue <= 1.0f);
-      Assert::AreEqual(1.0f, colour.alpha);
-    }
+    Assert::IsTrue(colour.red >= 0.0f && colour.red <= 1.0f);
+    Assert::IsTrue(colour.green >= 0.0f && colour.green <= 1.0f);
+    Assert::IsTrue(colour.blue >= 0.0f && colour.blue <= 1.0f);
+    Assert::AreEqual(1.0f, colour.alpha);
   }
 
   TEST_METHOD(StaysDarkAndBlue)
   {
-    // The art direction is near-black space; a clear colour that drifts bright
-    // or green would be visible proof the loop is lying about the palette.
-    for (int i = 0; i <= 60; ++i)
-    {
-      const ClearColour colour = AnimatedClearColour(i * 0.1);
-      Assert::IsTrue(colour.blue > colour.red);
-      Assert::IsTrue(colour.blue < 0.1f, L"clear colour is brighter than the art direction allows");
-    }
+    // The art direction is near-black space. These are linear values behind an
+    // _SRGB RTV, so a number that looks small here is not small on screen --
+    // 0.05 linear is already a visible grey.
+    const ClearColour colour = SpaceClearColour();
+    Assert::IsTrue(colour.blue > colour.red);
+    Assert::IsTrue(colour.blue < 0.02f, L"clear colour is brighter than the art direction allows");
   }
 
-  TEST_METHOD(AnimatesAndRepeatsOnItsCycle)
+  TEST_METHOD(DoesNotChangeFrameToFrame)
   {
-    const ClearColour start = AnimatedClearColour(0.0);
-    const ClearColour quarter = AnimatedClearColour(1.5);
-    const ClearColour full = AnimatedClearColour(6.0);
-
-    Assert::AreNotEqual(start.blue, quarter.blue); // It moves...
-    Assert::AreEqual(start.blue, full.blue, 1e-5f); // ...and comes back after 6 s.
+    // S1's clear breathed on a 6-second cycle to prove the loop ran with
+    // nothing else on screen. From the Nebula node onwards there is something
+    // else on screen, and a background that moves by itself competes with it.
+    Assert::AreEqual(SpaceClearColour().blue, SpaceClearColour().blue);
+    Assert::IsTrue(SpaceClearColour().green > 0.0f, L"space is near-black, not black");
   }
 };
 

@@ -7,6 +7,7 @@
 #include "GpuCom.h"
 #include "GpuDevice.h"
 #include "GpuMeshes.h"
+#include "GpuNebula.h"
 #include "GpuPasses.h"
 #include "GpuPipelines.h"
 #include "GpuSwapChain.h"
@@ -80,11 +81,13 @@ private:
   GpuPipelines m_pipelines;
   GpuMeshTable m_meshes;
   GlyphAtlas m_glyphAtlas;
+  GpuNebula m_nebula;
   GpuUploadRing m_uploadRing;
   GpuPassList m_passes;
 
   /// The one shader-visible CBV/SRV heap (ADR-006 §12). The atlas takes slot 0
-  /// and the per-frame tables the later passes need take the rest.
+  /// and the nebula field slot 1 -- t0 and t1 in the root signature's table --
+  /// with the per-frame tables the later passes need taking the rest.
   GpuPtr<ID3D12DescriptorHeap> m_srvHeap;
   D3D12_GPU_DESCRIPTOR_HANDLE m_textureTable{};
 

@@ -118,10 +118,45 @@ void OpaquePass::Record(const FrameContext& _context)
   NEURON_COUNTER("OpaqueDraws", m_drawCount);
 }
 
+void NebulaPass::Record(const FrameContext& _context)
+{
+  NEURON_SPAN("Nebula");
+
+  m_drew = false;
+
+  if (!_context.nebulaReady || _context.pipelines == nullptr || _context.pipelines->Nebula() == nullptr ||
+      _context.textureTable.ptr == 0)
+  {
+    return;
+  }
+
+  ID3D12GraphicsCommandList* commandList = _context.commandList;
+  commandList->SetGraphicsRootSignature(_context.pipelines->RootSignature());
+  commandList->SetPipelineState(_context.pipelines->Nebula());
+  commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+  // PassConstants and the texture table only. FrameConstants is not bound
+  // because Nebula.hlsl does not declare it: setting the root signature
+  // invalidates every root argument, so what a pass must bind is exactly what
+  // its shaders read, and binding more would imply this one reads more.
+  commandList->SetGraphicsRootConstantBufferView(static_cast<UINT>(RootSlot::PassConstants), _context.passConstants);
+  commandList->SetGraphicsRootDescriptorTable(static_cast<UINT>(RootSlot::Textures), _context.textureTable);
+
+  // No vertex or index buffer is set on purpose: the vertex shader builds the
+  // triangle from SV_VertexID, so there is no geometry to keep in sync with it.
+  // Whatever the Opaque pass left bound stays bound and is simply not read --
+  // this PSO declares no input layout, and DrawInstanced consults no index
+  // buffer. Clearing them would be two calls that change nothing.
+  commandList->DrawInstanced(3, 1, 0, 0);
+
+  m_drew = true;
+}
+
 void GpuPassList::Record(const FrameContext& _context)
 {
   m_clear.Record(_context);
   m_opaque.Record(_context);
+  m_nebula.Record(_context);
   // OverlayWorld (S8) and Ui (S11) are recorded here, in this order, when they
   // exist. Present is the swapchain's, not a recorded pass.
 }

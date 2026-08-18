@@ -304,6 +304,58 @@ moves it in the world. The demonstration is to edit `stations[0].position` and r
 logged grid anchor moves with it, and a second station added to the array appears at its
 offset, with nothing rebuilt.
 
+### S5d — The Nebula node *(taken out of order, at the owner's request)*
+The reserved `Nebula` slot in ADR-006 §1, built: a CPU-baked periodic field
+(`NebulaField.h/.cpp`), its GPU upload (`GpuNebula.h/.cpp`), an additive full-screen pass after
+`Opaque`, `Nebula.hlsl`, and the parameters as content under `client.nebula`. The animated
+clear colour S1 used to prove the loop was running is retired for a static near-black.
+**Accept:** `NeuronClientTests` covers the field without a device — determinism, sparseness,
+smoothness, seamless wrap, and that the settings do what they are named — plus the NDC→plane
+mapping round-tripped against the real view-projection; visual confirmation on a GPU that the
+haze belongs to the world rather than the screen.
+
+**Out of order on purpose, and safe.** It sits before S5c here because S5c has not landed yet
+and this was asked for first. Nothing about it touches S5c's seams: it is one pass reading one
+baked texture and the camera's own mapping, with no simulation, no world view and no wire
+involved. Numbered S5d rather than renumbering anything, because the build order is a plan and
+this is a record of what happened to it.
+
+**Built ✅ (code):**
+`NebulaField.h/.cpp` — the field, device-free. Periodic value noise, four octaves, FNV-1a for
+the lattice so the bake is stable across builds by construction, shaped by a coverage floor and
+a contrast curve so most of the tile is black. "Sparse space" is the art direction, and an even
+grey fog would have passed every test that did not measure the distribution — so one does.
+`GpuNebula.h/.cpp` — bake, upload, SRV, in the shape `GlyphAtlas` already established.
+`NebulaPass` in `GpuPasses` — additive, depth-blind, one full-screen triangle built from
+`SV_VertexID` so there is no geometry to keep in sync with the shader.
+`IsoCamera::PlaneMappingForNdc` — the affine NDC→plane map, which is what anchors the field to
+the world; S8's overlay will want the same thing.
+`ClearColour` — `AnimatedClearColour` and its three tests are gone, replaced by
+`SpaceClearColour` and tests that assert it does *not* move.
+
+**The reserved list did what it promised.** ADR-006 §1 claimed a new node would be an insertion
+rather than a redesign, and that claim had never been tested. Inserting this one cost a struct,
+a line in `GpuPassList::Record`, a PSO, one SRV and one sampler. No pass was reordered and no
+existing pass changed. That is now recorded in ADR-006 §1a as a measurement rather than an
+intention.
+
+**Two decisions worth keeping.** The field is baked on the CPU rather than evaluated in the
+shader, because a procedural shader would put the only copy of the function where no test in
+this tree can reach it — and the alternative, a second copy in C++ to test against, is two
+implementations free to disagree. And the tile is *periodic* rather than sized to the play
+area: `MAX_ZOOM_METRES` is a 40 km half-height against a 40 km grid, so the camera can see past
+the play area and a clamped tile would smear its edge over everything beyond. Periodicity
+removes that failure instead of sizing around it, and "does the seam show" became a test.
+
+**Verified:** `NeuronClientTests` is 59 cases, up from 46. The thirteen new ones cover the
+field's determinism, its distribution, its seamless wrap, the continuous function's period, the
+refusal of settings that describe no field, wrapping fetches, and the plane mapping — including
+3,200 round trips through the real view-projection across eight yaws, four zooms and three
+focus positions, worst NDC error 7.6e-6.
+**Outstanding, and needing a GPU:** what the haze actually looks like. The numbers say sparse,
+smooth and world-anchored; whether it reads as space behind a fleet is a judgement no test
+makes. The knobs for that are in `client.nebula` and take effect on restart.
+
 ### S5c — The engine/game seams
 `Neuron::Simulation` (NeuronServer) and `Neuron::WorldView` (NeuronClient) declared, with the
 neutral types they speak — `EntityRecord` (NeuronCore), `RenderScene`, `OrderIntent`,

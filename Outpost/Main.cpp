@@ -221,6 +221,21 @@ Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config, const O
   client.fontFamily = _config.client.ui.font;
 
   client.cameraZoomMetres = static_cast<float>(_config.client.camera.zoomMetres);
+
+  // Two structs describing the same thing, mapped rather than shared: the
+  // engine may not take a type from the host, and the host may not take one
+  // from the engine's config layer either (ADR-012, ADR-014). The cost is this
+  // block; the benefit is that NeuronClient has no idea Outpost.json exists.
+  client.nebula.tintRed = static_cast<float>(_config.client.nebula.tintRed);
+  client.nebula.tintGreen = static_cast<float>(_config.client.nebula.tintGreen);
+  client.nebula.tintBlue = static_cast<float>(_config.client.nebula.tintBlue);
+  client.nebula.intensity = static_cast<float>(_config.client.nebula.intensity);
+  client.nebula.tileMetres = static_cast<float>(_config.client.nebula.tileMetres);
+  client.nebula.resolution = _config.client.nebula.resolution;
+  client.nebula.octaves = _config.client.nebula.octaves;
+  client.nebula.coverage = static_cast<float>(_config.client.nebula.coverage);
+  client.nebula.contrast = static_cast<float>(_config.client.nebula.contrast);
+  client.nebula.seed = _config.client.nebula.seed;
   client.cameraYawSnapDegrees = static_cast<float>(_config.client.camera.yawSnapDegrees);
   client.uiScale = static_cast<float>(_config.client.ui.scale);
 

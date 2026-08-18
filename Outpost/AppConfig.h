@@ -61,6 +61,28 @@ struct CameraSettings
   double yawSnapDegrees = 45.0;
 };
 
+/*
+ * The ambient field behind the fleet (ADR-006 §1's Nebula node).
+ *
+ * Art direction, so it is content and not a rebuild (ADR-012). The defaults
+ * here mirror `Neuron::NebulaSettings` -- the engine's own struct, which this
+ * one is mapped onto in the composition root rather than shared, because a
+ * library taking a config struct from the host is exactly what ADR-012 forbids.
+ */
+struct NebulaSettings
+{
+  double tintRed = 0.06;
+  double tintGreen = 0.22;
+  double tintBlue = 0.10;
+  double intensity = 0.35;
+  double tileMetres = 96000.0;
+  std::uint32_t resolution = 256;
+  std::uint32_t octaves = 4;
+  double coverage = 0.55;
+  double contrast = 2.0;
+  std::uint32_t seed = 1;
+};
+
 struct AudioSettings
 {
   double master = 1.0;
@@ -101,6 +123,7 @@ struct ClientSettings
   WindowSettings window;
   RendererSettings renderer;
   CameraSettings camera;
+  NebulaSettings nebula;
   AudioSettings audio;
   UiSettings ui;
 };

@@ -114,6 +114,7 @@ for the atlas bake, **XAudio2 + X3DAudio**). No GameLogic (ADR-014).
 | Assets | `ObjMesh.h` (loader → submesh ranges) `GlyphAtlas.h` (DWrite bake) | Boot-time, TaskPool. Both parsers are free of D3D and C++/WinRT headers so `NeuronClientTests` can drive them with no device |
 | Camera/input | `IsoCamera.h` (ortho 30°, yaw snap, zoom) `Picking.h` (`XMPlaneIntersectLine` + 2D tests) `InputMap.h` (`InputFrame` → `CameraIntent`; `Window` owns the virtual-key table) | Client-only state |
 | HUD | `HudLayout.h` `HudRoster.h` (context bar, ability rack stub, toasts) `OrderPuck.h` (drag/facing/ghost lifecycle) | Prints are the spec |
+| Nebula | `NebulaField.h` (periodic value-noise tile, device-free) `GpuNebula.h` (bake + upload + SRV) | ADR-006 §1a's built node; the field is CPU-baked so its maths is testable without a device, and periodic so the tile wraps at any zoom |
 | Audio | `AudioSystem.h` (XAudio2 graph, voice pool) `AudioListener.h` (focus/zoom listener model) `AudioBank.h` (JSON bank + RIFF WAV) | 5 submixes; `AudioUpdate` stage after Extract (ADR-011) |
 
 ### Outpost.exe — composition root
@@ -146,8 +147,9 @@ Each test project depends on its library under test plus that library's allowed 
   core-level client, the simulation's `WorldMeta` arriving intact in `Welcome`, config structs
   built in code (no files).
 - `NeuronClientTests` — interpolation/extrapolation timeline, picking math, OBJ parser,
-  camera projection and input mapping, extract layout, audio listener/emitter math,
-  sound-bank parsing. **No D3D device and no audio device in unit tests**; GPU/audio smoke
+  camera projection and input mapping, the NDC→plane mapping round-tripped against the real
+  view-projection, the nebula field's determinism/sparseness/seamless wrap, extract layout,
+  audio listener/emitter math, sound-bank parsing. **No D3D device and no audio device in unit tests**; GPU/audio smoke
   lives in `selfTest`-adjacent manual slices.
 
 > Resolved (S5): the test .vcxprojs now carry `ProjectReference`s and matching include paths.

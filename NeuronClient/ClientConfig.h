@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NebulaField.h"
 #include "RenderWorld.h"
 
 #include <cstdint>
@@ -66,6 +67,11 @@ struct ClientConfig
   std::uint16_t worldId = 0;
   std::int64_t gridAnchorXMetres = 0;
   std::int64_t gridAnchorYMetres = 0;
+
+  /// The ambient field behind the fleet (ADR-006 §1). A field that will not
+  /// bake costs the frame its haze and nothing else -- the pass draws nothing
+  /// rather than the client refusing to start.
+  NebulaSettings nebula;
 
   /// The game's message layout and authored content, as the simulation reports
   /// them. Compared at the handshake so mismatched builds refuse each other

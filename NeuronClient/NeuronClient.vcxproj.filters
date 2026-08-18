@@ -26,6 +26,9 @@
     <ClCompile Include="GpuMeshes.cpp">
       <Filter>Gpu</Filter>
     </ClCompile>
+    <ClCompile Include="GpuNebula.cpp">
+      <Filter>Gpu</Filter>
+    </ClCompile>
     <ClCompile Include="GpuPasses.cpp">
       <Filter>Gpu\Passes</Filter>
     </ClCompile>
@@ -40,6 +43,9 @@
     </ClCompile>
     <ClCompile Include="IsoCamera.cpp">
       <Filter>Camera</Filter>
+    </ClCompile>
+    <ClCompile Include="NebulaField.cpp">
+      <Filter>Assets</Filter>
     </ClCompile>
     <ClCompile Include="ObjMesh.cpp">
       <Filter>Assets</Filter>
@@ -80,6 +86,9 @@
     <ClInclude Include="GpuMeshes.h">
       <Filter>Gpu</Filter>
     </ClInclude>
+    <ClInclude Include="GpuNebula.h">
+      <Filter>Gpu</Filter>
+    </ClInclude>
     <ClInclude Include="GpuPasses.h">
       <Filter>Gpu\Passes</Filter>
     </ClInclude>
@@ -94,6 +103,9 @@
     </ClInclude>
     <ClInclude Include="IsoCamera.h">
       <Filter>Camera</Filter>
+    </ClInclude>
+    <ClInclude Include="NebulaField.h">
+      <Filter>Assets</Filter>
     </ClInclude>
     <ClInclude Include="ObjMesh.h">
       <Filter>Assets</Filter>

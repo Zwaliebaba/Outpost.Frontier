@@ -17,18 +17,59 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
 ## Decision
 
 ### Frame structure
-1. **No frame graph.** A frame graph schedules resource churn across many passes; MVP has four.
-   Instead: a **fixed, named pass list** — `Clear → Opaque → OverlayWorld → Ui → Present` —
-   each pass a struct with `Record(ctx)`, executed in order on one direct queue. The names and
-   order are the corpus target list with unbuilt nodes absent; `GpuCull`, `DepthPre`,
-   `Effects`, `Nebula`, `Tonemap` are **reserved slots** documented in code, so growth is
-   insertion, not redesign. Revisit a real graph only when transient-resource management hurts.
-   *`Nebula` is an ambient haze* — it sits after `Opaque` and before `Tonemap` because it
-   composites over the scene, and it is the green field `tactical-hud.png` shows behind the
-   fleet (hence `overlay-pass.png` §1 on "HDR drift between a bright nebula and empty space").
-   It is **not** a celestial or skybox renderer, and no reserved slot here is: the prints draw
-   no celestial body on either screen, and ADR-009 §9a settles that they are data rather than
-   geometry.
+1. **No frame graph.** A frame graph schedules resource churn across many passes; MVP has five.
+   Instead: a **fixed, named pass list** — `Clear → Opaque → Nebula → OverlayWorld → Ui →
+   Present` — each pass a struct with `Record(ctx)`, executed in order on one direct queue. The
+   names and order are the corpus target list with unbuilt nodes absent; `GpuCull`, `DepthPre`,
+   `Effects`, `Tonemap` are **reserved slots** documented in code, so growth is insertion, not
+   redesign. Revisit a real graph only when transient-resource management hurts.
+
+1a. **`Nebula` is built, and it was the reserved list's first test.** The claim in §1 — that a
+   new node is an insertion rather than a redesign — was untested until something needed
+   inserting. Adding it cost one struct in `GpuPasses.h`, one line in `GpuPassList::Record`,
+   one PSO, and nothing else in the frame moved: no pass was reordered, no existing pass
+   changed, and the root signature grew by one SRV and one sampler. The claim now has a
+   measurement behind it.
+
+   *What the node is:* an ambient field, sampled from a CPU-baked periodic tile
+   (`NebulaField.h`) and added over the scene. It sits after `Opaque` and before `Tonemap`
+   because it composites *over* the geometry — hulls read as being inside the cloud rather
+   than pasted onto a backdrop — which is also why `overlay-pass.png` §1 worries about "HDR
+   drift between a bright nebula and empty space". Additive and deliberately dim: the ceiling
+   on how far it may wash out a hull is the readability budget §7 protects.
+
+   *What it is not:* a celestial or skybox renderer, and no reserved slot here is one. Neither
+   print draws a celestial body, and ADR-009 §9a settles that celestials are data rather than
+   geometry. Reading `Nebula` as their scheduled home is a mistake this tree has already made
+   once.
+
+   *Why the field is baked on the CPU rather than evaluated in the shader:* so it can be
+   tested. A procedural shader would put the only copy of the function where no test in this
+   tree can reach it, and a second copy in C++ to test against would be two implementations
+   free to disagree. `GlyphAtlas` set the pattern — bake at boot, upload once, let the shader
+   sample — and `NeuronClientTests` now asserts the field's determinism, sparseness,
+   smoothness and seamless wrap without a device.
+
+   *Why the tile is periodic:* the pass covers an unbounded plane. Sizing one tile to the play
+   area looks right until someone zooms out — `MAX_ZOOM_METRES` is a 40 km ortho half-height
+   against a 40 km grid, so the camera sees well past the play area and a clamped tile would
+   smear its edge texels over everything beyond. Periodicity removes the failure instead of
+   sizing around it, and gives a test something to check.
+
+   *Why it is world-anchored:* the pass reconstructs the plane position of each pixel from
+   `IsoCamera::PlaneMappingForNdc` — an affine NDC→plane map, exact because the projection is
+   orthographic — so panning moves the field through the world and orbiting turns it. Sampling
+   in screen space would make it a smudge on the monitor, which is the one thing a background
+   must never be. That mapping is round-tripped against the real view-projection in
+   `NeuronClientTests`, for the same reason §3a's handedness defect needed a round trip: the
+   failure is invisible to review.
+
+1b. **The clear colour is static.** `AnimatedClearColour` breathed between two blues so slice
+   S1 could prove the loop ran with nothing else on screen. From this node onwards there is
+   something else on screen, and a background that changes on its own competes with it. It is
+   replaced by `SpaceClearColour` — near-black, faintly blue, linear values behind the `_SRGB`
+   RTV — and is deliberately *not* configurable: what reads as the colour of space is the
+   nebula, and that is configurable.
 2. **SDR first.** Swapchain `R8G8B8A8_UNORM` (flip model forbids `_SRGB` swapchain formats)
    with an `_SRGB` RTV; linear-space lighting; no tonemap node yet. The Darwinia look —
    near-black space, saturated emissives — survives SDR; HDR+Tonemap is a reserved node.
@@ -156,8 +197,15 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
 
 ## Consequences
 
-- The whole MVP renderer is ~4 PSOs (opaque, overlay-instanced, overlay-polyline, ui/text) and
-  no compute — DX12 boilerplate risk is bounded to device/swapchain/upload plumbing (Risk R4).
+- The whole MVP renderer is ~5 PSOs (opaque, nebula, overlay-instanced, overlay-polyline,
+  ui/text) and no compute — DX12 boilerplate risk is bounded to device/swapchain/upload
+  plumbing (Risk R4).
+- The nebula's parameters are content (ADR-012), so retuning the look is a config edit and a
+  restart. Tint and intensity apply at draw time; resolution, octaves, coverage, contrast and
+  seed change the field and are re-baked at boot.
+- A `nebula` block that describes no field costs the frame its haze and nothing else: the pass
+  checks and draws nothing. A client that will not start because the art direction is
+  mistyped would be the wrong failure.
 - Extract (ADR-007) is the only bridge from net-thread world to GPU data; `InstanceRecord`
   is its output format, already shaped for the corpus's later GPU-culled path.
 - Camera/selection/overlay all assume the plane; if ADR-001 ever reopens, this ADR reopens.
