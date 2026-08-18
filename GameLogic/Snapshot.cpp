@@ -3,6 +3,7 @@
 #include "Snapshot.h"
 
 #include <algorithm>
+#include <cmath>
 
 using namespace DirectX;
 
@@ -25,7 +26,10 @@ Neuron::EntityRecord MakeShipRecord(const World& _world, std::uint32_t _slot) no
   // `typeId` is the hull class and `gaugeA`/`gaugeB` are hull and shield. The
   // engine moves all four and reads none of them (ADR-014 §4).
   record.typeId = _world.Classes()[_slot];
-  record.flags = 0;
+  // The ship's wing, which is what the HUD's roster is a roster *of*. It rides
+  // in the neutral `groupId` byte: the engine carries the number and only this
+  // library knows the word for it (ADR-014 §4).
+  record.groupId = _world.Wings()[_slot];
 
   record.posXCm = Neuron::MetresToCentimetres(position.x);
   record.posYCm = Neuron::MetresToCentimetres(position.y);
@@ -85,6 +89,20 @@ bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer)
     const OrderGroup& group = _world.Groups()[index];
     _writer.WriteUInt32(group.serverOrderId);
     _writer.WriteUInt32(group.clientOrderSeq);
+
+    /*
+     * The authority's ETA, rounded up and clamped (S12).
+     *
+     * Up rather than to nearest, for the reason the ghost's label rounds up
+     * too: `0s` while the ships are visibly still moving reads as a broken
+     * readout, and a second of pessimism at the end costs nothing. `NO_ETA`
+     * when the game will not say, which is distinct from zero -- zero means
+     * *arriving now*.
+     */
+    const float eta = _world.LegEtaSeconds(group);
+    _writer.WriteUInt16(eta < 0.0f ? NO_ETA
+                                   : static_cast<std::uint16_t>(std::min(std::ceil(eta), static_cast<float>(NO_ETA - 1))));
+
     _writer.WriteUInt8(static_cast<std::uint8_t>(group.state));
     _writer.WriteUInt8(group.legIndex);
     _writer.WriteUInt8(group.legCount);
@@ -136,6 +154,7 @@ bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader, std::
     OrderStateRecord record;
     record.serverOrderId = _reader.ReadUInt32();
     record.clientOrderSeq = _reader.ReadUInt32();
+    record.etaSeconds = _reader.ReadUInt16();
     record.state = _reader.ReadUInt8();
     record.legIndex = _reader.ReadUInt8();
     record.legCount = _reader.ReadUInt8();

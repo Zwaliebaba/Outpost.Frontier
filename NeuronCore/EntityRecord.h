@@ -8,11 +8,12 @@
 /*
  * The replicated unit of state (ADR-014 §4).
  *
- * Deliberately game-free: an id, a type, a position, a velocity, a heading and
- * two gauges. It names no ship, no order and no formation, so NeuronCore keeps
- * its zero-game-semantics charter while the client can still buffer,
- * interpolate and draw without knowing what any of it means. GameLogic decides
- * what typeId and the gauges stand for; the engine only moves them.
+ * Deliberately game-free: an id, a type, a group, a position, a velocity, a
+ * heading and two gauges. It names no ship, no order and no formation, so
+ * NeuronCore keeps its zero-game-semantics charter while the client can still
+ * buffer, interpolate and draw without knowing what any of it means. GameLogic
+ * decides what typeId, the group and the gauges stand for; the engine only
+ * moves them.
  *
  * Quantisation is the wire contract from ADR-004, and it is what both sides
  * validate against, so a pre-check and the authoritative check cannot disagree
@@ -33,7 +34,21 @@ struct EntityRecord
 {
   std::uint16_t id = INVALID_ENTITY_ID;
   std::uint8_t typeId = 0;
-  std::uint8_t flags = 0;
+
+  /*
+   * Which group this entity belongs to, or zero for none.
+   *
+   * Neutral like `typeId`: the engine carries the number and never learns what
+   * a group is. This game means a *wing* by it, and the HUD's roster is the
+   * reason it replicates -- a roster of groups cannot be built from a stream
+   * that does not say which group anything is in.
+   *
+   * It was `flags`, an always-zero reserved byte, and the rename is the point
+   * rather than tidiness: a field called `flags` carrying an id would be read
+   * as a bitfield by the next person to touch it, and the first thing they
+   * would do is `|=` something into it.
+   */
+  std::uint8_t groupId = 0;
   std::int32_t posXCm = 0;
   std::int32_t posYCm = 0;
   std::int16_t velXCmPerSec = 0;

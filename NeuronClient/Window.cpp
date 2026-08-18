@@ -242,6 +242,9 @@ void Window::SetKey(WPARAM _virtualKey, bool _down) noexcept
     actions[count++] = InputAction::SelectAdd;
     actions[count++] = InputAction::QueueOrder;
     break;
+  case 'F':
+    actions[count++] = InputAction::CycleParameter;
+    break;
   default:
     return; // Not a camera, selection or order key.
   }

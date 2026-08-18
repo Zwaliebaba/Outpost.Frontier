@@ -41,6 +41,7 @@ namespace
   ship.headingRadians = Neuron::HeadingToRadians(_record.headingTurns16);
   ship.hullGauge = _record.gaugeA;
   ship.shieldGauge = _record.gaugeB;
+  ship.wing = _record.groupId;
   return ship;
 }
 

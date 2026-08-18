@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EntityRecord.h"
 #include "OrderIntent.h"
 
 #include <DirectXMath.h>
@@ -49,6 +50,21 @@ enum class GhostState : std::uint8_t
   Rejected = 2
 };
 
+/*
+ * One waypoint of a ghost's plan (S12).
+ *
+ * A queued order is one chain with a leg per waypoint (`puck-and-wheel.png` §4:
+ * "waypoints render as a polyline with per-leg ETAs"), and this is one link of
+ * it. Every leg keeps the ETA the game predicted for it *when it was queued* --
+ * the authority only reports the leg it is currently flying, and a leg it has
+ * not started has no measured number to replace the prediction with.
+ */
+struct GhostLeg
+{
+  DirectX::XMFLOAT2 targetMetres{};
+  float etaSeconds = -1.0f;
+};
+
 /// One order the client is drawing on the server's behalf.
 struct OrderGhost
 {
@@ -84,6 +100,49 @@ struct OrderGhost
   std::uint8_t legCount = 0;
   std::uint8_t memberCount = 0;
 
+  /*
+   * The authority's own ETA for the current leg, or negative while there is
+   * none (S12).
+   *
+   * `preview.etaSeconds` is what the game predicted before the order was sent;
+   * this is what it measured once the ships were moving. The label prefers this
+   * the moment it exists, which is the frame the order is promoted -- so a
+   * queued chain shows a prediction until the authority answers and a fact
+   * afterwards, and never the prediction once the fact is available.
+   */
+  float authorityEtaSeconds = -1.0f;
+
+  /*
+   * The plan, waypoint by waypoint (S12).
+   *
+   * `legs[0]` is always this order's own target; an accepted *append* adds one.
+   * `legCount` above is the authority's count and this is the client's, and
+   * they are different numbers on purpose: the authority's is the truth and
+   * arrives a round trip later, while this is what there is to draw *now*. When
+   * they disagree the authority wins, which is how a mistaken chain corrects
+   * itself.
+   */
+  GhostLeg legs[MAX_GHOST_LEGS] = {};
+  std::uint8_t queuedLegCount = 0;
+
+  /*
+   * The first entity the order named, and the only one the chain needs.
+   *
+   * `World::IngestOrders` joins an append to "the group the first named ship
+   * belongs to", and this is the client mirroring that rule so it can draw the
+   * chain before the authority confirms it. It is the one thing the ghost
+   * *predicts* about grouping rather than replicates -- which is what a ghost
+   * is for (`puck-and-wheel.png` §4, "the only client-side optimism left in the
+   * game") -- and the authority's `legCount` is what corrects it if the guess
+   * was wrong.
+   */
+  std::uint16_t firstEntityId = INVALID_ENTITY_ID;
+
+  /// Whether this order asked to be queued. Kept because the merge happens on
+  /// *acceptance* rather than on send: until the authority agrees, a queued
+  /// waypoint is its own pending ghost and bounces on its own if refused.
+  bool queued = false;
+
   /// When the current state began, in the client's own seconds.
   double stateSinceSeconds = 0.0;
 
@@ -103,6 +162,23 @@ struct OrderGhost
    * frame would otherwise read as already due.
    */
   double answerDueSeconds = -1.0;
+
+  /*
+   * Where a refusal retracts the last waypoint to.
+   *
+   * The waypoint before it, or the fleet's position when there is only one --
+   * so a single-leg ghost bounces exactly as it always did, and a queued one
+   * takes back the leg that was refused rather than the whole plan.
+   *
+   * Here rather than in either caller because the footprint ring
+   * (`BuildGhostMarks`) and the lane (`BuildGhostLanes`) both retract, and two
+   * answers would have the ring come home while the line pointed somewhere
+   * else for the 150 ms the animation lasts.
+   */
+  [[nodiscard]] DirectX::XMFLOAT2 RetractTowardMetres() const noexcept
+  {
+    return queuedLegCount > 1 ? legs[queuedLegCount - 2].targetMetres : originMetres;
+  }
 };
 
 class OrderGhostList
@@ -218,6 +294,10 @@ public:
 
 private:
   [[nodiscard]] OrderGhost* Find(std::uint32_t _clientOrderSeq) noexcept;
+
+  /// The chain an accepted append belongs to, by the rule the authority uses:
+  /// the plan whose first named ship is this one's. Null when there is none.
+  [[nodiscard]] OrderGhost* FindChain(const OrderGhost& _appending) noexcept;
 
   std::vector<OrderGhost> m_ghosts;
   std::uint64_t m_timedOut = 0;

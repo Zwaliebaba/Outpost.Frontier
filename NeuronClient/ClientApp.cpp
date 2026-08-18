@@ -7,6 +7,8 @@
 #include "Telemetry.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
 
 namespace Neuron
 {
@@ -14,6 +16,36 @@ namespace
 {
 
 using namespace DirectX;
+
+/*
+ * The HUD's palette, packed r-in-the-low-byte like every other colour the
+ * client sends (`OverlayMark::colourRgba`).
+ *
+ * The prints are a dark panel with green text and an amber accent for anything
+ * the player has to act on, and these are those four. Here rather than in
+ * `UiTuning` because a colour is not a size: the scale control retunes sizes,
+ * and nothing retunes these.
+ */
+constexpr std::uint32_t PANEL_COLOUR = 0xd8140f0au;       // Near-black, mostly opaque.
+constexpr std::uint32_t PANEL_EDGE_COLOUR = 0x60403020u;
+constexpr std::uint32_t TEXT_COLOUR = 0xff64e664u;        // The sheets' green.
+constexpr std::uint32_t TEXT_DIM_COLOUR = 0xa050a050u;
+constexpr std::uint32_t TOAST_URGENT_COLOUR = 0xff20b4ffu; // Amber: act on this.
+constexpr std::uint32_t TOAST_CRITICAL_COLOUR = 0xff4040ffu; // Red: act on it now.
+constexpr std::uint32_t TEXT_DISABLED_COLOUR = 0x80303030u;  // A control with nothing behind it.
+constexpr std::uint32_t ROW_SELECTED_COLOUR = 0x40206020u;   // The roster's highlight.
+constexpr std::uint32_t BAR_TRACK_COLOUR = 0x60202020u;      // What an empty strip looks like.
+
+/// The drag box's wash. The selection cyan at low alpha, with its border drawn
+/// in the same colour the selection rings use -- a box and the rings it is
+/// about to produce must obviously be the same gesture.
+constexpr std::uint32_t DRAG_BOX_FILL_COLOUR = 0x28ffc864u;
+
+/// The roster's strips, and the same two colours the world-space gauge bars
+/// use (`OverlayTuning`): a wing's row and its ships' bars must not disagree
+/// about which one is hull.
+constexpr std::uint32_t HULL_COLOUR = 0xff50e050u;
+constexpr std::uint32_t SHIELD_COLOUR = 0xff40c0e0u;
 
 /// One descriptor for the glyph atlas, and room for the per-frame tables the
 /// overlay and UI passes will want. Small and fixed: a heap that grows is a
@@ -55,6 +87,24 @@ bool ClientApp::Initialise(const ClientConfig& _config, const PipelineShaders& _
   // is one command until the wheel exists, and asking every frame would be
   // asking a question whose answer is compiled in.
   m_orderDefaults = _worldView.DefaultOrder();
+  m_selectedKind = m_orderDefaults.kind;
+  m_orderOptionCount = _worldView.OrderOptions(m_orderDefaults.kind, m_orderOptions);
+
+  // The command row's buttons. Asked once: a game's command list does not
+  // change while a session runs, and asking every frame would imply it could.
+  m_orderKindCount = _worldView.OrderKinds(m_orderKinds);
+
+  // Start on the game's own default rather than on the list's first entry.
+  // They are the same today, and "the default is whatever happens to be first"
+  // is the kind of agreement that holds until someone reorders a menu.
+  for (std::uint32_t index = 0; index < m_orderOptionCount; ++index)
+  {
+    if (m_orderOptions[index].parameter == m_orderDefaults.parameter)
+    {
+      m_orderOptionIndex = index;
+      break;
+    }
+  }
 
   WindowDesc windowDesc;
   windowDesc.width = _config.windowWidth;
@@ -224,6 +274,7 @@ int ClientApp::Run()
     {
       NEURON_SPAN("Game");
       UpdateCamera(deltaSeconds);
+      UpdateHud();
       UpdateSelection();
       UpdateOrders();
     }
@@ -231,12 +282,7 @@ int ClientApp::Run()
       NEURON_SPAN("Extract");
       ExtractScene();
     }
-    {
-      // Declared, measured and empty. The Ui pass arrives in S11; the row it
-      // reports into is here now so the HUD does not have to add a stage
-      // boundary to itself later.
-      NEURON_SPAN("Ui");
-    }
+    BuildHud();
     m_swapChain.WaitForFrameLatency();
     {
       NEURON_SPAN("Render");
@@ -306,6 +352,54 @@ void ClientApp::UpdateCamera(float _deltaSeconds)
  * Nothing here reaches the server. A selection is a client-side fact until an
  * order names it (ADR-006 §11: no round trip).
  */
+void ClientApp::UpdateHud()
+{
+  m_uiLayout = ResolveUiLayout(m_input.viewportWidth, m_input.viewportHeight, m_config.uiScale, m_uiTuning);
+
+  m_commandButtonCount =
+      BuildCommandRow(std::span<const OrderKindOption>{m_orderKinds, m_orderKindCount}, m_selectedKind,
+                      std::span<const OrderOption>{m_orderOptions, m_orderOptionCount}, m_orderOptionIndex,
+                      m_uiLayout.commandRow, m_uiLayout.scale, m_commandTuning, m_commandButtons);
+
+  if (!m_input.windowFocused || !m_input.Pressed(InputButton::Left))
+  {
+    return;
+  }
+
+  const CommandButton* pressed =
+      HitCommandRow(std::span<const CommandButton>{m_commandButtons, m_commandButtonCount},
+                    static_cast<float>(m_input.cursorX), static_cast<float>(m_input.cursorY));
+  if (pressed == nullptr)
+  {
+    return;
+  }
+
+  switch (pressed->action)
+  {
+  case CommandAction::SelectKind:
+    // Only the kind changes. The options and the chosen index belong to it, so
+    // both are re-asked -- a formation index left over from another command
+    // would index a list that is not the one it came from.
+    if (pressed->payload != m_selectedKind)
+    {
+      m_selectedKind = pressed->payload;
+      m_orderOptionCount = m_worldView->OrderOptions(m_selectedKind, m_orderOptions);
+      m_orderOptionIndex = 0;
+    }
+    break;
+
+  case CommandAction::CycleParameter:
+    // The same step the `F` binding makes, through the same index, because a
+    // button and a key that did the same thing by two routes would drift.
+    if (m_orderOptionCount > 0)
+    {
+      m_orderOptionIndex = (m_orderOptionIndex + 1) % m_orderOptionCount;
+      NEURON_LOG_INFO("%s: %s", pressed->label, m_orderOptions[m_orderOptionIndex].name);
+    }
+    break;
+  }
+}
+
 void ClientApp::UpdateSelection()
 {
   if (!m_input.windowFocused)
@@ -320,9 +414,22 @@ void ClientApp::UpdateSelection()
   const auto cursorX = static_cast<float>(m_input.cursorX);
   const auto cursorY = static_cast<float>(m_input.cursorY);
 
+  /*
+   * A drag may only *begin* in the world zone.
+   *
+   * The HUD is a border rather than an overlay (`UiLayout`), so everything
+   * outside `world` has a panel on it -- and until now a press on the roster or
+   * the command row also started a box selection across the fleet underneath.
+   * Once begun a drag may leave the zone freely: the box is meant to extend to
+   * wherever the cursor goes, and a selection that cancelled when it touched
+   * the ability rack would be worse than the bug.
+   */
   if (m_input.Pressed(InputButton::Left))
   {
-    m_selection.BeginDrag(cursorX, cursorY, m_input.Down(InputAction::SelectAdd));
+    if (m_uiLayout.world.Contains(cursorX, cursorY))
+    {
+      m_selection.BeginDrag(cursorX, cursorY, m_input.Down(InputAction::SelectAdd));
+    }
   }
   else if (m_selection.Dragging())
   {
@@ -353,10 +460,14 @@ void ClientApp::UpdateOrders()
     m_ghosts.OnVerdict(verdict, nowSeconds);
     if (!verdict.accepted)
     {
-      // The bounce toast's text, from the game (ADR-014 §3). Logged rather than
-      // drawn until the Ui pass exists (S11); the ghost's own bounce is the
-      // part the player can already see.
-      NEURON_LOG_INFO("order %u refused by the server: %s", verdict.orderSeq, m_worldView->ReasonText(verdict.reasonCode));
+      // The bounce toast (`alerts-and-toasts.png` §3), which the sheet is
+      // explicit is not a new component: it is the same reason string the
+      // 150 ms ghost bounce is already showing, on the second of the two
+      // surfaces one refusal owes. Keyed on the reason code, so a burst of
+      // out-of-bounds clicks is one row with a count rather than five rows.
+      const char* reason = m_worldView->ReasonText(verdict.reasonCode);
+      (void)m_toasts.Raise(ToastPriority::Urgent, verdict.reasonCode, "ORDER REJECTED", reason, nowSeconds);
+      NEURON_LOG_INFO("order %u refused by the server: %s", verdict.orderSeq, reason);
     }
   }
   m_connection.ClearPendingVerdicts();
@@ -371,14 +482,27 @@ void ClientApp::UpdateOrders()
   {
     // The link went away. Every promise it was carrying died with it, and the
     // sequence numbers restart on a reconnect, so keeping them would leave one
-    // session's ghosts hanging over the next one's fleet.
+    // session's ghosts hanging over the next one's fleet. The toasts go with
+    // them for the same reason: last session's refusals over this session's
+    // fleet is the same mistake.
     m_ghosts.Clear();
+    m_toasts.Clear();
   }
 
   if (!m_input.windowFocused)
   {
     m_puck.Cancel(); // No release is coming for a drag that alt-tabbed away.
     return;
+  }
+
+  if (m_input.Pressed(InputAction::CycleParameter) && m_orderOptionCount > 0)
+  {
+    // Stepped between gestures, not during one: the puck sampled its queue
+    // modifier at the press for the same reason, and an order that changed
+    // formation halfway through the drag would be an order the footprint had
+    // already lied about.
+    m_orderOptionIndex = (m_orderOptionIndex + 1) % m_orderOptionCount;
+    NEURON_LOG_INFO("formation: %s", m_orderOptions[m_orderOptionIndex].name);
   }
 
   const auto cursorX = static_cast<float>(m_input.cursorX);
@@ -416,7 +540,17 @@ void ClientApp::UpdateOrders()
 void ClientApp::CommitOrder(const PuckSample& _sample, double _nowSeconds)
 {
   const std::uint32_t orderSeq = m_nextOrderSeq++;
-  const OrderIntent intent = MakeOrderIntent(_sample, m_orderDefaults, m_selection.Ids(), orderSeq);
+
+  // The game's kind, and whichever of the game's parameters is selected. Both
+  // are numbers this client copies and never reads. The kind is the command row's
+  // now rather than the default's -- the default is only where it started.
+  OrderDefaults chosen = m_orderDefaults;
+  chosen.kind = m_selectedKind;
+  if (m_orderOptionIndex < m_orderOptionCount)
+  {
+    chosen.parameter = m_orderOptions[m_orderOptionIndex].parameter;
+  }
+  const OrderIntent intent = MakeOrderIntent(_sample, chosen, m_selection.Ids(), orderSeq);
 
   // The footprint, from the game's own formation solve -- the real one, one
   // station per ship. Solved before the pre-check because a refused order still
@@ -445,7 +579,13 @@ void ClientApp::CommitOrder(const PuckSample& _sample, double _nowSeconds)
     // ghost, same bounce, same reason string, one round trip sooner. That is
     // the whole reason the pre-check exists (ADR-014 §3).
     m_ghosts.Refuse(orderSeq, local.reasonCode, true, _nowSeconds);
-    NEURON_LOG_INFO("order %u refused locally: %s", orderSeq, m_worldView->ReasonText(local.reasonCode));
+
+    // The same toast the authority's refusal raises, from the same function.
+    // BounceParity is about the player being unable to tell which side said no,
+    // and two surfaces reading identically is most of what that means.
+    const char* reason = m_worldView->ReasonText(local.reasonCode);
+    (void)m_toasts.Raise(ToastPriority::Urgent, local.reasonCode, "ORDER REJECTED", reason, _nowSeconds);
+    NEURON_LOG_INFO("order %u refused locally: %s", orderSeq, reason);
     return;
   }
 
@@ -575,6 +715,301 @@ void ClientApp::HandleResize()
   m_camera.SetViewport(m_swapChain.Width(), m_swapChain.Height());
 }
 
+void ClientApp::BuildHud()
+{
+  NEURON_SPAN("Ui");
+
+  const double nowSeconds = Clock::SecondsSinceStart();
+  m_toasts.Advance(nowSeconds);
+
+  m_ui.Clear();
+
+  // Resolved in `UpdateHud`, so the button a click lands on and the button that
+  // is drawn are laid out from one answer rather than two.
+  const UiLayout& layout = m_uiLayout;
+  if (layout.viewport.width <= 0.0f || layout.viewport.height <= 0.0f)
+  {
+    return; // A minimised window. Nothing to lay out and nothing to draw.
+  }
+
+  const float pad = m_uiTuning.padding * layout.scale;
+  const float cell = 8.0f * layout.scale; // The monospace grid, near enough for
+                                          // placement; the pass measures glyphs.
+
+  /*
+   * --- world-space marks, first so the panels cover them -------------------
+   *
+   * `overlay-pass.png` §1: panels and toasts always composite over world-space
+   * marks, and the context bar is never occluded by one. The Ui pass has one
+   * pipeline and no sort, so build order *is* draw order and putting these
+   * first is the whole of that rule's implementation.
+   */
+  GhostLaneView laneView;
+  laneView.mapping = m_camera.PlaneMappingForNdc();
+  laneView.viewportWidth = m_input.viewportWidth;
+  laneView.viewportHeight = m_input.viewportHeight;
+  laneView.worldRect = layout.world;
+  laneView.cellPixels = cell;
+  laneView.scale = layout.scale;
+  BuildGhostLanes(m_ghosts.Ghosts(), laneView, m_overlayTuning, m_laneTuning, nowSeconds, m_ui);
+
+  /*
+   * The drag rectangle S8 deferred here.
+   *
+   * A screen-space quad and never a world mark: the box is axis-aligned in
+   * *pixels* and an arbitrary parallelogram on the plane, which is the same
+   * reason `PickBox` tests ships in screen space rather than mapping four
+   * corners onto the plane (ADR-006 §11). Drawn only once the gesture has left
+   * the click slop, so a click never flashes a box.
+   */
+  if (m_selection.DragIsBox())
+  {
+    const UiRect box = UiRect::FromCorners(m_selection.DragStartX(), m_selection.DragStartY(), m_selection.DragCurrentX(),
+                                           m_selection.DragCurrentY());
+    m_ui.AddQuad(box, DRAG_BOX_FILL_COLOUR);
+    m_ui.AddBorder(box, 1.0f, m_overlayTuning.ringColourRgba);
+  }
+
+  // --- the top status row -------------------------------------------------
+  //
+  // Everything on it is a replicated field or a link statistic, which is the
+  // whole acceptance criterion: kill the feed and these go stale rather than
+  // holding their last value.
+  m_ui.AddQuad(layout.topBar, PANEL_COLOUR);
+  m_ui.AddQuad(UiRect{0.0f, layout.topBar.Bottom() - 1.0f, layout.topBar.width, 1.0f}, PANEL_EDGE_COLOUR);
+
+  const float textY = layout.topBar.y + (layout.topBar.height - 13.0f * layout.scale) * 0.5f;
+  m_ui.AddText(pad, textY, m_uiTuning.bodySizeIndex, TEXT_DIM_COLOUR, "OUTPOST FRONTIER");
+
+  char buffer[96] = {};
+
+  // Ships, from the newest snapshot rather than from anything the client keeps.
+  const std::uint32_t shipCount = static_cast<std::uint32_t>(m_scene.entities.size());
+  std::snprintf(buffer, sizeof(buffer), "%u SHIPS", shipCount);
+  m_ui.AddText(layout.topBar.width * 0.5f, textY, m_uiTuning.bodySizeIndex, TEXT_COLOUR, buffer);
+
+  // The link. `--` rather than a stale number when there is no session, because
+  // a round-trip figure from a connection that has gone is a lie with a unit.
+  if (m_connection.State() == ClientLinkState::Joined)
+  {
+    std::snprintf(buffer, sizeof(buffer), "NET %.0f ms   TICK %u", m_connection.RoundTripMs(), m_connection.ServerTick());
+  }
+  else
+  {
+    std::snprintf(buffer, sizeof(buffer), "NET --   NO SESSION");
+  }
+  const auto netWidth = static_cast<float>(std::strlen(buffer)) * cell;
+  m_ui.AddText(layout.topBar.Right() - pad - netWidth, textY, m_uiTuning.bodySizeIndex, TEXT_DIM_COLOUR, buffer);
+
+  // --- the fleet roster ---------------------------------------------------
+  //
+  // The rows are the game's answer, not a grouping this file performs: it has
+  // `EntityRecord::groupId` and could aggregate in four lines, and doing so
+  // would be deciding that groups are named and how their health combines
+  // (ADR-014 §2c).
+  m_rosterRowCount = m_worldView->BuildRoster(m_selection.Ids(), m_rosterRows);
+
+  m_ui.AddQuad(layout.roster, PANEL_COLOUR);
+  m_ui.AddQuad(UiRect{layout.roster.Right() - 1.0f, layout.roster.y, 1.0f, layout.roster.height}, PANEL_EDGE_COLOUR);
+  m_ui.AddText(layout.roster.x + pad, layout.roster.y + pad, m_uiTuning.smallSizeIndex, TEXT_DIM_COLOUR, "FLEET ROSTER");
+
+  const float rowHeight = 38.0f * layout.scale;
+  const float barHeight = 3.0f * layout.scale;
+  float rowY = layout.roster.y + pad + 18.0f * layout.scale;
+
+  for (std::uint32_t index = 0; index < m_rosterRowCount; ++index)
+  {
+    const RosterRow& row = m_rosterRows[index];
+    const UiRect rowRect{layout.roster.x + pad * 0.5f, rowY, layout.roster.width - pad, rowHeight - 4.0f * layout.scale};
+    if (rowRect.Bottom() > layout.roster.Bottom())
+    {
+      break; // The panel is full. The print's "8/8" footer is where scrolling
+             // would go, and scrolling is a surface rather than a clamp.
+    }
+
+    // A wing the player has any of is lit; the print highlights the row rather
+    // than the name, so the whole row reads as the unit of selection.
+    const bool selected = row.selectedCount > 0;
+    const bool empty = row.shipCount == 0;
+    const std::uint32_t nameColour = empty ? TEXT_DISABLED_COLOUR : (selected ? TEXT_COLOUR : TEXT_DIM_COLOUR);
+    if (selected)
+    {
+      m_ui.AddQuad(rowRect, ROW_SELECTED_COLOUR);
+      m_ui.AddBorder(rowRect, 1.0f * layout.scale, TEXT_COLOUR);
+    }
+
+    m_ui.AddText(rowRect.x + pad * 0.5f, rowRect.y + pad * 0.4f, m_uiTuning.bodySizeIndex, nameColour,
+                 row.name != nullptr ? row.name : "?");
+
+    // A dash rather than a zero for a wing with nothing left. The print draws
+    // one, and it is the honest glyph: zero reads as a count and this is the
+    // absence of one.
+    if (empty)
+    {
+      std::snprintf(buffer, sizeof(buffer), "-");
+    }
+    else if (selected)
+    {
+      std::snprintf(buffer, sizeof(buffer), "%u/%u", row.selectedCount, row.shipCount);
+    }
+    else
+    {
+      std::snprintf(buffer, sizeof(buffer), "%u", row.shipCount);
+    }
+    const auto countWidth = static_cast<float>(std::strlen(buffer)) * cell;
+    m_ui.AddText(rowRect.Right() - pad * 0.5f - countWidth, rowRect.y + pad * 0.4f, m_uiTuning.bodySizeIndex, nameColour,
+                 buffer);
+
+    // Two strips: hull over shield, the same order and the same gauges the
+    // world-space bars use (ADR-006 §8), so a wing's row and its ships' bars
+    // cannot disagree about what full means.
+    const float barWidth = rowRect.width - pad;
+    const float barX = rowRect.x + pad * 0.5f;
+    const float barY = rowRect.Bottom() - pad * 0.5f - barHeight * 2.0f - 2.0f * layout.scale;
+
+    m_ui.AddQuad(UiRect{barX, barY, barWidth, barHeight}, BAR_TRACK_COLOUR);
+    m_ui.AddQuad(UiRect{barX, barY, barWidth * (static_cast<float>(row.hullGauge) / 255.0f), barHeight}, HULL_COLOUR);
+
+    const float shieldY = barY + barHeight + 2.0f * layout.scale;
+    m_ui.AddQuad(UiRect{barX, shieldY, barWidth, barHeight}, BAR_TRACK_COLOUR);
+    m_ui.AddQuad(UiRect{barX, shieldY, barWidth * (static_cast<float>(row.shieldGauge) / 255.0f), barHeight}, SHIELD_COLOUR);
+
+    rowY += rowHeight;
+  }
+
+  // --- the context bar ----------------------------------------------------
+  //
+  // `N SHIPS : WING -> FORMATION`, which is the print's own line. It reads off
+  // the selection and the roster the game just built, so it cannot claim a wing
+  // the roster does not list.
+  m_ui.AddQuad(layout.contextBar, PANEL_COLOUR);
+  m_ui.AddQuad(UiRect{0.0f, layout.contextBar.y, layout.contextBar.width, 1.0f}, PANEL_EDGE_COLOUR);
+
+  const float contextY = layout.contextBar.y + (layout.contextBar.height - 13.0f * layout.scale) * 0.5f;
+  const std::size_t selectedCount = m_selection.Ids().size();
+  if (selectedCount == 0)
+  {
+    m_ui.AddText(pad, contextY, m_uiTuning.bodySizeIndex, TEXT_DISABLED_COLOUR, "NO SELECTION");
+  }
+  else
+  {
+    // The wing named is the one the selection is mostly in. A selection
+    // spanning two wings is a real thing a box-drag produces, and naming the
+    // largest share beats naming the first or claiming both.
+    const char* wingName = "MIXED";
+    std::uint16_t best = 0;
+    for (std::uint32_t index = 0; index < m_rosterRowCount; ++index)
+    {
+      if (m_rosterRows[index].selectedCount > best)
+      {
+        best = m_rosterRows[index].selectedCount;
+        wingName = m_rosterRows[index].name != nullptr ? m_rosterRows[index].name : "?";
+      }
+    }
+    // Cast rather than compare across the promotion: `best` is a `uint16_t`
+    // that promotes to `int`, and `int < size_t` is C4018 at /W3.
+    if (static_cast<std::size_t>(best) < selectedCount)
+    {
+      wingName = "MIXED";
+    }
+
+    const char* formation = "-";
+    if (m_orderOptionIndex < m_orderOptionCount && m_orderOptions[m_orderOptionIndex].name != nullptr)
+    {
+      formation = m_orderOptions[m_orderOptionIndex].name;
+    }
+    std::snprintf(buffer, sizeof(buffer), "%zu SHIPS : %s  >  FORMATION %s", selectedCount, wingName, formation);
+    m_ui.AddText(pad, contextY, m_uiTuning.bodySizeIndex, TEXT_COLOUR, buffer);
+  }
+
+  // What the fleet is waiting on. The print puts it at the right of this bar,
+  // and it reads off the ghost list rather than off anything the client wishes
+  // were true.
+  if (!m_ghosts.Empty())
+  {
+    std::snprintf(buffer, sizeof(buffer), "%zu ORDER PENDING", m_ghosts.Count());
+    const auto pendingWidth = static_cast<float>(std::strlen(buffer)) * cell;
+    m_ui.AddText(layout.contextBar.Right() - pad - pendingWidth, contextY, m_uiTuning.bodySizeIndex, TOAST_URGENT_COLOUR,
+                 buffer);
+  }
+
+  // --- the command row ----------------------------------------------------
+  //
+  // Laid out in `UpdateHud` and only drawn here. Every word on it came from the
+  // game through `OrderKinds`: a row that spelled MOVE and ATTACK in this file
+  // would be one game's verbs compiled into a two-game engine (ADR-014 §2b).
+  m_ui.AddQuad(layout.commandRow, PANEL_COLOUR);
+  m_ui.AddQuad(UiRect{0.0f, layout.commandRow.y, layout.commandRow.width, 1.0f}, PANEL_EDGE_COLOUR);
+
+  for (std::uint32_t index = 0; index < m_commandButtonCount; ++index)
+  {
+    const CommandButton& button = m_commandButtons[index];
+
+    // Three states, three treatments: the active command is filled and lit, an
+    // available one is outlined, and one with no content behind it is drawn
+    // flat and grey. The print keeps all three in the row -- greying rather
+    // than hiding is what lets the row stay the same shape as content arrives.
+    const std::uint32_t edge = button.active ? TEXT_COLOUR : (button.enabled ? TEXT_DIM_COLOUR : TEXT_DISABLED_COLOUR);
+    const std::uint32_t text = button.enabled ? (button.active ? TEXT_COLOUR : TEXT_DIM_COLOUR) : TEXT_DISABLED_COLOUR;
+
+    m_ui.AddQuad(button.rect, button.active ? ROW_SELECTED_COLOUR : BAR_TRACK_COLOUR);
+    m_ui.AddBorder(button.rect, 1.0f * layout.scale, edge);
+
+    // Centred, and measured the same way every other centred label on this HUD
+    // is -- length times the cell, because the face is fixed-pitch.
+    const auto labelWidth = static_cast<float>(std::strlen(button.label)) * cell;
+    const float labelY = button.value != nullptr ? button.rect.y + pad * 0.6f
+                                                 : button.rect.y + (button.rect.height - 13.0f * layout.scale) * 0.5f;
+    m_ui.AddText(button.rect.x + (button.rect.width - labelWidth) * 0.5f, labelY, m_commandTuning.labelSizeIndex, text,
+                 button.label);
+
+    // The parameter's current value, under its name. `FORMATION` over `Claw`,
+    // which is the print's two-line dropdown without the dropdown.
+    if (button.value != nullptr)
+    {
+      const auto valueWidth = static_cast<float>(std::strlen(button.value)) * cell;
+      m_ui.AddText(button.rect.x + (button.rect.width - valueWidth) * 0.5f, labelY + 15.0f * layout.scale,
+                   m_commandTuning.valueSizeIndex, text, button.value);
+    }
+  }
+
+  // --- the toast stack ----------------------------------------------------
+  //
+  // Criticals lead the visible list and go centre-top on their own surface;
+  // the rest stack bottom-right, clear of the context bar (§2).
+  const std::span<const Toast> toasts = m_toasts.Visible();
+  const std::size_t criticals = m_toasts.CriticalCount();
+
+  for (std::size_t index = 0; index < toasts.size(); ++index)
+  {
+    const Toast& toast = toasts[index];
+    const bool isCritical = index < criticals;
+    const UiRect rect = isCritical ? layout.criticalToast : layout.ToastSlot(index - criticals, m_uiTuning);
+    if (!isCritical && index - criticals >= ToastStack::MAX_VISIBLE)
+    {
+      break; // The stack showed what it can; the rest are already dropped.
+    }
+
+    const std::uint32_t accent = isCritical ? TOAST_CRITICAL_COLOUR : TOAST_URGENT_COLOUR;
+    m_ui.AddQuad(rect, PANEL_COLOUR);
+    m_ui.AddBorder(rect, 1.0f * layout.scale, accent);
+
+    // A count only when there is one to report -- the sheet draws the coalesced
+    // form as a suffix, and "x1" on every row would be noise.
+    if (toast.count > 1)
+    {
+      std::snprintf(buffer, sizeof(buffer), "%s x%u", toast.head.c_str(), toast.count);
+    }
+    else
+    {
+      std::snprintf(buffer, sizeof(buffer), "%s", toast.head.c_str());
+    }
+    m_ui.AddText(rect.x + pad, rect.y + pad * 0.5f, m_uiTuning.bodySizeIndex, accent, buffer);
+    m_ui.AddText(rect.x + pad, rect.y + pad * 0.5f + 15.0f * layout.scale, m_uiTuning.smallSizeIndex, TEXT_DIM_COLOUR,
+                 toast.detail);
+  }
+}
+
 void ClientApp::RenderFrame()
 {
   const std::uint32_t frameIndex = m_swapChain.CurrentIndex();
@@ -613,6 +1048,8 @@ void ClientApp::RenderFrame()
   context.uploadRing = &m_uploadRing;
   context.pipelines = &m_pipelines;
   context.overlayMarks = &m_overlayMarks;
+  context.ui = &m_ui;
+  context.glyphAtlas = &m_glyphAtlas;
   context.meshes = &m_meshes;
   context.scene = &m_scene;
   context.renderTargetView = m_swapChain.CurrentRenderTargetView();

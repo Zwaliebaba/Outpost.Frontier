@@ -124,7 +124,7 @@ public:
     EntityRecord source{};
     source.id = 4242;
     source.typeId = 7;
-    source.flags = 0x03;
+    source.groupId = 0x03;
     source.posXCm = -123456;
     source.posYCm = 987654;
     source.velXCmPerSec = -3210;
@@ -143,7 +143,7 @@ public:
     Assert::IsTrue(reader.FullyConsumed());
     Assert::AreEqual(source.id, result.id);
     Assert::AreEqual(source.typeId, result.typeId);
-    Assert::AreEqual(source.flags, result.flags);
+    Assert::AreEqual(source.groupId, result.groupId);
     Assert::AreEqual(source.posXCm, result.posXCm);
     Assert::AreEqual(source.posYCm, result.posYCm);
     Assert::AreEqual(source.velXCmPerSec, result.velXCmPerSec);

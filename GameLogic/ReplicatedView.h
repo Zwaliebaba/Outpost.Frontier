@@ -51,6 +51,10 @@ struct ReplicatedShip
   std::uint8_t hullGauge = 0;
   std::uint8_t shieldGauge = 0;
 
+  /// Which wing, or `INVALID_WING_ID` for none -- the stations have none. The
+  /// roster is grouped by this, so it has to survive the wire (S11b).
+  WingId wing = INVALID_WING_ID;
+
   /// Extrapolated past the cap and frozen. The icon sheet draws a marker for
   /// this; the point of surfacing it is that a frozen ship must never be
   /// mistaken for a stopped one.

@@ -532,9 +532,14 @@ pass a length check. That gap was found by a build failure, not by a test: `Make
 called `SpawnStations` before it was defined, and while fixing the one-line ordering slip it
 became clear `BroadcastSnapshot` had encoding tests on one side of it and clock tests on the
 other and nothing at all in between.
-**Outstanding:** the visual half. That motion *looks* smooth at 144 Hz, and that the induced
+**Outstanding:** ~~the visual half. That motion *looks* smooth at 144 Hz, and that the induced
 stall reads as extrapolate-then-freeze rather than as a stutter, are judgements no test here
-makes — they need a GPU. The numbers say both hold.
+makes — they need a GPU. The numbers say both hold.~~
+**Smoothness confirmed by the owner, 2026-08-18.** Interpolation at 144 Hz render over 20 Hz
+snapshots reads as motion, which is the claim `SnapshotBuffer` was built to make and the one
+its unit tests could only make in numbers. Still owed: the **induced 400 ms stall** reading as
+extrapolate-then-freeze rather than as a stutter — a separate gesture, and it needs the debug
+key that triggers it.
 
 ### S7a — Shaders are built, not loaded *(out of order, at the owner's request)*
 Owner directive: split each shader into a vertex and a pixel file, move them into
@@ -643,12 +648,16 @@ hull bar by exactly the configured gap, rings preceding bars so the contiguous s
 selected ship that has despawned drawing nothing. Mutation-tested again: scaling the gauge by 255
 instead of 257, and clamping the ring with `min` instead of `max`, each fail exactly the tests
 named for them.
-**Outstanding:** the visual half, and it is the whole acceptance criterion. That rings occlude
-behind a Carrier hull and bars never do is a depth state, and no test here can see a depth state
-— it needs a frame on a GPU. The depth bias on the ring pipeline (`-100`, slope-scaled `-1`) is
-the classic decal pair and is a guess until someone looks at a ring lying on the plane under a
-hull. The drag rectangle is deliberately not here: it is a screen-space quad, which ADR-006 §10
-puts in the Ui pass, and it arrives with the rest of that pass in S11.
+**Outstanding:** ~~the visual half, and it is the whole acceptance criterion.~~
+**Confirmed by the owner, 2026-08-18: rings occlude behind a Carrier hull and bars never do.**
+That is `overlay-pass.png`'s rule holding on a real frame, and it closes the one thing S8 was
+accepted without. The depth bias on the ring pipeline (`-100`, slope-scaled `-1`) was the
+classic decal pair chosen from the textbook and flagged here as a guess; it is a measurement
+now. Worth keeping the note, because the *next* plane-lying kind to join that pass inherits
+those numbers without re-earning them — S9's order footprints and station ticks already have.
+
+The drag rectangle is deliberately not here: it is a screen-space quad, which ADR-006 §10 puts
+in the Ui pass, and it arrives with the rest of that pass in S11.
 
 ### S9 — Move orders end-to-end 🏁 **M1**
 Right-drag order puck (plane point + facing), client pre-check via `WorldView::PreCheck`
@@ -795,6 +804,34 @@ the tests named for them — **and one mutation caught a bad test again**. Repla
 area *before* the staleness check changed nothing, because the test asserted on the header's
 high-water mark, which the frame ring already protects. It asserts on the records now.
 
+**First frame on a screen, and it found three things** (2026-08-18, owner ran it). This is the
+run R1 has been owed since S5, and it earned its keep immediately:
+
+1. **The ring's thickness grew with its radius.** `RingAlpha` took
+   `max(fwidth(distance) * 1.2, 0.03)`. `fwidth` of a normalised distance is about
+   `1 / radiusInPixels`, so the first term is a constant *screen* thickness — correct — and the
+   floor is a constant *fraction of the radius*, which past about forty pixels overtakes it. A
+   700-pixel footprint came out as a forty-pixel green band. The floor's comment said it kept
+   the ring from disappearing when the derivative is tiny; a tiny derivative is exactly the
+   large-ring case where `fwidth` is already right. It is an epsilon against zero now.
+2. **The puck was sized to circumscribe the formation.** `max(extentMetres, floor)`, and the
+   extent of a Line is *half its length* — so eleven ships drew a circle touching the fleet at
+   two points and spanning the viewport. The station ticks are the footprint and always were;
+   the ring marks **where the player pointed**, so it is a fixed 22 px. An outline that hugs a
+   formation is a polyline, which is draw list *(B)*.
+3. **Every mesh buffer logged a D3D12 warning.** `CreateCommittedResource` was given
+   `COPY_DEST` for a `DEFAULT`-heap buffer; buffers are effectively created in `COMMON`
+   whatever is asked for, and the debug layer says so (#1328). Harmless — common-state
+   promotion means the copy still works and the barrier after it is still valid — but it is
+   eighteen lines of noise per boot, which is how a real message gets missed. `CreateBuffer`
+   now derives the state from the heap type, so the choice cannot be made wrongly again.
+
+*The first two are one lesson.* Both are cases where a number that reads as a safety floor is
+actually a size, and neither is visible in any device-free test: the mark builder's arithmetic
+was right, the shader's arithmetic was right, and the *product* of the two was a green ellipse
+across the screen. That is the third defect this slice found which only a frame could find,
+after S8's byte-swapped colours.
+
 **Outstanding:** draw list *(B)* — the dashed lane from the fleet to the destination and the
 per-leg ETA labels. A line between two points is not a quad around one and a label is text,
 so both belong with the Ui pass (ADR-006 §10) and arrive with it in S11; the reason toast
@@ -823,18 +860,26 @@ The slices M1 rests on are S5–S9. Their acceptance criteria, and how each stan
 | Session-level order flow: submit → ack → state in the next snapshot | S9 | `NeuronServerTests`, over a real loopback socket, against an order format the *test* invented | ✅ |
 | Validation parity: identical verdict and reason on quantised inputs | S9 | `GameLogicTests`, a six-case matrix run through both a server view and a client view, checked for being neither all-accepted nor all-refused | ✅ |
 | A refused order bounces rather than vanishing, local and remote alike | S9 | `NeuronClientTests` compares the two ghosts field by field at the same instant | ✅ |
-| **Motion visually smooth at 144 Hz render / 20 Hz snapshots** | S7 | a person, at a machine with a GPU | ⏳ |
+| **Motion visually smooth at 144 Hz render / 20 Hz snapshots** | S7 | a person, at a machine with a GPU | ✅ **owner-validated 2026-08-18** |
 | Induced 400 ms sim stall extrapolates, freezes, recovers clean | S7 | manual, with a debug key | ⏳ |
 | Visual checkpoint vs `tactical-hud.png`; frame time < 2 ms at 41 instances | S5 | manual | ⏳ |
-| **Rings occlude behind a Carrier hull; bars never do** | S8 | manual — `overlay-pass.png`'s rule, and the depth-bias pair is a guess until someone looks | ⏳ |
+| **Rings occlude behind a Carrier hull; bars never do** | S8 | manual — `overlay-pass.png`'s rule; the depth-bias pair (`-100`, slope-scaled `-1`) was a guess and is now a measurement | ✅ **owner-validated 2026-08-18** |
+| Overlay marks are legible at fleet scale | S8, S9 | manual — **run once, 2026-08-18, and it failed**: ring thickness scaled with radius and the puck circumscribed the formation. Both fixed; needs a second look | ⏳ |
 | On-screen promotion ≤ 100 ms | S9 | manual | ⏳ |
 | The out-of-bounds bounce looks identical local vs server | S9 | manual — the code paths are asserted identical; whether a *person* can tell them apart is the actual criterion | ⏳ |
 
-**What the ⏳ rows have in common is worth saying once.** They are all the frame, and the frame
-has never been run since S5. S9 found the cost of that empirically: two overlay colours had
-been byte-swapped since S8 and every device-free test passed, because a swapped colour and an
-unrun frame are the same blind spot. The manual pass is not polish — it is the only instrument
-that covers a whole category of defect.
+**The frame has now been run, and it both found and closed things.** It found three defects no
+device-free test could reach — two overlay colours byte-swapped since S8, a ring whose
+thickness grew with its own radius, and a puck sized to circumscribe the formation rather than
+mark a point — with every unit test involved passing throughout. It also **closed two criteria
+that had been open since S7 and S8**: interpolated motion reads as motion at 144 Hz over 20 Hz
+snapshots, and rings occlude behind a Carrier hull while bars never do, which promotes the ring
+pipeline's depth bias from a guess to a measurement.
+
+That is the argument for the manual pass in one paragraph: it is not polish, it is the only
+instrument that covers a whole category of defect *and* the only one that can retire a
+criterion no number can settle. Its cost was measured in the three slices that shipped before
+anyone looked.
 
 
 ### S10 — Formations & the real footprint
@@ -846,14 +891,60 @@ stable id→station assignment) + "preview equals outcome" (client-solve station
 final stations for same quantised inputs); fleet of 12 arrives in Claw matching the print's
 footprint pattern.
 
-**S9 took most of this.** Line is solved, `GroupAdvance` and the leg timeout are in `World`,
-the arrival facing is the puck's drag, and the footprint preview calls `SolveFormation` through
-the seam — so "preview equals outcome" is now structural rather than a test to write: the same
-function, the same quantised leg, the same sort by ascending `ShipId`. What is genuinely left
-is **Wedge and Claw** (named in the enum and refused as `InvalidFormation` until then, so a
-client sending one gets an answer rather than a silent Line), the per-leg re-solve, and the
-print's own open question — *what the puck should do when a station lands inside a gate or
-another fleet.* `puck-and-wheel.png` §6 lists that under OPEN and it is still open.
+**S9 took most of this.** Line was solved, `GroupAdvance` and the leg timeout were in `World`,
+the arrival facing was the puck's drag, and the footprint preview already called
+`SolveFormation` through the seam — so "preview equals outcome" became structural rather than a
+test to write: the same function, the same quantised leg, the same sort by ascending `ShipId`.
+The per-leg re-solve turned out to be there too; `ApplyLeg` runs on every leg advance.
+
+**Built ✅:**
+`Formation.cpp` — the **Wedge** and the **Claw**, and the Line rewritten alongside them so all
+three are one function over two numbers (how far right of the anchor, how far ahead of it)
+rather than three copies of the basis. Two properties hold across all three and both are
+asserted rather than argued:
+
+- **Every formation puts something on the point the player clicked.** A Line centres its rank
+  there, a Wedge its tip, a Claw the middle of its arc. So a single-ship order lands exactly
+  where they pointed whichever formation is selected, and the puck never marks a place the
+  fleet then avoids.
+- **Adjacent stations are exactly one spacing apart.** ADR-005 §2 buys the absence of any
+  inter-ship avoidance with "stations don't overlap by construction", and that claim had been
+  in the ADR since S6 and asserted nowhere. It is now a test over every count from 2 to 64 on a
+  mixed-class fleet, and it holds at exactly 1.00× spacing for all three shapes.
+
+**The Claw's radius comes from the chord, not the arc**, and that is the one number in this
+slice that is easy to get plausibly wrong. Solving `R = arcLength / sweep` reads correctly and
+puts adjacent ships a *chord* apart, which is shorter than the arc they were spaced along — at
+low counts by seventeen per cent. Deriving `R` from the chord requirement instead
+(`R = spacing / 2·sin(Δθ/2)`) makes adjacent separation exactly the spacing at every count. The
+mutation is in the suite: it fails with Carriers 355.6 m apart where the table asked for 430.
+
+`Validate.cpp` — all three accepted. The check stays rather than becoming a tautology, because
+`formation` arrives as a byte off the wire and a value outside the enum is reachable from any
+client.
+
+**A formation has to be selectable, and that needed a seam call.** The command wheel is S11, so
+S10 would otherwise have shipped two formations no player could reach. The client cannot cycle
+`parameter` itself — counting from zero to two would be the client learning how many formations
+this game has and that they are numbered contiguously — so `WorldView::OrderOptions(kind)`
+returns the parameters a kind accepts with a name for each, and a key steps them. The command
+wheel's formation sub-ring will be drawn from the same list, so this is the surface's data
+arriving one slice early rather than a stand-in S11 has to take back. The **key is** the
+stand-in, and it is named `CycleParameter` rather than `CycleFormation` for the same reason the
+list is asked for rather than assumed.
+
+**Verified:** `GameLogicTests` 85 → 91, `NeuronClientTests` 163 → 165. Mutation-tested: the
+Claw's radius from arc length instead of chord, the Wedge's arms leading its tip instead of
+trailing it, the Claw cupping backward, and the Wedge stepping a whole spacing on each axis
+each fail exactly the tests named for them.
+
+**Outstanding:** the print's own open question — *what the puck should do when a station lands
+inside a gate or another fleet.* `puck-and-wheel.png` §6 lists it under OPEN and it is still
+open; nothing in this slice makes it worse, because stations that do not overlap each other can
+still overlap the world. And the acceptance criterion that needs a person: **a fleet of twelve
+arriving in Claw matching the print's footprint pattern.** The geometry is measured and the
+separation is exact; whether the crescent *reads* as the sheet's crescent at tactical zoom is a
+frame, not a number.
 
 ### S11 — HUD v1
 Glyph-quad Ui pass: top bar (ships, net RTT bars, sim indicator), fleet roster with wing rows
@@ -864,25 +955,337 @@ ATTACK/STANCE/ABILITIES rendered disabled, order-pending indicator, minimal toas
 check: kill the feed → HUD shows stale/empty, never invents); layout matches
 `tactical-hud.png` zones; UI scale multiplier honoured at 0.8/1.0/1.6.
 
-**Four things are already queued for this pass, and none of them is a widget** — worth listing
-so S11 is scoped against them rather than surprised by them. All four are screen-space quads or
-text, which is exactly what the Ui pass is (ADR-006 §10):
+**Built ✅ (S11a — the pass and its device-free half):**
+`UiDrawList.h/.cpp` — screen-space quads and *text runs*, in pixels with the origin top-left,
+which is the space the prints are drawn in. **Text stays text until the last moment:** a run
+carries a string and a position and the pass expands it against the atlas, so every decision
+about what the HUD *says* is device-free and a test asserts words rather than quads. Text goes
+into one pooled buffer with runs holding offsets, so a HUD rebuilt sixty times a second is not
+sixty allocations a second.
+`UiLayout.h/.cpp` — the print's zones from a viewport and a scale. Constants are pixels at 1.0
+rather than fractions of the viewport, because a HUD that scaled with the window would shrink
+its own text on a small screen — the opposite of what a scale control is for. The scale clamps
+to the settings sheet's 0.8–1.6×, and a viewport too small for its own chrome collapses rather
+than producing negative sizes.
+`ToastStack.h/.cpp` — `alerts-and-toasts.png`, which turned out to be the most precisely
+specified sheet in the corpus: five priorities, dwell per level, mandatory coalescing, a cap of
+five that drops oldest first, Urgent in the top slot, Critical centre-top on its own surface,
+and **no toast ever overlapping the context bar** — the bar is where orders are issued, and a
+toast covering ATTACK mid-fight is a lost engagement.
+`Ui.hlsli`/`UiVS.hlsl`/`UiPS.hlsl` and one pipeline. **Panels and glyphs are one instance
+stream** differing by a flag: same quad, same space, same blend, and two pipelines would mean
+two draws over one upload plus a sort to separate them — for a HUD whose natural build order is
+panel, text, panel, text. The atlas is R8 coverage, so a glyph is its run's colour with the
+coverage as alpha, which is what lets one bake serve every colour of text.
 
-- the **selection drag rectangle** (S8 deferred it: a screen-space quad, not a world mark);
-- the **bounce toast's reason string** (S9 — the code and the text both exist and cross the
-  seam through `WorldView::ReasonText`; only the drawing is missing, so it is a log line today);
-- the ghost's **dashed lane and per-leg ETA labels** (S9 — draw list *(B)*; a line between two
-  points is not a quad around one, and a label is text);
-- the **NET and tick readouts** the debug strip already logs.
+**The bounce toast S9 has owed since the ghost landed is now raised**, from both refusal paths
+and through the same `ReasonText` call. The sheet is explicit that this is not a new component:
+it is the same reason string the 150 ms ghost bounce is already showing, on the second of the
+two surfaces one refusal owes. Keyed on the reason code, so a burst of out-of-bounds clicks is
+one row with a count rather than five rows.
 
-The risk this creates is R9's, restated: the pass existing invites a fifth thing that *is* a
-widget.
+**Suppression is built and nothing drives it.** The sheet keys it on a replicated combat flag
+the MVP has no combat to set. It is here anyway because queue-not-drop is a property of the
+*type* — a held toast's dwell has to start when it is *shown*, and retrofitting that would mean
+rewriting when every dwell begins. What is deliberately not built is the collapsed "6
+SUPPRESSED" row, which is a rendering feature with no data behind it yet; `SuppressedCount` is
+what it would draw from.
+
+**Verified:** `NeuronClientTests` 165 → 188. Mutation-tested: a critical consuming a stack slot,
+suppressed toasts dropped instead of queued, dwell measured from when a toast was raised rather
+than shown, coalescing not restarting the dwell, and toasts anchored to the viewport instead of
+the context bar each fail exactly the tests named for them.
+
+**Built ✅ (S11b — the wing on the wire, the roster and the context bar):**
+The decision S11a left open was: the print's rows are *wings*, `World` has a `WingId` per ship,
+and `EntityRecord` did not replicate it — so either the wire grew a field or the roster showed
+something other than what the print draws. **The wire grew a field, and it cost nothing:**
+`EntityRecord`'s third byte was a `flags` that carried zero, and it is now `groupId`. The rename
+is the whole change and it is the part worth keeping: `flags` promises the engine will
+*interpret* the bits, `groupId` promises it will only carry them. Had it stayed `flags` the next
+thing anyone wanted would have been a `FLAG_` constant in NeuronCore, which is a game rule
+arriving in the engine one bit at a time.
+
+`HudRoster.h` — one row: a name, a group id, two counts and two gauges. **The word for what a
+row *is* never crosses the seam.** This game means a wing; another game on these libraries means
+a squad or a convoy, and the pass that draws the panel does not change.
+
+`WorldView::BuildRoster(selectedIds, outRows)` — the fifth seam call, and the one most worth
+resisting. The engine has the replicated entities and the byte to group them by; aggregating in
+the engine would have taken four lines and would have decided, in the engine, that groups are
+worth showing, that they are *named*, that the two gauges **average** rather than take a
+minimum, and that a group whose ships all died vanishes rather than showing as empty. Every one
+of those is a design question about this game (ADR-014 §2c). `selectedCount` crosses for the
+same reason: it is the one number the engine needs to highlight a row, and the alternative is
+the engine matching selected ids against group membership — the aggregation it must not do.
+
+The **context bar** reads `N SHIPS : WING > FORMATION` off the selection and the roster the game
+just built, so it cannot name a wing the roster does not list. A selection spanning two wings
+reads `MIXED` rather than naming the first or claiming both — a box-drag produces that case
+routinely. The order-pending count sits at the right, read off the ghost list.
+
+**Verified:** `GameLogicTests` 91 → 92, and the new one is the whole point: a wing survives
+`emit → bytes → ReadSnapshot → SampleAt`, asserted after sampling rather than on the record,
+because the record is only half the path. Mutation-tested — emit not reading the wing, apply
+dropping it, and emit reading slot 0 for everyone each fail exactly that test. `BuildRoster`'s
+aggregation is exercised by a scratch harness against a real world and a real snapshot; six
+mutations (emitting from wing 0, bounding the emit loop on the table instead of the name list,
+totalling instead of averaging, counting every ship as selected, ignoring the output span, and
+dropping an emptied wing) each fail it.
+
+**One thing was rewritten on the way in.** The accumulator started as a `std::vector` sized from
+the name list — an allocation on every frame, inside the one function whose entire job is to
+describe the frame, and next door to a comment claiming a HUD must not allocate to describe
+itself. It is now a fixed 256-entry array indexed by `WingId` directly, which also retires the
+bounds check: a `WingId` cannot index past a table with an entry per `WingId`. The emit loop
+then had to bound on the *name list* rather than the table, and that pairing is load-bearing —
+getting it wrong segfaults, which is how the harness caught it.
+
+**Built ✅ (S11c — the drag rectangle and the ghost's lane):** the two items S8 and S9 both
+deferred to this pass, and the second turned out to be the interesting one.
+
+`UiRect::FromCorners` and six lines in `BuildHud` are the whole **drag rectangle**. A
+screen-space quad and never a world mark, for the reason `PickBox` already gives: the box is
+axis-aligned in *pixels* and an arbitrary parallelogram on the plane. The only arithmetic worth
+a test is corner normalisation — the naive `{startX, startY, currentX - startX, ...}` gives a
+drag up-and-left a negative width, and `AddQuad` declines a non-positive size, so the box would
+simply not draw on half the gestures people make.
+
+**The lane needed a new primitive, and ADR-006 had already said so.** "A dashed lane between
+two points is not a quad around one" (§8a) reads as a filing decision and is actually a
+requirement: the Ui instance was a top-left and a size, and a lane at 45° is neither. So the
+pass grew an **oriented quad** — `rect` becomes centre and (length, thickness), swept along a
+unit axis, under `UI_FLAG_ORIENTED`. The axis-aligned branch is left byte-identical rather than
+rewritten as a special case of the sweep: every panel and glyph in the HUD goes through it, and
+"the general form reduces to the old one" is a claim no test here can check. The instance grew
+40 → 48 bytes with the axis **appended**, so every existing field keeps the offset the input
+layout already declares. One primitive for a class rather than a special case for a feature —
+`overlay-pass.png`'s mechanism-B list is polylines, engagement arcs and off-screen indicators,
+all oriented. The alternative, square dots along the line, needs no GPU change at all and draws
+a dotted route rather than a dashed one.
+
+`GhostLane.h/.cpp` projects, clips and dashes. Three decisions worth keeping:
+- **Clipped to the world zone for cost, not looks** — the panels already cover anything outside
+  it. A target 40 km off with the camera zoomed in is a lane megapixels long, and dashing all
+  of it is tens of thousands of quads nobody sees.
+- **Dashes are phased off the lane's own origin, not the clip point.** The clip point moves as
+  the camera pans, so the other way round makes every dash crawl along the lane while the
+  player scrolls — motion that reads as the *order* doing something.
+- **Screen-space, therefore never occluded**, which is the sheet's ruling: `overlay-pass.png`
+  carries the order ghost as `MECH B · UIDRAWLIST` with no OCCLUDES badge, unlike the footprint
+  beside it. A route a hull can hide is a route you cannot follow.
+
+**The ETA is the game's answer, not the client's.** The label reads `18.4 km - ETA 41s`; the
+engine can measure the kilometres from two points it already holds and can compute neither the
+seconds nor the words. So `OrderPreview` gained `etaSeconds` and a `label` buffer, and
+`GameLogic/Eta.h` gained the model — a trapezoid matching what `World::Integrate` actually
+does, since its `ArrivalSpeed` is the braking leg of exactly that profile. Measured against the
+simulation it predicts: **0.4 % worst on a straight run**, 4.7 % after a ninety-degree turn,
+33 % for a Battleship turned right around on a short hop — and every one of them *optimistic*,
+because a player told forty seconds who gets thirty is early and one told forty who gets
+fifty-three planned around a number that was never achievable. It lives in GameLogic rather
+than in the composition root because S12's authority needs the same function for the replicated
+per-leg ETA, and one function is what stops the number changing when the source does.
+
+`overlay-pass.png` §2 is what settles that this may be a client-side answer at all: mechanism
+B's content "comes from the client pre-check ... **not from replication**".
+
+**Verified:** `GameLogicTests` 93 → 101, `NeuronClientTests` 129 → 158. Mutation-tested — ten
+on the lane and the oriented quad (an un-normalised axis, a top-left where the centre belongs,
+a drag rectangle that keeps its sign, an unflipped y, dashes phased off the clip point, an
+under-way lane drawn dashed, an unclipped lane, a distance measured in pixels, a bounce that
+does not retract, a label drawn for an off-screen footprint) and three on the seam glue (the
+fastest member's ETA instead of the slowest, distances from the anchor instead of each ship's
+own station, a label that names the kind twice). Each fails exactly the test named for it.
+
+**Built ✅ (S11d — the command row):** `MOVE | FORMATION | ATTACK | STANCE | ABILITIES`, with
+the three commands this build has no content for drawn greyed and refused by the hit test.
+**S11 is complete.**
+
+**The row's words come from the game, and that is the whole design.** The tempting version is
+five string literals in `ClientApp`, and it is wrong in the way ADR-014 exists to prevent:
+those are this game's verbs compiled into a library meant to serve a second game with different
+ones. **No CI rule would have caught it** — the engine-references-game check greps includes and
+project references, and a string literal is neither. So `OrderKinds()` is the sixth seam call,
+and `OrderKind` gained `Attack`, `Stance` and `Abilities` as **reserved** enumerators: nameable,
+numbered, never submittable, exactly as `HullClass` holds Fighter and Cruiser (ADR-009 §6).
+`ValidateOrder` already refused everything but Move, so the reserved three were refused the day
+they were added — and there is a test that walks every kind and checks precisely that, because
+"the validator happens to be strict enough" is not a property to leave unasserted.
+
+`CommandRow.h/.cpp` is a **layout and a hit test in one file**, which is the point rather than
+tidiness: a HUD that lays out in the renderer and hit-tests in the input handler is a HUD where
+the thing you press is not the thing you see, and no test can catch it because the two never
+meet. The row is built in `UpdateHud` — before `UpdateSelection` — and only *drawn* in
+`BuildHud`, so the click and the quads come from one answer.
+
+Three decisions worth keeping:
+- **The parameter button is not a command.** `FORMATION` sits in the row beside the verbs and
+  is a different kind of thing — the name of what the selected command varies by, with the
+  current choice under it. It is placed immediately after the command it belongs to, so the
+  pair reads as one control, and it is disabled when there is only one value: a button that
+  visibly does nothing when pressed is worse than one that is visibly not for pressing.
+- **A narrow row drops buttons rather than wrapping or shrinking them.** Reflowing is where a
+  zone table becomes the layout engine R9 says this pass must not become.
+- **A drag may only *begin* in the world zone.** Until now a press on the roster or the command
+  row also started a box selection across the fleet underneath it — a bug that arrived with the
+  panels in S11b and had nothing to catch it. Once begun a drag may leave freely: a selection
+  that cancelled when it touched the ability rack would be worse than the bug.
+
+**Verified:** `GameLogicTests` 101 → 105, `NeuronClientTests` 158 → 172. Nine mutations —
+greyed commands dropped instead of drawn, the hit test returning disabled buttons, a parameter
+button on every command rather than the selected one, a single-value parameter left live,
+buttons shrunk instead of dropped, a parameter marked active, a reserved kind claiming content,
+validation no longer refusing an unknown kind, and Attack growing a parameter name — each fails
+exactly the test named for it. One of them segfaulted the first time rather than failing: the
+tests dereferenced a lookup that had become null, so they now assert before dereferencing. A
+suite has to survive the code being wrong, which is the situation it exists for.
+
+**Four things were queued for this pass and all four are drawn.** They were listed at S9 so
+S11 would be scoped against them rather than surprised by them, and the list is worth keeping
+now that it is closed — the queue emptied without growing, which is what R9 was watching for:
+
+- the **selection drag rectangle** (S8 deferred it: a screen-space quad, not a world mark) —
+  S11c;
+- the **bounce toast's reason string** (S9; the code and the text both crossed the seam through
+  `WorldView::ReasonText` and only the drawing was missing) — S11a;
+- the ghost's **dashed lane and per-leg ETA labels** (S9 — draw list *(B)*) — S11c;
+- the **NET and tick readouts** the debug strip logged — S11a's top bar.
+
+**None of them was a widget, and one of them cost a primitive.** The lane needed an oriented
+quad, because the pass could place a rect and a lane at 45° is not one (ADR-006 §8c). That is
+the shape to watch next: not a widget, but the pass's vocabulary growing an entry at a time.
+The test of whether it was the right entry is that `overlay-pass.png`'s two remaining
+mechanism-B classes — engagement arcs and off-screen indicators — are already expressible with
+it.
 
 ### S12 — Order queue & ETAs
 `queueMode=append` up to 4 legs; ghost polyline with per-leg ETA labels; `QueueFull` bounce;
 ETA = remaining-distance/speed model server-side, replicated in order state.
 **Accept:** wire-enforced 4-leg cap (5th bounces); ETA error < 10 % on straight runs;
 queued-chain rendering matches `puck-and-wheel.png` §4.
+
+**More of this slice was already standing than the line above implies.** S9 built
+`MAX_ORDER_LEGS = 4`, the `QueueFull` refusal, the append path through `IngestOrders`, and the
+per-leg re-solve. What it did not have was an authoritative ETA, and — as S12a found — a leg
+timeout that let a long leg finish at all.
+
+**Built ✅ (S12a — the authority's ETA, and two defects that blocked the queue):**
+
+`OrderStateRecord` gained `u16 etaSeconds`: seconds until the group's current leg completes,
+computed by the authority and replicated. The ghost prefers it the moment it exists and falls
+back to `OrderPreview::etaSeconds` — the prediction made before sending — only while PENDING.
+The record grew 12 → 14 bytes, and the comment saying a field here costs ships was right: the
+fleet cap fell 47 → 45, still above the 41 the MVP fields.
+
+**The model needed a moving start.** S11c's `TravelSeconds` is rest-to-rest, which is correct
+for a *preview* of a fleet standing still and wrong for a *remaining* journey — it charges an
+acceleration ramp the ships already paid, and the error grows as they arrive. Measured over
+whole legs: rest-to-rest peaks at **44.8 %** error with a second left; `RemainingSeconds`, which
+takes the speed already gained, peaks at **2.4 %**. The two are one profile — the rest-to-rest
+name is the general one at zero speed — so there is nothing to keep in step.
+
+Speed counts **along the way the ship is going**, not outright. Redirecting a fleet at cruise is
+the ordinary case: its velocity is large and points entirely the wrong way, and crediting the
+magnitude promises an arrival it is moving away from.
+
+**The leg timeout was six times too short, and it blocked the queue.** `LEG_TIMEOUT_TICKS` was a
+flat 600 — thirty seconds — documented as "long enough that a Battleship crossing the grid is
+never cut short". A Battleship crossing the grid takes **182 seconds**; even four kilometres
+takes 45. Every leg longer than half a minute ended by *timing out*. Nothing looked broken
+because `Guidance` still held the station and the ships flew on — what the timeout ended was the
+**order**, so the footprint and the ETA vanished mid-flight. With a queue it is not cosmetic:
+leg two would begin while leg one was a sixth flown, and the fleet would skip to the last
+waypoint.
+
+The deadline is now the leg's own — three times its estimate plus a grace, which S12a's own ETA
+made computable. It is set in `ApplyLeg`, which runs *every tick* to re-solve the formation, so
+it is computed only when unset and cleared wherever a leg begins. Getting that wrong in either
+direction is a live failure: recompute every tick and the deadline never arrives, so a group
+that can never advance holds forever; forget to clear it and leg two inherits leg one's expired
+deadline and gives up on the tick it starts. There is a test for each.
+
+**Verified:** `GameLogicTests` 105 → 114. Eight mutations, each failing exactly the test named
+for it. Two survived the first pass and both were the same weakness — every ETA test used a
+single ship on a straight run, where speed-toward equals speed-outright and a station equals the
+anchor. A redirected fleet and a wide Line separate them.
+
+**Built ✅ (S12b — the append's identity, and the wire-enforced cap):**
+
+`SubmitOrder` used to take the next server order id for an appending order, and `IngestOrders`
+threw it away the moment the append landed on an existing group. So the ack named an order that
+appeared in no snapshot ever, and the counter skipped a number per queued waypoint. An append is
+now acked with `serverOrderId = 0` — already the verdict's "no order" — and the client learns the
+real id from the next snapshot, a path `OnFeedback` already walked.
+
+**It cannot be resolved any earlier, and that is worth writing down.** The group an append joins
+is found at *ingest*. A Replace and an Append submitted between the same pair of ticks are both
+pending when the second is validated, so at submit the Append can only see the group the Replace
+is about to destroy — resolving early would append to a corpse.
+
+**The worse half was the sequence.** The group kept the *original* order's `clientOrderSeq`, so
+the appending order's sequence was reported by nothing: the client's high-water mark passed it,
+`OnFeedback` read that as "decided and no longer running", and the ghost the player had just
+created retired with no bounce and no promotion. The group is now named after the most recent
+order that shaped it, which makes the newest ghost the one that gets promoted — and it is also
+the ghost that knows about the whole queue.
+
+**The queue mode stopped riding in `legIndex`.** It was smuggled as "1 means append", which
+worked, and read as a leg number to everyone including the line that overwrote it two statements
+later. `m_pending` now holds a `PendingOrder` — the group and its mode — and `WorldHash`'s
+group fold was split so it can be reused per group.
+
+**`queuedLegs = 0` in the client's pre-check was rechecked and kept.** `legCount` looks like the
+missing number and is not: it is per *order record*, and the question is which record a
+*selection* belongs to, still unanswerable from a member count. S12's criterion says
+**wire**-enforced, and that is what this is — the fifth leg bounces from the authority with
+`QueueFull`, through the same ack, the same 150 ms retraction and the same reason string as any
+other refusal. ADR-005 §4's parity claim is that a local refusal and a remote one are
+indistinguishable *to the player*, not that every refusal is local.
+
+**Verified:** `GameLogicTests` 114 → 118. Four mutations — an append burning an id, the group
+keeping the original sequence, the append fallback taking no id, and the queue mode ignored
+entirely — each failing exactly the test named for it. The fallback one survived first time:
+nothing covered an append with no group to join, which is reachable by holding the queue
+modifier with nothing previously ordered and would have left a live group carrying the
+"no order" id.
+
+**Built ✅ (S12c — the queued chain):** one order is one ghost with a leg per waypoint, drawn as
+a polyline with a per-leg ETA. **S12 is complete.**
+
+**The merge happens on *acceptance*, not on send, and that one decision is most of the design.**
+A queued waypoint is its own pending ghost from the moment it is sent — it has to be, or a
+refusal would have nowhere to land (§4: an order in flight with no ghost is an order whose
+refusal has nowhere to go). When the authority accepts it, it joins the chain and stops existing
+on its own. When the authority refuses it — a fifth leg, `QueueFull` — it bounces alone and the
+chain never notices, which is what `Refuse` already did with no special case for queues in it.
+Merging on send would have had that refusal retract the four legs the player still had.
+
+The chain then **takes the appending order's sequence**, exactly as `World::IngestOrders` makes
+the group take it (S12b). Both sides name the plan after the most recent order that shaped it, so
+the record the next snapshot carries matches the ghost that is left.
+
+**The one thing the ghost predicts rather than replicates** is which chain an append joins:
+"the plan whose first named ship is this one's", mirroring the authority's own rule. That is what
+a ghost is for — the only client-side optimism in the game — and the authority's `legCount` is
+what corrects it when the guess is wrong. The alternative was replicating the leg anchors, and
+the budget refuses: four legs at even 4 bytes each is 16 bytes per order, 256 across the area,
+and the fleet cap falls to 32 against the 41 the MVP fields.
+
+Only the **last** waypoint retracts on a refusal, and only to the one before it.
+`OrderGhost::RetractTowardMetres` is read by both the footprint ring and the lane, so they cannot
+come home to two different places for the 150 ms the animation lasts — and for a single-leg
+ghost it returns the fleet, which is S11c's picture unchanged.
+
+The label gained a line: `MOVE - CLAW`, the whole plan's distance with the current leg's ETA,
+and `3 LEGS` when there is a queue. The distance is walked leg by leg **on the plane**, and the
+ETA of the leg the fleet is actually flying is the authority's (S12a) while the legs ahead keep
+the game's prediction — the authority has not started them and has nothing measured to say.
+
+**Verified:** `NeuronClientTests` 172 → 183. Five mutations — merging on send, finding the chain
+by any live ghost rather than a shared ship, keeping the original sequence, growing past the
+engine's buffer, and retracting to the fleet from a queued chain — each failing exactly the test
+named for it.
 
 ### S13 — msquic behind the same interface ⚡ spike
 `QuicTransport`: ALPN `opf/1`, in-memory self-signed cert (`CertCreateSelfSignCertificate` +

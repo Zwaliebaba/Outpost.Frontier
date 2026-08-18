@@ -19,6 +19,12 @@ XMFLOAT2 PixelsToNdc(float _x, float _y, std::uint32_t _viewportWidth, std::uint
                   1.0f - (_y / static_cast<float>(_viewportHeight)) * 2.0f};
 }
 
+XMFLOAT2 NdcToPixels(const XMFLOAT2& _ndc, std::uint32_t _viewportWidth, std::uint32_t _viewportHeight) noexcept
+{
+  return XMFLOAT2{(_ndc.x + 1.0f) * 0.5f * static_cast<float>(_viewportWidth),
+                  (1.0f - _ndc.y) * 0.5f * static_cast<float>(_viewportHeight)};
+}
+
 XMFLOAT2 NdcToPlane(const PlaneMapping& _mapping, const XMFLOAT2& _ndc) noexcept
 {
   return XMFLOAT2{_mapping.origin.x + _mapping.rightPerNdc.x * _ndc.x + _mapping.upPerNdc.x * _ndc.y,

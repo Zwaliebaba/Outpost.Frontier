@@ -115,13 +115,28 @@ struct OrderPreview
   float markYMetres[MAX_ORDER_PREVIEW_MARKS] = {};
   std::uint32_t markCount = 0;
 
-  /// Radius of the whole arrangement, for the ring the puck draws around it.
+  /*
+   * Radius of the whole arrangement -- how much room the formation needs.
+   *
+   * **Not what the puck's ring is sized from**, and that is worth saying here
+   * because this field's own comment used to claim it was. A circle at this
+   * radius circumscribes a Line rather than enclosing it, so at fleet scale it
+   * became an ellipse across the viewport touching the formation at two points.
+   * The marks the client draws are one tick per station, which describe the
+   * shape truthfully for every formation (`OverlayTuning::puckRadiusPixels`).
+   *
+   * It stays because it answers a question the ticks do not: *how big is this
+   * order*, as one number. The HUD's context bar wants that (S11), and so does
+   * any later check about whether an arrangement fits where it is being sent.
+   */
   float extentMetres = 0.0f;
 
   void Clear() noexcept
   {
     markCount = 0;
     extentMetres = 0.0f;
+    etaSeconds = -1.0f;
+    label[0] = '\0';
   }
 
   /// Appends a mark, or reports that the preview is full. Returning false
@@ -138,6 +153,43 @@ struct OrderPreview
     ++markCount;
     return true;
   }
+
+  /*
+   * How long the whole arrangement takes to form, in seconds, or negative when
+   * the game will not say.
+   *
+   * The ghost's lane label is `18.4 km - ETA 41s` (`tactical-hud.png`), and the
+   * engine can compute the kilometres from two points it already holds. It
+   * cannot compute the seconds: that needs a movement model, and a movement
+   * model is exactly the game semantics NeuronCore is charted not to have
+   * (ADR-004 ruling 4). So the number crosses.
+   *
+   * **A prediction, not a replicated fact,** and the distinction is load-
+   * bearing rather than pedantic. `overlay-pass.png` §2 puts the whole
+   * client-authored draw list on the pre-check rather than on replication, so
+   * the label can exist before the order has been sent -- which is the point of
+   * previewing it. S12 replicates the authority's own per-leg ETA in the order
+   * state; when it does, the ghost prefers that and this stays as what the
+   * preview says before there is an authority to ask.
+   */
+  float etaSeconds = -1.0f;
+
+  /*
+   * What to call this order, for the ghost's label -- `MOVE - CLAW`.
+   *
+   * A buffer rather than a `const char*`, which is what `OrderOption::name` and
+   * `RosterRow::name` are. Those are read and drawn inside the frame that asked
+   * for them, so pointing at storage the world view owns is safe. A preview is
+   * **kept by the ghost**, for as long as the order is in flight, and a pointer
+   * into the world view would by then be describing whatever order was previewed
+   * next.
+   *
+   * The engine copies these bytes and never parses them. It cannot: `MOVE` is a
+   * kind and `CLAW` is a formation, and ADR-014 §2b is the rule that the engine
+   * may name neither.
+   */
+  static constexpr std::uint32_t LABEL_CAPACITY = 32;
+  char label[LABEL_CAPACITY] = {};
 };
 
 /*
@@ -155,6 +207,77 @@ struct OrderDefaults
   std::uint16_t kind = 0;
   std::uint16_t parameter = 0;
 };
+
+/*
+ * One value `OrderIntent::parameter` may take, with a word for it.
+ *
+ * A formation, a stance, whatever the kind's parameter means -- the engine does
+ * not know, and this is what lets it offer the choice anyway. The number is
+ * copied into an intent and the name is drawn; neither is interpreted, which is
+ * the same arrangement `ReasonText` has and for the same reason (ADR-014 §2c).
+ *
+ * `name` points at storage the world view owns and is valid for its lifetime.
+ * In practice these are string literals compiled into the game.
+ */
+struct OrderOption
+{
+  std::uint16_t parameter = 0;
+  const char* name = nullptr;
+};
+
+/// How many options a client will ask for. Eight is the command wheel's sector
+/// count (`puck-and-wheel.png` §3), which is the surface these will be drawn on
+/// -- a game with more would need a different surface, not a bigger array.
+inline constexpr std::uint32_t MAX_ORDER_OPTIONS = 8;
+
+/*
+ * One command the game offers, for the command row to draw (S11d).
+ *
+ * `OrderOption` reports the values one command's parameter may take;
+ * this reports **the commands themselves**. Without it a client drawing the
+ * print's `MOVE | ATTACK | FORMATION | STANCE | ABILITIES` row would be
+ * spelling those five words in the engine -- which is this game's command
+ * vocabulary living in a library that is meant to serve a second game with
+ * different verbs (ADR-014 §2b). No CI rule would have caught it either: a
+ * string is not an include.
+ *
+ * The same list is what the command wheel's eight sectors will be built from
+ * (`puck-and-wheel.png` §3), which is why it arrives shaped for that rather
+ * than for a row of five.
+ */
+struct OrderKindOption
+{
+  std::uint16_t kind = 0;
+  const char* name = nullptr;
+
+  /*
+   * What this command's parameter is called -- `Formation` for a Move -- or
+   * null when it has none.
+   *
+   * The print draws `FORMATION` as a button in the row with a dropdown caret,
+   * beside the commands rather than inside one. It is not a command: it is the
+   * *name of the thing the command varies by*, and a client can offer the
+   * choice through `OrderOptions` but cannot say what is being chosen without
+   * this.
+   */
+  const char* parameterName = nullptr;
+
+  /*
+   * False for a command this build has no content for.
+   *
+   * Drawn greyed rather than omitted, which is the sheet's rule and not a
+   * convenience: `puck-and-wheel.png` §3 keeps the wheel's eight sectors in
+   * fixed positions "so the ring stays learnable as a shape rather than a
+   * lookup", and a row whose buttons moved as content arrived would be the same
+   * mistake in a line. It also means a player can see what the game *will*
+   * offer, which is worth more than a tidier row.
+   */
+  bool available = false;
+};
+
+/// How many commands a client will ask for -- the wheel's eight sectors again,
+/// and for the same reason.
+inline constexpr std::uint32_t MAX_ORDER_KINDS = 8;
 
 /*
  * One order the authority is still working on, as the client's ghost needs it.
@@ -177,7 +300,36 @@ struct OrderProgress
   std::uint8_t legIndex = 0;
   std::uint8_t legCount = 0;
   std::uint8_t memberCount = 0;
+
+  /*
+   * Seconds until this order's current leg completes, or negative when the
+   * game will not say (S12).
+   *
+   * The *authority's* number, which is what makes it different from
+   * `OrderPreview::etaSeconds`. That one is a prediction the game made before
+   * the order was sent, from a fleet standing still; this one is measured from
+   * where the ships have actually got to and how fast they are actually going.
+   * A ghost prefers this the moment it has one, and the engine never learns
+   * that either is a *time* -- it formats a number the game handed it.
+   *
+   * A float here and whole seconds on the wire: the seam is not the budget, and
+   * a client that had to remember the quantisation to divide by would be doing
+   * the arithmetic the wire already did.
+   */
+  float etaSeconds = -1.0f;
 };
+
+/*
+ * How many legs of one order a client will draw (S12).
+ *
+ * The queue's real cap is GameLogic's -- `puck-and-wheel.png` §4 says four
+ * slots and the game enforces it -- and this is the engine's buffer for
+ * whatever the game reports, the same arrangement `MAX_ORDER_PROGRESS` has.
+ * Eight is twice the sheet's four, so a game with a deeper queue draws what it
+ * can rather than overrunning, and `OrderProgress::legCount` is a `uint8_t` in
+ * any case.
+ */
+inline constexpr std::uint32_t MAX_GHOST_LEGS = 8;
 
 /// How many live orders the game may report in one poll. The snapshot's order
 /// area is the real cap and it is GameLogic's; this is the engine's buffer for

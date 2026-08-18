@@ -14,12 +14,36 @@ namespace Neuron
 namespace
 {
 
-/// A default-heap buffer plus the upload buffer that fills it. The upload
-/// buffer outlives the call only until the copy fence signals, which is why the
-/// caller holds them in a vector rather than this function.
-[[nodiscard]] GpuPtr<ID3D12Resource> CreateBuffer(ID3D12Device* _device, std::uint64_t _bytes, D3D12_HEAP_TYPE _heapType,
-                                                  D3D12_RESOURCE_STATES _initialState)
+/*
+ * A buffer on the given heap, in the only state that heap allows.
+ *
+ * **The state is derived rather than passed**, because for a buffer there is no
+ * choice to make and offering one is how the wrong answer gets written:
+ *
+ *  - `DEFAULT` -- **COMMON**. Buffers are effectively always created in COMMON
+ *    whatever is asked for, and the debug layer says so
+ *    (`CREATERESOURCE_STATE_IGNORED`, #1328). This function used to be handed
+ *    `COPY_DEST` by the mesh upload, which reads correctly, matches the sample
+ *    in the D3D12 docs, and is ignored -- so every mesh buffer produced a
+ *    warning that was easy to read as noise. Common-state promotion is what
+ *    makes it harmless: a buffer in COMMON is promoted to `COPY_DEST` by the
+ *    copy itself, so the transition afterwards is still valid.
+ *  - `UPLOAD` -- **GENERIC_READ**, which the API requires rather than ignores.
+ *  - `READBACK` -- **COPY_DEST**, likewise required. Nothing reads back yet;
+ *    it is here so the next caller does not have to look it up.
+ */
+[[nodiscard]] GpuPtr<ID3D12Resource> CreateBuffer(ID3D12Device* _device, std::uint64_t _bytes, D3D12_HEAP_TYPE _heapType)
 {
+  D3D12_RESOURCE_STATES initialState = D3D12_RESOURCE_STATE_COMMON;
+  if (_heapType == D3D12_HEAP_TYPE_UPLOAD)
+  {
+    initialState = D3D12_RESOURCE_STATE_GENERIC_READ;
+  }
+  else if (_heapType == D3D12_HEAP_TYPE_READBACK)
+  {
+    initialState = D3D12_RESOURCE_STATE_COPY_DEST;
+  }
+
   D3D12_HEAP_PROPERTIES heap{};
   heap.Type = _heapType;
 
@@ -34,7 +58,7 @@ namespace
   desc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
   GpuPtr<ID3D12Resource> buffer;
-  check_hresult(_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, _initialState, nullptr, IID_PPV_ARGS(buffer.put())));
+  check_hresult(_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, initialState, nullptr, IID_PPV_ARGS(buffer.put())));
   return buffer;
 }
 
@@ -42,7 +66,7 @@ void CopyThroughStaging(ID3D12Device* _device, ID3D12GraphicsCommandList* _comma
                         ID3D12Resource* _destination, D3D12_RESOURCE_STATES _finalState,
                         std::vector<GpuPtr<ID3D12Resource>>& _staging)
 {
-  GpuPtr<ID3D12Resource> upload = CreateBuffer(_device, _bytes, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+  GpuPtr<ID3D12Resource> upload = CreateBuffer(_device, _bytes, D3D12_HEAP_TYPE_UPLOAD);
 
   void* mapped = nullptr;
   const D3D12_RANGE readRange{0, 0}; // Write-only: the CPU never reads this back.
@@ -56,6 +80,10 @@ void CopyThroughStaging(ID3D12Device* _device, ID3D12GraphicsCommandList* _comma
   barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
   barrier.Transition.pResource = _destination;
   barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+  // COPY_DEST is where the copy above promoted it from COMMON, which is the
+  // state buffers are actually created in whatever `CreateCommittedResource`
+  // was told. Promotion is automatic for buffers, so this transition is exactly
+  // as valid as it was when the buffer asked to be created in COPY_DEST.
   barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
   barrier.Transition.StateAfter = _finalState;
   _commandList->ResourceBarrier(1, &barrier);
@@ -82,8 +110,8 @@ bool GpuMeshTable::UploadMesh(GpuDevice& _device, ID3D12GraphicsCommandList* _co
     return false;
   }
 
-  _outMesh.vertexBuffer = CreateBuffer(_device.Device(), vertexBytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_COPY_DEST);
-  _outMesh.indexBuffer = CreateBuffer(_device.Device(), indexBytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_COPY_DEST);
+  _outMesh.vertexBuffer = CreateBuffer(_device.Device(), vertexBytes, D3D12_HEAP_TYPE_DEFAULT);
+  _outMesh.indexBuffer = CreateBuffer(_device.Device(), indexBytes, D3D12_HEAP_TYPE_DEFAULT);
   NAME_D3D12_OBJECT(_outMesh.vertexBuffer);
   NAME_D3D12_OBJECT(_outMesh.indexBuffer);
 

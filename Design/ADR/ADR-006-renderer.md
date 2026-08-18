@@ -177,13 +177,102 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
    state. Two orderings that had to agree became one that cannot disagree — and a ghost mark
    appended past the split would be drawn in the half that never depth-tests, where a
    footprint lying under a Carrier would refuse to be occluded by it.
+
+   **8b. A mark's size and a mark's line width are both screen quantities, and a "floor" on
+   either is usually a size in disguise** (S9, from the first frame anyone looked at).
+
+   Two defects, one shape. The overlay ring's thickness was
+   `max(fwidth(distance) * 1.2, 0.03)`: `fwidth` of a normalised distance is about
+   `1 / radiusInPixels`, so the first term is a constant *screen* thickness and the second is a
+   constant *fraction of the radius*. Past about forty pixels the floor wins and the ring's
+   thickness grows linearly with what it encloses — a 700-pixel footprint drew as a forty-pixel
+   band. And the order puck was `max(formationExtent, minimum)`, where the extent of a Line is
+   half its length, so an eleven-ship order drew a circle spanning the viewport and touching
+   the fleet at two points.
+
+   The rules that fall out, and they apply to every mark this pass gains:
+
+   - **A line's width comes from `fwidth` and nothing else.** A floor in normalised units is a
+     fraction of the radius; the only floor a line width needs is an epsilon against a
+     derivative of zero. (A *filled* shape's soft rim is a different case and may keep a
+     normalised floor, because a disc does not grow a band as it grows.)
+   - **A mark that means "here" is sized in pixels; a mark that means "this area" is sized in
+     metres.** The puck means *where the player pointed* and is 22 px. The station ticks mean
+     *where each ship is going* and are plane positions. Nothing on this pass is sized from a
+     bounding radius, because a circle around a formation is an outline only for formations
+     that happen to be round — the honest enclosing shape is a polyline, which is draw list
+     *(B)*.
+
+   Neither defect is visible to a device-free test: the mark builder's arithmetic was right,
+   the shader's arithmetic was right, and the product of the two was wrong. That is the whole
+   argument for §8's manual acceptance criteria being criteria rather than polish.
+
+   **8c. (B) arrived in S11c, and the sentence above turned out to be a requirement rather
+   than a description.** "A dashed lane between two points is not a quad around one" is exactly
+   what the Ui pass could not draw: its instance is a top-left and a size, and a lane at 45°
+   is neither. So the pass grew an **oriented quad** — `UI_FLAG_ORIENTED`, under which `rect`
+   means centre and (length, thickness) and the corners sweep along a unit axis. The
+   axis-aligned branch is left byte-identical rather than expressed as a special case of the
+   sweep, because every panel and every glyph in the HUD goes through it and "the general form
+   reduces to the old one" is a claim no test on a machine without a GPU can check.
+
+   It is one primitive for a class, not a special case for a feature: `overlay-pass.png`'s
+   mechanism-B list is waypoint polylines, engagement arcs and off-screen indicators, and
+   every one of them is oriented. The alternative considered and rejected was square dots
+   along the line, which needs no GPU change at all and reads as a dotted route rather than a
+   dashed one — cheaper, and a different picture from the one the sheet draws.
+
+   **The lane is screen-space and therefore never occluded**, which is the sheet's decision and
+   not a shortcut: `overlay-pass.png`'s retirement matrix carries the order ghost as
+   `MECH B · UIDRAWLIST` with no OCCLUDES badge, unlike the formation footprint listed beside
+   it. A route that the hull you are flying around can hide is a route you cannot follow. It
+   is also why the lane is built *before* the HUD's panels — the pass has one pipeline and no
+   sort, so build order is draw order, and §1's "panels and toasts always composite over
+   world-space marks" is implemented by nothing more than that ordering.
 9. **Text = DirectWrite-baked glyph atlas** at boot (ASCII + box glyphs, one monospace face,
    2–3 sizes), rendered as instanced quads in the Ui pass. This keeps one graphics API in the
    frame. **Rejected:** D3D11On12/D2D interop — a second device, wrapped-resource sync, and
    the largest boilerplate item in the codebase for richer typography than the prints use.
-10. **Ui pass** (screen-space quads + text): fleet roster, context bar, ability rack (visual
-    stubs), top status row, toasts. Layout constants from the prints; UI scale is a multiplier
-    from day one (settings sheet makes 0.8–1.6× a requirement).
+10. **Ui pass** (screen-space quads + text): fleet roster, context bar, command row, ability
+    rack (visual stubs), top status row, toasts. Layout constants from the prints; UI scale is
+    a multiplier from day one (settings sheet makes 0.8–1.6× a requirement).
+
+    **10b. A control is laid out and hit-tested in one place** (S11d). The command row's
+    buttons are built in the frame's *update* and only drawn in the HUD build, so the rect a
+    click is tested against and the rect a quad is emitted for come from one call. The
+    alternative — laying out in the renderer and hit-testing in the input handler — is the HUD
+    bug where the thing you press is not the thing you see, and it is untestable by
+    construction because the two halves never meet.
+
+    It also made a bug from S11b visible: a press anywhere outside the world started a box
+    selection across the fleet *under* the panel. A drag may now only **begin** in the `world`
+    rect, which is the one place the zone table was already reporting and nothing was reading.
+
+    **10a. One instance stream, and text stays text until the pass** (S11a). Panels and glyphs
+    are the same quad in the same space blended the same way, so they differ by a flag on the
+    instance rather than by a pipeline — two pipelines would mean two draws over one upload
+    and a sort to separate them, for a HUD whose natural build order is panel, text, panel,
+    text. The atlas is R8 coverage (§9), so a glyph is its run's colour with the coverage as
+    alpha, which is what lets one bake serve every colour of text on the HUD.
+
+    The draw list carries **text runs** rather than glyph quads, and expanding them is the only
+    step that needs the atlas. Everything upstream — what the HUD says, where its zones are,
+    which notifications are showing — is therefore device-free and asserted without a GPU, and
+    a test checks the words rather than the quads. The face being monospace (§9) is what makes
+    that affordable: a run's width is its length times the cell, so layout needs no measuring
+    pass and no per-glyph metrics.
+
+    **UI scale multiplies pixels, not fractions of the viewport.** A zone written as a fraction
+    would shrink its own text on a small screen, which is the opposite of what a scale control
+    is for. The scale clamps to the settings sheet's range; a viewport too small for its own
+    chrome collapses the world rect to nothing rather than producing a negative size, which is
+    reachable by dragging a window small and would otherwise put a flipped-winding quad on
+    screen.
+
+    **No depth buffer is bound at all.** The HUD is last and composites over everything, so a
+    depth test could only remove a pixel the player is meant to see. The pipeline declares
+    `DSVFormat = UNKNOWN` rather than merely disabling the test, because a pipeline with a
+    format and no test still expects a bound buffer.
 
 ### Picking
 11. Client-side, against the **interpolated render world**: cursor → ortho ray → plane point;

@@ -26,6 +26,8 @@
     <ClCompile Include="GpuSwapChain.cpp" />
     <ClCompile Include="Window.cpp" />
     <ClCompile Include="GlyphAtlas.cpp" />
+    <ClCompile Include="CommandRow.cpp" />
+    <ClCompile Include="GhostLane.cpp" />
     <ClCompile Include="GpuMeshes.cpp" />
     <ClCompile Include="GpuNebula.cpp" />
     <ClCompile Include="GpuPasses.cpp" />
@@ -42,6 +44,9 @@
     <ClCompile Include="Selection.cpp" />
     <ClCompile Include="RenderWorld.cpp" />
     <ClCompile Include="SnapshotBuffer.cpp" />
+    <ClCompile Include="ToastStack.cpp" />
+    <ClCompile Include="UiDrawList.cpp" />
+    <ClCompile Include="UiLayout.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DirectXHelper.h" />
@@ -73,6 +78,12 @@
     <ClInclude Include="Picking.h" />
     <ClInclude Include="Selection.h" />
     <ClInclude Include="RenderWorld.h" />
+    <ClInclude Include="ToastStack.h" />
+    <ClInclude Include="UiDrawList.h" />
+    <ClInclude Include="CommandRow.h" />
+    <ClInclude Include="GhostLane.h" />
+    <ClInclude Include="HudRoster.h" />
+    <ClInclude Include="UiLayout.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\NeuronCore\NeuronCore.vcxproj">

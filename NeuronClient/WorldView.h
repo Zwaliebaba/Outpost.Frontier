@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ByteWriter.h"
+#include "HudRoster.h"
 #include "OrderIntent.h"
 #include "RenderWorld.h"
 
@@ -115,6 +116,58 @@ public:
   [[nodiscard]] virtual OrderDefaults DefaultOrder() const = 0;
 
   /*
+   * Which parameters a kind accepts, and what to call them.
+   *
+   * Writes at most `_outOptions.size()` and returns how many. The client offers
+   * the list -- a key that steps it now, the command wheel's formation
+   * sub-ring in S11 -- and copies the chosen number into `OrderIntent`.
+   *
+   * **This exists because the alternative is the client counting formations.**
+   * A client that cycled `parameter` from 0 to 2 would have learned how many
+   * formations this game has and that they are numbered contiguously; a client
+   * that hard-coded "Line/Wedge/Claw" would have learned their names. Both are
+   * game semantics arriving by the back door, and both break silently when a
+   * second game ships on this engine with four stances instead (ADR-014).
+   *
+   * An empty answer is legitimate and means the kind takes no parameter.
+   */
+  [[nodiscard]] virtual std::uint32_t OrderOptions(std::uint16_t _kind, std::span<OrderOption> _outOptions) const = 0;
+
+  /*
+   * Which commands this game offers, in the order a surface should show them.
+   *
+   * The command row's buttons and, later, the wheel's sectors. The engine draws
+   * a name and greys the ones marked unavailable, and never learns that the
+   * first is a movement order -- which is the point: a second game on these
+   * libraries has different verbs, and a row that spelled `MOVE` and `ATTACK`
+   * in NeuronClient would be this game's vocabulary compiled into the engine.
+   *
+   * Writes at most `_outKinds.size()` and returns how many.
+   */
+  [[nodiscard]] virtual std::uint32_t OrderKinds(std::span<OrderKindOption> _outKinds) const = 0;
+
+  /*
+   * The fleet roster's rows, for the HUD's left column (`tactical-hud.png`).
+   *
+   * Writes at most `_outRows.size()` and returns how many. `_selectedIds` is
+   * the client's current selection, so a row can report how much of itself is
+   * selected without the engine matching ids against group membership.
+   *
+   * **The game aggregates, and that is the whole point of the call.** The
+   * engine has `EntityRecord::groupId` and could group by it in four lines --
+   * and would thereby have decided that groups are worth showing, that they are
+   * named, that a group's health averages rather than takes a minimum, and that
+   * an empty group disappears rather than showing as empty. Those are design
+   * questions about a particular game, so they are answered on the side that is
+   * allowed to answer them.
+   *
+   * An empty answer is legitimate: a game with no groups has no roster, and the
+   * panel draws its frame with nothing in it.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildRoster(std::span<const std::uint16_t> _selectedIds,
+                                                  std::span<RosterRow> _outRows) const = 0;
+
+  /*
    * What the authority has decided about orders already sent.
    *
    * Read out of the newest snapshot, which is the game's to parse. The client
@@ -184,6 +237,11 @@ public:
   [[nodiscard]] bool EncodeOrder(const OrderIntent&, ByteWriter&) override { return false; }
 
   [[nodiscard]] OrderDefaults DefaultOrder() const override { return OrderDefaults{}; }
+
+  [[nodiscard]] std::uint32_t OrderOptions(std::uint16_t, std::span<OrderOption>) const override { return 0; }
+  [[nodiscard]] std::uint32_t OrderKinds(std::span<OrderKindOption>) const override { return 0; }
+
+  [[nodiscard]] std::uint32_t BuildRoster(std::span<const std::uint16_t>, std::span<RosterRow>) const override { return 0; }
 
   void PollOrderFeedback(OrderFeedback& _outFeedback) override { _outFeedback.Clear(); }
 

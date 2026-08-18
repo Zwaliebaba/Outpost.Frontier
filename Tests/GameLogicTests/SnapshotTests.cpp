@@ -12,6 +12,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -224,6 +225,38 @@ public:
     Assert::IsTrue(GAME_SCHEMA_TEXT.find("quantisation{position=cm") != std::string_view::npos);
     Assert::IsTrue(GAME_SCHEMA_TEXT.find("heading=turns/65536") != std::string_view::npos);
     Assert::IsTrue(Neuron::HashText(GAME_SCHEMA_TEXT) == GameSchemaHash());
+  }
+
+  TEST_METHOD(TheSchemaHashCoversEveryMessageOnTheWire)
+  {
+    /*
+     * The hole this closes was open from S9 to S11b: `OrderStateRecord` and
+     * `OrderSubmit` went on the wire and the schema string still said they
+     * "arrive with S9". Two builds that disagreed about either would have
+     * passed the handshake and then misparsed every order between them, which
+     * is precisely the failure the hash exists to turn into a refusal.
+     *
+     * Asserted by name rather than by hash value: a literal hash here would be
+     * a number to update on every intended change, which trains whoever does
+     * it to update the number without reading what changed.
+     */
+    for (const std::string_view fragment : {std::string_view{"SnapshotHeader{"}, std::string_view{"ShipRecord="},
+                                            std::string_view{"OrderStateRecord{"}, std::string_view{"OrderSubmit{"}})
+    {
+      Assert::IsTrue(GAME_SCHEMA_TEXT.find(fragment) != std::string_view::npos, L"a wire message is not in the schema");
+    }
+
+    // The neutral fields' meanings, which is the only place they are written
+    // down -- a gauge that became a percentage would draw different bars on
+    // two builds that agreed about every byte.
+    Assert::IsTrue(GAME_SCHEMA_TEXT.find("groupId=WingId") != std::string_view::npos);
+    Assert::IsTrue(GAME_SCHEMA_TEXT.find("gaugeA=hull255") != std::string_view::npos);
+
+    // And the caps, because they bound a length prefix: a build that read 64
+    // ids where the sender wrote 32 would run off the end of a valid payload.
+    Assert::IsTrue(GAME_SCHEMA_TEXT.find("shipsPerOrder=64") != std::string_view::npos);
+    Assert::AreEqual<std::uint32_t>(64, MAX_SHIPS_PER_ORDER, L"the schema string and the cap must not drift apart");
+    Assert::AreEqual<std::uint16_t>(16, MAX_ORDERS_PER_SNAPSHOT);
   }
 };
 
@@ -448,6 +481,66 @@ public:
     {
       Assert::IsTrue(ship.id != ids[2]);
     }
+  }
+
+  TEST_METHOD(AShipsWingSurvivesTheWire)
+  {
+    /*
+     * The roster is grouped by this and by nothing else (S11b), so a wing that
+     * failed to cross would put the whole fleet in one anonymous pile -- a HUD
+     * that looks entirely plausible and is entirely wrong, which is the failure
+     * the round trip exists to catch.
+     *
+     * Asserted after `SampleAt` rather than on the record, because the record
+     * is only half the path: the field is `EntityRecord::groupId` on the wire
+     * and `ReplicatedShip::wing` after it, and the sampler rebuilds every ship
+     * from scratch on each call. A copy that dropped the wing on that second
+     * hop would sail through a record-level check.
+     */
+    World world;
+    world.Reset(3);
+
+    // Two ships sharing a wing, one in another, and a station in none. The
+    // last is not padding: `INVALID_WING_ID` is what keeps a station out of
+    // the roster, and a wire that turned it into wing 0 would invent a row.
+    const WingId wings[] = {4, 4, 7, INVALID_WING_ID};
+    std::vector<ShipId> ids;
+    for (const WingId wing : wings)
+    {
+      ShipSpawn spawn;
+      spawn.hullClass = wing == INVALID_WING_ID ? HullClass::Structure : HullClass::Corvette;
+      spawn.wing = wing;
+      spawn.xMetres = static_cast<float>(ids.size()) * 120.0f;
+      ids.push_back(world.Spawn(spawn));
+      Assert::IsTrue(ids.back() != INVALID_SHIP_ID);
+    }
+    world.Tick(1);
+
+    ReplicatedView view;
+    std::array<std::uint8_t, 512> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteSnapshot(world, writer));
+    Assert::IsTrue(view.ApplySnapshot(writer.Written()));
+
+    std::vector<ReplicatedShip> sampled;
+    view.SampleAt(1.0, sampled);
+    Assert::AreEqual<std::size_t>(std::size(wings), sampled.size());
+
+    // Matched by id rather than by position, because the order ships come back
+    // in is the snapshot's business and not this test's.
+    int matched = 0;
+    for (const ReplicatedShip& ship : sampled)
+    {
+      for (std::size_t i = 0; i < ids.size(); ++i)
+      {
+        if (ship.id == ids[i])
+        {
+          Assert::AreEqual<std::uint32_t>(wings[i], ship.wing, L"a ship came back in the wrong wing");
+          ++matched;
+        }
+      }
+    }
+    Assert::AreEqual(static_cast<int>(ids.size()), matched, L"a spawned ship never came back");
   }
 
   TEST_METHOD(TheOrderRecordsComeThroughForTheGhostToRead)

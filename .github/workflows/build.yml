@@ -162,7 +162,7 @@ jobs:
           foreach ($dir in 'NeuronCore', 'NeuronServer', 'NeuronClient')
           {
             Get-ChildItem -Path $dir -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-              if ((Get-Content $_.FullName -Raw) -match '#include\s*"(Universe|UniverseParse|World|Orders|Validate|Formation|ShipClass|Snapshot|OrderMessages|SchemaHash|WorldHash|ReplicatedView)\.h"')
+              if ((Get-Content $_.FullName -Raw) -match '#include\s*"(Universe|UniverseParse|World|Orders|Validate|Formation|Eta|ShipClass|Snapshot|OrderMessages|SchemaHash|WorldHash|ReplicatedView)\.h"')
               {
                 $bad += $_.FullName
               }

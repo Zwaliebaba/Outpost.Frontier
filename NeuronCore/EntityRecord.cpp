@@ -20,7 +20,7 @@ void WriteEntityRecord(ByteWriter& _writer, const EntityRecord& _record) noexcep
 {
   _writer.WriteUInt16(_record.id);
   _writer.WriteUInt8(_record.typeId);
-  _writer.WriteUInt8(_record.flags);
+  _writer.WriteUInt8(_record.groupId);
   _writer.WriteInt32(_record.posXCm);
   _writer.WriteInt32(_record.posYCm);
   _writer.WriteInt16(_record.velXCmPerSec);
@@ -35,7 +35,7 @@ EntityRecord ReadEntityRecord(ByteReader& _reader) noexcept
   EntityRecord record{};
   record.id = _reader.ReadUInt16();
   record.typeId = _reader.ReadUInt8();
-  record.flags = _reader.ReadUInt8();
+  record.groupId = _reader.ReadUInt8();
   record.posXCm = _reader.ReadInt32();
   record.posYCm = _reader.ReadInt32();
   record.velXCmPerSec = _reader.ReadInt16();

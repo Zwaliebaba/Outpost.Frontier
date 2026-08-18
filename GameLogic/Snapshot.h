@@ -92,15 +92,54 @@ struct OrderStateRecord
 {
   std::uint32_t serverOrderId = 0;
   std::uint32_t clientOrderSeq = 0;
+
+  /*
+   * Seconds until this group finishes the leg it is on, or `NO_ETA` (S12).
+   *
+   * The authority's own number, so the ETA under a ghost is a replicated fact
+   * rather than the prediction the client's pre-check made before sending. It
+   * is the slowest member's *remaining* journey from wherever it already is and
+   * at whatever speed it already has -- a rest-to-rest estimate of a remaining
+   * distance charges a ramp the ships already paid, and stalls in the last few
+   * seconds, which is exactly when a player is watching it.
+   *
+   * Whole seconds in 16 bits. The sub-second part is below what a 20 Hz stream
+   * can honestly claim, and the range covers five hours against a longest leg
+   * of about six and a half minutes.
+   */
+  std::uint16_t etaSeconds = 0;
+
   std::uint8_t state = 0; // OrderState
   std::uint8_t legIndex = 0;
   std::uint8_t legCount = 0;
   std::uint8_t memberCount = 0;
 };
 
-inline constexpr std::size_t ORDER_STATE_RECORD_BYTES = 12;
-static_assert(sizeof(OrderStateRecord) == ORDER_STATE_RECORD_BYTES, "the record is written field by field; the size is the "
-                                                                    "budget, so a field added here costs ships");
+/// `etaSeconds` when the game will not say -- a group that is Done, or one
+/// whose members cannot move. Distinct from zero, which means *arriving now*.
+inline constexpr std::uint16_t NO_ETA = 0xffffu;
+
+/*
+ * The bytes one record puts on the wire.
+ *
+ * **Not `sizeof`,** and the change is worth explaining rather than just making:
+ * the record now has a `uint16_t` beside four `uint8_t`s, so the compiler
+ * rounds the struct up to its own alignment and `sizeof` reports sixteen where
+ * fourteen are written. `sizeof` was only ever standing in for the real
+ * invariant; summing the fields asserts the thing the budget actually cares
+ * about, and cannot drift when padding does.
+ *
+ * The comment it replaces was right: a field added here costs ships. This one
+ * cost two -- the fleet cap fell from 47 to 45, still above the 41 the MVP
+ * fields and the static assert below still checks it.
+ */
+inline constexpr std::size_t ORDER_STATE_RECORD_BYTES = 14;
+static_assert(sizeof(OrderStateRecord::serverOrderId) + sizeof(OrderStateRecord::clientOrderSeq) +
+                      sizeof(OrderStateRecord::etaSeconds) + sizeof(OrderStateRecord::state) +
+                      sizeof(OrderStateRecord::legIndex) + sizeof(OrderStateRecord::legCount) +
+                      sizeof(OrderStateRecord::memberCount) ==
+                  ORDER_STATE_RECORD_BYTES,
+              "the record is written field by field; the sum of the fields is the budget, so a field added here costs ships");
 
 /*
  * How many orders ride along with the ships.

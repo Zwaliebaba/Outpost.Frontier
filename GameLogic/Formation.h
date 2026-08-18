@@ -30,6 +30,17 @@
  * Line with a Carrier in it is not, because the spacing that keeps the Carrier
  * clear is the spacing that keeps everything clear. `ShipClassTable` carries
  * `formationSpacingMetres` per class for exactly this.
+ *
+ * **Three shapes, and each puts something on the anchor** (S10): a Line centres
+ * its rank there, a Wedge puts its tip there, a Claw the middle of its arc. So
+ * a single-ship order lands exactly where the player pointed whichever
+ * formation is selected, and the puck never marks a place the fleet avoids.
+ *
+ * **Adjacent stations are one spacing apart in all three**, which is not a
+ * coincidence of the numbers but the property ADR-005 §2 spends: there is no
+ * inter-ship avoidance in the MVP because stations do not overlap by
+ * construction. The suite asserts it over every count and class mix rather than
+ * trusting the three formulas to keep agreeing.
  */
 
 namespace Game

@@ -16,10 +16,19 @@ namespace
 
 [[nodiscard]] bool KnownFormation(FormationId _formation) noexcept
 {
-  // Line only until S10 solves the other two. Naming them in the enum and
-  // refusing them here is the honest arrangement: a client that sends Wedge at
-  // this build gets `InvalidFormation` rather than a Line it did not ask for.
-  return _formation == FormationId::Line;
+  // All three are solved as of S10. The check stays rather than becoming a
+  // tautology: `formation` arrives as a byte off the wire, so a value outside
+  // the enum is reachable from any client and has to be refused rather than
+  // switched on. `SolveFormation` treats an unknown one as a Line, which is a
+  // safe default only because nothing unknown gets that far.
+  switch (_formation)
+  {
+  case FormationId::Line:
+  case FormationId::Wedge:
+  case FormationId::Claw:
+    return true;
+  }
+  return false;
 }
 
 } // namespace

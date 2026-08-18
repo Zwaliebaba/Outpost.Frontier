@@ -612,4 +612,52 @@ public:
   }
 };
 
+TEST_CLASS(NdcToPixelsTests)
+{
+public:
+  TEST_METHOD(ItIsTheExactInverseOfPixelsToNdc)
+  {
+    /*
+     * ADR-006 §11's "one code path", now in both directions. Three callers turn
+     * pixels into a plane point and the ghost's lane goes the other way; a
+     * private flip in that file would be the fourth place the y-axis is
+     * negated, and the first three live together precisely so there is no
+     * fourth to get wrong.
+     */
+    constexpr std::uint32_t width = 1600;
+    constexpr std::uint32_t height = 900;
+    const float samples[][2] = {{0.0f, 0.0f},     {800.0f, 450.0f}, {1600.0f, 900.0f},
+                                {1.0f, 899.0f},   {1599.0f, 1.0f},  {-40.0f, 1200.0f}};
+    for (const auto& sample : samples)
+    {
+      const XMFLOAT2 ndc = PixelsToNdc(sample[0], sample[1], width, height);
+      const XMFLOAT2 back = NdcToPixels(ndc, width, height);
+      Assert::AreEqual(sample[0], back.x, 0.001f);
+      Assert::AreEqual(sample[1], back.y, 0.001f);
+    }
+  }
+
+  TEST_METHOD(TheCentreOfNdcIsTheCentreOfTheViewport)
+  {
+    // The sign of the y flip, stated once rather than inferred from a round
+    // trip that would pass with both negations wrong.
+    const XMFLOAT2 centre = NdcToPixels(XMFLOAT2{0.0f, 0.0f}, 1600, 900);
+    Assert::AreEqual(800.0f, centre.x, 0.001f);
+    Assert::AreEqual(450.0f, centre.y, 0.001f);
+
+    const XMFLOAT2 topLeft = NdcToPixels(XMFLOAT2{-1.0f, 1.0f}, 1600, 900);
+    Assert::AreEqual(0.0f, topLeft.x, 0.001f);
+    Assert::AreEqual(0.0f, topLeft.y, 0.001f, L"ndc y is up and pixel y is down");
+  }
+
+  TEST_METHOD(AZeroSizeViewportCollapsesRatherThanDividing)
+  {
+    // What a window reports before its first resize. The forward function maps
+    // everything to the centre of nothing; this maps back to its corner.
+    const XMFLOAT2 pixels = NdcToPixels(XMFLOAT2{0.5f, -0.5f}, 0, 0);
+    Assert::AreEqual(0.0f, pixels.x, 0.001f);
+    Assert::AreEqual(0.0f, pixels.y, 0.001f);
+  }
+};
+
 } // namespace NeuronClientTests

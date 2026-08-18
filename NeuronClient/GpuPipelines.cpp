@@ -5,6 +5,7 @@
 #include "Log.h"
 #include "OverlayMark.h"
 #include "RenderWorld.h"
+#include "UiDrawList.h"
 
 #include <cstddef>
 
@@ -358,6 +359,78 @@ bool GpuPipelines::CreateOverlayPipelines(ID3D12Device* _device, const PipelineS
   return true;
 }
 
+bool GpuPipelines::CreateUiPipeline(ID3D12Device* _device, const PipelineShaders& _shaders)
+{
+  if (_shaders.uiVertex.empty() || _shaders.uiPixel.empty())
+  {
+    NEURON_LOG_ERROR("the ui shaders are empty; the HUD would draw nothing");
+    return false;
+  }
+
+  // The offsets are spelled by hand because D3D12 asks for them, which makes
+  // them a second copy of UiInstance's layout -- and these are the asserts that
+  // keep the copies honest. Same arrangement as the overlay's marks.
+  static_assert(offsetof(UiInstance, rect) == 0, "UI_RECT is declared at offset 0");
+  static_assert(offsetof(UiInstance, uv) == 16, "UI_UV at offset 16");
+  static_assert(offsetof(UiInstance, colourRgba) == 32, "UI_COLOUR at offset 32");
+  static_assert(offsetof(UiInstance, flags) == 36, "UI_FLAGS at offset 36");
+  static_assert(offsetof(UiInstance, axis) == 40, "UI_AXIS at offset 40 -- appended, so nothing above it moved");
+
+  // The colour is packed rather than four floats, the same as `OverlayMark`'s:
+  // a HUD is thousands of glyph quads a frame and twelve bytes each of them
+  // does not need is twelve bytes uploaded every frame.
+  const D3D12_INPUT_ELEMENT_DESC elements[] = {
+      {"UI_RECT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+      {"UI_UV", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+      {"UI_COLOUR", 0, DXGI_FORMAT_R8G8B8A8_UNORM, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+      {"UI_FLAGS", 0, DXGI_FORMAT_R32_UINT, 0, 36, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+      {"UI_AXIS", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 40, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+  };
+
+  D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
+  desc.pRootSignature = m_rootSignature.get();
+  desc.InputLayout = {elements, static_cast<UINT>(_countof(elements))};
+  desc.VS = {_shaders.uiVertex.data(), _shaders.uiVertex.size()};
+  desc.PS = {_shaders.uiPixel.data(), _shaders.uiPixel.size()};
+  desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+  desc.NumRenderTargets = 1;
+  desc.RTVFormats[0] = RENDER_TARGET_FORMAT;
+  desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+  desc.SampleDesc.Count = 1;
+  desc.SampleMask = UINT_MAX;
+
+  desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+  desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+  desc.RasterizerState.FrontCounterClockwise = FALSE;
+  desc.RasterizerState.DepthClipEnable = FALSE;
+
+  D3D12_RENDER_TARGET_BLEND_DESC& blend = desc.BlendState.RenderTarget[0];
+  blend.BlendEnable = TRUE;
+  blend.SrcBlend = D3D12_BLEND_SRC_ALPHA;
+  blend.DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+  blend.BlendOp = D3D12_BLEND_OP_ADD;
+  blend.SrcBlendAlpha = D3D12_BLEND_ZERO;
+  blend.DestBlendAlpha = D3D12_BLEND_ONE;
+  blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+  blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+  /*
+   * No depth at all, and no depth-stencil format either.
+   *
+   * The HUD is the last thing drawn and composites over everything, so a depth
+   * test could only ever remove a pixel the player is meant to see. Declaring
+   * `DSVFormat = UNKNOWN` rather than merely disabling the test is what says so
+   * to the runtime: a pipeline with a format and no test still expects a bound
+   * depth buffer, and the Ui pass deliberately does not bind one.
+   */
+  desc.DepthStencilState.DepthEnable = FALSE;
+  desc.DepthStencilState.StencilEnable = FALSE;
+
+  check_hresult(_device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(m_ui.put())));
+  NAME_D3D12_OBJECT(m_ui);
+  return true;
+}
+
 bool GpuPipelines::Create(ID3D12Device* _device, const PipelineShaders& _shaders)
 {
   if (_device == nullptr || !AllPresent(_shaders))
@@ -384,12 +457,18 @@ bool GpuPipelines::Create(ID3D12Device* _device, const PipelineShaders& _shaders
     return false;
   }
 
+  if (!CreateUiPipeline(_device, _shaders))
+  {
+    return false;
+  }
+
   // The sizes, because they are the one thing about a compiled-in shader worth
   // seeing at boot: a stage that shrank to nothing between builds shows up here
   // rather than as an empty screen.
-  NEURON_LOG_INFO("pipelines: opaque (%zu + %zu B), nebula (%zu + %zu B), overlay (%zu + %zu B) built",
+  NEURON_LOG_INFO("pipelines: opaque (%zu + %zu B), nebula (%zu + %zu B), overlay (%zu + %zu B), ui (%zu + %zu B) built",
                   _shaders.opaqueVertex.size(), _shaders.opaquePixel.size(), _shaders.nebulaVertex.size(),
-                  _shaders.nebulaPixel.size(), _shaders.overlayVertex.size(), _shaders.overlayPixel.size());
+                  _shaders.nebulaPixel.size(), _shaders.overlayVertex.size(), _shaders.overlayPixel.size(),
+                  _shaders.uiVertex.size(), _shaders.uiPixel.size());
   return true;
 }
 

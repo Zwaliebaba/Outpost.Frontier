@@ -59,8 +59,9 @@ moves between the trees without a rename pass. Three things it changed in these 
 
 ## Implementation state (2026-08-18)
 
-Slices S1, S2, S2b, S3, S4, S5, S5b, S5c, S5d, S6, S7, S8 and S9 are in the tree and green in
-CI. The per-slice detail — what was built, and what a "done" slice still owes — lives in
+Slices S1, S2, S2b, S3, S4, S5, S5b, S5c, S5d, S6, S7, S8, S9 and S10 are in the tree and green
+in CI, along with **S11a** — the Ui pass, its device-free draw list and layout, and the toast
+stack that finally gives S9's bounce its second surface. The per-slice detail — what was built, and what a "done" slice still owes — lives in
 [MVP-Build-Order.md](MVP-Build-Order.md); it is not repeated here.
 
 **Milestone M1 — first commanded fleet — is code-complete and awaiting its play test.** The lap
@@ -72,17 +73,27 @@ refusal bounces over 150 ms carrying the game's own reason code. What is left of
 unit test cannot see: promotion arriving within 100 ms on screen, and a deliberate
 out-of-bounds order looking identical whether the local pre-check or the server refused it.
 
-**Two other things need a person and a GPU, and have needed one since S5.** The visual
-checkpoint against the prints, and the overlay's depth behaviour — that rings and footprints
-lie on the plane and are occluded by the hulls above them, while gauge bars never occlude. S9
-supplied an argument for why that matters beyond the look: **two overlay colours had been
-byte-swapped since S8** and nothing caught it, because a swapped colour and an unrun frame are
-the same blind spot.
+**The frame was run for the first time since S5, and it found three defects in one sitting.**
+Two overlay colours byte-swapped since S8; a ring whose thickness scaled with its own radius,
+so a large footprint drew as a forty-pixel band; and a puck sized to circumscribe the formation
+rather than mark the point the order was given, which for an eleven-ship Line put an ellipse
+across the whole viewport. All three are fixed. Every device-free test passed throughout — each
+defect lives in the product of two pieces of arithmetic that are individually right, which is
+the category a unit test cannot reach.
+
+**The same run closed two criteria that had been open since S7 and S8.** Interpolated motion
+reads as motion at 144 Hz over 20 Hz snapshots, and rings occlude behind a Carrier hull while
+gauge bars never do — `overlay-pass.png`'s rule holding, and the ring pipeline's depth bias
+promoted from a textbook guess to a measurement.
+
+**What still needs a person and a GPU:** a second look at the overlay after the two size fixes,
+the visual checkpoint against the prints at min and max zoom, and the induced 400 ms stall
+reading as extrapolate-then-freeze rather than as a stutter.
 
 **Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
 handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. The
-suite now stands at **331** — 163 client, 85 GameLogic, 73 core, 10 server. Its
+suite now stands at **362** — 188 client, 91 GameLogic, 73 core, 10 server. Its
 visible half — window open, swapchain presenting, heartbeat live — together with the four
 other criteria that need a GPU and a person (five minutes clean under the debug layer,
 PresentMon showing the flip model, a clean exit, and the 60-second tick cadence on an idle

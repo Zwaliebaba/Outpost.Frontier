@@ -39,7 +39,7 @@ makes those libraries worth having.
      `BuildScene(renderTick, RenderScene&)`, `PreCheck(const OrderIntent&) → verdict`,
      `SolvePreview(const OrderIntent&, FormationPreview&)`, `EncodeOrder(const OrderIntent&,
      ByteWriter&)`. `ClientApp` owns window, device, passes, camera, picking and HUD; the game
-     supplies meaning. **S9 added three** — see §2c.
+     supplies meaning. **S9 added three, S10 a fourth, S11b a fifth and S11d a sixth** — see §2c.
 2a. **Who holds the vtable** (settled by S5c, because the ADR as written could not be
    implemented). §1 says GameLogic depends on **NeuronCore only**. §2 says **GameLogic
    implements** `Neuron::Simulation` and `Neuron::WorldView`. Those interfaces are declared in
@@ -101,16 +101,65 @@ makes those libraries worth having.
    what matches an ack to a ghost, and `EncodeOrder` places it inside a payload the engine
    frames and never parses.
 
+   **A fourth arrived with S10, and the reason is worth keeping.** `OrderOptions(kind) →
+   [{parameter, name}]` reports which values a kind's parameter may take. S10 added two
+   formations and the command wheel that would select one is S11, so without this the slice
+   would have shipped two shapes no player could reach. The tempting shortcut was a client that
+   cycles `parameter` from 0 upward — and that client would have learned how many formations
+   this game has and that they are numbered contiguously, which is game semantics arriving by
+   the back door and breaking silently against a second game with four stances. The engine's
+   binding is named `CycleParameter` rather than `CycleFormation` for the same reason: the list
+   is asked for, so the word for what is in it is asked for too.
+
+   **A fifth arrived with S11b, and it is the one that was nearly got wrong.**
+   `BuildRoster(selectedIds) → [{name, groupId, shipCount, selectedCount, hullGauge,
+   shieldGauge}]` fills the HUD's left panel. The engine has the replicated entities and the
+   byte to group them by, so it could plainly have done the aggregation itself — and that is
+   exactly the shortcut worth naming, because taking it would have decided, in the engine,
+   that groups are worth showing at all, that they have names, that the two gauges *average*
+   rather than take a minimum, and that a group whose ships have all died vanishes rather than
+   showing as empty. Every one of those is a design question about *this* game. What crosses
+   instead is a row: a name and four numbers. The engine draws it, highlights it when
+   `selectedCount` is non-zero, and never learns that the word is "wing" — a second game on
+   these libraries reads squads or convoys off the same panel and the pass does not change.
+
+   The same rule is why the wire byte is called `groupId` rather than `wingId` (§4).
+
+   **A sixth arrived with S11d, and it is the one that would have slipped through.**
+   `OrderKinds() → [{kind, name, parameterName, available}]` is what the command row's buttons
+   are made of. The tempting version is five string literals in `ClientApp` — `MOVE`, `ATTACK`,
+   `FORMATION`, `STANCE`, `ABILITIES` — and it is wrong in exactly the way this ADR exists to
+   prevent: those are one game's verbs, compiled into a library that is meant to serve a second
+   game with different ones. **No CI rule would have caught it.** The build's engine-references-
+   game check greps for includes and project references; a string literal is neither. That is
+   worth naming, because it is the first time the seam had to be held by judgement rather than
+   by the guard.
+
+   The three reserved kinds cross too, marked `available = false`, and the engine greys them.
+   That is `HullClass`'s Fighter and Cruiser again (ADR-009 §6): nameable, numbered, never
+   acted on. The row draws them rather than hiding them because `puck-and-wheel.png` §3 keeps
+   the wheel's sectors in fixed positions "so the ring stays learnable as a shape rather than a
+   lookup" — and a row whose buttons moved as content arrived is the same mistake in a line.
+
 3. **BounceParity survives intact.** The client still runs the *identical* validation function
    — it is reached through an interface instead of a link-time symbol. Same code, same reason
    codes, same bounce. This was the one thing worth checking before accepting the ruling, and
    it costs nothing.
 4. **The replication record is engine-level and game-neutral.** NeuronCore defines
-   `EntityRecord { id, typeId, pos, vel, heading, gaugeA, gaugeB }` — it names no ship, order,
-   formation or hull class, so it passes NeuronCore's zero-game-semantics test (ADR-004
-   ruling 4), and it lets `SnapshotBuffer` interpolate and the renderer draw without game
-   knowledge. HUD labels come from **data** (the class/display table) rather than GameLogic
-   enums.
+   `EntityRecord { id, typeId, groupId, pos, vel, heading, gaugeA, gaugeB }` — it names no
+   ship, order, formation or hull class, so it passes NeuronCore's zero-game-semantics test
+   (ADR-004 ruling 4), and it lets `SnapshotBuffer` interpolate and the renderer draw without
+   game knowledge. HUD labels come from **data** (the class/display table) rather than
+   GameLogic enums.
+
+   The third field was called `flags` and carried nothing; S11b needed a ship's wing on the
+   wire and renamed it `groupId`. The rename is the whole change — the byte was always there
+   and always spare — but it matters in the direction this ADR cares about. `flags` is a
+   promise the engine will *interpret* the bits; `groupId` is a promise it will only carry
+   them. GameLogic writes the wing into it, `ReplicatedView` reads it back out as one, and
+   nothing between the two is allowed to know which. Had it stayed `flags`, the first thing
+   anyone would have wanted was a `FLAG_` constant in NeuronCore, which is a game rule in the
+   engine arriving one bit at a time.
 5. **Game wire schemas stay in GameLogic** (ADR-004 ruling 1) — and this ruling strengthens
    that: the engine moves framed, opaque payloads; GameLogic alone decides what the bytes mean.
 6. **Outpost.exe grows by exactly one responsibility:** construct the GameLogic implementations

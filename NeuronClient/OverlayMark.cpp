@@ -105,7 +105,10 @@ void BuildGhostMarks(std::span<const OrderGhost> _ghosts, const OverlayTuning& _
     return;
   }
 
-  const float minFootprintMetres = _tuning.ghostMinRadiusPixels * _metresPerPixel;
+  // Both in pixels converted to metres, so both hold their size on screen as the
+  // camera zooms. The puck deliberately does *not* consult
+  // `OrderPreview::extentMetres`: see `OverlayTuning::puckRadiusPixels`.
+  const float puckRadiusMetres = _tuning.puckRadiusPixels * _metresPerPixel;
   const float stationRadiusMetres = _tuning.stationRadiusPixels * _metresPerPixel;
 
   // Built into a scratch run first, then inserted whole at the ring/bar
@@ -130,15 +133,17 @@ void BuildGhostMarks(std::span<const OrderGhost> _ghosts, const OverlayTuning& _
     }
     colour = FadeRgba(colour, 1.0f - bounce);
 
-    // A refused ghost travels back toward where the fleet was. Both the anchor
-    // and every station move together, so the footprint keeps its shape on the
-    // way home rather than collapsing into its own centre.
-    const XMFLOAT2 offset{(ghost.originMetres.x - ghost.targetMetres.x) * bounce,
-                          (ghost.originMetres.y - ghost.targetMetres.y) * bounce};
+    // A refused ghost travels back toward where it came from -- the previous
+    // waypoint of a queued chain, or the fleet for a single leg
+    // (`OrderGhost::RetractTowardMetres`). Both the anchor and every station
+    // move together, so the footprint keeps its shape on the way home rather
+    // than collapsing into its own centre.
+    const XMFLOAT2 home = ghost.RetractTowardMetres();
+    const XMFLOAT2 offset{(home.x - ghost.targetMetres.x) * bounce, (home.y - ghost.targetMetres.y) * bounce};
 
     OverlayMark footprint;
     footprint.anchorPlane = XMFLOAT2{ghost.targetMetres.x + offset.x, ghost.targetMetres.y + offset.y};
-    footprint.radiusMetres = std::max(ghost.preview.extentMetres, minFootprintMetres);
+    footprint.radiusMetres = puckRadiusMetres;
     footprint.colourRgba = colour;
     footprint.kind = static_cast<std::uint16_t>(OverlayKind::OrderFootprint);
     // Solid once the authority has agreed, dashed while it is a promise. That

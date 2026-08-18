@@ -7,6 +7,7 @@
 #include <DirectXMath.h>
 
 #include <cstdint>
+#include <span>
 #include <vector>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -39,6 +40,32 @@ namespace
   intent.targetXMetres = _x;
   intent.targetYMetres = _y;
   return intent;
+}
+
+/// The ids a chained order names. Static so the span in `OrderIntent` outlives
+/// the call -- the intent holds a pointer, not a copy.
+const std::uint16_t CHAIN_SHIPS[] = {7, 8, 9};
+const std::uint16_t OTHER_SHIPS[] = {21, 22};
+
+/// An order over `_ships`, optionally asking to be queued behind whatever those
+/// ships are already doing.
+[[nodiscard]] OrderIntent FleetIntent(std::uint32_t _seq, std::span<const std::uint16_t> _ships, bool _queued, float _x,
+                                      float _y = 0.0f)
+{
+  OrderIntent intent = Intent(_seq, _x, _y);
+  intent.entityIds = _ships.data();
+  intent.entityCount = static_cast<std::uint32_t>(_ships.size());
+  intent.queued = _queued;
+  return intent;
+}
+
+[[nodiscard]] OrderVerdict Accept(std::uint32_t _seq, std::uint32_t _serverOrderId)
+{
+  OrderVerdict verdict;
+  verdict.accepted = true;
+  verdict.orderSeq = _seq;
+  verdict.serverOrderId = _serverOrderId;
+  return verdict;
 }
 
 /// A preview with `_count` stations in a row, which is close enough to a Line
@@ -534,39 +561,204 @@ public:
                    L"the bounce fades as it travels");
   }
 
-  TEST_METHOD(TheFootprintNeverShrinksBelowItsScreenFloor)
+  TEST_METHOD(ThePuckIsTheSameSizeWhateverTheFleetIs)
   {
-    // The same clamp a selection ring has, and for the same reason: at 40 km of
-    // zoom a four-ship Line is a few pixels across, and a footprint smaller
-    // than the cursor is a footprint nobody can read.
-    OrderGhostList ghosts;
-    OrderIntent intent = Intent(1);
-    OrderPreview tiny = Preview(1);
-    tiny.extentMetres = 1.0f;
-    Assert::IsTrue(ghosts.Add(intent, tiny, XMFLOAT2{0.0f, 0.0f}, 10.0));
-
+    /*
+     * The bug this pins, which reached a screenshot before it reached a test.
+     *
+     * The puck used to be `max(preview.extentMetres, floor)`, and the extent of
+     * a Line is *half its length* -- so eleven ships put a green ellipse across
+     * the whole viewport, circumscribing a formation it touches at two points.
+     * The ticks are the footprint; the ring marks where the player pointed, and
+     * where they pointed is one place regardless of how many ships are going.
+     */
     const OverlayTuning tuning;
-    OverlayMarkList marks;
-    BuildGhostMarks(ghosts.Ghosts(), tuning, 40.0f, 10.0, marks); // 40 m per pixel: fully zoomed out.
 
-    Assert::AreEqual(tuning.ghostMinRadiusPixels * 40.0f, marks.marks[0].radiusMetres, L"clamped to the floor");
+    OrderGhostList small;
+    OrderPreview twoShips = Preview(2);
+    twoShips.extentMetres = 60.0f;
+    Assert::IsTrue(small.Add(Intent(1), twoShips, XMFLOAT2{0.0f, 0.0f}, 10.0));
+    OverlayMarkList smallMarks;
+    BuildGhostMarks(small.Ghosts(), tuning, 1.0f, 10.0, smallMarks);
+
+    OrderGhostList large;
+    OrderPreview manyShips = Preview(40);
+    manyShips.extentMetres = 5000.0f; // A Battleship line, kilometres across.
+    Assert::IsTrue(large.Add(Intent(1), manyShips, XMFLOAT2{0.0f, 0.0f}, 10.0));
+    OverlayMarkList largeMarks;
+    BuildGhostMarks(large.Ghosts(), tuning, 1.0f, 10.0, largeMarks);
+
+    Assert::AreEqual(smallMarks.marks[0].radiusMetres, largeMarks.marks[0].radiusMetres,
+                     L"the puck is where the order points, not how big the fleet is");
+    Assert::AreEqual(tuning.puckRadiusPixels, largeMarks.marks[0].radiusMetres, L"and it is its own size, in pixels");
+
+    // The shape is still reported, and reported truthfully: forty ships get
+    // forty ticks, spread over the kilometres the extent describes.
+    Assert::AreEqual<std::size_t>(41, largeMarks.marks.size(), L"one puck and forty stations");
+    Assert::AreEqual<std::size_t>(3, smallMarks.marks.size(), L"one puck and two stations");
   }
 
-  TEST_METHOD(TheFloorIsAFloorAndNotAReplacement)
+  TEST_METHOD(ThePuckTracksZoomRatherThanTheWorld)
   {
-    // The mutation this catches is `min` for `max`, which passes the test above
-    // and makes every footprint the same size.
-    OrderGhostList ghosts;
-    OrderIntent intent = Intent(1);
-    OrderPreview wide = Preview(1);
-    wide.extentMetres = 5000.0f;
-    Assert::IsTrue(ghosts.Add(intent, wide, XMFLOAT2{0.0f, 0.0f}, 10.0));
-
+    // Pixels through `_metresPerPixel`, like the gauge bars: the mark holds its
+    // size on screen while the world under it shrinks. The mutation this
+    // catches is anyone reinstating `extentMetres` as the radius, which would
+    // make the two answers below identical.
     const OverlayTuning tuning;
-    OverlayMarkList marks;
-    BuildGhostMarks(ghosts.Ghosts(), tuning, 1.0f, 10.0, marks);
+    OrderGhostList ghosts;
+    Assert::IsTrue(ghosts.Add(Intent(1), Preview(3), XMFLOAT2{0.0f, 0.0f}, 10.0));
 
-    Assert::AreEqual(5000.0f, marks.marks[0].radiusMetres, L"a big formation stays big");
+    OverlayMarkList closeUp;
+    BuildGhostMarks(ghosts.Ghosts(), tuning, 1.0f, 10.0, closeUp);
+
+    OverlayMarkList zoomedOut;
+    BuildGhostMarks(ghosts.Ghosts(), tuning, 40.0f, 10.0, zoomedOut); // 40 m per pixel.
+
+    Assert::AreEqual(tuning.puckRadiusPixels * 1.0f, closeUp.marks[0].radiusMetres, L"close up");
+    Assert::AreEqual(tuning.puckRadiusPixels * 40.0f, zoomedOut.marks[0].radiusMetres, L"and zoomed out");
+    Assert::AreEqual(tuning.stationRadiusPixels * 40.0f, zoomedOut.marks[1].radiusMetres, L"the ticks do the same");
+  }
+};
+
+/*
+ * The queued chain (S12c, `puck-and-wheel.png` §4).
+ *
+ * One order is one ghost with a leg per waypoint. The merge happens when the
+ * authority *accepts* the append rather than when the client sends it, and
+ * every test below is really about that one decision: a refused append must
+ * bounce alone, and an accepted one must join.
+ */
+TEST_CLASS(GhostChainTests)
+{
+public:
+  TEST_METHOD(AnAcceptedAppendJoinsTheChainRatherThanStandingBesideIt)
+  {
+    OrderGhostList ghosts;
+    Assert::IsTrue(ghosts.Add(FleetIntent(1, CHAIN_SHIPS, false, 1000.0f), Preview(3), XMFLOAT2{0.0f, 0.0f}, 0.0));
+    ghosts.OnVerdict(Accept(1, 55), 0.1);
+    Assert::AreEqual<std::size_t>(1, ghosts.Count());
+
+    // The queued waypoint is its own pending ghost until the authority agrees:
+    // it has to be, or a refusal would have nowhere to land.
+    Assert::IsTrue(ghosts.Add(FleetIntent(2, CHAIN_SHIPS, true, 4000.0f), Preview(3, 4000.0f), XMFLOAT2{0.0f, 0.0f}, 0.2));
+    Assert::AreEqual<std::size_t>(2, ghosts.Count(), L"two ghosts while the append is in flight");
+
+    ghosts.OnVerdict(Accept(2, 55), 0.3);
+    Assert::AreEqual<std::size_t>(1, ghosts.Count(), L"and one once it is accepted");
+
+    const OrderGhost& chain = ghosts.Ghosts()[0];
+    Assert::AreEqual<std::uint8_t>(2, chain.queuedLegCount, L"the chain grew a leg");
+    Assert::AreEqual(4000.0f, chain.legs[1].targetMetres.x, 0.01f);
+    Assert::AreEqual(4000.0f, chain.targetMetres.x, 0.01f, L"and its far end moved to the new waypoint");
+    Assert::AreEqual<std::uint32_t>(2, chain.clientOrderSeq,
+                                    L"named after the most recent order, exactly as the authority names the group");
+  }
+
+  TEST_METHOD(ARefusedAppendBouncesAloneAndLeavesTheChainAlone)
+  {
+    /*
+     * The fifth leg, refused with `QueueFull`. This is the whole reason the
+     * merge waits for acceptance: absorbing the waypoint on send would have the
+     * refusal retract a plan the player still has.
+     */
+    OrderGhostList ghosts;
+    Assert::IsTrue(ghosts.Add(FleetIntent(1, CHAIN_SHIPS, false, 1000.0f), Preview(3), XMFLOAT2{0.0f, 0.0f}, 0.0));
+    ghosts.OnVerdict(Accept(1, 55), 0.1);
+
+    Assert::IsTrue(ghosts.Add(FleetIntent(2, CHAIN_SHIPS, true, 4000.0f), Preview(3, 4000.0f), XMFLOAT2{0.0f, 0.0f}, 0.2));
+    ghosts.Refuse(2, 5, false, 0.3); // Any reason code; the ghost only forwards it.
+
+    Assert::AreEqual<std::size_t>(2, ghosts.Count(), L"the refused waypoint is still on screen, bouncing");
+
+    const OrderGhost* chain = nullptr;
+    const OrderGhost* refused = nullptr;
+    for (const OrderGhost& ghost : ghosts.Ghosts())
+    {
+      (ghost.state == GhostState::Rejected ? refused : chain) = &ghost;
+    }
+    Assert::IsNotNull(chain);
+    Assert::IsNotNull(refused);
+    Assert::AreEqual<std::uint8_t>(1, chain->queuedLegCount, L"the chain never took the leg it was refused");
+    Assert::IsTrue(chain->state == GhostState::UnderWay, L"and is not bouncing");
+    Assert::AreEqual<std::uint32_t>(1, chain->clientOrderSeq, L"nor was it renamed by an order that failed");
+  }
+
+  TEST_METHOD(AnAppendForDifferentShipsStartsItsOwnChain)
+  {
+    /*
+     * The chain is resolved by the ship the authority resolves it by -- the
+     * first one the order names (`World::IngestOrders`). A second fleet queued
+     * while the first is under way is a second plan, not a fifth waypoint on
+     * somebody else's.
+     */
+    OrderGhostList ghosts;
+    Assert::IsTrue(ghosts.Add(FleetIntent(1, CHAIN_SHIPS, false, 1000.0f), Preview(3), XMFLOAT2{0.0f, 0.0f}, 0.0));
+    ghosts.OnVerdict(Accept(1, 55), 0.1);
+
+    Assert::IsTrue(ghosts.Add(FleetIntent(2, OTHER_SHIPS, true, 4000.0f), Preview(2, 4000.0f), XMFLOAT2{0.0f, 0.0f}, 0.2));
+    ghosts.OnVerdict(Accept(2, 56), 0.3);
+
+    Assert::AreEqual<std::size_t>(2, ghosts.Count(), L"two fleets, two plans");
+    for (const OrderGhost& ghost : ghosts.Ghosts())
+    {
+      Assert::AreEqual<std::uint8_t>(1, ghost.queuedLegCount);
+    }
+  }
+
+  TEST_METHOD(AnAppendWithNoChainToJoinStandsOnItsOwn)
+  {
+    // The client mirrors the authority's fallback: validation passes because
+    // there is no queue to be full, and the order becomes a plan of its own.
+    OrderGhostList ghosts;
+    Assert::IsTrue(ghosts.Add(FleetIntent(9, CHAIN_SHIPS, true, 4000.0f), Preview(3, 4000.0f), XMFLOAT2{0.0f, 0.0f}, 0.0));
+    ghosts.OnVerdict(Accept(9, 77), 0.1);
+
+    Assert::AreEqual<std::size_t>(1, ghosts.Count());
+    Assert::AreEqual<std::uint8_t>(1, ghosts.Ghosts()[0].queuedLegCount);
+    Assert::IsTrue(ghosts.Ghosts()[0].state == GhostState::UnderWay);
+    Assert::AreEqual<std::uint32_t>(77, ghosts.Ghosts()[0].serverOrderId);
+  }
+
+  TEST_METHOD(TheChainStopsGrowingAtTheEnginesCap)
+  {
+    // The queue's real cap is the game's and the authority enforces it; this is
+    // the engine refusing to write past its own buffer, which is a different
+    // promise and has to hold whatever the game says.
+    OrderGhostList ghosts;
+    Assert::IsTrue(ghosts.Add(FleetIntent(1, CHAIN_SHIPS, false, 1000.0f), Preview(3), XMFLOAT2{0.0f, 0.0f}, 0.0));
+    ghosts.OnVerdict(Accept(1, 55), 0.1);
+
+    for (std::uint32_t seq = 2; seq <= MAX_GHOST_LEGS + 3; ++seq)
+    {
+      const float x = 1000.0f + static_cast<float>(seq) * 500.0f;
+      Assert::IsTrue(ghosts.Add(FleetIntent(seq, CHAIN_SHIPS, true, x), Preview(3, x), XMFLOAT2{0.0f, 0.0f}, 0.2));
+      ghosts.OnVerdict(Accept(seq, 55), 0.3);
+    }
+
+    std::uint8_t longest = 0;
+    for (const OrderGhost& ghost : ghosts.Ghosts())
+    {
+      longest = std::max(longest, ghost.queuedLegCount);
+    }
+    Assert::AreEqual<std::uint8_t>(static_cast<std::uint8_t>(MAX_GHOST_LEGS), longest, L"full, and no further");
+  }
+
+  TEST_METHOD(TheChainRetractsToItsPreviousWaypointAndNotToTheFleet)
+  {
+    // `RetractTowardMetres`, which the footprint ring and the lane both read so
+    // they cannot come home to two different places.
+    OrderGhostList ghosts;
+    Assert::IsTrue(ghosts.Add(FleetIntent(1, CHAIN_SHIPS, false, 1000.0f), Preview(3), XMFLOAT2{-9000.0f, 0.0f}, 0.0));
+    ghosts.OnVerdict(Accept(1, 55), 0.1);
+
+    const OrderGhost& single = ghosts.Ghosts()[0];
+    Assert::AreEqual(-9000.0f, single.RetractTowardMetres().x, 0.01f, L"one leg goes home to the fleet");
+
+    Assert::IsTrue(ghosts.Add(FleetIntent(2, CHAIN_SHIPS, true, 4000.0f), Preview(3, 4000.0f), XMFLOAT2{-9000.0f, 0.0f}, 0.2));
+    ghosts.OnVerdict(Accept(2, 55), 0.3);
+
+    Assert::AreEqual(1000.0f, ghosts.Ghosts()[0].RetractTowardMetres().x, 0.01f,
+                     L"a queued one goes back to the waypoint before it");
   }
 };
 

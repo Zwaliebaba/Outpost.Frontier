@@ -11,7 +11,10 @@
 #include "GpuPasses.h"
 #include "GpuPipelines.h"
 #include "GpuSwapChain.h"
+#include "CommandRow.h"
+#include "GhostLane.h"
 #include "GpuUploadRing.h"
+#include "HudRoster.h"
 #include "InputMap.h"
 #include "IsoCamera.h"
 #include "OrderGhost.h"
@@ -20,7 +23,10 @@
 #include "RenderWorld.h"
 #include "Selection.h"
 #include "SnapshotBuffer.h"
+#include "ToastStack.h"
 #include "TaskPool.h"
+#include "UiDrawList.h"
+#include "UiLayout.h"
 #include "Window.h"
 #include "WorldView.h"
 
@@ -82,10 +88,21 @@ private:
   [[nodiscard]] bool CreateContent();
   void PollNetwork();
   void UpdateCamera(float _deltaSeconds);
+  /*
+   * The HUD's own update: resolve the zones, lay the command row out, and let
+   * it take a click before the world sees one.
+   *
+   * Before `UpdateSelection` in the frame, which is the whole point -- chrome
+   * gets first refusal on the pointer, so pressing FORMATION does not also
+   * start a box selection across the fleet underneath it.
+   */
+  void UpdateHud();
+
   void UpdateSelection();
   void UpdateOrders();
   void CommitOrder(const PuckSample& _sample, double _nowSeconds);
   void ExtractScene();
+  void BuildHud();
   void RenderFrame();
   void HandleResize();
 
@@ -152,6 +169,18 @@ private:
   OrderDefaults m_orderDefaults;
 
   /*
+   * The parameters that kind accepts, and which one the next order will carry.
+   *
+   * The game's list, verbatim: numbers to send and names to show, neither
+   * interpreted here (ADR-014 §2c). `CycleParameter` steps the index; the
+   * command wheel's sub-ring will select from the same list in S11, which is
+   * why the client holds it rather than asking per order.
+   */
+  OrderOption m_orderOptions[MAX_ORDER_OPTIONS] = {};
+  std::uint32_t m_orderOptionCount = 0;
+  std::uint32_t m_orderOptionIndex = 0;
+
+  /*
    * The client's order counter, which the ack matches a ghost on.
    *
    * From 1, because zero means "not sent" everywhere it appears (`OrderIntent`,
@@ -165,6 +194,48 @@ private:
   /// from the selection and the scene, and reused rather than reallocated.
   OverlayMarkList m_overlayMarks;
   OverlayTuning m_overlayTuning;
+
+  /*
+   * The HUD (ADR-006 §10). Rebuilt every frame from replicated fields and local
+   * UI state and nothing else -- which is the acceptance criterion for it, not
+   * a style: kill the feed and the readouts must go stale or empty rather than
+   * hold their last value, because a HUD that keeps talking after the world
+   * stopped is the one failure mode F10 exists to prevent.
+   */
+  UiDrawList m_ui;
+  UiTuning m_uiTuning;
+  GhostLaneTuning m_laneTuning;
+  CommandRowTuning m_commandTuning;
+  ToastStack m_toasts;
+
+  /*
+   * The HUD's zones, resolved once a frame in `UpdateHud` and read by both the
+   * input path and the draw.
+   *
+   * A member rather than a local in `BuildHud` because the command row has to
+   * be hit-tested *before* the frame is drawn and laid out in the same place it
+   * is hit-tested from. Two resolutions -- one for the click, one for the quads
+   * -- would be two chances to disagree about where a button is, which is the
+   * classic HUD bug where the thing you press is not the thing you see.
+   */
+  UiLayout m_uiLayout;
+
+  /// The game's commands, asked once at startup: this list does not change
+  /// while a session runs, and asking every frame would imply it could.
+  OrderKindOption m_orderKinds[MAX_ORDER_KINDS] = {};
+  std::uint32_t m_orderKindCount = 0;
+
+  /// Which command the puck will issue. The game's number, chosen from the list
+  /// above and never invented here.
+  std::uint16_t m_selectedKind = 0;
+
+  CommandButton m_commandButtons[MAX_COMMAND_BUTTONS] = {};
+  std::uint32_t m_commandButtonCount = 0;
+
+  /// The roster's rows, asked of the game once a frame. A fixed array because
+  /// the count is capped and a HUD must not allocate to describe itself.
+  RosterRow m_rosterRows[MAX_ROSTER_ROWS] = {};
+  std::uint32_t m_rosterRowCount = 0;
 
   GpuPtr<ID3D12CommandAllocator> m_commandAllocators[GpuSwapChain::BUFFER_COUNT];
   GpuPtr<ID3D12GraphicsCommandList> m_commandList;

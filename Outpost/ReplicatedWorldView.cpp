@@ -2,6 +2,7 @@
 
 #include "ReplicatedWorldView.h"
 
+#include "Eta.h"
 #include "Formation.h"
 #include "OrderMessages.h"
 #include "SchemaHash.h"
@@ -11,6 +12,10 @@
 #include "EntityRecord.h"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include <limits>
 #include <utility>
 
 using namespace Neuron;
@@ -218,6 +223,22 @@ OrderVerdict ReplicatedWorldView::PreCheck(const OrderIntent& _intent)
    * Fixing it properly means the snapshot carrying group membership -- two
    * bytes per member per order, against a 1,150-byte datagram -- to make one
    * refusal instant that is already correct. Not paid.
+   *
+   * **Rechecked in S12 and still zero.** The queue slice replicates
+   * `legCount`, which looks like the missing number and is not: it is per
+   * *order record*, and the question here is which record a *selection* belongs
+   * to -- still unanswerable from a member count. The client could instead
+   * track membership itself, since it built every order it sent, but the rule
+   * that resolves it ("the group the first named ship is in") is a game rule
+   * and the ghost list it would read is engine state; wiring one to the other
+   * to save a round trip is a seam crossing for a refusal that already works.
+   *
+   * S12's own acceptance criterion says **wire**-enforced, and this is what
+   * that means: the fifth leg bounces from the authority with `QueueFull`,
+   * through the same ack, the same 150 ms retraction and the same reason string
+   * as any other refusal. ADR-005 §4's parity claim is that a local refusal and
+   * a remote one are indistinguishable *to the player*, not that every refusal
+   * is local.
    */
   view.queuedLegs = 0;
 
@@ -258,6 +279,48 @@ void ReplicatedWorldView::SolvePreview(const OrderIntent& _intent, OrderPreview&
     }
   }
   _outPreview.extentMetres = Game::FormationExtentMetres(std::span<const Game::FormationStation>{stations, count}, anchor);
+
+  /*
+   * The ghost's label, in the game's own words and by the game's own movement
+   * model. Both halves are here because the engine may compute neither: `MOVE`
+   * is a kind and `CLAW` is a formation (ADR-014 §2b), and seconds-to-arrive
+   * needs acceleration curves that live in the class table.
+   *
+   * The ETA is **each ship's journey to its own station**, not the group's
+   * centre to the anchor. Those differ by the formation's radius, which for a
+   * Line of twelve is most of a kilometre -- and it is the far end of the line
+   * that decides when the leg completes.
+   */
+  Game::TravelLeg legs[Neuron::MAX_ORDER_PREVIEW_MARKS];
+  std::uint32_t legCount = 0;
+  for (std::uint32_t index = 0; index < count; ++index)
+  {
+    const auto found = std::find_if(m_sampled.begin(), m_sampled.end(), [&stations, index](const Game::ReplicatedShip& _ship) {
+      return _ship.id == stations[index].shipId;
+    });
+    if (found == m_sampled.end())
+    {
+      continue; // Despawned between the selection and this solve.
+    }
+
+    // Off the wire, so bounds-checked rather than cast. An unknown class here
+    // is a build mismatch that the handshake should already have refused; what
+    // it must not do is index the table with it.
+    Game::HullClass hullClass = Game::HullClass::Interceptor;
+    if (!Game::TryShipClass(found->classId, hullClass))
+    {
+      continue;
+    }
+
+    const float dx = stations[index].positionMetres.x - found->positionMetres.x;
+    const float dy = stations[index].positionMetres.y - found->positionMetres.y;
+    legs[legCount] = Game::TravelLeg{hullClass, std::sqrt(dx * dx + dy * dy)};
+    ++legCount;
+  }
+  _outPreview.etaSeconds = Game::GroupTravelSeconds(std::span<const Game::TravelLeg>{legs, legCount});
+
+  std::snprintf(_outPreview.label, sizeof(_outPreview.label), "%s - %s", Game::OrderKindName(order.kind),
+                Game::FormationName(order.formation));
 }
 
 bool ReplicatedWorldView::EncodeOrder(const OrderIntent& _intent, ByteWriter& _writer)
@@ -282,6 +345,147 @@ OrderDefaults ReplicatedWorldView::DefaultOrder() const
   return defaults;
 }
 
+std::uint32_t ReplicatedWorldView::OrderOptions(std::uint16_t _kind, std::span<OrderOption> _outOptions) const
+{
+  // Move's parameter is a formation. No other kind exists yet, and a kind that
+  // took no parameter would answer zero here rather than be special-cased at
+  // the client -- which is what makes "an empty answer is legitimate" a real
+  // path rather than a line in a comment.
+  if (_kind != static_cast<std::uint16_t>(Game::OrderKind::Move))
+  {
+    return 0;
+  }
+
+  std::uint32_t count = 0;
+  for (const Game::FormationId formation : Game::FORMATION_IDS)
+  {
+    if (count >= _outOptions.size())
+    {
+      break;
+    }
+    _outOptions[count].parameter = static_cast<std::uint16_t>(formation);
+    _outOptions[count].name = Game::FormationName(formation);
+    ++count;
+  }
+  return count;
+}
+
+std::uint32_t ReplicatedWorldView::OrderKinds(std::span<OrderKindOption> _outKinds) const
+{
+  // Every kind the game has a value for, including the three with no content.
+  // Reporting only the working one would give the row a single button today and
+  // five later, moving the one the player had learned to reach for -- which is
+  // the same argument `puck-and-wheel.png` §3 makes for the wheel's sectors
+  // keeping fixed positions.
+  std::uint32_t count = 0;
+  for (const Game::OrderKind kind : Game::ORDER_KIND_IDS)
+  {
+    if (count >= _outKinds.size())
+    {
+      break;
+    }
+    _outKinds[count].kind = static_cast<std::uint16_t>(kind);
+    _outKinds[count].name = Game::OrderKindName(kind);
+    _outKinds[count].parameterName = Game::OrderKindParameterName(kind);
+    _outKinds[count].available = Game::OrderKindHasContent(kind);
+    ++count;
+  }
+  return count;
+}
+
+std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const std::uint16_t> _selectedIds,
+                                              std::span<RosterRow> _outRows) const
+{
+  /*
+   * One pass over the sampled fleet, accumulating per wing.
+   *
+   * `m_sampled` rather than the newest snapshot's records, so the roster counts
+   * exactly the ships the frame drew -- including the exclusions `BuildScene`
+   * makes. A roster that listed a ship the player cannot see would be a roster
+   * they cannot act on.
+   */
+  struct Accumulator
+  {
+    std::uint16_t ships = 0;
+    std::uint16_t selected = 0;
+    std::uint32_t hullTotal = 0;
+    std::uint32_t shieldTotal = 0;
+  };
+  /*
+   * Indexed by `WingId` directly, so the table is every wing that can exist
+   * rather than every wing that is named -- one byte, so 256 entries, three
+   * kilobytes, on the stack.
+   *
+   * A `vector` sized from the name list is the obvious spelling and is an
+   * allocation on every frame, inside the one function whose entire job is to
+   * describe the frame. It also needed a bounds check that this does not: a
+   * `WingId` cannot index past a table with an entry per `WingId`.
+   */
+  std::array<Accumulator, static_cast<std::size_t>(std::numeric_limits<Game::WingId>::max()) + 1u> byWing{};
+
+  for (const Game::ReplicatedShip& ship : m_sampled)
+  {
+    // Wing zero is `INVALID_WING_ID` and belongs to nothing -- the stations
+    // are in it. A row for "no wing" would be a row the player cannot command.
+    if (ship.wing == Game::INVALID_WING_ID)
+    {
+      continue;
+    }
+
+    Accumulator& wing = byWing[ship.wing];
+    ++wing.ships;
+    wing.hullTotal += ship.hullGauge;
+    wing.shieldTotal += ship.shieldGauge;
+
+    if (std::find(_selectedIds.begin(), _selectedIds.end(), ship.id) != _selectedIds.end())
+    {
+      ++wing.selected;
+    }
+  }
+
+  /*
+   * The *names* decide which wings are rows, not the tally above.
+   *
+   * A ship replicated in a wing this build has no name for is counted into the
+   * table and then never emitted, which is the right way round: the roster is
+   * a list of the wings the game declared, and a row whose label had to be
+   * invented would be a row naming something the player was never told about.
+   */
+  std::uint32_t rows = 0;
+  for (std::size_t wingId = 1; wingId < m_desc.wingNames.size(); ++wingId)
+  {
+    if (rows >= _outRows.size())
+    {
+      break;
+    }
+    const Accumulator& wing = byWing[wingId];
+
+    /*
+     * A wing with nothing left in it is still a row.
+     *
+     * The print draws one -- `ECHO` with a dash where its count should be --
+     * and it is the right answer rather than a spare pixel: a wing that
+     * vanished from the roster the moment its last ship died would tell the
+     * player nothing about *which* wing they just lost, at the one moment they
+     * most need to know. The gauges read zero, which is what an empty wing has.
+     */
+    RosterRow& row = _outRows[rows];
+    row.name = m_desc.wingNames[wingId].c_str();
+    row.groupId = static_cast<std::uint16_t>(wingId);
+    row.shipCount = wing.ships;
+    row.selectedCount = wing.selected;
+
+    // The mean, not the minimum. A strip that dropped to the worst member would
+    // read as the whole wing being hurt when one Interceptor is; the print
+    // draws a bar per wing rather than per ship for exactly the opposite
+    // reason, and the roster is a summary.
+    row.hullGauge = wing.ships == 0 ? 0 : static_cast<std::uint8_t>(wing.hullTotal / wing.ships);
+    row.shieldGauge = wing.ships == 0 ? 0 : static_cast<std::uint8_t>(wing.shieldTotal / wing.ships);
+    ++rows;
+  }
+  return rows;
+}
+
 void ReplicatedWorldView::PollOrderFeedback(OrderFeedback& _outFeedback)
 {
   static_assert(static_cast<std::uint32_t>(Game::MAX_ORDERS_PER_SNAPSHOT) <= Neuron::MAX_ORDER_PROGRESS,
@@ -300,6 +504,12 @@ void ReplicatedWorldView::PollOrderFeedback(OrderFeedback& _outFeedback)
     progress.legIndex = record.legIndex;
     progress.legCount = record.legCount;
     progress.memberCount = record.memberCount;
+
+    // Dequantised here, where the wire's `NO_ETA` sentinel is still a game
+    // concept. What crosses is a float or a negative number, so the engine
+    // never learns that 65,535 meant anything in particular.
+    progress.etaSeconds = record.etaSeconds == Game::NO_ETA ? -1.0f : static_cast<float>(record.etaSeconds);
+
     if (!_outFeedback.Add(progress))
     {
       break; // Bounded by the assert above; the break is what makes that true.

@@ -113,6 +113,25 @@ public:
   /// an intent and never learns what a 5 or a 9 is.
   [[nodiscard]] OrderDefaults DefaultOrder() const override { return OrderDefaults{DEFAULT_KIND, DEFAULT_PARAMETER}; }
 
+  /*
+   * Two options for its own kind and none for anything else, with parameters
+   * that are neither contiguous nor starting at zero.
+   *
+   * That is deliberate. A client that stepped `parameter` from 0 upward, or
+   * that assumed the default is the first entry, would pass against a game
+   * whose formations happen to be 0, 1, 2 and fail against this one.
+   */
+  [[nodiscard]] std::uint32_t OrderOptions(std::uint16_t _kind, std::span<OrderOption> _outOptions) const override
+  {
+    if (_kind != DEFAULT_KIND || _outOptions.size() < 2)
+    {
+      return 0;
+    }
+    _outOptions[0] = OrderOption{4, "loose"};
+    _outOptions[1] = OrderOption{DEFAULT_PARAMETER, "tight"};
+    return 2;
+  }
+
   /// One order running, invented the same way. A real view reads these out of
   /// the newest snapshot; the engine cannot tell the difference, and that is
   /// what the seam is for.
@@ -130,6 +149,44 @@ public:
     progress.legCount = 4;
     progress.memberCount = 6;
     (void)_outFeedback.Add(progress);
+  }
+
+  /*
+   * Two groups, and the stub aggregates them itself -- which is the shape of
+   * the claim. A game with no groups returns zero and the panel draws empty;
+   * this one has groups it named, counted and combined health for on its own
+   * side of the seam.
+   */
+  [[nodiscard]] std::uint32_t BuildRoster(std::span<const std::uint16_t> _selectedIds,
+                                          std::span<RosterRow> _outRows) const override
+  {
+    if (_outRows.size() < 2)
+    {
+      return 0;
+    }
+    _outRows[0] = RosterRow{"ALPHA", 11, 4, 0, 200, 100};
+    _outRows[1] = RosterRow{"BETA", 12, 2, 0, 255, 0};
+
+    // Anything selected counts against the first row, which is enough for a
+    // test that cares whether the number crosses rather than how it was found.
+    _outRows[0].selectedCount = static_cast<std::uint16_t>(_selectedIds.size());
+    return 2;
+  }
+
+  /*
+   * Two commands, one of them with no content -- the shape the command row is
+   * built against. A stub that reported only working commands would let a row
+   * that quietly dropped the greyed ones pass.
+   */
+  [[nodiscard]] std::uint32_t OrderKinds(std::span<OrderKindOption> _outKinds) const override
+  {
+    if (_outKinds.size() < 2)
+    {
+      return 0;
+    }
+    _outKinds[0] = OrderKindOption{7, "Shove", "Shape", true};
+    _outKinds[1] = OrderKindOption{9, "Smite", nullptr, false};
+    return 2;
   }
 
   [[nodiscard]] const char* ReasonText(std::uint16_t _reasonCode) const override
@@ -338,6 +395,85 @@ public:
     Assert::AreNotEqual<std::uint16_t>(0, defaults.kind, L"and neither is zero by luck");
   }
 
+  TEST_METHOD(TheGameListsWhatItsParameterMayBe)
+  {
+    /*
+     * What the formation control is driven from (S10), and what the command
+     * wheel's sub-ring will be drawn from (S11). The engine gets numbers to
+     * send and words to show; it learns neither how many formations exist nor
+     * what they are called, which is the same bargain `ReasonText` strikes.
+     *
+     * The stub's parameters are 4 and 9 rather than 0 and 1, so a client that
+     * counted from zero would fail here rather than in the game that ships.
+     */
+    StubWorldView view;
+    WorldView& seam = view;
+
+    OrderOption options[MAX_ORDER_OPTIONS] = {};
+    const std::uint32_t count = seam.OrderOptions(seam.DefaultOrder().kind, options);
+
+    Assert::AreEqual<std::uint32_t>(2, count, L"two options for this kind");
+    Assert::AreEqual<std::uint16_t>(4, options[0].parameter, L"the numbers are the game's");
+    Assert::AreEqual("loose", options[0].name, L"and so are the words");
+    Assert::AreEqual("tight", options[1].name);
+
+    // The default has to be findable in the list, or a client that starts on
+    // the game's default cannot line the two up.
+    Assert::AreEqual<std::uint16_t>(seam.DefaultOrder().parameter, options[1].parameter,
+                                    L"the default is one of the options, and not necessarily the first");
+
+    Assert::AreEqual<std::uint32_t>(0, seam.OrderOptions(9999, options), L"a kind it does not know offers nothing");
+  }
+
+  TEST_METHOD(AnOptionListSmallerThanTheGameWantsIsNotOverrun)
+  {
+    // The span is the client's buffer and the game writes at most its size.
+    // `MAX_ORDER_OPTIONS` is the engine's cap; a game with more has to answer
+    // with fewer rather than write past the end.
+    StubWorldView view;
+    WorldView& seam = view;
+
+    OrderOption one[1] = {};
+    Assert::AreEqual<std::uint32_t>(0, seam.OrderOptions(seam.DefaultOrder().kind, one),
+                                    L"this stub would rather offer nothing than half a list");
+  }
+
+  TEST_METHOD(TheGameAggregatesTheRosterAndTheEngineOnlyDrawsIt)
+  {
+    /*
+     * The engine has `EntityRecord::groupId` and could group by it in four
+     * lines. It must not: doing so would decide that groups are worth showing,
+     * that they are named, and how a group's health combines. Those are
+     * questions about a particular game, and this call is where they are
+     * answered on the side allowed to answer them.
+     *
+     * Nothing in the engine's half of this test knows the word "wing".
+     */
+    StubWorldView view;
+    WorldView& seam = view;
+
+    const std::uint16_t selected[] = {1, 2, 3};
+    RosterRow rows[MAX_ROSTER_ROWS] = {};
+    const std::uint32_t count = seam.BuildRoster(selected, rows);
+
+    Assert::AreEqual<std::uint32_t>(2, count, L"two rows");
+    Assert::AreEqual("ALPHA", rows[0].name, L"named by the game");
+    Assert::AreEqual<std::uint16_t>(11, rows[0].groupId, L"with an id the engine echoes and never reads");
+    Assert::AreEqual<std::uint16_t>(4, rows[0].shipCount);
+    Assert::AreEqual<std::uint16_t>(3, rows[0].selectedCount, L"and the selection counted on the game's side");
+    Assert::AreEqual<std::uint8_t>(200, rows[0].hullGauge, L"gauges are 0-255, EntityRecord's own scale");
+  }
+
+  TEST_METHOD(ARosterBufferSmallerThanTheGameWantsIsNotOverrun)
+  {
+    StubWorldView view;
+    WorldView& seam = view;
+
+    RosterRow one[1] = {};
+    Assert::AreEqual<std::uint32_t>(0, seam.BuildRoster(std::span<const std::uint16_t>{}, one),
+                                    L"this stub would rather offer nothing than half a roster");
+  }
+
   TEST_METHOD(OrderProgressCrossesAsNumbersTheEngineDoesNotInterpret)
   {
     // The promotion path. The engine polls, copies six numbers, and compares
@@ -439,6 +575,11 @@ public:
     Assert::AreEqual<std::uint32_t>(0, feedback.lastOrderSeqProcessed, L"and no high-water mark either");
 
     Assert::AreEqual<std::uint16_t>(0, view.DefaultOrder().kind, L"there is no command to give");
+    OrderOption options[MAX_ORDER_OPTIONS] = {};
+    Assert::AreEqual<std::uint32_t>(0, view.OrderOptions(0, options), L"and no parameters to give it");
+    RosterRow rows[MAX_ROSTER_ROWS] = {};
+    Assert::AreEqual<std::uint32_t>(0, view.BuildRoster(std::span<const std::uint16_t>{}, rows),
+                                    L"a world with no fleet has no roster");
     Assert::IsNotNull(view.ReasonText(0), L"and still never a null string to draw");
 
     Assert::AreEqual<std::uint64_t>(0, view.SchemaHash());

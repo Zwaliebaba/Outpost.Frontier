@@ -310,6 +310,45 @@ void SpawnStations(const Game::UniverseDef& _universe, Game::World& _world)
  * which is what makes a rendering or replication fault obvious rather than
  * subtle.
  */
+/*
+ * The starting fleet: one wing per playable hull, and what to call each one.
+ *
+ * The names are content and the ships are content, so they sit together in one
+ * table rather than in two arrays that have to be kept the same length -- which
+ * is the arrangement that eventually puts a Carrier's call sign on a wing of
+ * Interceptors. A fleet file would move the whole table; splitting it now would
+ * split it into two files.
+ *
+ * The call signs are the ones on `tactical-hud.png`, which is where the roster
+ * this feeds is drawn.
+ */
+struct FleetWing
+{
+  Game::HullClass hullClass;
+  const char* name;
+};
+
+constexpr FleetWing STARTING_FLEET[] = {
+    {Game::HullClass::Interceptor, "TALON"}, {Game::HullClass::Bomber, "ANVIL"},
+    {Game::HullClass::Corvette, "SPUR"},     {Game::HullClass::Frigate, "LANTERN"},
+    {Game::HullClass::Hauler, "DRIFT"},      {Game::HullClass::Miner, "KILN"},
+    {Game::HullClass::Carrier, "MARROW"},    {Game::HullClass::Battleship, "ECHO"},
+};
+
+/// The names as the world view wants them: indexed by `WingId`, so index 0 is
+/// `INVALID_WING_ID` and is a placeholder nothing draws.
+[[nodiscard]] std::vector<std::string> WingNames()
+{
+  std::vector<std::string> names;
+  names.reserve(std::size(STARTING_FLEET) + 1);
+  names.emplace_back("-"); // WingId 0: no wing. The stations are here.
+  for (const FleetWing& entry : STARTING_FLEET)
+  {
+    names.emplace_back(entry.name);
+  }
+  return names;
+}
+
 [[nodiscard]] Game::World MakeStartingWorld(const Game::UniverseDef& _universe, std::uint64_t _seed,
                                             std::vector<Game::ShipId>& _outPatrolShips)
 {
@@ -321,15 +360,12 @@ void SpawnStations(const Game::UniverseDef& _universe, Game::World& _world)
   // wrong.
   SpawnStations(_universe, world);
 
-  constexpr Game::HullClass FLEET[] = {Game::HullClass::Interceptor, Game::HullClass::Bomber,    Game::HullClass::Corvette,
-                                       Game::HullClass::Frigate,     Game::HullClass::Hauler,    Game::HullClass::Miner,
-                                       Game::HullClass::Carrier,     Game::HullClass::Battleship};
-
   std::uint32_t wing = 0;
-  for (const Game::HullClass hullClass : FLEET)
+  for (const FleetWing& entry : STARTING_FLEET)
   {
+    const Game::HullClass hullClass = entry.hullClass;
     constexpr std::uint32_t SHIPS_PER_WING = 5;
-    const float wingAngle = (static_cast<float>(wing) / static_cast<float>(std::size(FLEET))) * DirectX::XM_2PI;
+    const float wingAngle = (static_cast<float>(wing) / static_cast<float>(std::size(STARTING_FLEET))) * DirectX::XM_2PI;
     const float spacing = Game::ShipClass(hullClass).formationSpacingMetres;
 
     for (std::uint32_t index = 0; index < SHIPS_PER_WING; ++index)
@@ -411,6 +447,7 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
   Outpost::ReplicatedWorldView::Desc desc;
   desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, Outpost::ReplicatedWorldView::INVALID_RENDER_CLASS);
   desc.contentHash = _universe.universeHash;
+  desc.wingNames = WingNames();
 
   for (const auto& mapping : MESH_FOR_HULL)
   {

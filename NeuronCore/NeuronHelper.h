@@ -96,9 +96,6 @@ namespace Neuron
   {                                                                                                 \
     return !((_ENUM_FLAG_SIZED_INTEGER<T>::type)a);                                                 \
   }
-//template <> struct std::formatter<T> : std::formatter<int> {                                                                                     \
-  //  auto format(const T& id, std::format_context& ctx) const {return std::formatter<int>::format(static_cast<int>(id), ctx); }                     \
-  //}
 
 template <typename T> constexpr bool IsValidEnum(T _value) noexcept
 {

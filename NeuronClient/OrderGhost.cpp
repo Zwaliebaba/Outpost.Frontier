@@ -38,8 +38,39 @@ bool OrderGhostList::Add(const OrderIntent& _intent, const OrderPreview& _previe
   ghost.originMetres = _originMetres;
   ghost.preview = _preview;
   ghost.stateSinceSeconds = _nowSeconds;
+
+  ghost.queued = _intent.queued;
+  ghost.firstEntityId = _intent.entityCount > 0 ? _intent.entityIds[0] : INVALID_ENTITY_ID;
+
+  // Its own target is its first leg. A queued order that is later accepted
+  // hands this leg to the chain it joins and stops existing on its own.
+  ghost.legs[0] = GhostLeg{ghost.targetMetres, _preview.etaSeconds};
+  ghost.queuedLegCount = 1;
+
   m_ghosts.push_back(ghost);
   return true;
+}
+
+OrderGhost* OrderGhostList::FindChain(const OrderGhost& _appending) noexcept
+{
+  if (_appending.firstEntityId == INVALID_ENTITY_ID)
+  {
+    return nullptr;
+  }
+  for (OrderGhost& ghost : m_ghosts)
+  {
+    // Not itself, not one that is on its way out, and sharing the ship the
+    // authority resolves the append by.
+    if (&ghost == &_appending || ghost.state == GhostState::Rejected)
+    {
+      continue;
+    }
+    if (ghost.firstEntityId == _appending.firstEntityId && ghost.queuedLegCount < MAX_GHOST_LEGS)
+    {
+      return &ghost;
+    }
+  }
+  return nullptr;
 }
 
 void OrderGhostList::Refuse(std::uint32_t _clientOrderSeq, std::uint16_t _reasonCode, bool _local, double _nowSeconds)
@@ -77,6 +108,43 @@ void OrderGhostList::OnVerdict(const OrderVerdict& _verdict, double _nowSeconds)
     // the loop disagreeing. The bounce is what the player saw, so it stands.
     return;
   }
+  /*
+   * An accepted *append* joins the chain it was queued behind (S12c).
+   *
+   * On acceptance rather than on send, which is the whole reason a queued
+   * waypoint is its own ghost first: a fifth leg is refused with `QueueFull`,
+   * and a merge at send time would have had the refusal bounce the four legs
+   * the player already had. Merging here means a refused append bounces alone
+   * and the chain never notices -- which is what `Refuse` already does, with no
+   * special case for queues in it at all.
+   *
+   * The chain then **takes this order's sequence**, exactly as
+   * `World::IngestOrders` makes the group take it. Both sides name the plan
+   * after the most recent order that shaped it, so the record the next snapshot
+   * carries matches the ghost that is left.
+   */
+  if (ghost->queued)
+  {
+    if (OrderGhost* chain = FindChain(*ghost); chain != nullptr)
+    {
+      chain->legs[chain->queuedLegCount] = ghost->legs[0];
+      ++chain->queuedLegCount;
+      chain->clientOrderSeq = ghost->clientOrderSeq;
+      chain->serverOrderId = _verdict.serverOrderId != 0 ? _verdict.serverOrderId : chain->serverOrderId;
+      chain->targetMetres = ghost->targetMetres;
+      chain->preview = ghost->preview;
+      chain->state = GhostState::UnderWay;
+      chain->stateSinceSeconds = _nowSeconds;
+
+      const std::uint32_t merged = ghost->clientOrderSeq;
+      std::erase_if(m_ghosts, [merged](const OrderGhost& _ghost) { return _ghost.clientOrderSeq == merged &&
+                                                                          _ghost.queued; });
+      return;
+    }
+    // Nothing to join -- the chain finished, or this is the first order for
+    // these ships. It stands on its own, which is what the authority does too.
+  }
+
   ghost->serverOrderId = _verdict.serverOrderId;
   if (ghost->state != GhostState::UnderWay)
   {
@@ -116,6 +184,7 @@ void OrderGhostList::OnFeedback(const OrderFeedback& _feedback, double _nowSecon
       ghost.legIndex = progress->legIndex;
       ghost.legCount = progress->legCount;
       ghost.memberCount = progress->memberCount;
+      ghost.authorityEtaSeconds = progress->etaSeconds;
       if (ghost.state != GhostState::UnderWay)
       {
         ghost.state = GhostState::UnderWay;
