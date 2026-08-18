@@ -35,6 +35,8 @@
     <ClCompile Include="IsoCamera.cpp" />
     <ClCompile Include="NebulaField.cpp" />
     <ClCompile Include="ObjMesh.cpp" />
+    <ClCompile Include="Picking.cpp" />
+    <ClCompile Include="Selection.cpp" />
     <ClCompile Include="RenderWorld.cpp" />
     <ClCompile Include="SnapshotBuffer.cpp" />
   </ItemGroup>
@@ -62,6 +64,8 @@
     <ClInclude Include="IsoCamera.h" />
     <ClInclude Include="NebulaField.h" />
     <ClInclude Include="ObjMesh.h" />
+    <ClInclude Include="Picking.h" />
+    <ClInclude Include="Selection.h" />
     <ClInclude Include="RenderWorld.h" />
   </ItemGroup>
   <ItemGroup>

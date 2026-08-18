@@ -15,6 +15,7 @@
 #include "InputMap.h"
 #include "IsoCamera.h"
 #include "RenderWorld.h"
+#include "Selection.h"
 #include "SnapshotBuffer.h"
 #include "TaskPool.h"
 #include "Window.h"
@@ -78,6 +79,7 @@ private:
   [[nodiscard]] bool CreateContent();
   void PollNetwork();
   void UpdateCamera(float _deltaSeconds);
+  void UpdateSelection();
   void ExtractScene();
   void RenderFrame();
   void HandleResize();
@@ -120,6 +122,15 @@ private:
   IsoCamera m_camera;
   CameraTuning m_cameraTuning;
   RenderScene m_scene;
+
+  /// This frame's input, kept between `UpdateCamera` (which consumes it from
+  /// the window) and `UpdateSelection` (which needs the same edges).
+  InputFrame m_input;
+
+  /// Which ships the player has, and the drag that changes it (ADR-006 §11).
+  /// Client-only and never sent: the server learns what was selected only when
+  /// an order names it (S9).
+  Selection m_selection;
 
   GpuPtr<ID3D12CommandAllocator> m_commandAllocators[GpuSwapChain::BUFFER_COUNT];
   GpuPtr<ID3D12GraphicsCommandList> m_commandList;

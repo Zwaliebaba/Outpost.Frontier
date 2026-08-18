@@ -21,6 +21,7 @@ void RenderScene::Clear() noexcept
   // no gain.
   instances.clear();
   classRanges.clear();
+  pickTargets.clear();
 }
 
 void RenderScene::SortByClass(std::uint32_t _classCount)

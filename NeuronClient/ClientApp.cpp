@@ -219,6 +219,7 @@ int ClientApp::Run()
     {
       NEURON_SPAN("Game");
       UpdateCamera(deltaSeconds);
+      UpdateSelection();
     }
     {
       NEURON_SPAN("Extract");
@@ -280,9 +281,53 @@ void ClientApp::PollNetwork()
 
 void ClientApp::UpdateCamera(float _deltaSeconds)
 {
-  const InputFrame input = m_window.ConsumeInput();
-  const CameraIntent intent = MapCameraInput(input, m_cameraTuning, _deltaSeconds);
+  m_input = m_window.ConsumeInput();
+  const CameraIntent intent = MapCameraInput(m_input, m_cameraTuning, _deltaSeconds);
   ApplyCameraIntent(m_camera, intent);
+}
+
+/*
+ * Click, shift-click and box-select (ADR-006 §11).
+ *
+ * Runs before `ExtractScene`, and that is the interesting part: it tests
+ * against `m_scene.pickTargets` as the *previous* frame left them, which is the
+ * arrangement of ships the player was actually looking at when they pressed the
+ * button. Resolving against the scene built after the click would test against
+ * a world up to a frame newer than the one on screen -- a fraction of a pixel
+ * at tactical zoom and a real one at 40 km, and either way an answer to a
+ * question nobody asked.
+ *
+ * Nothing here reaches the server. A selection is a client-side fact until an
+ * order names it (ADR-006 §11: no round trip).
+ */
+void ClientApp::UpdateSelection()
+{
+  if (!m_input.windowFocused)
+  {
+    // A drag that was interrupted by alt-tab has no release coming, and
+    // finishing it on the next click would apply a box the player drew a
+    // minute ago across a camera move.
+    m_selection.CancelDrag();
+    return;
+  }
+
+  const auto cursorX = static_cast<float>(m_input.cursorX);
+  const auto cursorY = static_cast<float>(m_input.cursorY);
+
+  if (m_input.Pressed(InputButton::Left))
+  {
+    m_selection.BeginDrag(cursorX, cursorY, m_input.Down(InputAction::SelectAdd));
+  }
+  else if (m_selection.Dragging())
+  {
+    m_selection.UpdateDrag(cursorX, cursorY);
+  }
+
+  if (m_input.Released(InputButton::Left) && m_selection.Dragging())
+  {
+    m_selection.EndDrag(m_scene.pickTargets, m_camera.PlaneMappingForNdc(), m_input.viewportWidth, m_input.viewportHeight,
+                        m_camera.ScreenFloorMetres(Selection::PICK_FLOOR_PIXELS));
+  }
 }
 
 void ClientApp::ExtractScene()
@@ -297,6 +342,11 @@ void ClientApp::ExtractScene()
   // correct on average and visibly jittery, which is the whole reason the
   // buffer exists.
   m_worldView->BuildScene(m_snapshots.Advance(Clock::SecondsSinceStart()), m_scene);
+
+  // A ship that died while selected leaves the selection here, with the fresh
+  // list. Holding a dead id would draw a ring around empty space and, from S9,
+  // send an order for something that no longer exists.
+  m_selection.Retain(m_scene.pickTargets);
 }
 
 FrameConstants ClientApp::BuildFrameConstants() const

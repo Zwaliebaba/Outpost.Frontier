@@ -581,6 +581,38 @@ Ray∩plane picking; click / shift-click / box-select; OverlayWorld pass: select
 (2:1 on plane, screen-floor clamp, depth-test vs hulls), hull/shield bars.
 **Accept:** `NeuronClientTests` picking math (point/box vs known layouts, floor clamp cases);
 manual: rings occlude behind a Carrier hull but bars never do (`overlay-pass.png` rule).
+**Built ✅ (code, picking half):**
+`Picking.h/.cpp` — `PlaneToNdc` (the inverse of `PlaneMappingForNdc`), point pick, box pick.
+There is no ray: the projection is orthographic and the world is a plane, so a pixel maps to a
+plane point through an affine transform and picking is a distance test against circles. That is
+what ADR-006 §2 bought by fixing the camera as ortho, and it is why the accept criterion is a
+unit test rather than a screenshot.
+`Selection.h/.cpp` — the set of selected ids, and the press/move/release state machine that
+turns a gesture into a click or a box. Ids, not indices: ships arrive re-sorted every frame and
+a despawn shifts everything after it, so an index would select a different ship next frame.
+`IsoCamera::ScreenFloorMetres` — ADR-006 §11's screen floor. Divided by the elevation sine,
+because a plane circle draws as a 2:1 ellipse and guaranteeing the *tight* screen direction is
+what a floor is for; the cost is being twice as generous horizontally, which is a floor being a
+floor.
+`RenderScene::pickTargets` — the frame's ships as circles, filled by the same `BuildScene` call
+that fills the instances. Not derived from `InstanceRecord`: that is a vertex stream, sorted by
+class for the draw, carrying a render classId rather than an identity and no room for a radius.
+The overlay will read this array too, so the ring and the hit test agree by construction.
+
+**One seam question, answered the way S5c answered its own.** Picking needs a ship's identity
+and its class radius, and neither is the engine's to know. The game supplies them as
+`{opaque id, plane point, radius}` and the engine does the arithmetic — the same division that
+puts interpolation behind `BuildScene` and validation behind `PreCheck`.
+
+**Verified:** `NeuronClientTests` 73 → 102. The strongest is the inverse round trip: plane
+points pushed through the real camera's `PlaneMappingForNdc` and mapped back, across five yaws,
+three zooms and two foci, because a hand-derived 2x2 inverse is exactly the kind of thing that
+reads correctly with one sign wrong — which is how ADR-006 §3a's handedness defect survived
+review. Each behaviour was then mutation-tested: flipping that sign, taking the first pick
+instead of the nearest, making shift-click replace instead of toggle, and widening the box to
+overlap rather than centre each fail exactly the test named for it and nothing else.
+**Outstanding:** the OverlayWorld pass. Nothing is drawn yet — a selection is a set of ids that
+no pixel reflects. Rings, bars, the drag rectangle and their PSOs are the other half of S8.
 
 ### S9 — Move orders end-to-end 🏁 **M1**
 Right-drag order puck (plane point + facing), client pre-check via `WorldView::PreCheck`

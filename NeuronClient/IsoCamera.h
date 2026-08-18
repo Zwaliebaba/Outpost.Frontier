@@ -113,6 +113,17 @@ public:
   /// written against this (ADR-006 §8), and so is panning.
   [[nodiscard]] float MetresPerPixel() const noexcept;
 
+  /*
+   * A pick radius in pixels, as plane metres (ADR-006 §11's screen floor).
+   *
+   * Divided by the elevation sine, and deliberately: a circle on the plane is
+   * drawn as a 2:1 ellipse, so a radius that is `_pixels` wide on screen is
+   * only half that tall. Guaranteeing the *tight* direction is what a floor is
+   * for -- the cost is that the click area is twice `_pixels` across
+   * horizontally, which is a floor being generous rather than a floor failing.
+   */
+  [[nodiscard]] float ScreenFloorMetres(float _pixels) const noexcept;
+
   /// Render space (ADR-001 §3): world = (sim.x, cosmetic height, sim.y), +Y up.
   [[nodiscard]] DirectX::XMFLOAT3 EyePosition() const noexcept;
 

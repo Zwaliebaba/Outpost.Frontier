@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Picking.h"
+
 #include <DirectXMath.h>
 
 #include <cstdint>
@@ -57,6 +59,24 @@ struct RenderScene
 {
   std::vector<InstanceRecord> instances;
   std::vector<InstanceRange> classRanges;
+
+  /*
+   * The same ships again, as circles on the plane (ADR-006 §11).
+   *
+   * Not a duplicate of `instances`, and deliberately not derived from it.
+   * `instances` is a vertex stream: it is sorted by class for the draw, it
+   * carries a render classId rather than an identity, and it has no room for a
+   * radius -- it is twenty bytes and stays twenty bytes. Picking needs the
+   * opposite properties, so it gets its own array, built from the same sample
+   * in the same call.
+   *
+   * The overlay reads this too. A selection ring is drawn at a ship's position
+   * with a radius from its class, which is exactly what a pick target is, so
+   * ring and hit-test agree by construction rather than by two pieces of code
+   * being kept in step. ADR-006 §11's "same plane point feeds the order puck --
+   * one code path" is the same argument one call earlier.
+   */
+  std::vector<PickTarget> pickTargets;
 
   void Clear() noexcept;
 

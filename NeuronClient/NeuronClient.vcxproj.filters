@@ -47,6 +47,12 @@
     <ClCompile Include="NebulaField.cpp">
       <Filter>Assets</Filter>
     </ClCompile>
+    <ClCompile Include="Picking.cpp">
+      <Filter>Input</Filter>
+    </ClCompile>
+    <ClCompile Include="Selection.cpp">
+      <Filter>Input</Filter>
+    </ClCompile>
     <ClCompile Include="ObjMesh.cpp">
       <Filter>Assets</Filter>
     </ClCompile>
@@ -115,6 +121,12 @@
     </ClInclude>
     <ClInclude Include="NebulaField.h">
       <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="Picking.h">
+      <Filter>Input</Filter>
+    </ClInclude>
+    <ClInclude Include="Selection.h">
+      <Filter>Input</Filter>
     </ClInclude>
     <ClInclude Include="ObjMesh.h">
       <Filter>Assets</Filter>

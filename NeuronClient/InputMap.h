@@ -52,10 +52,11 @@ enum class InputAction : std::uint8_t
   ZoomIn,
   ZoomOut,
   ResetView,
-  Modifier // Alt: turns a middle-drag into an orbit.
+  Modifier,  // Alt: turns a middle-drag into an orbit.
+  SelectAdd  // Shift: a click adjusts the selection instead of replacing it.
 };
 
-inline constexpr std::uint32_t INPUT_ACTION_COUNT = 10;
+inline constexpr std::uint32_t INPUT_ACTION_COUNT = 11;
 
 /// One frame of input, already reduced to logical state. Edges (`pressed`,
 /// `released`) are separate from levels (`down`) because a detent nudge must

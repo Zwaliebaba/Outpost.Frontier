@@ -122,6 +122,11 @@ float IsoCamera::MetresPerPixel() const noexcept
   return (2.0f * m_zoomMetres) / static_cast<float>(m_viewportHeight);
 }
 
+float IsoCamera::ScreenFloorMetres(float _pixels) const noexcept
+{
+  return _pixels * MetresPerPixel() / ELEVATION_SINE;
+}
+
 XMFLOAT3 IsoCamera::EyePosition() const noexcept
 {
   // Yaw 0 puts the eye due south of the focus looking north, which is the

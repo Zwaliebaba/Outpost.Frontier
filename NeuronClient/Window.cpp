@@ -187,9 +187,10 @@ void Window::SetButton(InputButton _button, bool _down) noexcept
 void Window::SetKey(WPARAM _virtualKey, bool _down) noexcept
 {
   // The whole virtual-key table, in the one file entitled to know about
-  // virtual keys. Left and right buttons are deliberately not here: box-select
-  // (S8) and the order puck (S9) need them, so the camera takes the middle
-  // button, the wheel, the edges and these keys (InputMap.h).
+  // virtual keys. Left and right buttons are deliberately not here: the left
+  // one is S8's click and box-select and the right one is S9's order puck, so
+  // the camera takes the middle button, the wheel, the edges and these keys
+  // (InputMap.h).
   auto action = InputAction::Modifier;
   switch (_virtualKey)
   {
@@ -231,8 +232,11 @@ void Window::SetKey(WPARAM _virtualKey, bool _down) noexcept
   case VK_MENU:
     action = InputAction::Modifier;
     break;
+  case VK_SHIFT:
+    action = InputAction::SelectAdd;
+    break;
   default:
-    return; // Not a camera key. S8 and S9 add their own.
+    return; // Not a camera or selection key. S9 adds its own.
   }
 
   const auto index = static_cast<std::uint32_t>(action);
