@@ -43,7 +43,18 @@ public:
     ++m_ticks;
   }
 
-  void WriteSnapshot(std::uint32_t, ByteWriter&) override {}
+  /// Writes a tiny recognisable payload so a test can prove the datagram
+  /// carried the simulation's bytes and not the engine's idea of them.
+  [[nodiscard]] bool WriteSnapshot(std::uint32_t _tick, ByteWriter& _writer) override
+  {
+    _writer.WriteUInt32(_tick);
+    _writer.WriteUInt32(SNAPSHOT_MARKER);
+    ++m_snapshotsWritten;
+    return _writer.Ok();
+  }
+
+  static constexpr std::uint32_t SNAPSHOT_MARKER = 0xfeedbeefu;
+  [[nodiscard]] std::uint32_t SnapshotsWritten() const noexcept { return m_snapshotsWritten.load(std::memory_order_relaxed); }
 
   [[nodiscard]] OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t>) override { return OrderVerdict{}; }
 
@@ -59,6 +70,7 @@ public:
 
 private:
   std::atomic<std::uint32_t> m_ticks{0};
+  std::atomic<std::uint32_t> m_snapshotsWritten{0};
   std::atomic<std::uint32_t> m_lastTick{0};
 };
 

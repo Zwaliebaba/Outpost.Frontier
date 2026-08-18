@@ -50,8 +50,16 @@ public:
   /// (ADR-002 §1): implementations must not read a wall clock.
   virtual void AdvanceTick(std::uint32_t _tick) = 0;
 
-  /// Serializes the state a client needs for this tick.
-  virtual void WriteSnapshot(std::uint32_t _tick, ByteWriter& _writer) = 0;
+  /*
+   * Serializes the state a client needs for this tick.
+   *
+   * Returns false if it could not -- which at MVP scale means the fleet
+   * outgrew one datagram, the point at which ADR-004 §6's growth path stops
+   * being optional. A bool rather than a silent short write, because a
+   * truncated snapshot is worse than a missing one: the client would read the
+   * absent ships as despawned and resurrect them on the next tick.
+   */
+  [[nodiscard]] virtual bool WriteSnapshot(std::uint32_t _tick, ByteWriter& _writer) = 0;
 
   /// Validates and applies one order payload. Returning a verdict rather than a
   /// bool keeps the refusal reason with the decision that produced it.
@@ -80,7 +88,7 @@ class NullSimulation final : public Simulation
 {
 public:
   void AdvanceTick(std::uint32_t _tick) override { m_lastTick = _tick; }
-  void WriteSnapshot(std::uint32_t, ByteWriter&) override {}
+  [[nodiscard]] bool WriteSnapshot(std::uint32_t, ByteWriter&) override { return false; }
 
   [[nodiscard]] OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t>) override
   {

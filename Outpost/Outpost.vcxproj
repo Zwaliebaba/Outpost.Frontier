@@ -35,7 +35,7 @@
     </ClCompile>
     <ClCompile Include="AppConfig.cpp" />
     <ClCompile Include="ConfigLoad.cpp" />
-    <ClCompile Include="ParkedFleetView.cpp" />
+    <ClCompile Include="ReplicatedWorldView.cpp" />
     <ClCompile Include="UniverseLoad.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="SelfTest.cpp" />
@@ -44,7 +44,7 @@
     <ClInclude Include="pch.h" />
     <ClInclude Include="AppConfig.h" />
     <ClInclude Include="ConfigLoad.h" />
-    <ClInclude Include="ParkedFleetView.h" />
+    <ClInclude Include="ReplicatedWorldView.h" />
     <ClInclude Include="UniverseLoad.h" />
     <ClInclude Include="SelfTest.h" />
   </ItemGroup>

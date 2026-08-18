@@ -4,7 +4,9 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
+#include <vector>
 
 /*
  * The client's end of the wire (ADR-004).
@@ -86,6 +88,23 @@ public:
     return m_anchorY;
   }
 
+  /*
+   * Snapshot payloads that arrived since the last drain, oldest first.
+   *
+   * The connection does not look inside them -- it cannot, they are the game's
+   * (ADR-014 §5) -- so it holds them until the frame loop hands each one to the
+   * world view. A span rather than a callback keeps the connection free of any
+   * opinion about who consumes them, and keeps the ordering visible at the one
+   * place that matters.
+   */
+  [[nodiscard]] std::span<const std::vector<std::uint8_t>> PendingSnapshots() const noexcept { return m_pendingSnapshots; }
+  void ClearPendingSnapshots() noexcept { m_pendingSnapshots.clear(); }
+
+  /// Snapshots seen and dropped for arriving faster than they are drained. The
+  /// second should be zero; a rising number means the frame loop is starving.
+  [[nodiscard]] std::uint64_t SnapshotCount() const noexcept { return m_snapshotCount; }
+  [[nodiscard]] std::uint64_t SnapshotOverflowCount() const noexcept { return m_snapshotOverflowCount; }
+
   /// Datagram counters for the HUD's NET readout. Loss on the reliable channel
   /// shows up as controlResends; on the unreliable one it is the gap between
   /// pings sent and pongs counted.
@@ -112,6 +131,14 @@ private:
   std::uint32_t m_clientId = 0;
   std::uint32_t m_serverTick = 0;
   std::uint16_t m_serverTickRate = 0;
+
+  /// Bounded: a frame that fell far behind should drop the oldest snapshots
+  /// rather than grow without limit, because full snapshots are idempotent and
+  /// the newest is the only one that has to arrive.
+  static constexpr std::size_t MAX_PENDING_SNAPSHOTS = 8;
+  std::vector<std::vector<std::uint8_t>> m_pendingSnapshots;
+  std::uint64_t m_snapshotCount = 0;
+  std::uint64_t m_snapshotOverflowCount = 0;
   std::uint16_t m_worldId = 0;
   std::int64_t m_anchorX = 0;
   std::int64_t m_anchorY = 0;

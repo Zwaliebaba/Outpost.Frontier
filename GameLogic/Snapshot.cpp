@@ -1,0 +1,117 @@
+#include "pch.h"
+
+#include "Snapshot.h"
+
+#include <algorithm>
+
+using namespace DirectX;
+
+namespace Game
+{
+
+Neuron::EntityRecord MakeShipRecord(const World& _world, std::uint32_t _slot) noexcept
+{
+  Neuron::EntityRecord record;
+  if (_slot >= _world.ShipCount())
+  {
+    return record; // Leaves INVALID_ENTITY_ID, which is what an empty slot is.
+  }
+
+  const XMFLOAT2& position = _world.Positions()[_slot];
+  const XMFLOAT2& velocity = _world.Velocities()[_slot];
+
+  record.id = _world.Ids()[_slot];
+
+  // `typeId` is the hull class and `gaugeA`/`gaugeB` are hull and shield. The
+  // engine moves all four and reads none of them (ADR-014 §4).
+  record.typeId = _world.Classes()[_slot];
+  record.flags = 0;
+
+  record.posXCm = Neuron::MetresToCentimetres(position.x);
+  record.posYCm = Neuron::MetresToCentimetres(position.y);
+
+  // Velocity is 16-bit centimetres per second: +/-327 m/s, which is above every
+  // hull's top speed with room to spare. Clamped rather than wrapped, because a
+  // velocity that wrapped would send a ship backwards on the client for one
+  // tick and then correct -- a visible glitch from an invisible cause.
+  const std::int32_t velocityX = Neuron::MetresToCentimetres(velocity.x);
+  const std::int32_t velocityY = Neuron::MetresToCentimetres(velocity.y);
+  constexpr std::int32_t VELOCITY_LIMIT = 32767;
+  record.velXCmPerSec = static_cast<std::int16_t>(std::clamp(velocityX, -VELOCITY_LIMIT, VELOCITY_LIMIT));
+  record.velYCmPerSec = static_cast<std::int16_t>(std::clamp(velocityY, -VELOCITY_LIMIT, VELOCITY_LIMIT));
+
+  record.headingTurns16 = Neuron::RadiansToHeading(_world.Headings()[_slot]);
+  record.gaugeA = _world.Hulls()[_slot];
+  record.gaugeB = _world.Shields()[_slot];
+  return record;
+}
+
+bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer)
+{
+  const std::uint32_t shipCount = _world.ShipCount();
+  if (shipCount > MAX_SHIPS_PER_SNAPSHOT)
+  {
+    // Nothing is written. A truncated snapshot is worse than none: the client
+    // would read the missing ships as despawned and resurrect them next tick.
+    return false;
+  }
+  if (_writer.BytesRemaining() < SnapshotBytes(shipCount))
+  {
+    return false;
+  }
+
+  _writer.WriteUInt32(_world.Tick());
+  _writer.WriteUInt32(0); // baselineTick: full snapshots only (ADR-004 §6).
+  _writer.WriteUInt16(static_cast<std::uint16_t>(shipCount));
+  _writer.WriteUInt16(0); // orderCount, until S9.
+  _writer.WriteUInt32(0); // lastOrderSeqProcessed, until S9.
+
+  // Dense-array order, which is the world's only iteration order and therefore
+  // the one a replay reproduces.
+  for (std::uint32_t slot = 0; slot < shipCount; ++slot)
+  {
+    Neuron::WriteEntityRecord(_writer, MakeShipRecord(_world, slot));
+  }
+  return _writer.Ok();
+}
+
+bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader, std::vector<Neuron::EntityRecord>& _outShips)
+{
+  SnapshotHeader header;
+  header.tick = _reader.ReadUInt32();
+  header.baselineTick = _reader.ReadUInt32();
+  header.shipCount = _reader.ReadUInt16();
+  header.orderCount = _reader.ReadUInt16();
+  header.lastOrderSeqProcessed = _reader.ReadUInt32();
+
+  if (!_reader.Ok())
+  {
+    return false;
+  }
+
+  // Checked before allocating: a corrupt or hostile count is a refusal, not a
+  // reservation. The cap is what one datagram can carry, so a larger number did
+  // not come from a snapshot this build wrote.
+  if (header.shipCount > MAX_SHIPS_PER_SNAPSHOT)
+  {
+    return false;
+  }
+
+  std::vector<Neuron::EntityRecord> ships;
+  ships.reserve(header.shipCount);
+  for (std::uint16_t index = 0; index < header.shipCount; ++index)
+  {
+    ships.push_back(Neuron::ReadEntityRecord(_reader));
+  }
+
+  if (!_reader.Ok())
+  {
+    return false; // Truncated: leave the caller's view untouched.
+  }
+
+  _outHeader = header;
+  _outShips = std::move(ships);
+  return true;
+}
+
+} // namespace Game

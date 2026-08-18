@@ -114,140 +114,20 @@ public:
   }
 };
 
-TEST_CLASS(ParkedFleetTests)
-{
-public:
-  TEST_METHOD(TheFleetIsFortyShipsAndNoStation)
-  {
-    // From S5b the station is authored content and arrives through AddScenery,
-    // so the invented half of the scene is ships only. 40 + the station is the
-    // 41 the slice's frame-time budget is stated against.
-    ParkedFleetDesc desc;
-    RenderScene scene;
-    BuildParkedFleet(desc, CLASS_RADII, scene);
-
-    Assert::AreEqual<std::size_t>(40, scene.instances.size());
-    Assert::AreEqual<std::size_t>(9, scene.classRanges.size());
-    for (std::uint32_t classId = 0; classId < 8; ++classId)
-    {
-      Assert::AreEqual<std::uint32_t>(5, scene.classRanges[classId].instanceCount, L"one wing of five per ship class");
-    }
-    Assert::AreEqual<std::uint32_t>(0, scene.classRanges[8].instanceCount, L"the structure is not invented here any more");
-  }
-
-  TEST_METHOD(SceneryLandsWhereTheContentPutIt)
-  {
-    // The S5b acceptance in miniature: a placement read from the universe file
-    // renders where the file says, and the plane coordinates map to render
-    // space as ADR-001 §3 defines -- x east, y the cosmetic height, z north.
-    const ScenePlacement placements[] = {
-        ScenePlacement{0.0f, 0.0f, 0.0f, 8},
-        ScenePlacement{-1200.5f, 640.25f, 1.5f, 8},
-    };
-
-    RenderScene scene;
-    AddScenery(placements, scene);
-    scene.SortByClass(9);
-
-    Assert::AreEqual<std::size_t>(2, scene.instances.size());
-    Assert::AreEqual<std::uint32_t>(2, scene.classRanges[8].instanceCount);
-
-    const InstanceRecord& placed = scene.instances[1];
-    Assert::AreEqual(-1200.5f, placed.posWorld.x, 1e-4f, L"local x is render x");
-    Assert::AreEqual(0.0f, placed.posWorld.y, 1e-6f, L"authored scenery sits on the plane");
-    Assert::AreEqual(640.25f, placed.posWorld.z, 1e-4f, L"local y is render z");
-    Assert::AreEqual(1.5f, placed.heading, 1e-6f);
-    Assert::AreEqual<std::uint16_t>(8, placed.classId);
-  }
-
-  TEST_METHOD(SceneryAndShipsShareOneScene)
-  {
-    // Both halves of the frame end up in the same sorted instance array, which
-    // is what lets the opaque pass draw a class in one run.
-    ParkedFleetDesc desc;
-    RenderScene scene;
-    BuildParkedFleet(desc, CLASS_RADII, scene);
-
-    const ScenePlacement station{0.0f, 0.0f, 0.0f, 8};
-    AddScenery(std::span<const ScenePlacement>{&station, 1}, scene);
-    scene.SortByClass(9);
-
-    Assert::AreEqual<std::size_t>(41, scene.instances.size(), L"40 ships plus the authored station");
-    Assert::AreEqual<std::uint32_t>(1, scene.classRanges[8].instanceCount);
-    for (std::size_t i = 1; i < scene.instances.size(); ++i)
-    {
-      Assert::IsTrue(scene.instances[i - 1].classId <= scene.instances[i].classId, L"the merged scene is still sorted by class");
-    }
-  }
-
-  TEST_METHOD(EveryShipIsOnThePlaneInsideTheGridAndFacingTheStation)
-  {
-    ParkedFleetDesc desc;
-    RenderScene scene;
-    BuildParkedFleet(desc, CLASS_RADII, scene);
-
-    for (const InstanceRecord& instance : scene.instances)
-    {
-      Assert::IsTrue(std::fabs(instance.posWorld.x) <= PLAY_AREA_HALF_EXTENT_METRES,
-                     L"an instance outside the grid cannot be panned to");
-      Assert::IsTrue(std::fabs(instance.posWorld.z) <= PLAY_AREA_HALF_EXTENT_METRES);
-      Assert::AreEqual(0.0f, instance.posWorld.y, 1e-6f, L"there is no simulated altitude (ADR-001 §1)");
-
-      // Heading is radians CCW from +x in sim space, so the facing direction is
-      // (cos h, sin h) and a parked ship should be pointed back at the station.
-      const float toStationX = -instance.posWorld.x;
-      const float toStationZ = -instance.posWorld.z;
-      const float length = std::sqrt(toStationX * toStationX + toStationZ * toStationZ);
-      const float alignment = (toStationX * std::cos(instance.heading) + toStationZ * std::sin(instance.heading)) / length;
-      Assert::IsTrue(alignment > 0.55f, L"a parked wing faces the station it is parked at");
-    }
-  }
-
-  TEST_METHOD(WingSpacingFollowsTheHullBeingParked)
-  {
-    // A Carrier wing parked at Interceptor spacing would intersect itself, and
-    // the spacing is the reason the loader's radius is plumbed through here.
-    ParkedFleetDesc desc;
-    RenderScene scene;
-    BuildParkedFleet(desc, CLASS_RADII, scene);
-
-    const auto wingSpread = [&scene](std::uint32_t _classId)
-    {
-      const InstanceRange& range = scene.classRanges[_classId];
-      const InstanceRecord& first = scene.instances[range.firstInstance];
-      const InstanceRecord& last = scene.instances[range.firstInstance + range.instanceCount - 1];
-      const float dx = last.posWorld.x - first.posWorld.x;
-      const float dz = last.posWorld.z - first.posWorld.z;
-      return std::sqrt(dx * dx + dz * dz);
-    };
-
-    Assert::IsTrue(wingSpread(6) > wingSpread(0), L"the Carrier wing is spread wider than the Interceptor wing");
-  }
-
-  TEST_METHOD(NoMeshesMeansNoInstances)
-  {
-    ParkedFleetDesc desc;
-    RenderScene scene;
-    scene.instances.push_back(InstanceRecord{});
-    BuildParkedFleet(desc, {}, scene);
-    Assert::IsTrue(scene.instances.empty(), L"a client with no meshes draws nothing rather than indexing an empty table");
-  }
-
-  TEST_METHOD(FewerMeshesThanTheDescriptionAsksForIsNotAnOverrun)
-  {
-    // The mesh list is content (Outpost.json), so it can be shorter than the
-    // default description expects. Clamping is the whole safety here.
-    ParkedFleetDesc desc;
-    const std::vector<float> threeClasses = {10.0f, 20.0f, 30.0f};
-    RenderScene scene;
-    BuildParkedFleet(desc, threeClasses, scene);
-
-    Assert::AreEqual<std::size_t>(3, scene.classRanges.size());
-    for (const InstanceRecord& instance : scene.instances)
-    {
-      Assert::IsTrue(instance.classId < threeClasses.size());
-    }
-  }
-};
+/*
+ * The parked-fleet suite lived here and went with S7.
+ *
+ * It covered `BuildParkedFleet` and `AddScenery` -- the fleet the client
+ * invented before there was one to replicate, and the station the composition
+ * root converted out of the universe file. Both are gone: the scene arrives
+ * through `WorldView::BuildScene` from real snapshots, and the station is a
+ * `Structure` the server spawns like any other ship. Deleting the tests with
+ * the code they covered is the point; keeping them would have meant keeping the
+ * placeholder alive to be tested.
+ *
+ * What replaced them: `SeamTests` drives a world view through the interface,
+ * and `GameLogicTests` covers the snapshot round trip and the interpolation
+ * those scenes are built from.
+ */
 
 } // namespace NeuronClientTests

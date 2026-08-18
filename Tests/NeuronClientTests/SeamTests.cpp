@@ -47,11 +47,19 @@ public:
   static constexpr std::uint16_t REFUSE_KIND = 7;
   static constexpr std::uint16_t REFUSE_REASON = 42;
 
-  void ApplySnapshot(std::uint32_t _tick, std::span<const std::uint8_t> _payload) override
+  /// Reads a tick out of the first four bytes, the way a real view reads it out
+  /// of the snapshot header -- the engine cannot know it, so the game reports it.
+  [[nodiscard]] std::uint32_t ApplySnapshot(std::span<const std::uint8_t> _payload) override
   {
     ++m_snapshotCount;
-    m_lastTick = _tick;
+    if (_payload.size() < sizeof(std::uint32_t))
+    {
+      return 0; // Rejected: too short to carry a tick.
+    }
+    m_lastTick = static_cast<std::uint32_t>(_payload[0]) | (static_cast<std::uint32_t>(_payload[1]) << 8) |
+                 (static_cast<std::uint32_t>(_payload[2]) << 16) | (static_cast<std::uint32_t>(_payload[3]) << 24);
     m_lastPayload.assign(_payload.begin(), _payload.end());
+    return m_lastTick;
   }
 
   void BuildScene(double _renderTick, RenderScene& _outScene) override
@@ -178,9 +186,10 @@ public:
     // The engine frames and orders the payload; it does not look inside. What
     // this asserts is that nothing on the way in reinterprets it.
     StubWorldView view;
-    const std::array<std::uint8_t, 5> payload{0xde, 0xad, 0x00, 0xbe, 0xef};
+    // Little-endian 9001 followed by a byte the view must not touch.
+    const std::array<std::uint8_t, 5> payload{0x29, 0x23, 0x00, 0x00, 0xef};
 
-    view.ApplySnapshot(9001, payload);
+    Assert::AreEqual<std::uint32_t>(9001, view.ApplySnapshot(payload), L"the game reports the tick it read");
 
     Assert::AreEqual<std::uint32_t>(1, view.SnapshotCount());
     Assert::AreEqual<std::uint32_t>(9001, view.LastTick());
@@ -330,15 +339,16 @@ public:
     Assert::AreEqual<std::uint64_t>(0, view.ContentHash());
   }
 
-  TEST_METHOD(ItStillRecordsWhatItWasHanded)
+  TEST_METHOD(ItRecordsTheSizeButClaimsNoTick)
   {
     // Not for the game's sake -- there is none -- but so a client running
     // against no world can still show that snapshots are arriving.
     NullWorldView view;
     const std::array<std::uint8_t, 4> payload{1, 2, 3, 4};
 
-    view.ApplySnapshot(77, payload);
-    Assert::AreEqual<std::uint32_t>(77, view.LastTick());
+    // Zero, not 77: a view with no world cannot say when it is, and a made-up
+    // tick would give the clock estimate something to chase that nothing emits.
+    Assert::AreEqual<std::uint32_t>(0, view.ApplySnapshot(payload), L"a null view reports no tick");
     Assert::AreEqual<std::uint32_t>(4, view.LastPayloadBytes());
   }
 };

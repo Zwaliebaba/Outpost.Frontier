@@ -53,6 +53,9 @@
     <ClCompile Include="RenderWorld.cpp">
       <Filter>Extract</Filter>
     </ClCompile>
+    <ClCompile Include="SnapshotBuffer.cpp">
+      <Filter>Extract</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -70,6 +73,9 @@
     </ClInclude>
     <ClInclude Include="WorldView.h">
       <Filter>App</Filter>
+    </ClInclude>
+    <ClInclude Include="SnapshotBuffer.h">
+      <Filter>Extract</Filter>
     </ClInclude>
     <ClInclude Include="Window.h">
       <Filter>App</Filter>

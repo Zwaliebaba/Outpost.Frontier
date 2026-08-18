@@ -2,13 +2,15 @@
 
 #include "AppConfig.h"
 #include "ConfigLoad.h"
-#include "ParkedFleetView.h"
+#include "ReplicatedWorldView.h"
 #include "SelfTest.h"
 #include "UniverseLoad.h"
 
 // GameLogic, reached only from here: the executable is the one project
 // entitled to know both halves (ADR-014 §1).
+#include "SchemaHash.h"
 #include "ShipClass.h"
+#include "Snapshot.h"
 #include "World.h"
 
 #include "ClientApp.h"
@@ -29,6 +31,7 @@
 #include <iterator>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -100,45 +103,72 @@ void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigP
 /*
  * The simulation the server hosts until GameLogic supplies a real one (S5c).
  *
- * From S6 it advances a real `Game::World`: the tick loop the server has been
- * driving since S3 now moves ships. What it does not yet do is *say* so --
- * `WriteSnapshot` is still empty, because the snapshot format and its wire
- * schema are S7 -- so the fleet moves on the server and nothing sees it. That
- * is the honest state of the seam, and it is one function away from not being.
+ * From S6 it advances a real `Game::World`; from S7 it also says so, emitting a
+ * full quantised snapshot every tick for `ServerHost` to fan out. That closes
+ * the loop the whole build order has been assembling: the world moves, and
+ * someone can see it.
  *
  * The adapter holds the vtable and forwards; the simulation is GameLogic's
  * (ADR-014 §2a). Everything in this class is a line of wiring.
- *
- * `SchemaHash` stays zero on purpose: that field means "the layout of the
- * *game's* wire types", and there are none until S7 writes snapshots. Returning
- * something plausible would be worse than returning nothing -- two builds would
- * agree about a layout that does not exist.
  */
 class UniverseSimulation final : public Neuron::Simulation
 {
 public:
-  UniverseSimulation(std::uint64_t _universeHash, Neuron::WorldMeta _worldMeta, Game::World _world) noexcept
+  UniverseSimulation(std::uint64_t _universeHash, Neuron::WorldMeta _worldMeta, Game::World _world,
+                     std::vector<Game::ShipId> _patrolShips)
     : m_universeHash(_universeHash),
       m_worldMeta(_worldMeta),
-      m_world(std::move(_world))
+      m_world(std::move(_world)),
+      m_patrolShips(std::move(_patrolShips))
   {
   }
 
+  /*
+   * The scripted patrol (Build Order S7).
+   *
+   * Every wing is sent to a waypoint, and the waypoints rotate every few
+   * seconds. It exists so the fleet moves without anyone touching an input
+   * device -- which is what makes "is the motion smooth at 144 Hz against 20 Hz
+   * snapshots?" a question that can be answered by looking at the screen.
+   *
+   * It is scripted from the tick index and nothing else, so it replays exactly
+   * (ADR-005 §5) and a desync between two runs of the same build would be a
+   * real defect rather than an artefact of when someone clicked.
+   */
   void AdvanceTick(std::uint32_t _tick) override
   {
-    // No orders yet: `ApplyOrderBytes` refuses everything, and the scripted
-    // patrol that gives these ships somewhere to go arrives with S7.
+    constexpr std::uint32_t LEG_TICKS = 200; // Ten seconds at 20 Hz.
+    if (_tick % LEG_TICKS == 1 && !m_patrolShips.empty())
+    {
+      const std::uint32_t leg = (_tick / LEG_TICKS) % 4;
+      constexpr float WAYPOINTS[4][2] = {{6000.0f, 0.0f}, {0.0f, 6000.0f}, {-6000.0f, 0.0f}, {0.0f, -6000.0f}};
+
+      Game::ScriptedMove move;
+      move.shipIds = m_patrolShips.data();
+      move.shipCount = static_cast<std::uint32_t>(m_patrolShips.size());
+      move.targetXMetres = WAYPOINTS[leg][0];
+      move.targetYMetres = WAYPOINTS[leg][1];
+      move.arrivalFacingRadians = static_cast<float>(leg) * DirectX::XM_PIDIV2;
+      m_world.Tick(_tick, std::span<const Game::ScriptedMove>{&move, 1});
+      return;
+    }
+
     m_world.Tick(_tick, std::span<const Game::ScriptedMove>{});
   }
 
-  void WriteSnapshot(std::uint32_t, Neuron::ByteWriter&) override {}
+  /// The tick argument is the loop's; the world knows its own and they are the
+  /// same number. Writing the world's is the one that cannot drift.
+  [[nodiscard]] bool WriteSnapshot(std::uint32_t, Neuron::ByteWriter& _writer) override
+  {
+    return Game::WriteSnapshot(m_world, _writer);
+  }
 
   [[nodiscard]] Neuron::OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t>) override
   {
     return Neuron::OrderVerdict{}; // No order format to decode until S9.
   }
 
-  [[nodiscard]] std::uint64_t SchemaHash() const override { return 0; }
+  [[nodiscard]] std::uint64_t SchemaHash() const override { return Game::GameSchemaHash(); }
   [[nodiscard]] std::uint64_t ContentHash() const override { return m_universeHash; }
   [[nodiscard]] Neuron::WorldMeta World() const override { return m_worldMeta; }
 
@@ -146,6 +176,11 @@ private:
   std::uint64_t m_universeHash = 0;
   Neuron::WorldMeta m_worldMeta;
   Game::World m_world;
+
+  /// The mobile half of the fleet. The station is deliberately absent: sending
+  /// a `Structure` a waypoint is harmless -- it has no speed -- but listing it
+  /// would imply it might move.
+  std::vector<Game::ShipId> m_patrolShips;
 };
 
 /*
@@ -158,10 +193,16 @@ private:
  * invented fleet with the replicated one, the picture on screen changes as
  * little as possible and any difference is a real difference.
  */
-[[nodiscard]] Game::World MakeStartingWorld(std::uint64_t _seed)
+[[nodiscard]] Game::World MakeStartingWorld(const Game::UniverseDef& _universe, std::uint64_t _seed,
+                                            std::vector<Game::ShipId>& _outPatrolShips)
 {
   Game::World world;
   world.Reset(_seed);
+
+  // Stations first, so they hold the low ids: nothing depends on it, but a
+  // stable ordering makes a snapshot easier to read by eye when something is
+  // wrong.
+  SpawnStations(_universe, world);
 
   constexpr Game::HullClass FLEET[] = {Game::HullClass::Interceptor, Game::HullClass::Bomber,  Game::HullClass::Corvette,
                                        Game::HullClass::Frigate,     Game::HullClass::Hauler,  Game::HullClass::Miner,
@@ -187,7 +228,12 @@ private:
       spawn.headingRadians = wingAngle + DirectX::XM_PI;
       spawn.xMetres = std::cos(wingAngle) * WING_RADIUS_METRES - std::sin(wingAngle) * offset;
       spawn.yMetres = std::sin(wingAngle) * WING_RADIUS_METRES + std::cos(wingAngle) * offset;
-      (void)world.Spawn(spawn);
+
+      const Game::ShipId id = world.Spawn(spawn);
+      if (id != Game::INVALID_SHIP_ID)
+      {
+        _outPatrolShips.push_back(id);
+      }
     }
     ++wing;
   }
@@ -203,22 +249,27 @@ Neuron::WorldMeta MakeWorldMeta(const Game::UniverseDef& _universe)
 }
 
 /*
- * Authored placements, converted into the grid's local frame for the renderer.
+ * Spawns the authored stations into the world, in the grid's local frame.
  *
- * This is the one place the universe's integer metres become the client's local
- * floats, and it is deliberately in the composition root: GameLogic owns the
- * exact coordinates, the engine owns the rendering, and the conversion between
- * them belongs to the thing that knows both (ADR-014).
+ * Until S7 these were `ScenePlacement`s handed to the renderer -- authored
+ * scenery on one side of the seam and an invented fleet on the other. They are
+ * ships now: a `Structure` has zero speed and zero turn rate (ADR-005 §1), so a
+ * station is a ship-table entry that never moves, and it replicates through the
+ * same twenty bytes as everything else. One path instead of two, and a station
+ * that can be selected and targeted by the code that already does those things.
+ *
+ * This remains the one place the universe's exact integer metres become the
+ * sim's local floats, and it is deliberately in the composition root: GameLogic
+ * owns the coordinates, the engine owns the drawing, and the conversion belongs
+ * to the thing that knows both (ADR-014).
  */
-std::vector<Neuron::ScenePlacement> BuildScenery(const Game::UniverseDef& _universe, std::uint16_t _structureClassId)
+void SpawnStations(const Game::UniverseDef& _universe, Game::World& _world)
 {
-  std::vector<Neuron::ScenePlacement> scenery;
-
   const Game::GridAnchor anchor = _universe.StartAnchor();
   const Game::SolarSystem* system = _universe.FindSystem(anchor.system);
   if (system == nullptr)
   {
-    return scenery;
+    return;
   }
 
   for (const Game::Station& station : system->stations)
@@ -227,19 +278,18 @@ std::vector<Neuron::ScenePlacement> BuildScenery(const Game::UniverseDef& _unive
     if (!Game::LocalFromUniverse(anchor.origin, station.position, local))
     {
       // Refused rather than wrapped (ADR-009 §2). A station further than the
-      // grid's half-extent from the anchor is a content error, and drawing it
+      // grid's half-extent from the anchor is a content error, and placing it
       // at a folded coordinate would hide that.
-      NEURON_LOG_WARNING("station '%s' is outside the tactical grid and was not placed", station.name.c_str());
+      NEURON_LOG_WARNING("station '%s' is outside the tactical grid and was not spawned", station.name.c_str());
       continue;
     }
 
-    Neuron::ScenePlacement placement;
-    placement.xMetres = static_cast<float>(local.x) * 0.01f;
-    placement.yMetres = static_cast<float>(local.y) * 0.01f;
-    placement.classId = _structureClassId;
-    scenery.push_back(placement);
+    Game::ShipSpawn spawn;
+    spawn.hullClass = Game::HullClass::Structure;
+    spawn.xMetres = static_cast<float>(local.x) * 0.01f;
+    spawn.yMetres = static_cast<float>(local.y) * 0.01f;
+    (void)_world.Spawn(spawn);
   }
-  return scenery;
 }
 
 void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
@@ -257,24 +307,65 @@ void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
 /*
  * The client's half of the seam (ADR-014 §2a).
  *
- * The placeholder world, assembled from the same universe definition the server
- * simulates against. Both halves load the identical file, so the client hashes
- * what it read rather than being told (ADR-009 §8) -- in `mode: "client"` that
- * is the whole safety property, because a client whose content drifted is
- * refused at the door instead of rendering a world nobody is simulating.
+ * The one table that maps the game's hull taxonomy onto the renderer's mesh
+ * ids. They are different orderings of overlapping sets on purpose: `HullClass`
+ * is the icon sheet's closed eleven, ordered so wire values never renumber
+ * (ADR-009 §6), while the mesh list in `Outpost.json` runs smallest hull to
+ * largest. Neither side should learn the other's, so the translation lives
+ * here, in the only project entitled to know both.
+ *
+ * The content hash is the universe hash. Both halves load the identical file
+ * and each states what it read rather than being told (ADR-009 §8) -- in
+ * `mode: "client"` that is the whole safety property, because a client whose
+ * content drifted is refused at the door instead of rendering a world nobody
+ * is simulating.
  */
-Outpost::ParkedFleetView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _config, const Outpost::UniverseLoadResult& _universe)
+Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _config,
+                                                     const Outpost::UniverseLoadResult& _universe)
 {
-  // The structure mesh is the last entry in the content list by convention
-  // (AppConfig.h), which is the only place that convention is spelled -- the
-  // engine is handed a classId and never learns what it stands for.
-  const auto classCount = static_cast<std::uint32_t>(_config.content.meshes.size());
-  const auto structureClassId = static_cast<std::uint16_t>(classCount == 0 ? 0 : classCount - 1);
+  // The mesh list, by name, is the renderer's classId order. Matching on the
+  // authored file name rather than on position means reordering the list in
+  // `Outpost.json` reorders the meshes and nothing breaks.
+  static constexpr struct
+  {
+    Game::HullClass hullClass;
+    std::string_view meshFile;
+  } MESH_FOR_HULL[] = {
+      {Game::HullClass::Interceptor, "Interceptor.obj"}, {Game::HullClass::Bomber, "Bomber.obj"},
+      {Game::HullClass::Corvette, "Corvette.obj"},       {Game::HullClass::Frigate, "Frigate.obj"},
+      {Game::HullClass::Hauler, "Hauler.obj"},           {Game::HullClass::Miner, "Miner.obj"},
+      {Game::HullClass::Carrier, "Carrier.obj"},         {Game::HullClass::Battleship, "Battleship.obj"},
+      {Game::HullClass::Structure, "Structure.obj"},
+  };
 
-  Outpost::ParkedFleetView::Desc desc;
-  desc.scenery = BuildScenery(_universe.universe, structureClassId);
-  desc.classCount = classCount;
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, Outpost::ReplicatedWorldView::INVALID_RENDER_CLASS);
   desc.contentHash = _universe.universeHash;
+
+  for (const auto& mapping : MESH_FOR_HULL)
+  {
+    for (std::size_t index = 0; index < _config.content.meshes.size(); ++index)
+    {
+      if (_config.content.meshes[index] == mapping.meshFile)
+      {
+        desc.renderClassByHull[static_cast<std::size_t>(mapping.hullClass)] = static_cast<std::uint16_t>(index);
+        break;
+      }
+    }
+  }
+
+  // Fighter and Cruiser stay INVALID_RENDER_CLASS: reserved ids with no mesh
+  // and no content, which the view draws as nothing rather than as a stand-in
+  // (ADR-009 §6).
+  for (std::size_t hull = 0; hull < desc.renderClassByHull.size(); ++hull)
+  {
+    const auto hullClass = static_cast<Game::HullClass>(hull);
+    if (Game::HullClassHasContent(hullClass) && desc.renderClassByHull[hull] == Outpost::ReplicatedWorldView::INVALID_RENDER_CLASS)
+    {
+      NEURON_LOG_WARNING("no mesh configured for hull class '%s'; it will not be drawn",
+                         std::string(Game::HullClassName(hullClass)).c_str());
+    }
+  }
   return desc;
 }
 
@@ -400,8 +491,10 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   // (ADR-014 §2). Until it does (S5c), the server hosts one that advances
   // nothing but knows its content hash and where its world is anchored -- which
   // is enough to prove the loop, the sessions, the wire and the handshake.
+  std::vector<Game::ShipId> patrolShips;
   UniverseSimulation simulation{universe.universeHash, MakeWorldMeta(universe.universe),
-                                MakeStartingWorld(universe.universeHash)};
+                                MakeStartingWorld(universe.universe, universe.universeHash, patrolShips),
+                                std::move(patrolShips)};
 
   // Before anything opens a window: the self test is a diagnostic, and its
   // answer is an exit code (Build Order S4).
@@ -449,7 +542,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
       // a world view by reference and never learns what is behind it; hosting
       // exercises exactly the handshake a separate client would, because both
       // sides state their own hashes rather than sharing a variable.
-      Outpost::ParkedFleetView worldView{MakeWorldViewDesc(config, universe)};
+      Outpost::ReplicatedWorldView worldView{MakeWorldViewDesc(config, universe)};
 
       Neuron::ClientApp client;
       if (!client.Initialise(clientConfig, worldView))

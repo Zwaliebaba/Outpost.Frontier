@@ -90,6 +90,44 @@ SessionInfo* ServerHost::FindSession(ConnectionId _connection)
   return nullptr;
 }
 
+void ServerHost::BroadcastSnapshot(std::uint32_t _tick)
+{
+  if (m_sessions.empty())
+  {
+    return; // Nobody to tell. Serialising for an empty room is pure waste.
+  }
+
+  NEURON_SPAN("Snapshot");
+
+  std::array<std::uint8_t, MAX_DATAGRAM_BYTES> buffer{};
+  ByteWriter writer{buffer};
+  WriteWireType(writer, WireType::Snapshot);
+
+  if (!m_simulation->WriteSnapshot(_tick, writer) || !writer.Ok())
+  {
+    // The simulation refused -- almost certainly because the fleet outgrew one
+    // datagram, which is the point at which ADR-004 §6's growth path (deltas
+    // plus interest management) stops being optional. Loud and counted rather
+    // than a silently missing tick.
+    m_snapshotFailures.fetch_add(1, std::memory_order_relaxed);
+    NEURON_COUNTER("SnapshotDropped", 1);
+    if (m_snapshotFailures.load(std::memory_order_relaxed) == 1)
+    {
+      NEURON_LOG_ERROR("the simulation could not fit a snapshot in one datagram; clients will see nothing move");
+    }
+    return;
+  }
+
+  // Unreliable and unordered on purpose: full snapshots are idempotent, so a
+  // lost one costs a tick of freshness and a resent one would arrive after the
+  // snapshot that superseded it (ADR-004 §6).
+  for (const SessionInfo& session : m_sessions)
+  {
+    SendTo(session.connection, TransportChannel::State, writer);
+  }
+  NEURON_COUNTER("SnapshotsSent", static_cast<std::int64_t>(m_sessions.size()));
+}
+
 void ServerHost::SendTo(ConnectionId _connection, TransportChannel _channel, const ByteWriter& _writer)
 {
   if (!_writer.Ok())
@@ -286,6 +324,7 @@ void ServerHost::SimThread()
       NEURON_SPAN("Tick");
       m_simulation->AdvanceTick(tick);
     }
+    BroadcastSnapshot(tick);
 
     nextDeadline += tickInterval;
 
@@ -311,6 +350,9 @@ void ServerHost::SimThread()
           NEURON_SPAN("Tick"); // Same row as a scheduled tick: it is the same work.
           m_simulation->AdvanceTick(extra);
         }
+        // A catch-up tick is a tick, and a client that did not hear about it
+        // would interpolate across a gap the server did not actually have.
+        BroadcastSnapshot(extra);
         nextDeadline += tickInterval;
         NEURON_COUNTER("TickCatchUp", 1);
       }

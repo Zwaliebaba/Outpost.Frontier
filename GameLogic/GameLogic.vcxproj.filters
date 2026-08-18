@@ -5,6 +5,12 @@
     <ClCompile Include="ShipClass.cpp">
       <Filter>World</Filter>
     </ClCompile>
+    <ClCompile Include="ReplicatedView.cpp">
+      <Filter>Wire</Filter>
+    </ClCompile>
+    <ClCompile Include="Snapshot.cpp">
+      <Filter>Wire</Filter>
+    </ClCompile>
     <ClCompile Include="World.cpp">
       <Filter>World</Filter>
     </ClCompile>
@@ -26,6 +32,15 @@
     <ClInclude Include="ShipClass.h">
       <Filter>World</Filter>
     </ClInclude>
+    <ClInclude Include="ReplicatedView.h">
+      <Filter>Wire</Filter>
+    </ClInclude>
+    <ClInclude Include="SchemaHash.h">
+      <Filter>Wire</Filter>
+    </ClInclude>
+    <ClInclude Include="Snapshot.h">
+      <Filter>Wire</Filter>
+    </ClInclude>
     <ClInclude Include="World.h">
       <Filter>World</Filter>
     </ClInclude>
@@ -42,6 +57,9 @@
   <ItemGroup>
     <Filter Include="World">
       <UniqueIdentifier>{3f6b1c40-9d27-4a58-8b0e-2c7415d9e8a3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Wire">
+      <UniqueIdentifier>{7c1a94e2-5b36-4d08-9f21-0ae63c85d417}</UniqueIdentifier>
     </Filter>
     <Filter Include="Universe">
       <UniqueIdentifier>{b8e2074d-51ca-4f36-97a1-6d0e3b82fc19}</UniqueIdentifier>

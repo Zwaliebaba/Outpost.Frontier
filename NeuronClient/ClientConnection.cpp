@@ -154,6 +154,28 @@ void ClientConnection::HandleMessage(const TransportEvent& _event)
     return;
   }
 
+  case WireType::Snapshot:
+  {
+    // Everything after the type word is the game's, byte for byte. The
+    // connection's whole job here is to not touch it.
+    const std::span<const std::uint8_t> payload = reader.Remaining();
+    if (payload.empty())
+    {
+      return;
+    }
+
+    ++m_snapshotCount;
+    if (m_pendingSnapshots.size() >= MAX_PENDING_SNAPSHOTS)
+    {
+      // Drop the oldest. Full snapshots supersede each other (ADR-004 §6), so
+      // the freshest is the one worth keeping when the frame loop is behind.
+      m_pendingSnapshots.erase(m_pendingSnapshots.begin());
+      ++m_snapshotOverflowCount;
+    }
+    m_pendingSnapshots.emplace_back(payload.begin(), payload.end());
+    return;
+  }
+
   case WireType::Refuse:
   {
     Refuse refuse;

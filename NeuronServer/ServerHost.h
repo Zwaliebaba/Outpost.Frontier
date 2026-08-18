@@ -82,6 +82,11 @@ private:
   void LogNetStats();
   void HandleMessage(const TransportEvent& _event);
   void SendTo(ConnectionId _connection, TransportChannel _channel, const class ByteWriter& _writer);
+
+  /// Asks the simulation for a snapshot and sends it to every joined session.
+  /// One serialisation, many sends: the payload is identical for all of them
+  /// until interest management makes it per-client (ADR-004 §6).
+  void BroadcastSnapshot(std::uint32_t _tick);
   [[nodiscard]] SessionInfo* FindSession(ConnectionId _connection);
 
   ServerConfig m_config;
@@ -97,6 +102,7 @@ private:
   std::atomic<std::uint32_t> m_tick{0};
   std::atomic<std::uint32_t> m_overruns{0};
   std::atomic<std::uint32_t> m_sessionCount{0};
+  std::atomic<std::uint32_t> m_snapshotFailures{0};
   std::uint16_t m_boundPort = 0;
 };
 

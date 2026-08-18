@@ -103,6 +103,7 @@
     <ClCompile Include="ObjMeshTests.cpp" />
     <ClCompile Include="SceneTests.cpp" />
     <ClCompile Include="NebulaTests.cpp" />
+    <ClCompile Include="BufferTests.cpp" />
     <ClCompile Include="SeamTests.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>

@@ -44,13 +44,22 @@ public:
   virtual ~WorldView() = default;
 
   /*
-   * Hands the game one snapshot payload, exactly as it came off the wire.
+   * Hands the game one snapshot payload, exactly as it came off the wire, and
+   * asks what tick it described. Returns 0 if the payload was rejected.
    *
-   * The engine has already framed and ordered it; it has not looked inside.
-   * `_tick` is the server tick the payload describes, which is the only clock
-   * either side agrees on (ADR-002 §1).
+   * The tick is a *return* value rather than a parameter, and that is the whole
+   * design of this call. The engine has framed and ordered the payload and has
+   * not looked inside, so it cannot know which tick the bytes describe -- only
+   * the game can read that. Passing a tick in would mean the engine supplying a
+   * number it had guessed from somewhere else (the last `Pong`, say), and the
+   * clock estimate would then be built on a value that drifts from the payload
+   * it is supposed to time. Putting the tick in the framing as well would fix
+   * that and create two copies of one number, which is the arrangement S5b
+   * already refused for the content hash.
+   *
+   * The tick is the only clock either side agrees on (ADR-002 §1).
    */
-  virtual void ApplySnapshot(std::uint32_t _tick, std::span<const std::uint8_t> _payload) = 0;
+  [[nodiscard]] virtual std::uint32_t ApplySnapshot(std::span<const std::uint8_t> _payload) = 0;
 
   /*
    * Fills the scene for a presentation instant.
@@ -117,10 +126,13 @@ public:
 class NullWorldView final : public WorldView
 {
 public:
-  void ApplySnapshot(std::uint32_t _tick, std::span<const std::uint8_t> _payload) override
+  /// Records the size and reports no tick: a view with no world cannot say
+  /// when it is, and claiming a tick would give the clock estimate something
+  /// to track that nothing is producing.
+  [[nodiscard]] std::uint32_t ApplySnapshot(std::span<const std::uint8_t> _payload) override
   {
-    m_lastTick = _tick;
     m_lastPayloadBytes = static_cast<std::uint32_t>(_payload.size());
+    return 0;
   }
 
   void BuildScene(double, RenderScene& _outScene) override { _outScene.Clear(); }
@@ -137,11 +149,9 @@ public:
   [[nodiscard]] std::uint64_t SchemaHash() const override { return 0; }
   [[nodiscard]] std::uint64_t ContentHash() const override { return 0; }
 
-  [[nodiscard]] std::uint32_t LastTick() const noexcept { return m_lastTick; }
   [[nodiscard]] std::uint32_t LastPayloadBytes() const noexcept { return m_lastPayloadBytes; }
 
 private:
-  std::uint32_t m_lastTick = 0;
   std::uint32_t m_lastPayloadBytes = 0;
 };
 

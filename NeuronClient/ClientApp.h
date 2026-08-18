@@ -15,6 +15,7 @@
 #include "InputMap.h"
 #include "IsoCamera.h"
 #include "RenderWorld.h"
+#include "SnapshotBuffer.h"
 #include "TaskPool.h"
 #include "Window.h"
 #include "WorldView.h"
@@ -98,6 +99,11 @@ private:
   /// with the per-frame tables the later passes need taking the rest.
   GpuPtr<ID3D12DescriptorHeap> m_srvHeap;
   D3D12_GPU_DESCRIPTOR_HANDLE m_textureTable{};
+
+  /// Turns snapshot arrivals into a smooth render tick (ADR-002 §4). The one
+  /// place the client decides *when* it is looking at; what the world looks
+  /// like at that instant is the world view's answer.
+  SnapshotBuffer m_snapshots;
 
   IsoCamera m_camera;
   CameraTuning m_cameraTuning;

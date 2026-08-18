@@ -244,6 +244,28 @@ void ClientApp::PollNetwork()
 {
   m_connection.Poll();
 
+  // Cheap and idempotent, so it costs less than tracking the transition: the
+  // rate is zero until `Welcome` lands, and the buffer falls back to the
+  // design's 20 Hz rather than dividing by it.
+  m_snapshots.Configure(m_connection.ServerTickRate());
+
+  // Every snapshot that arrived goes straight across the seam, oldest first.
+  // The engine has framed and ordered them and has not looked inside; what the
+  // bytes mean is the world view's business (ADR-014 §5).
+  const double nowSeconds = Clock::SecondsSinceStart();
+  for (const std::vector<std::uint8_t>& payload : m_connection.PendingSnapshots())
+  {
+    // The tick comes back from the game, because the game is the only side that
+    // can read it. Zero means the payload was rejected, and a rejected snapshot
+    // must not move the clock.
+    const std::uint32_t tick = m_worldView->ApplySnapshot(payload);
+    if (tick != 0)
+    {
+      m_snapshots.OnSnapshot(tick, nowSeconds);
+    }
+  }
+  m_connection.ClearPendingSnapshots();
+
   // Once a second, and only while joined: enough to see the link is alive in a
   // log, not enough to bury anything else in it.
   const std::int64_t now = Clock::Counter();
@@ -268,11 +290,12 @@ void ClientApp::ExtractScene()
   // to invent a fleet and merge in authored scenery; it now asks for a scene
   // and has no idea what it is getting -- which is the entire point of S5c.
   //
-  // The render tick is the server's, unsmoothed. Interpolating between
-  // snapshots is the snapshot buffer's job and arrives with S7; pretending to
-  // interpolate before there is anything to interpolate between would be a
-  // fiction this seam then has to keep telling.
-  m_worldView->BuildScene(static_cast<double>(m_connection.ServerTick()), m_scene);
+  // The render tick comes from the snapshot buffer: a slew-limited estimate of
+  // server time, two ticks back so there is normally a newer snapshot to
+  // interpolate toward (ADR-002 §4). Following arrivals directly would be
+  // correct on average and visibly jittery, which is the whole reason the
+  // buffer exists.
+  m_worldView->BuildScene(m_snapshots.Advance(Clock::SecondsSinceStart()), m_scene);
 }
 
 FrameConstants ClientApp::BuildFrameConstants() const

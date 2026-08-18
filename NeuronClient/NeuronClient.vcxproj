@@ -36,6 +36,7 @@
     <ClCompile Include="NebulaField.cpp" />
     <ClCompile Include="ObjMesh.cpp" />
     <ClCompile Include="RenderWorld.cpp" />
+    <ClCompile Include="SnapshotBuffer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DirectXHelper.h" />
@@ -44,6 +45,7 @@
     <ClInclude Include="ClearColour.h" />
     <ClInclude Include="ClientApp.h" />
     <ClInclude Include="ClientConfig.h" />
+    <ClInclude Include="SnapshotBuffer.h" />
     <ClInclude Include="WorldView.h" />
     <ClInclude Include="ClientConnection.h" />
     <ClInclude Include="GpuCom.h" />

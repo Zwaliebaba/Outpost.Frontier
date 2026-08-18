@@ -19,7 +19,9 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="ReplicatedView.cpp" />
     <ClCompile Include="ShipClass.cpp" />
+    <ClCompile Include="Snapshot.cpp" />
     <ClCompile Include="Universe.cpp" />
     <ClCompile Include="UniverseParse.cpp" />
     <ClCompile Include="World.cpp" />
@@ -28,7 +30,10 @@
   <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="Ids.h" />
+    <ClInclude Include="ReplicatedView.h" />
+    <ClInclude Include="SchemaHash.h" />
     <ClInclude Include="ShipClass.h" />
+    <ClInclude Include="Snapshot.h" />
     <ClInclude Include="Universe.h" />
     <ClInclude Include="UniverseParse.h" />
     <ClInclude Include="World.h" />

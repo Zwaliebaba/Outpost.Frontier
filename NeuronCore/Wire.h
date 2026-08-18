@@ -32,7 +32,16 @@ enum class WireType : std::uint16_t
   Refuse = 4,
   Ping = 5,
   Pong = 6,
-  Goodbye = 7
+  Goodbye = 7,
+
+  /*
+   * A game state payload, framed by the engine and read only by the game
+   * (ADR-004 §6, ADR-014 §5). There is no struct for it here on purpose: the
+   * engine writes this type word, copies opaque bytes after it, and has no
+   * opinion about what they mean. What is inside is GameLogic's schema and
+   * travels under its own hash.
+   */
+  Snapshot = 8
 };
 
 /// Why a server turned a client away. On the wire, so the values are fixed.
@@ -147,7 +156,12 @@ inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,
                                                      "Refuse{u16 reason}"
                                                      "Ping{u64 clientSendMicroseconds}"
                                                      "Pong{u64 clientSendMicroseconds,u32 serverTick}"
-                                                     "Goodbye{u16 reason}";
+                                                     "Goodbye{u16 reason}"
+                                                     // Type word only: the payload is the game's, under the
+                                                     // game's own schema hash. The value is still part of this
+                                                     // contract, because two builds disagreeing about which
+                                                     // number means "snapshot" is a wire break.
+                                                     "Snapshot{u16 type,opaque payload}";
 
 [[nodiscard]] std::uint64_t CoreSchemaHash() noexcept;
 

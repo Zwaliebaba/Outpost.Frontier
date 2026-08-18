@@ -30,7 +30,7 @@
     <ClCompile Include="ConfigLoad.cpp">
       <Filter>Config</Filter>
     </ClCompile>
-    <ClCompile Include="ParkedFleetView.cpp">
+    <ClCompile Include="ReplicatedWorldView.cpp">
       <Filter>Boot</Filter>
     </ClCompile>
     <ClCompile Include="UniverseLoad.cpp">
@@ -48,7 +48,7 @@
     <ClInclude Include="ConfigLoad.h">
       <Filter>Config</Filter>
     </ClInclude>
-    <ClInclude Include="ParkedFleetView.h">
+    <ClInclude Include="ReplicatedWorldView.h">
       <Filter>Boot</Filter>
     </ClInclude>
     <ClInclude Include="UniverseLoad.h">
