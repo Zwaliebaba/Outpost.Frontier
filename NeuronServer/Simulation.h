@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ByteWriter.h"
+#include "OrderIntent.h"
 
 #include <cstdint>
 #include <span>
@@ -20,14 +21,24 @@
 namespace Neuron
 {
 
-/// What the authority decided about a submitted order. The reason code is
-/// GameLogic's enum; the engine passes the number through without reading it,
-/// so the client's bounce and the server's refusal cannot say different things.
-struct OrderVerdict
+// `OrderVerdict` used to be declared here. It moved to NeuronCore with S5c,
+// because `WorldView::PreCheck` (NeuronClient) has to return the same type this
+// returns or ADR-014 §3's BounceParity is unverifiable -- and NeuronClient
+// cannot see NeuronServer. A shared type belongs below both, not beside one.
+
+/*
+ * Where the simulation's world sits, for a client that must place itself before
+ * the first snapshot arrives (ADR-009 §8's `worldMeta`).
+ *
+ * Named in engine terms deliberately -- "world", not "solar system". The engine
+ * carries the numbers to the client and never reads them; what they mean is
+ * GameLogic's business (ADR-014).
+ */
+struct WorldMeta
 {
-  bool accepted = false;
-  std::uint16_t reasonCode = 0;
-  std::uint32_t serverOrderId = 0;
+  std::uint16_t worldId = 0;
+  std::int64_t anchorX = 0; // The tactical grid's origin, in whole world units.
+  std::int64_t anchorY = 0;
 };
 
 class Simulation
@@ -39,8 +50,16 @@ public:
   /// (ADR-002 §1): implementations must not read a wall clock.
   virtual void AdvanceTick(std::uint32_t _tick) = 0;
 
-  /// Serializes the state a client needs for this tick.
-  virtual void WriteSnapshot(std::uint32_t _tick, ByteWriter& _writer) = 0;
+  /*
+   * Serializes the state a client needs for this tick.
+   *
+   * Returns false if it could not -- which at MVP scale means the fleet
+   * outgrew one datagram, the point at which ADR-004 §6's growth path stops
+   * being optional. A bool rather than a silent short write, because a
+   * truncated snapshot is worse than a missing one: the client would read the
+   * absent ships as despawned and resurrect them on the next tick.
+   */
+  [[nodiscard]] virtual bool WriteSnapshot(std::uint32_t _tick, ByteWriter& _writer) = 0;
 
   /// Validates and applies one order payload. Returning a verdict rather than a
   /// bool keeps the refusal reason with the decision that produced it.
@@ -53,6 +72,11 @@ public:
   /// The content the simulation was built from -- the universe definition and
   /// anything else authored. Same handshake, different failure.
   [[nodiscard]] virtual std::uint64_t ContentHash() const = 0;
+
+  /// Where this simulation's world is anchored. Defaulted rather than pure
+  /// because a simulation with no world is a real thing -- NullSimulation is
+  /// one -- but anything built from authored content must answer.
+  [[nodiscard]] virtual WorldMeta World() const { return {}; }
 };
 
 /*
@@ -64,7 +88,7 @@ class NullSimulation final : public Simulation
 {
 public:
   void AdvanceTick(std::uint32_t _tick) override { m_lastTick = _tick; }
-  void WriteSnapshot(std::uint32_t, ByteWriter&) override {}
+  [[nodiscard]] bool WriteSnapshot(std::uint32_t, ByteWriter&) override { return false; }
 
   [[nodiscard]] OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t>) override
   {

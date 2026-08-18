@@ -82,6 +82,19 @@ public:
   /// True when the message was read exactly -- no missing bytes and no trailing ones.
   [[nodiscard]] bool FullyConsumed() const noexcept { return !m_underflowed && BytesRemaining() == 0; }
 
+  /*
+   * Everything not yet read, as bytes.
+   *
+   * For payloads this reader frames but must not interpret: the engine reads a
+   * type word off a datagram and hands the rest to the game without looking
+   * inside (ADR-014 §5). Empty after an underflow, because a reader that has
+   * already run off the end has nothing trustworthy left to give.
+   */
+  [[nodiscard]] std::span<const std::uint8_t> Remaining() const noexcept
+  {
+    return m_underflowed ? std::span<const std::uint8_t>{} : m_buffer.subspan(m_position);
+  }
+
 private:
   template <typename T>
   [[nodiscard]] T ReadScalar() noexcept

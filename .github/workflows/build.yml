@@ -67,6 +67,170 @@ jobs:
           }
           Write-Host 'no header shadows a standard header'
 
+      # The other half of R14, and the half that had no mechanical check until
+      # now. Every project folder is on the include path and includes are
+      # unqualified (ADR-013 §4), so two files sharing a name across projects
+      # resolve to whichever root the compiler reaches first -- silently, and
+      # differently depending on which project is building. ADR-013 §3's registry
+      # is the discipline; this is the check.
+      - name: Check file names are unique repo-wide
+        shell: pwsh
+        run: |
+          $seen = @{}
+          $bad = @()
+          foreach ($dir in 'NeuronCore', 'GameLogic', 'NeuronServer', 'NeuronClient', 'Outpost', 'Tests')
+          {
+            Get-ChildItem -Path $dir -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              # pch.h/pch.cpp sit at every project root by design (ADR-013 §1)
+              # and are never included across a project boundary.
+              if ($_.Name -eq 'pch.h' -or $_.Name -eq 'pch.cpp') { return }
+
+              $key = $_.Name.ToLower()
+              $path = Resolve-Path -Relative $_.FullName
+              if ($seen.ContainsKey($key)) { $bad += "$path collides with $($seen[$key])" }
+              else { $seen[$key] = $path }
+            }
+          }
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_" }
+            throw 'file names must be unique repo-wide (ADR-013 §3)'
+          }
+          Write-Host "$($seen.Count) file names, all unique"
+
+      # ADR-013 §3 one level down. The rule makes *file* names unique repo-wide
+      # because every project root is on the include path; the same argument
+      # applies to a namespace-scope constant, and `Neuron::INVALID_ENTITY_ID`
+      # proved it -- NeuronCore declared it u16, NeuronClient declared it u32,
+      # and every translation unit that saw both failed with C2371. The file
+      # check could not see it because the two files have different names.
+      - name: Check the engine declares no constant twice
+        shell: pwsh
+        run: |
+          $seen = @{}
+          $bad = @()
+          foreach ($dir in 'NeuronCore', 'NeuronClient', 'NeuronServer')
+          {
+            Get-ChildItem -Path $dir -Filter *.h -ErrorAction SilentlyContinue | ForEach-Object {
+              $file = $_.Name
+              $number = 0
+              foreach ($line in Get-Content $_.FullName)
+              {
+                $number++
+                # Namespace scope only: indented ones are class members, which
+                # are scoped by their class and may repeat freely.
+                if ($line -match '^\s{0,2}inline\s+constexpr\s+[\w:<>,\s\*&]+?\b(\w+)\s*(=|\{)')
+                {
+                  $name = $Matches[1]
+                  $where = "${file}:${number}"
+                  if ($seen.ContainsKey($name)) { $bad += "$name at $where also at $($seen[$name])" }
+                  else { $seen[$name] = $where }
+                }
+              }
+            }
+          }
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_" }
+            throw 'two engine headers declare the same constant (ADR-013 §3)'
+          }
+          Write-Host "$($seen.Count) namespace-scope constants, all declared once"
+
+      # ADR-014: Neuron is a two-game engine, and the sibling repository ships
+      # these same libraries around a different game. The moment an engine
+      # project references GameLogic it stops being an engine and becomes this
+      # game's client. That is a property nobody can hold in their head across
+      # a year of slices, so the build holds it instead.
+      - name: Check that only Outpost references GameLogic
+        shell: pwsh
+        run: |
+          $bad = @()
+          foreach ($project in 'NeuronCore', 'NeuronServer', 'NeuronClient')
+          {
+            $file = "$project/$project.vcxproj"
+            if ((Get-Content $file -Raw) -match 'GameLogic') { $bad += $file }
+          }
+          # The test projects too: a test that links GameLogic to drive an
+          # engine library proves the opposite of what the seam suite claims.
+          foreach ($project in 'NeuronCoreTests', 'NeuronServerTests', 'NeuronClientTests')
+          {
+            $file = "Tests/$project/$project.vcxproj"
+            if ((Get-Content $file -Raw) -match 'GameLogic') { $bad += $file }
+          }
+          # Source, not just project files: an include would fail to compile
+          # without the reference, but it is worth naming the real mistake.
+          foreach ($dir in 'NeuronCore', 'NeuronServer', 'NeuronClient')
+          {
+            Get-ChildItem -Path $dir -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              if ((Get-Content $_.FullName -Raw) -match '#include\s*"(Universe|UniverseParse|World|Orders|Validate|Formation|ShipClass|Snapshot|OrderMessages|SchemaHash|WorldHash|ReplicatedView)\.h"')
+              {
+                $bad += $_.FullName
+              }
+            }
+          }
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_ references GameLogic; only Outpost.exe may (ADR-014)" }
+            throw 'the engine has grown a dependency on the game'
+          }
+          Write-Host 'the engine references no game'
+
+      # ADR-005 §5: same-binary replay determinism is bought by construction,
+      # and every one of these is a way to spend it by accident. The replay
+      # suite would catch most of them eventually; this says which line did it.
+      - name: Check GameLogic's determinism rules
+        shell: pwsh
+        run: |
+          $bad = @()
+          $sources = Get-ChildItem -Path GameLogic -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue |
+                     Where-Object { $_.Name -ne 'pch.h' -and $_.Name -ne 'pch.cpp' }
+
+          foreach ($file in $sources)
+          {
+            $text = Get-Content $file.FullName -Raw
+
+            # No clock. The tick index is the simulation's only clock (ADR-002 §1).
+            if ($text -match '#include\s*[<"](chrono|ctime|time\.h)[>"]' -or $text -match '#include\s*"Clock\.h"' -or
+                $text -match '\b(QueryPerformanceCounter|GetTickCount64|GetTickCount|GetSystemTime|std::chrono)\b')
+            {
+              $bad += "$($file.Name): reads a clock"
+            }
+
+            # No randomness but the seeded PCG32 carried in world state.
+            if ($text -match '#include\s*[<"]random[>"]' -or
+                $text -match '\b(std::random_device|std::mt19937|std::minstd_rand|srand|::rand)\b' -or
+                $text -match '[^_a-zA-Z]rand\s*\(')
+            {
+              $bad += "$($file.Name): uses a random source other than the seeded Pcg32"
+            }
+
+            # No DirectXMath estimate functions: their accuracy is documented as
+            # instruction-set dependent, so one of these silently makes replays
+            # per-machine rather than per-build (ADR-010 §6).
+            if ($text -match '\bXM\w*Est\s*\(')
+            {
+              $bad += "$($file.Name): calls an XM*Est estimate function"
+            }
+          }
+
+          # ADR-009 §2: universe coordinates are exact int64 metres and belong to
+          # placement, not to per-tick math. The tick runs in local float metres.
+          foreach ($file in @('GameLogic/World.h', 'GameLogic/World.cpp', 'GameLogic/ShipClass.h',
+                              'GameLogic/ShipClass.cpp', 'GameLogic/WorldHash.h', 'GameLogic/WorldHash.cpp'))
+          {
+            if ((Test-Path $file) -and ((Get-Content $file -Raw) -match '\b(UniversePos|UniverseDef)\b'))
+            {
+              $bad += "$($file): universe coordinates in per-tick simulation code"
+            }
+          }
+
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_" }
+            throw 'GameLogic broke a determinism rule'
+          }
+          Write-Host 'GameLogic reads no clock, draws no unseeded randomness, and keeps the universe out of the tick'
+
       # SolutionDir is passed explicitly (trailing backslash required): each
       # project lists the libraries it includes as $(SolutionDir)<Project>,
       # and $(SolutionDir) is empty when a .vcxproj is built directly. The

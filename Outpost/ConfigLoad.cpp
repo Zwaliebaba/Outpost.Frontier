@@ -47,6 +47,14 @@ std::wstring ToWide(const std::string& _utf8)
   return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
+/// Either kind. `ResolveContentPath` is asked about directories as often as
+/// files, and a directory answering "no" would send it looking beside the
+/// executable for something already in front of it.
+[[nodiscard]] bool PathExists(const std::string& _path)
+{
+  return GetFileAttributesW(ToWide(_path).c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
 /// Reports parse diagnostics with the file name attached, so a message names
 /// the file, the line and the column a person can go and fix.
 void ReportJsonErrors(const std::string& _path, const std::vector<Neuron::JsonError>& _errors, std::vector<std::string>& _outMessages)
@@ -79,6 +87,20 @@ std::string ExecutableDirectory()
 
   const std::size_t separator = path.find_last_of(L"\\/");
   return separator == std::wstring::npos ? std::string{} : ToUtf8(path.substr(0, separator + 1));
+}
+
+std::string ResolveContentPath(const std::string& _path)
+{
+  if (_path.empty())
+  {
+    return {};
+  }
+  if (PathExists(_path))
+  {
+    return _path;
+  }
+  const std::string beside = ExecutableDirectory() + _path;
+  return PathExists(beside) ? beside : std::string{};
 }
 
 std::string UserSettingsDirectory()

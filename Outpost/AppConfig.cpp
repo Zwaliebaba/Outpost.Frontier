@@ -169,11 +169,61 @@ void ReadUi(const JsonValue& _parent, UiSettings& _settings, ConfigDiagnostics& 
   {
     return;
   }
-  WarnUnknownKeys(ui, {"scale", "palette"}, "client.ui", _diagnostics);
+  WarnUnknownKeys(ui, {"scale", "palette", "font"}, "client.ui", _diagnostics);
   // 0.8-1.6 is the settings sheet's range, and the layout is scale-independent
   // rather than a scaled bitmap, so the floor is a real constraint.
   ReadDouble(ui, "scale", _settings.scale, 0.8, 1.6, "client.ui", _diagnostics);
   ReadText(ui, "palette", _settings.palette, "client.ui", _diagnostics);
+  ReadText(ui, "font", _settings.font, "client.ui", _diagnostics);
+}
+
+/// A list of file names. Present-but-empty is an error rather than a fallback:
+/// a config that says "no meshes" and gets nine of them is a config that lies.
+void ReadTextList(const JsonValue& _parent, const char* _name, std::vector<std::string>& _value, std::string_view _path,
+                  ConfigDiagnostics& _diagnostics)
+{
+  const JsonValue member = _parent.Member(_name);
+  if (!member.Valid())
+  {
+    return;
+  }
+  if (!member.IsArray())
+  {
+    _diagnostics.errors.push_back(std::string(_path) + "." + _name + " must be a list of file names");
+    return;
+  }
+
+  std::vector<std::string> names;
+  names.reserve(member.Count());
+  for (std::size_t i = 0; i < member.Count(); ++i)
+  {
+    const JsonValue entry = member.At(i);
+    if (entry.Kind() != JsonKind::String)
+    {
+      _diagnostics.errors.push_back(std::string(_path) + "." + _name + " entry " + std::to_string(i) + " must be text");
+      return;
+    }
+    names.emplace_back(entry.AsString());
+  }
+
+  if (names.empty())
+  {
+    _diagnostics.errors.push_back(std::string(_path) + "." + _name + " is empty");
+    return;
+  }
+  _value = std::move(names);
+}
+
+void ReadContent(const JsonValue& _root, ContentSettings& _settings, ConfigDiagnostics& _diagnostics)
+{
+  const JsonValue content = _root.Member("content");
+  if (!content.Valid())
+  {
+    return;
+  }
+  WarnUnknownKeys(content, {"meshDirectory", "meshes"}, "content", _diagnostics);
+  ReadText(content, "meshDirectory", _settings.meshDirectory, "content", _diagnostics);
+  ReadTextList(content, "meshes", _settings.meshes, "content", _diagnostics);
 }
 
 void ReadClient(const JsonValue& _root, ClientSettings& _settings, ConfigDiagnostics& _diagnostics)
@@ -183,7 +233,7 @@ void ReadClient(const JsonValue& _root, ClientSettings& _settings, ConfigDiagnos
   {
     return;
   }
-  WarnUnknownKeys(client, {"connect", "window", "renderer", "camera", "audio", "ui"}, "client", _diagnostics);
+  WarnUnknownKeys(client, {"connect", "window", "renderer", "camera", "nebula", "audio", "ui"}, "client", _diagnostics);
 
   const JsonValue connect = client.Member("connect");
   if (connect.Valid())
@@ -202,6 +252,29 @@ void ReadClient(const JsonValue& _root, ClientSettings& _settings, ConfigDiagnos
     WarnUnknownKeys(camera, {"zoomMetres", "yawSnapDegrees"}, "client.camera", _diagnostics);
     ReadDouble(camera, "zoomMetres", _settings.camera.zoomMetres, 500.0, 40000.0, "client.camera", _diagnostics);
     ReadDouble(camera, "yawSnapDegrees", _settings.camera.yawSnapDegrees, 0.0, 180.0, "client.camera", _diagnostics);
+  }
+
+  const JsonValue nebula = client.Member("nebula");
+  if (nebula.Valid())
+  {
+    WarnUnknownKeys(nebula,
+                    {"tintRed", "tintGreen", "tintBlue", "intensity", "tileMetres", "resolution", "octaves", "coverage",
+                     "contrast", "seed"},
+                    "client.nebula", _diagnostics);
+    // The tint is linear rgb, so 1.0 is the ceiling and there is no headroom
+    // above it to allow for: the pass adds, and the target is SDR (ADR-006 §2).
+    ReadDouble(nebula, "tintRed", _settings.nebula.tintRed, 0.0, 1.0, "client.nebula", _diagnostics);
+    ReadDouble(nebula, "tintGreen", _settings.nebula.tintGreen, 0.0, 1.0, "client.nebula", _diagnostics);
+    ReadDouble(nebula, "tintBlue", _settings.nebula.tintBlue, 0.0, 1.0, "client.nebula", _diagnostics);
+    ReadDouble(nebula, "intensity", _settings.nebula.intensity, 0.0, 1.0, "client.nebula", _diagnostics);
+    // A tile smaller than the play area repeats inside one screen; the upper
+    // bound just keeps a typo from flattening the field to a constant.
+    ReadDouble(nebula, "tileMetres", _settings.nebula.tileMetres, 1000.0, 10000000.0, "client.nebula", _diagnostics);
+    ReadUInt(nebula, "resolution", _settings.nebula.resolution, 16, 2048, "client.nebula", _diagnostics);
+    ReadUInt(nebula, "octaves", _settings.nebula.octaves, 1, 8, "client.nebula", _diagnostics);
+    ReadDouble(nebula, "coverage", _settings.nebula.coverage, 0.0, 0.99, "client.nebula", _diagnostics);
+    ReadDouble(nebula, "contrast", _settings.nebula.contrast, 0.01, 8.0, "client.nebula", _diagnostics);
+    ReadUInt(nebula, "seed", _settings.nebula.seed, 0, 0xffffffffu, "client.nebula", _diagnostics);
   }
 
   ReadAudio(client, _settings.audio, _diagnostics);
@@ -232,7 +305,7 @@ void ApplyConfigLayer(const JsonValue& _root, AppConfig& _config, ConfigDiagnost
     return;
   }
 
-  WarnUnknownKeys(_root, {"mode", "selfTest", "logging", "universe", "server", "client"}, "", _diagnostics);
+  WarnUnknownKeys(_root, {"mode", "selfTest", "logging", "universe", "content", "server", "client"}, "", _diagnostics);
 
   const JsonValue mode = _root.Member("mode");
   if (mode.Valid())
@@ -283,6 +356,7 @@ void ApplyConfigLayer(const JsonValue& _root, AppConfig& _config, ConfigDiagnost
     ReadUInt(server, "maxSessions", _config.server.maxSessions, 1, 1024, "server", _diagnostics);
   }
 
+  ReadContent(_root, _config.content, _diagnostics);
   ReadClient(_root, _config.client, _diagnostics);
 }
 

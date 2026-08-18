@@ -90,6 +90,44 @@ SessionInfo* ServerHost::FindSession(ConnectionId _connection)
   return nullptr;
 }
 
+void ServerHost::BroadcastSnapshot(std::uint32_t _tick)
+{
+  if (m_sessions.empty())
+  {
+    return; // Nobody to tell. Serialising for an empty room is pure waste.
+  }
+
+  NEURON_SPAN("Snapshot");
+
+  std::array<std::uint8_t, MAX_DATAGRAM_BYTES> buffer{};
+  ByteWriter writer{buffer};
+  WriteWireType(writer, WireType::Snapshot);
+
+  if (!m_simulation->WriteSnapshot(_tick, writer) || !writer.Ok())
+  {
+    // The simulation refused -- almost certainly because the fleet outgrew one
+    // datagram, which is the point at which ADR-004 §6's growth path (deltas
+    // plus interest management) stops being optional. Loud and counted rather
+    // than a silently missing tick.
+    m_snapshotFailures.fetch_add(1, std::memory_order_relaxed);
+    NEURON_COUNTER("SnapshotDropped", 1);
+    if (m_snapshotFailures.load(std::memory_order_relaxed) == 1)
+    {
+      NEURON_LOG_ERROR("the simulation could not fit a snapshot in one datagram; clients will see nothing move");
+    }
+    return;
+  }
+
+  // Unreliable and unordered on purpose: full snapshots are idempotent, so a
+  // lost one costs a tick of freshness and a resent one would arrive after the
+  // snapshot that superseded it (ADR-004 §6).
+  for (const SessionInfo& session : m_sessions)
+  {
+    SendTo(session.connection, TransportChannel::State, writer);
+  }
+  NEURON_COUNTER("SnapshotsSent", static_cast<std::int64_t>(m_sessions.size()));
+}
+
 void ServerHost::SendTo(ConnectionId _connection, TransportChannel _channel, const ByteWriter& _writer)
 {
   if (!_writer.Ok())
@@ -156,6 +194,13 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     welcome.schemaHash = m_simulation->SchemaHash();
     welcome.contentHash = m_simulation->ContentHash();
 
+    // Where the world is, so a client in another process can place a position
+    // before any snapshot arrives (ADR-009 §8).
+    const WorldMeta world = m_simulation->World();
+    welcome.worldId = world.worldId;
+    welcome.anchorX = world.anchorX;
+    welcome.anchorY = world.anchorY;
+
     WriteWireType(writer, WireType::Welcome);
     Write(writer, welcome);
     SendTo(_event.connection, TransportChannel::Control, writer);
@@ -176,6 +221,50 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     WriteWireType(writer, WireType::Pong);
     Write(writer, Pong{ping.clientSendMicroseconds, m_tick.load(std::memory_order_relaxed)});
     SendTo(_event.connection, TransportChannel::State, writer);
+    return;
+  }
+
+  case WireType::OrderSubmit:
+  {
+    /*
+     * The engine's whole part in an order: find the session, hand the rest of
+     * the bytes to the game, and send back what it decided (ADR-004 §7).
+     *
+     * It never parses the payload. `Remaining()` is the bytes after the type
+     * word, and what they mean is GameLogic's schema under GameLogic's hash --
+     * the same arrangement `Snapshot` has in the other direction (ADR-014 §5).
+     */
+    const SessionInfo* session = FindSession(_event.connection);
+    if (session == nullptr || !session->handshakeComplete)
+    {
+      // Before the handshake there is no client id to attribute an order to,
+      // and no agreement that the two builds share a schema. Dropped rather
+      // than acked: acking would imply the order was considered.
+      NEURON_LOG_WARNING("order from connection %u before it joined", _event.connection);
+      return;
+    }
+
+    const OrderVerdict verdict = m_simulation->ApplyOrderBytes(session->clientId, reader.Remaining());
+
+    OrderAck ack;
+    ack.orderSeq = verdict.orderSeq; // The game's echo: the engine never read it.
+    ack.serverOrderId = verdict.serverOrderId;
+    ack.reasonCode = verdict.reasonCode;
+    ack.accepted = verdict.accepted ? std::uint8_t{1} : std::uint8_t{0};
+
+    // Control channel, because an ack is exactly the kind of message ADR-003
+    // put a reliable ordered channel there for: a lost refusal leaves a ghost
+    // on screen forever, and there is no later snapshot that corrects it.
+    std::array<std::uint8_t, 64> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::OrderAck);
+    Write(writer, ack);
+    SendTo(_event.connection, TransportChannel::Control, writer);
+
+    if (!verdict.accepted)
+    {
+      m_ordersRefused.fetch_add(1, std::memory_order_relaxed);
+    }
     return;
   }
 
@@ -279,6 +368,7 @@ void ServerHost::SimThread()
       NEURON_SPAN("Tick");
       m_simulation->AdvanceTick(tick);
     }
+    BroadcastSnapshot(tick);
 
     nextDeadline += tickInterval;
 
@@ -304,6 +394,9 @@ void ServerHost::SimThread()
           NEURON_SPAN("Tick"); // Same row as a scheduled tick: it is the same work.
           m_simulation->AdvanceTick(extra);
         }
+        // A catch-up tick is a tick, and a client that did not hear about it
+        // would interpolate across a gap the server did not actually have.
+        BroadcastSnapshot(extra);
         nextDeadline += tickInterval;
         NEURON_COUNTER("TickCatchUp", 1);
       }

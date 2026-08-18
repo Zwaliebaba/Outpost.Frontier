@@ -1,0 +1,164 @@
+#pragma once
+
+#include "World.h"
+
+#include "ByteReader.h"
+#include "ByteWriter.h"
+#include "EntityRecord.h"
+// For the datagram cap. GameLogic does not touch the transport, but the
+// snapshot has to fit one datagram, so the budget below is derived from the one
+// definition of that number rather than restating it (ADR-004 §6). The header
+// is a pure interface -- no Windows, no sockets.
+#include "Transport.h"
+
+#include <cstdint>
+#include <vector>
+
+/*
+ * State replication, server to client (ADR-004 §6).
+ *
+ * **Full snapshots every tick, no deltas.** Any snapshot completely replaces
+ * the previous one, so loss is not a case to handle: a dropped datagram costs
+ * one tick of freshness and nothing else. There is no baseline to track, no
+ * acknowledgement to wait on, and no way for the client's view to drift out of
+ * agreement with the server's. `baselineTick` is on the wire and always zero,
+ * reserved so a delta-against-acked-baseline scheme slots in later without a
+ * format break.
+ *
+ * **The ship record is `Neuron::EntityRecord` and not a type of ours.** ADR-004
+ * §6 specifies exactly the twenty bytes NeuronCore already defines, and ADR-014
+ * §4 is why they live there: the engine has to buffer, interpolate and draw
+ * without knowing what a ship is. Declaring a `ShipRecord` here that happened to
+ * match would be two layouts to keep in step and one of them would eventually
+ * lose. What GameLogic owns is the *meaning* -- `typeId` is a `HullClass`,
+ * `gaugeA` is hull, `gaugeB` is shield -- and the engine never reads it.
+ *
+ * Quantisation is the wire contract, and it is what both sides validate against
+ * so a client pre-check and the authority cannot disagree on a rounding
+ * boundary: position in centimetres, velocity in centimetres per second,
+ * heading in 1/65,536 of a turn.
+ */
+
+namespace Game
+{
+
+/// `{tick, baselineTick, shipCount, orderCount, lastOrderSeqProcessed}`.
+struct SnapshotHeader
+{
+  std::uint32_t tick = 0;
+
+  /// Zero means "full". Reserved for the delta path (ADR-004 §6); nothing reads
+  /// it yet, and it is on the wire from the first snapshot so that adding
+  /// deltas is a behaviour change rather than a schema change.
+  std::uint32_t baselineTick = 0;
+
+  std::uint16_t shipCount = 0;
+
+  /// Order state, which drives ghost-to-underway promotion and per-leg ETAs.
+  /// Always zero until S9 gives the client something to have ordered.
+  std::uint16_t orderCount = 0;
+
+  /// Closes the order feedback loop even when an `OrderAck` is delayed or lost.
+  /// Zero until S9.
+  std::uint32_t lastOrderSeqProcessed = 0;
+};
+
+inline constexpr std::size_t SNAPSHOT_HEADER_BYTES = 16;
+
+/*
+ * How many ships fit in one datagram.
+ *
+ * The transport's cap is 1,152 bytes (ADR-003) and the framing costs a type
+ * word, so this is what is left after the header, divided by the record. At MVP
+ * scale -- 41 ships, about 840 bytes -- there is room to spare. At the corpus's
+ * 1,024-entity cap a full snapshot is roughly 20 KB, which is precisely why
+ * **delta encoding plus interest management is the designed growth path and a
+ * bigger datagram is not** (ADR-004 §6).
+ */
+inline constexpr std::size_t SNAPSHOT_BUDGET_BYTES = Neuron::MAX_DATAGRAM_BYTES - sizeof(std::uint16_t);
+
+/*
+ * One order's state, for the ghost the client is drawing (ADR-004 §6).
+ *
+ * Twelve bytes. `serverOrderId` is what the client matched its ghost to when
+ * the ack arrived, and `clientOrderSeq` is what it can match on if the ack was
+ * lost -- carrying both is what makes the promotion path work over an
+ * unreliable channel without a retransmit.
+ *
+ * `legIndex` and `legCount` are the ETA row's: "second of four" is what a
+ * player reads, and it is not derivable from anything else in the snapshot.
+ */
+struct OrderStateRecord
+{
+  std::uint32_t serverOrderId = 0;
+  std::uint32_t clientOrderSeq = 0;
+  std::uint8_t state = 0; // OrderState
+  std::uint8_t legIndex = 0;
+  std::uint8_t legCount = 0;
+  std::uint8_t memberCount = 0;
+};
+
+inline constexpr std::size_t ORDER_STATE_RECORD_BYTES = 12;
+static_assert(sizeof(OrderStateRecord) == ORDER_STATE_RECORD_BYTES, "the record is written field by field; the size is the "
+                                                                    "budget, so a field added here costs ships");
+
+/*
+ * How many orders ride along with the ships.
+ *
+ * A fixed reservation rather than whatever is left, so the ship budget is a
+ * constant and not a function of how busy the player has been. Sixteen groups
+ * is four times the fleet an MVP session fields, and it costs 192 bytes of the
+ * 1,150.
+ *
+ * Orders are the half that may be truncated. A missing ship record reads as a
+ * despawn and is unrecoverable; a missing order record costs one frame of ETA,
+ * and the header's `lastOrderSeqProcessed` still promotes the ghost.
+ */
+inline constexpr std::uint16_t MAX_ORDERS_PER_SNAPSHOT = 16;
+inline constexpr std::size_t ORDER_AREA_BYTES = MAX_ORDERS_PER_SNAPSHOT * ORDER_STATE_RECORD_BYTES;
+
+inline constexpr std::uint16_t MAX_SHIPS_PER_SNAPSHOT = static_cast<std::uint16_t>(
+    (SNAPSHOT_BUDGET_BYTES - SNAPSHOT_HEADER_BYTES - ORDER_AREA_BYTES) / Neuron::ENTITY_RECORD_BYTES);
+
+/// Bytes a snapshot of this many ships and orders occupies, framing excluded.
+[[nodiscard]] constexpr std::size_t SnapshotBytes(std::size_t _shipCount, std::size_t _orderCount = 0) noexcept
+{
+  return SNAPSHOT_HEADER_BYTES + _shipCount * Neuron::ENTITY_RECORD_BYTES + _orderCount * ORDER_STATE_RECORD_BYTES;
+}
+
+// The budget ADR-004 §6 states, asserted rather than believed. The order area
+// is reserved whether or not any order is flying, which is what keeps the ship
+// cap from moving under the client.
+static_assert(SnapshotBytes(41, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES, "the MVP fleet must fit one datagram");
+static_assert(MAX_SHIPS_PER_SNAPSHOT >= 41, "the MVP fleet must fit one datagram");
+static_assert(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES,
+              "the cap must be a cap");
+static_assert(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT + 1u, MAX_ORDERS_PER_SNAPSHOT) > SNAPSHOT_BUDGET_BYTES,
+              "the cap must be the largest that fits");
+
+/// Quantises one ship into the neutral record the engine carries.
+[[nodiscard]] Neuron::EntityRecord MakeShipRecord(const World& _world, std::uint32_t _slot) noexcept;
+
+/*
+ * Writes a full snapshot of the world.
+ *
+ * Returns false if the fleet does not fit one datagram, and writes nothing --
+ * a truncated snapshot is worse than no snapshot, because the client would
+ * treat the missing ships as despawned and then resurrect them next tick. The
+ * caller's job is to say so loudly; the growth path is deltas, not silence.
+ */
+[[nodiscard]] bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer);
+
+/// Reads one back. Returns false on a truncated or implausible payload, leaving
+/// the outputs untouched -- a half-applied snapshot is a corrupt view.
+[[nodiscard]] bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader,
+                                std::vector<Neuron::EntityRecord>& _outShips);
+
+/// The same, with the order records. The two-argument form stays because most
+/// callers -- and every test written before S9 -- want the fleet and nothing
+/// else, and reading orders they will not look at is work with no reader.
+[[nodiscard]] bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader,
+                                std::vector<Neuron::EntityRecord>& _outShips,
+                                std::vector<OrderStateRecord>& _outOrders);
+
+} // namespace Game

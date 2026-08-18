@@ -42,6 +42,11 @@ void Write(ByteWriter& _writer, const Welcome& _message) noexcept
   _writer.WriteUInt16(_message.tickRate);
   _writer.WriteUInt64(_message.schemaHash);
   _writer.WriteUInt64(_message.contentHash);
+  _writer.WriteUInt16(_message.worldId);
+  // Signed and full-width: the universe plane runs to +/-9.2e18 metres
+  // (ADR-009 §1), so anything narrower would silently fold it.
+  _writer.WriteInt64(_message.anchorX);
+  _writer.WriteInt64(_message.anchorY);
 }
 
 bool Read(ByteReader& _reader, Welcome& _outMessage) noexcept
@@ -51,6 +56,9 @@ bool Read(ByteReader& _reader, Welcome& _outMessage) noexcept
   _outMessage.tickRate = _reader.ReadUInt16();
   _outMessage.schemaHash = _reader.ReadUInt64();
   _outMessage.contentHash = _reader.ReadUInt64();
+  _outMessage.worldId = _reader.ReadUInt16();
+  _outMessage.anchorX = _reader.ReadInt64();
+  _outMessage.anchorY = _reader.ReadInt64();
   return _reader.Ok();
 }
 
@@ -99,6 +107,23 @@ bool Read(ByteReader& _reader, Pong& _outMessage) noexcept
 {
   _outMessage.clientSendMicroseconds = _reader.ReadUInt64();
   _outMessage.serverTick = _reader.ReadUInt32();
+  return _reader.Ok();
+}
+
+void Write(ByteWriter& _writer, const OrderAck& _message) noexcept
+{
+  _writer.WriteUInt32(_message.orderSeq);
+  _writer.WriteUInt32(_message.serverOrderId);
+  _writer.WriteUInt16(_message.reasonCode);
+  _writer.WriteUInt8(_message.accepted);
+}
+
+bool Read(ByteReader& _reader, OrderAck& _outMessage) noexcept
+{
+  _outMessage.orderSeq = _reader.ReadUInt32();
+  _outMessage.serverOrderId = _reader.ReadUInt32();
+  _outMessage.reasonCode = _reader.ReadUInt16();
+  _outMessage.accepted = _reader.ReadUInt8();
   return _reader.Ok();
 }
 

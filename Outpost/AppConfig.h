@@ -61,6 +61,28 @@ struct CameraSettings
   double yawSnapDegrees = 45.0;
 };
 
+/*
+ * The ambient field behind the fleet (ADR-006 §1's Nebula node).
+ *
+ * Art direction, so it is content and not a rebuild (ADR-012). The defaults
+ * here mirror `Neuron::NebulaSettings` -- the engine's own struct, which this
+ * one is mapped onto in the composition root rather than shared, because a
+ * library taking a config struct from the host is exactly what ADR-012 forbids.
+ */
+struct NebulaSettings
+{
+  double tintRed = 0.06;
+  double tintGreen = 0.22;
+  double tintBlue = 0.10;
+  double intensity = 0.35;
+  double tileMetres = 96000.0;
+  std::uint32_t resolution = 256;
+  std::uint32_t octaves = 4;
+  double coverage = 0.55;
+  double contrast = 2.0;
+  std::uint32_t seed = 1;
+};
+
 struct AudioSettings
 {
   double master = 1.0;
@@ -75,6 +97,22 @@ struct UiSettings
 {
   double scale = 1.0;
   std::string palette = "default";
+  std::string font = "Consolas"; // A monospace face for the glyph atlas (ADR-006 §9).
+};
+
+/*
+ * Where the client's boot-time content lives, and which meshes it loads.
+ *
+ * The mesh list is ordered, and the order *is* the classId the renderer draws
+ * with: the engine is game-free (ADR-014), so it has no opinion about which
+ * index is a Carrier. Ships come first, smallest to largest, and the structure
+ * last -- and the parked-fleet placeholder S5 renders reads it that way.
+ */
+struct ContentSettings
+{
+  std::string meshDirectory = "GameData/Meshes";
+  std::vector<std::string> meshes = {"Interceptor.obj", "Bomber.obj",  "Corvette.obj",   "Frigate.obj",  "Hauler.obj",
+                                     "Miner.obj",       "Carrier.obj", "Battleship.obj", "Structure.obj"};
 };
 
 struct ClientSettings
@@ -84,6 +122,7 @@ struct ClientSettings
   WindowSettings window;
   RendererSettings renderer;
   CameraSettings camera;
+  NebulaSettings nebula;
   AudioSettings audio;
   UiSettings ui;
 };
@@ -96,6 +135,7 @@ struct AppConfig
   std::string universeDefinition = "GameData/Universe/Frontier.json";
   ServerSettings server;
   ClientSettings client;
+  ContentSettings content;
 };
 
 struct ConfigDiagnostics

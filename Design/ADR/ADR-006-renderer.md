@@ -17,12 +17,59 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
 ## Decision
 
 ### Frame structure
-1. **No frame graph.** A frame graph schedules resource churn across many passes; MVP has four.
-   Instead: a **fixed, named pass list** — `Clear → Opaque → OverlayWorld → Ui → Present` —
-   each pass a struct with `Record(ctx)`, executed in order on one direct queue. The names and
-   order are the corpus target list with unbuilt nodes absent; `GpuCull`, `DepthPre`,
-   `Effects`, `Nebula`, `Tonemap` are **reserved slots** documented in code, so growth is
-   insertion, not redesign. Revisit a real graph only when transient-resource management hurts.
+1. **No frame graph.** A frame graph schedules resource churn across many passes; MVP has five.
+   Instead: a **fixed, named pass list** — `Clear → Opaque → Nebula → OverlayWorld → Ui →
+   Present` — each pass a struct with `Record(ctx)`, executed in order on one direct queue. The
+   names and order are the corpus target list with unbuilt nodes absent; `GpuCull`, `DepthPre`,
+   `Effects`, `Tonemap` are **reserved slots** documented in code, so growth is insertion, not
+   redesign. Revisit a real graph only when transient-resource management hurts.
+
+1a. **`Nebula` is built, and it was the reserved list's first test.** The claim in §1 — that a
+   new node is an insertion rather than a redesign — was untested until something needed
+   inserting. Adding it cost one struct in `GpuPasses.h`, one line in `GpuPassList::Record`,
+   one PSO, and nothing else in the frame moved: no pass was reordered, no existing pass
+   changed, and the root signature grew by one SRV and one sampler. The claim now has a
+   measurement behind it.
+
+   *What the node is:* an ambient field, sampled from a CPU-baked periodic tile
+   (`NebulaField.h`) and added over the scene. It sits after `Opaque` and before `Tonemap`
+   because it composites *over* the geometry — hulls read as being inside the cloud rather
+   than pasted onto a backdrop — which is also why `overlay-pass.png` §1 worries about "HDR
+   drift between a bright nebula and empty space". Additive and deliberately dim: the ceiling
+   on how far it may wash out a hull is the readability budget §7 protects.
+
+   *What it is not:* a celestial or skybox renderer, and no reserved slot here is one. Neither
+   print draws a celestial body, and ADR-009 §9a settles that celestials are data rather than
+   geometry. Reading `Nebula` as their scheduled home is a mistake this tree has already made
+   once.
+
+   *Why the field is baked on the CPU rather than evaluated in the shader:* so it can be
+   tested. A procedural shader would put the only copy of the function where no test in this
+   tree can reach it, and a second copy in C++ to test against would be two implementations
+   free to disagree. `GlyphAtlas` set the pattern — bake at boot, upload once, let the shader
+   sample — and `NeuronClientTests` now asserts the field's determinism, sparseness,
+   smoothness and seamless wrap without a device.
+
+   *Why the tile is periodic:* the pass covers an unbounded plane. Sizing one tile to the play
+   area looks right until someone zooms out — `MAX_ZOOM_METRES` is a 40 km ortho half-height
+   against a 40 km grid, so the camera sees well past the play area and a clamped tile would
+   smear its edge texels over everything beyond. Periodicity removes the failure instead of
+   sizing around it, and gives a test something to check.
+
+   *Why it is world-anchored:* the pass reconstructs the plane position of each pixel from
+   `IsoCamera::PlaneMappingForNdc` — an affine NDC→plane map, exact because the projection is
+   orthographic — so panning moves the field through the world and orbiting turns it. Sampling
+   in screen space would make it a smudge on the monitor, which is the one thing a background
+   must never be. That mapping is round-tripped against the real view-projection in
+   `NeuronClientTests`, for the same reason §3a's handedness defect needed a round trip: the
+   failure is invisible to review.
+
+1b. **The clear colour is static.** `AnimatedClearColour` breathed between two blues so slice
+   S1 could prove the loop ran with nothing else on screen. From this node onwards there is
+   something else on screen, and a background that changes on its own competes with it. It is
+   replaced by `SpaceClearColour` — near-black, faintly blue, linear values behind the `_SRGB`
+   RTV — and is deliberately *not* configurable: what reads as the colour of space is the
+   nebula, and that is configurable.
 2. **SDR first.** Swapchain `R8G8B8A8_UNORM` (flip model forbids `_SRGB` swapchain formats)
    with an `_SRGB` RTV; linear-space lighting; no tonemap node yet. The Darwinia look —
    near-black space, saturated emissives — survives SDR; HDR+Tonemap is a reserved node.
@@ -34,10 +81,56 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
    varies across the view, and picking loses its uniform-direction ray. Ortho keeps scale
    uniform (tonnage stays readable — the icon sheet's size channel), makes zoom one number
    (ortho half-height), and matches the prints.
-3a. **Camera and picking use DirectXMath directly** (ADR-010): `XMMatrixOrthographicOffCenterRH`
-   + `XMMatrixLookAtRH` for view/projection, `XMPlaneIntersectLine` for the cursor-ray ∩
-   ground-plane test, `XMVectorLerp` for snapshot interpolation. Matrices are stored as
-   `XMFLOAT4X4`, instance positions as `XMFLOAT3`.
+3a. **The tree is left-handed, and every handedness-parameterised entry point takes the `LH`
+   form.** This is normative and it is a standing rule, not a per-call choice. Camera and
+   picking use DirectXMath directly (ADR-010): `XMMatrixOrthographicOffCenterLH` +
+   `XMMatrixLookAtLH` for view/projection, and `XMVectorLerp` for snapshot interpolation.
+   Matrices are stored as `XMFLOAT4X4`, instance positions as `XMFLOAT3`.
+
+   *This section originally named `XMPlaneIntersectLine` for a cursor-ray ∩ ground-plane test.
+   **S8 built picking and there is no ray** — see §11a. An orthographic projection over a plane
+   makes the mapping affine, so a pixel becomes a plane point through three `float2`s and the
+   intersection never has to be computed. The handedness rule is unaffected; one of its example
+   call sites simply turned out not to exist.*
+
+   **Why left-handed.** Two reasons, and the second is the load-bearing one:
+
+   1. ADR-001 §3 fixes render space as `world = (sim.x, h_cosmetic, sim.y)` with `+Y` up — so
+      `+X` is east, `+Y` is up, `+Z` is north. That triad *is* left-handed: geographic
+      East-North-Up is right-handed, and putting **up** between the two plane axes swaps a
+      pair. So the basis was never a choice this ADR got to make; it follows from ADR-001.
+   2. Direct3D is itself documented as left-handed, and the SDKs we are committed to agree:
+      every `LH`/`RH` pair in DirectXMath has an `LH` member, DirectXCollision's frustum
+      defaults to left-handed, D3D12's default rasteriser state matches left-handed winding,
+      and X3DAudio is left-handed with no option. Standardising on `LH` therefore means
+      **taking every default and writing no conversion anywhere**.
+
+   **The rule, concretely.** Wherever an SDK asks which handedness it is dealing with, the
+   answer is *left*:
+
+   | Where | The left-handed form |
+   |---|---|
+   | View / projection (DirectXMath) | `XMMatrixLookAtLH`, `XMMatrixOrthographicOffCenterLH` — and the `LH` member of every other pair, including the `Perspective*` ones if a second camera mode ever wants them |
+   | Rasteriser winding (D3D12) | front faces come out clockwise in NDC ⇒ `FrontCounterClockwise = FALSE`, which is D3D12's own default |
+   | Frustum culling (DirectXCollision, reserved) | `BoundingFrustum::CreateFromMatrix(…, rhcoords: false)` — also the default |
+   | 3D audio (X3DAudio, ADR-011) | native. Right-handed would mean negating `.z` on every listener and emitter `Position`, `Velocity`, `OrientFront` and `OrientTop`, on every update, forever |
+   | Derived geometry (mesh normals, overlay rings, formation ticks) | cross products follow the authored winding; `ObjMesh`'s missing-normal fallback is asserted against the corpus's authored normals rather than assumed |
+
+   The audio row is the one that pays for the rest. A right-handed tree owes X3DAudio a
+   negation pass on four fields of two structures every time the listener moves, and forgetting
+   it on one field is a sound arriving from the wrong side of the player — a bug that is
+   audible, intermittent, and almost impossible to attribute.
+
+   **How it was found**, recorded because the failure mode is invisible by inspection. This ADR
+   originally named the `RH` variants and nobody noticed, because an `RH` view matrix over a
+   left-handed world does not fail — it *mirrors*. With the camera south of the focus looking
+   north, east projected to the **left** of the screen: a map that reads backwards, in a game
+   whose whole interaction model is reading a map. It surfaced in slice S5 only by projecting a
+   viewport corner through the real matrices in a test. `NeuronClientTests`'
+   `EastIsOnTheRightOfTheScreen` is the guard that keeps it surfaced, and the rasteriser
+   winding above was measured against the shipped meshes rather than reasoned about, for the
+   same reason. Nothing about depth changes: `LH` clips to `[0,1]` exactly as `RH` does.
+
 4. **Elevation fixed at 30°**; this is normative because the corpus specifies selection rings
    as **2:1 plane ellipses** — an ortho ground circle projects at `sin(elevation)`, and
    `sin 30° = 0.5`. Yaw: free orbit about the focus point with 45° snap detents. Zoom:
@@ -47,8 +140,14 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
 ### Meshes & materials
 5. **Hand-rolled OBJ/MTL loader** in NeuronClient at boot (no external lib; format is ours).
    Faces sorted by material into **submesh ranges**; one static VB/IB per class (positions +
-   per-face normals as authored — vertices are already duplicated per face, so plain vertex
-   normals shade flat).
+   normals as authored — the exporter has already duplicated the corners that need it, so
+   plain vertex normals shade flat with no shader work).
+   *Measured, because the original wording claimed more than the content delivers:* the corpus
+   is **mostly** flat-shaded, not entirely. 152 of `Structure.obj`'s 1,784 faces carry a
+   different normal per corner, around a curved section, and a handful of faces in four other
+   meshes do the same. Nothing needs to change for this — the loader keys a vertex on
+   (position, normal), so a smooth corner simply becomes its own vertex and interpolates —
+   but "every face is flat" is not a property anything may rely on.
 6. **One opaque PSO.** Per-draw: instanced per ship class; per-instance data =
    `InstanceRecord{ XMFLOAT3 posWorld, float heading, u8 teamColorId, u8 selectionAndLodBias,
    u16 classId }` (field names deliberately match the corpus). Per-submesh root constants pick
@@ -66,6 +165,18 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
    polylines with per-leg ETA labels. Plane-lying geometry depth-tests against hulls
    (hard test + bias in MVP; soft SRV occlusion is the reserved DepthPre upgrade);
    screen-facing marks (bars, labels) never occlude.
+
+   **8a. The split ran where the geometry does, not where the feature does** (S9). The order
+   footprint and its station ticks are circles on the plane, which is exactly what (A) draws —
+   so they are (A) kinds, and the ghost got its ring and its one-tick-per-ship without a draw
+   list. What is genuinely (B) is the *polyline*: a dashed lane between two points is not a
+   quad around one, and a per-leg ETA label is text. Both go with the Ui pass (§10).
+
+   The mark kinds are numbered plane-lying-first with `FIRST_SCREEN_FACING` as the boundary,
+   because the pass already draws the array in two contiguous halves with different depth
+   state. Two orderings that had to agree became one that cannot disagree — and a ghost mark
+   appended past the split would be drawn in the half that never depth-tests, where a
+   footprint lying under a Carrier would refuse to be occluded by it.
 9. **Text = DirectWrite-baked glyph atlas** at boot (ASCII + box glyphs, one monospace face,
    2–3 sizes), rendered as instanced quads in the Ui pass. This keeps one graphics API in the
    frame. **Rejected:** D3D11On12/D2D interop — a second device, wrapped-resource sync, and
@@ -80,11 +191,36 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
     box-select = ship pos inside the screen rect's plane parallelogram. No GPU picking, no
     server round-trip. (Same plane point feeds the order puck — one code path.)
 
+    **11a. There is no ray** (S8, and it is the ortho camera's dividend rather than a shortcut).
+    The projection is orthographic and the world is a plane, so `PlaneMappingForNdc` is affine
+    and three `float2`s carry all of it: a pixel becomes a plane point by
+    `PixelsToNdc` then `NdcToPlane`, and picking is a distance test against circles. §2 fixed
+    the camera as ortho partly because "picking loses its uniform-direction ray" is what a
+    perspective camera costs; this is that cost never being paid.
+
+    "One code path" is now literal rather than aspirational — those two functions live in
+    `Picking.h` and box-select, point-pick and the order puck all call them. They were file-local
+    copies in two translation units first, which is exactly the arrangement where one of them
+    later gets a sign wrong.
+
+    Box-select needs the *inverse*, `PlaneToNdc`, because a drag rectangle is axis-aligned in
+    screen space and an arbitrary parallelogram on the plane — far easier to map ships into
+    screen space than four corners onto the plane. It is a hand-derived 2×2 inverse, which is
+    the kind of thing that reads correctly with one term's sign wrong, so it is asserted to
+    round-trip through the real view-projection rather than reviewed.
+
 ### Plumbing
 12. Two frames in flight; waitable swapchain (latency 1 waitable, 2 buffers min 3 recommended
     — use 3 buffers); per-frame command allocator + one direct list; linear upload ring for
     constants/instances; one shader-visible CBV/SRV heap (atlas + per-frame tables); root
-    signature: frame CBV, pass CBV, draw root constants, one SRV table. Debug layer on in dev;
+    signature: frame CBV, pass CBV, draw root constants, one SRV table.
+    **Shaders are compiled into the executable**, not loaded: `fxc` builds
+    `Outpost/Shaders/*.hlsl` as part of `Outpost.vcxproj` into byte arrays, and the composition
+    root hands them to `GpuPipelines` as spans (owner directive, 2026-08-18; ADR-013 §1a). This
+    project builds pipeline states and has no opinion about which shaders go in them — the
+    engine ships around a second game, and a shader is exactly what the two differ on
+    (ADR-014). One vertex and one pixel file per pass, with what both stages must agree about
+    in a shared `.hlsli`, because that agreement is the link between them. Debug layer on in dev;
     `tick/frame/extract` timings feed the Tier-1 counters strip (`debug-hud.png`). No MSAA in
     first slices; a 4× MSAA offscreen target + resolve is a listed polish slice (flat-shaded
     silhouettes alias hard, and it's cheap here).
@@ -103,8 +239,15 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
 
 ## Consequences
 
-- The whole MVP renderer is ~4 PSOs (opaque, overlay-instanced, overlay-polyline, ui/text) and
-  no compute — DX12 boilerplate risk is bounded to device/swapchain/upload plumbing (Risk R4).
+- The whole MVP renderer is ~5 PSOs (opaque, nebula, overlay-instanced, overlay-polyline,
+  ui/text) and no compute — DX12 boilerplate risk is bounded to device/swapchain/upload
+  plumbing (Risk R4).
+- The nebula's parameters are content (ADR-012), so retuning the look is a config edit and a
+  restart. Tint and intensity apply at draw time; resolution, octaves, coverage, contrast and
+  seed change the field and are re-baked at boot.
+- A `nebula` block that describes no field costs the frame its haze and nothing else: the pass
+  checks and draws nothing. A client that will not start because the art direction is
+  mistyped would be the wrong failure.
 - Extract (ADR-007) is the only bridge from net-thread world to GPU data; `InstanceRecord`
   is its output format, already shaped for the corpus's later GPU-culled path.
 - Camera/selection/overlay all assume the plane; if ADR-001 ever reopens, this ADR reopens.

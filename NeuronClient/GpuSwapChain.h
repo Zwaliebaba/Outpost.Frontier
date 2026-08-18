@@ -14,6 +14,12 @@
  * be an _SRGB one, so the buffers are R8G8B8A8_UNORM and the render target
  * view is the _SRGB variant -- which is what puts the shading in linear space
  * without a conversion pass.
+ *
+ * The depth buffer lives here too, and that is a deliberate choice rather than
+ * a convenience: it is the one other resource whose size is the swapchain's
+ * size, so a resize that recreated the back buffers and forgot the depth
+ * buffer would be a mismatched-extent error at the first draw. One owner, one
+ * Resize, one place to get it right.
  */
 
 namespace Neuron
@@ -53,6 +59,14 @@ public:
     return m_backBuffers[m_currentIndex].get();
   }
   [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE CurrentRenderTargetView() const noexcept;
+
+  /// D32_FLOAT, written by Opaque and read test-only by OverlayWorld (ADR-006 §2).
+  [[nodiscard]] D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView() const noexcept;
+  [[nodiscard]] ID3D12Resource* DepthBuffer() const noexcept
+  {
+    return m_depthBuffer.get();
+  }
+
   [[nodiscard]] std::uint32_t Width() const noexcept
   {
     return m_width;
@@ -65,11 +79,14 @@ public:
 private:
   void CreateRenderTargets();
   void ReleaseRenderTargets();
+  void CreateDepthBuffer();
 
   GpuDevice* m_device = nullptr;
   GpuPtr<IDXGISwapChain3> m_swapChain;
   GpuPtr<ID3D12DescriptorHeap> m_rtvHeap;
+  GpuPtr<ID3D12DescriptorHeap> m_dsvHeap;
   GpuPtr<ID3D12Resource> m_backBuffers[BUFFER_COUNT];
+  GpuPtr<ID3D12Resource> m_depthBuffer;
   HANDLE m_frameLatencyWaitable = nullptr;
   std::uint32_t m_rtvStride = 0;
   std::uint32_t m_currentIndex = 0;

@@ -1,0 +1,10 @@
+# fxc writes one header per shader stage here as part of building Outpost.exe
+# (see Outpost.vcxproj). They are build output: the source is the .hlsl files in
+# Outpost/Shaders, and a checked-in copy would be a second answer to what the
+# shaders compile to, free to disagree with the first.
+#
+# This file is here so a fresh clone has the directory. The project also creates
+# it (EnsureCompiledShaderDirectory), because a clone is not the only way the
+# build starts.
+*.h
+*.cso

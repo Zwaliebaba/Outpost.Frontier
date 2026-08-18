@@ -19,8 +19,19 @@ struct ClearColour
   float alpha = 1.0f;
 };
 
-/// Slow breathing between two near-black blues -- proof the loop is running
-/// without pretending to be art (the real look arrives with ADR-006's passes).
-[[nodiscard]] ClearColour AnimatedClearColour(double _seconds) noexcept;
+/*
+ * Near-black, faintly blue, and the same every frame.
+ *
+ * This replaced `AnimatedClearColour`, which breathed between two blues so that
+ * slice S1 could prove the loop was running when nothing else was on screen.
+ * There is a fleet and a nebula on screen now, and a background that changes on
+ * its own is a background competing with them.
+ *
+ * The values are linear -- the RTV is `_SRGB`, so the hardware encodes them --
+ * and they are deliberately not configurable. What the eye reads as the colour
+ * of space here is the nebula, and that *is* configurable; this is the absence
+ * of light behind it, which is not an art decision anyone needs to retune.
+ */
+[[nodiscard]] ClearColour SpaceClearColour() noexcept;
 
 } // namespace Neuron

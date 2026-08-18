@@ -37,4 +37,20 @@ struct ConfigPaths
 
 [[nodiscard]] bool ReadTextFile(const std::string& _path, std::string& _outText);
 
+/*
+ * A configured content path, made absolute: as given if it exists, otherwise
+ * the same path beside the executable. Empty if it is in neither place.
+ *
+ * The rule is the base config's, deliberately (ADR-012 §A2) -- content and
+ * configuration must never be found by different rules, or a build that starts
+ * is not evidence that it will find its meshes. Accepts directories as well as
+ * files, because `content.meshDirectory` is one.
+ *
+ * This exists because the working directory is a real variable: launching from
+ * the project folder rather than from beside the executable is what Visual
+ * Studio does by default, and a relative path handed straight to the engine
+ * fails there while everything resolved through here keeps working.
+ */
+[[nodiscard]] std::string ResolveContentPath(const std::string& _path);
+
 } // namespace Outpost

@@ -3,6 +3,7 @@
 #include "EntityRecord.h"
 
 #include <cmath>
+#include <limits>
 #include <numbers>
 
 namespace Neuron
@@ -66,7 +67,35 @@ std::uint16_t RadiansToHeading(float _radians) noexcept
 std::int32_t MetresToCentimetres(float _metres) noexcept
 {
   const float centimetres = _metres * 100.0f;
-  return static_cast<std::int32_t>(centimetres >= 0.0f ? centimetres + 0.5f : centimetres - 0.5f);
+  const float rounded = centimetres >= 0.0f ? centimetres + 0.5f : centimetres - 0.5f;
+
+  /*
+   * Saturated, not cast straight through.
+   *
+   * Converting a float outside `int32`'s range is undefined behaviour, and on
+   * the machines that do not trap it the value that comes back is wrapped: a
+   * target 10,000,000 km east arriving as one somewhere west, which the bounds
+   * check would then wave through because the number it sees is small. That is
+   * reachable from any client that sends a large coordinate, which makes it a
+   * validation hole rather than a rounding curiosity.
+   *
+   * The bound is the largest float strictly below 2^31; the values between it
+   * and INT32_MAX are not representable as floats at all.
+   */
+  constexpr float LOWEST = -2147483648.0f;
+  constexpr float HIGHEST = 2147483520.0f;
+  if (!(rounded > LOWEST))
+  {
+    // NaN lands here too, every comparison against it being false. INT32_MIN is
+    // far outside any play area, so a NaN position is refused rather than
+    // quietly becoming the origin.
+    return std::numeric_limits<std::int32_t>::min();
+  }
+  if (rounded >= HIGHEST)
+  {
+    return std::numeric_limits<std::int32_t>::max();
+  }
+  return static_cast<std::int32_t>(rounded);
 }
 
 float CentimetresToMetres(std::int32_t _centimetres) noexcept

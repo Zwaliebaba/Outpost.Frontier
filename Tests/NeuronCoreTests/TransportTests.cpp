@@ -210,8 +210,15 @@ public:
     std::array<std::uint8_t, 512> buffer{};
     ByteWriter writer{buffer};
 
+    // The anchor is deliberately a large negative value: the universe plane is
+    // signed and runs to +/-9.2e18 metres (ADR-009 §1), so a field that was
+    // narrowed or made unsigned anywhere along the way folds here rather than
+    // in a session where a world quietly renders in the wrong place.
+    constexpr std::int64_t ANCHOR_X = -4611686018427387904ll;
+    constexpr std::int64_t ANCHOR_Y = 9223372036854775807ll;
+
     WriteWireType(writer, WireType::Welcome);
-    Write(writer, Welcome{7, 1234, 20, 0xaaaa, 0xbbbb});
+    Write(writer, Welcome{7, 1234, 20, 0xaaaa, 0xbbbb, 9, ANCHOR_X, ANCHOR_Y});
 
     ByteReader reader{writer.Written()};
     Assert::IsTrue(ReadWireType(reader) == WireType::Welcome);
@@ -222,7 +229,60 @@ public:
     Assert::AreEqual<std::uint32_t>(1234, welcome.tick);
     Assert::AreEqual<std::uint16_t>(20, welcome.tickRate);
     Assert::AreEqual<std::uint64_t>(0xaaaa, welcome.schemaHash);
+    Assert::AreEqual<std::uint64_t>(0xbbbb, welcome.contentHash);
+    Assert::AreEqual<std::uint16_t>(9, welcome.worldId);
+    Assert::AreEqual(ANCHOR_X, welcome.anchorX);
+    Assert::AreEqual(ANCHOR_Y, welcome.anchorY);
     Assert::IsTrue(reader.FullyConsumed());
+  }
+
+  TEST_METHOD(AnOrderAckCarriesTheVerdictAndBothIdentities)
+  {
+    /*
+     * Two identities on purpose (ADR-004 §7). `orderSeq` is the client's own
+     * counter and the only field it can match a ghost on before anything comes
+     * back; `serverOrderId` is what the authority assigned and what the
+     * snapshot's order records are keyed by afterwards. A refusal carries the
+     * sequence and a zero id, because nothing was given one.
+     */
+    std::array<std::uint8_t, 64> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::OrderAck);
+    Write(writer, OrderAck{4242, 77, 5, 1});
+
+    ByteReader reader{writer.Written()};
+    Assert::IsTrue(ReadWireType(reader) == WireType::OrderAck);
+
+    OrderAck ack;
+    Assert::IsTrue(Read(reader, ack));
+    Assert::AreEqual<std::uint32_t>(4242, ack.orderSeq);
+    Assert::AreEqual<std::uint32_t>(77, ack.serverOrderId);
+    Assert::AreEqual<std::uint16_t>(5, ack.reasonCode);
+    Assert::AreEqual<std::uint8_t>(1, ack.accepted);
+    Assert::IsTrue(reader.FullyConsumed());
+
+    // A refusal: the sequence survives, the id is zero, and the reason is the
+    // game's number passed through unread.
+    ByteWriter refusal{buffer};
+    WriteWireType(refusal, WireType::OrderAck);
+    Write(refusal, OrderAck{9, 0, 3, 0});
+    ByteReader back{refusal.Written()};
+    (void)ReadWireType(back);
+    OrderAck refused;
+    Assert::IsTrue(Read(back, refused));
+    Assert::AreEqual<std::uint32_t>(9, refused.orderSeq);
+    Assert::AreEqual<std::uint32_t>(0, refused.serverOrderId);
+    Assert::AreEqual<std::uint8_t>(0, refused.accepted);
+  }
+
+  TEST_METHOD(TheOrderTypeWordsAreFixedNumbers)
+  {
+    // Two builds disagreeing about which number means "order" is a wire break
+    // that no schema hash over field names would catch, which is why the type
+    // words are in `CORE_SCHEMA_TEXT` and asserted here.
+    Assert::AreEqual<std::uint16_t>(9, static_cast<std::uint16_t>(WireType::OrderSubmit));
+    Assert::AreEqual<std::uint16_t>(10, static_cast<std::uint16_t>(WireType::OrderAck));
+    Assert::AreEqual<std::uint16_t>(8, static_cast<std::uint16_t>(WireType::Snapshot));
   }
 
   TEST_METHOD(PingEchoesTheClientsOwnTimestamp)

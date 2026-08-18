@@ -5,6 +5,18 @@
   "logging": { "level": "info", "file": "Outpost.log" },
   "universe": { "definition": "GameData/Universe/Frontier.json" },
 
+  // The mesh order is the classId order the renderer draws with: ships from
+  // smallest to largest, then the structure. Nothing in the engine knows which
+  // is which -- that is the point (ADR-014).
+  "content": {
+    "meshDirectory": "GameData/Meshes",
+    "meshes": [
+      "Interceptor.obj", "Bomber.obj", "Corvette.obj", "Frigate.obj",
+      "Hauler.obj", "Miner.obj", "Carrier.obj", "Battleship.obj",
+      "Structure.obj"
+    ]
+  },
+
   "server": {
     "port": 7777,
     "maxSessions": 8
@@ -15,7 +27,17 @@
     "window":   { "width": 1600, "height": 900, "mode": "windowed" },
     "renderer": { "vsync": true, "msaa": 4, "frameCap": 0 },
     "camera":   { "zoomMetres": 8000, "yawSnapDegrees": 45 },
+
+    // The ambient field the fleet sits inside. Every number here is art
+    // direction, which is why it is content: the tint and intensity are applied
+    // when the pass draws, so recolouring costs a restart, while resolution,
+    // octaves, coverage, contrast and seed change the field itself and are
+    // re-baked at boot. `coverage` is how much of the tile is pushed to black --
+    // raise it for emptier space.
+    "nebula":   { "tintRed": 0.06, "tintGreen": 0.22, "tintBlue": 0.10, "intensity": 0.35,
+                  "tileMetres": 96000, "resolution": 256, "octaves": 4,
+                  "coverage": 0.55, "contrast": 2.0, "seed": 1 },
     "audio":    { "master": 1.0, "world": 1.0, "ui": 0.8, "music": 0.6, "alerts": 1.0, "ambience": 0.7 },
-    "ui":       { "scale": 1.0, "palette": "default" }
+    "ui":       { "scale": 1.0, "palette": "default", "font": "Consolas" }
   }
 }

@@ -29,6 +29,9 @@
     <ClCompile Include="EntityRecord.cpp">
       <Filter>Serialization</Filter>
     </ClCompile>
+    <ClCompile Include="FileSys.cpp">
+      <Filter>Foundation</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -80,8 +83,15 @@
     <ClInclude Include="EntityRecord.h">
       <Filter>Serialization</Filter>
     </ClInclude>
+    <ClInclude Include="OrderIntent.h">
+      <Filter>Serialization</Filter>
+    </ClInclude>
     <ClInclude Include="NeuronCore.h" />
     <ClInclude Include="Debug.h" />
+    <ClInclude Include="FileSys.h">
+      <Filter>Foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="NeuronHelper.h" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Foundation">

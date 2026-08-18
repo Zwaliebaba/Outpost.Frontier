@@ -3,10 +3,26 @@
 #include "ClearColour.h"
 #include "ClientConfig.h"
 #include "ClientConnection.h"
+#include "GlyphAtlas.h"
 #include "GpuCom.h"
 #include "GpuDevice.h"
+#include "GpuMeshes.h"
+#include "GpuNebula.h"
+#include "GpuPasses.h"
+#include "GpuPipelines.h"
 #include "GpuSwapChain.h"
+#include "GpuUploadRing.h"
+#include "InputMap.h"
+#include "IsoCamera.h"
+#include "OrderGhost.h"
+#include "OrderPuck.h"
+#include "OverlayMark.h"
+#include "RenderWorld.h"
+#include "Selection.h"
+#include "SnapshotBuffer.h"
+#include "TaskPool.h"
 #include "Window.h"
+#include "WorldView.h"
 
 #include <cstdint>
 
@@ -14,10 +30,21 @@
  * The client (ADR-007 §1): window, device and frame loop, all on the thread
  * that pumps messages.
  *
- * Slice S1 renders a clear colour and nothing else. The stages the debug HUD
- * reports -- GAME, EXTRACT, RENDER, UI -- arrive with the world; what exists
- * here is the loop they will hang from, and the seam ADR-014 defined
- * (a WorldView handed in by the composition root) lands in S5c.
+ * The frame is the corpus's stage list, and from slice S5 every stage it has
+ * is named and measured: NET, GAME, EXTRACT, RENDER, and a UI stage that is
+ * declared and empty until S11 gives it something to draw. The debug HUD reads
+ * those rows straight out of the telemetry lanes (ADR-007 §8), so the stage
+ * boundaries have to exist before the HUD does -- retrofitting a measurement
+ * means retrofitting the boundary it measures.
+ *
+ * From S5c the world arrives through `Neuron::WorldView`, injected by the
+ * composition root. This class no longer invents a scene, holds one, or knows
+ * what is in it: it asks for one per frame and draws what it gets. The parked
+ * fleet still exists, but it is on the other side of the seam now -- which is
+ * the difference between a placeholder the engine ships and a placeholder the
+ * game supplies. S7 replaced the implementation and nothing here changed, which
+ * was the point of the seam. Shaders now arrive the same way, as compiled bytes
+ * rather than a directory to go looking in.
  */
 
 namespace Neuron
@@ -32,7 +59,18 @@ public:
   ClientApp(const ClientApp&) = delete;
   ClientApp& operator=(const ClientApp&) = delete;
 
-  [[nodiscard]] bool Initialise(const ClientConfig& _config);
+  /*
+   * The world view is borrowed, not owned, and must outlive the client -- the
+   * same contract `ServerHost::Start` has with its simulation. The composition
+   * root owns both (ADR-008).
+   *
+   * `_shaders` is borrowed on the same terms and for the same reason: the
+   * engine has no opinion about which shaders a game draws with, so the
+   * composition root supplies the compiled bytes. In practice they are byte
+   * arrays with static storage duration, so outliving the client costs the
+   * caller nothing.
+   */
+  [[nodiscard]] bool Initialise(const ClientConfig& _config, const PipelineShaders& _shaders, WorldView& _worldView);
 
   /// Runs until the window closes. Returns a process exit code.
   [[nodiscard]] int Run();
@@ -41,21 +79,99 @@ public:
 
 private:
   void CreateFrameResources();
+  [[nodiscard]] bool CreateContent();
   void PollNetwork();
+  void UpdateCamera(float _deltaSeconds);
+  void UpdateSelection();
+  void UpdateOrders();
+  void CommitOrder(const PuckSample& _sample, double _nowSeconds);
+  void ExtractScene();
   void RenderFrame();
   void HandleResize();
 
+  [[nodiscard]] FrameConstants BuildFrameConstants() const;
+  [[nodiscard]] PassConstants BuildPassConstants() const;
+
   ClientConfig m_config;
+  /// Copied, but the spans inside still point at the caller's arrays.
+  PipelineShaders m_shaders;
+  WorldView* m_worldView = nullptr;
   Window m_window;
   ClientConnection m_connection;
   GpuDevice m_device;
   GpuSwapChain m_swapChain;
+
+  /// Boot only (ADR-007 §4): mesh parsing and the glyph bake. It is started
+  /// before the content load and stopped straight after, so it cannot quietly
+  /// become a frame-time pool.
+  TaskPool m_taskPool;
+
+  GpuPipelines m_pipelines;
+  GpuMeshTable m_meshes;
+  GlyphAtlas m_glyphAtlas;
+  GpuNebula m_nebula;
+  GpuUploadRing m_uploadRing;
+  GpuPassList m_passes;
+
+  /// The one shader-visible CBV/SRV heap (ADR-006 §12). The atlas takes slot 0
+  /// and the nebula field slot 1 -- t0 and t1 in the root signature's table --
+  /// with the per-frame tables the later passes need taking the rest.
+  GpuPtr<ID3D12DescriptorHeap> m_srvHeap;
+  D3D12_GPU_DESCRIPTOR_HANDLE m_textureTable{};
+
+  /// Turns snapshot arrivals into a smooth render tick (ADR-002 §4). The one
+  /// place the client decides *when* it is looking at; what the world looks
+  /// like at that instant is the world view's answer.
+  SnapshotBuffer m_snapshots;
+
+  IsoCamera m_camera;
+  CameraTuning m_cameraTuning;
+  RenderScene m_scene;
+
+  /// This frame's input, kept between `UpdateCamera` (which consumes it from
+  /// the window) and `UpdateSelection` (which needs the same edges).
+  InputFrame m_input;
+
+  /// Which ships the player has, and the drag that changes it (ADR-006 §11).
+  /// Client-only and never sent: the server learns what was selected only when
+  /// an order names it.
+  Selection m_selection;
+
+  /// The right-drag that turns the selection into a command, and the promises
+  /// made on the server's behalf until it answers (`puck-and-wheel.png` §2, §4).
+  OrderPuck m_puck;
+  OrderGhostList m_ghosts;
+
+  /// Reused across frames, like the scene: polled every frame and thrown away.
+  OrderFeedback m_orderFeedback;
+  OrderPreview m_orderPreview;
+
+  /// What kind of order the puck makes, asked of the game once at boot. It
+  /// cannot change while a build runs -- there is one command until the wheel
+  /// exists -- so asking per order would be asking the same question forever.
+  OrderDefaults m_orderDefaults;
+
+  /*
+   * The client's order counter, which the ack matches a ghost on.
+   *
+   * From 1, because zero means "not sent" everywhere it appears (`OrderIntent`,
+   * `OrderVerdict`, the snapshot's high-water mark). Monotonic and never
+   * reused; a locally refused order consumes one anyway, so a gap in the
+   * sequence the server sees is normal and means nothing.
+   */
+  std::uint32_t m_nextOrderSeq = 1;
+
+  /// What the selection looks like: rings and gauge bars, rebuilt each frame
+  /// from the selection and the scene, and reused rather than reallocated.
+  OverlayMarkList m_overlayMarks;
+  OverlayTuning m_overlayTuning;
 
   GpuPtr<ID3D12CommandAllocator> m_commandAllocators[GpuSwapChain::BUFFER_COUNT];
   GpuPtr<ID3D12GraphicsCommandList> m_commandList;
   std::uint64_t m_frameFenceValues[GpuSwapChain::BUFFER_COUNT] = {};
 
   std::uint64_t m_frameCount = 0;
+  std::int64_t m_lastFrameCounter = 0;
   std::int64_t m_lastNetLogCounter = 0;
   bool m_initialised = false;
 };

@@ -86,6 +86,29 @@ overhead anyway.
      `QueueFull` (the strategic-map sheet's "client feeds one jump at a time" pattern relies on
      this being cheap and honest).
 
+7a. **The case "whichever first" does not cover** (S9). A snapshot can pass a ghost's sequence
+   in `lastOrderSeqProcessed` while listing no record for it — order records exist only while
+   an order does, so the order either **finished** or was **refused with the ack still in
+   flight**, and from the snapshot alone those are the same picture. Retiring on the spot makes
+   a refusal vanish with no bounce, which `puck-and-wheel.png` §4 calls indistinguishable from
+   a dropped packet.
+
+   So a still-PENDING ghost in that state waits half a second for its ack before retiring. The
+   window normally never opens: the ack is on the **control** channel and the snapshot is not,
+   so the ack arrives first unless a lost datagram puts it behind its own resend. This is also
+   the concrete reason the ack is reliable rather than riding the snapshot — a lost refusal
+   leaves a promise on screen that no later snapshot can correct.
+
+   A ghost nobody ever answers is dropped after five seconds and **counted**, not bounced.
+   There is no reason code for "the link died", and borrowing one would put a word in the
+   game's mouth; the §4 rule is about refusals, which always carry a reason.
+
+7b. **`orderSeq` travels out of the game to come back** (S9). The ack echoes the client's
+   sequence, which lives *inside* the payload the engine frames and never parses (ruling 4). An
+   engine that dug four bytes out of it to fill in the ack would have started reading game
+   semantics for the sake of one field — so `Neuron::OrderVerdict` carries `orderSeq` back out
+   of the game instead. The game already parsed it; the engine echoes what it is handed.
+
 ## Alternatives rejected
 
 - **Generated serialization (protobuf/flatbuffers/custom codegen)** — external-library policy,

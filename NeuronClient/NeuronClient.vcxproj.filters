@@ -20,6 +20,57 @@
     <ClCompile Include="GpuSwapChain.cpp">
       <Filter>Gpu</Filter>
     </ClCompile>
+    <ClCompile Include="GlyphAtlas.cpp">
+      <Filter>Assets</Filter>
+    </ClCompile>
+    <ClCompile Include="GpuMeshes.cpp">
+      <Filter>Gpu</Filter>
+    </ClCompile>
+    <ClCompile Include="GpuNebula.cpp">
+      <Filter>Gpu</Filter>
+    </ClCompile>
+    <ClCompile Include="GpuPasses.cpp">
+      <Filter>Gpu\Passes</Filter>
+    </ClCompile>
+    <ClCompile Include="GpuPipelines.cpp">
+      <Filter>Gpu</Filter>
+    </ClCompile>
+    <ClCompile Include="GpuUploadRing.cpp">
+      <Filter>Gpu</Filter>
+    </ClCompile>
+    <ClCompile Include="InputMap.cpp">
+      <Filter>Input</Filter>
+    </ClCompile>
+    <ClCompile Include="IsoCamera.cpp">
+      <Filter>Camera</Filter>
+    </ClCompile>
+    <ClCompile Include="NebulaField.cpp">
+      <Filter>Assets</Filter>
+    </ClCompile>
+    <ClCompile Include="Picking.cpp">
+      <Filter>Input</Filter>
+    </ClCompile>
+    <ClCompile Include="OrderPuck.cpp">
+      <Filter>Input</Filter>
+    </ClCompile>
+    <ClCompile Include="OrderGhost.cpp">
+      <Filter>Extract</Filter>
+    </ClCompile>
+    <ClCompile Include="Selection.cpp">
+      <Filter>Input</Filter>
+    </ClCompile>
+    <ClCompile Include="OverlayMark.cpp">
+      <Filter>Extract</Filter>
+    </ClCompile>
+    <ClCompile Include="ObjMesh.cpp">
+      <Filter>Assets</Filter>
+    </ClCompile>
+    <ClCompile Include="RenderWorld.cpp">
+      <Filter>Extract</Filter>
+    </ClCompile>
+    <ClCompile Include="SnapshotBuffer.cpp">
+      <Filter>Extract</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -35,6 +86,12 @@
     <ClInclude Include="ClientConfig.h">
       <Filter>App</Filter>
     </ClInclude>
+    <ClInclude Include="WorldView.h">
+      <Filter>App</Filter>
+    </ClInclude>
+    <ClInclude Include="SnapshotBuffer.h">
+      <Filter>Extract</Filter>
+    </ClInclude>
     <ClInclude Include="Window.h">
       <Filter>App</Filter>
     </ClInclude>
@@ -47,6 +104,54 @@
     <ClInclude Include="GpuSwapChain.h">
       <Filter>Gpu</Filter>
     </ClInclude>
+    <ClInclude Include="GlyphAtlas.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="GpuMeshes.h">
+      <Filter>Gpu</Filter>
+    </ClInclude>
+    <ClInclude Include="GpuNebula.h">
+      <Filter>Gpu</Filter>
+    </ClInclude>
+    <ClInclude Include="GpuPasses.h">
+      <Filter>Gpu\Passes</Filter>
+    </ClInclude>
+    <ClInclude Include="GpuPipelines.h">
+      <Filter>Gpu</Filter>
+    </ClInclude>
+    <ClInclude Include="GpuUploadRing.h">
+      <Filter>Gpu</Filter>
+    </ClInclude>
+    <ClInclude Include="InputMap.h">
+      <Filter>Input</Filter>
+    </ClInclude>
+    <ClInclude Include="IsoCamera.h">
+      <Filter>Camera</Filter>
+    </ClInclude>
+    <ClInclude Include="NebulaField.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="Picking.h">
+      <Filter>Input</Filter>
+    </ClInclude>
+    <ClInclude Include="OrderPuck.h">
+      <Filter>Input</Filter>
+    </ClInclude>
+    <ClInclude Include="OrderGhost.h">
+      <Filter>Extract</Filter>
+    </ClInclude>
+    <ClInclude Include="Selection.h">
+      <Filter>Input</Filter>
+    </ClInclude>
+    <ClInclude Include="OverlayMark.h">
+      <Filter>Extract</Filter>
+    </ClInclude>
+    <ClInclude Include="ObjMesh.h">
+      <Filter>Assets</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderWorld.h">
+      <Filter>Extract</Filter>
+    </ClInclude>
     <ClInclude Include="NeuronClient.h" />
     <ClInclude Include="DirectXHelper.h" />
   </ItemGroup>
@@ -56,6 +161,21 @@
     </Filter>
     <Filter Include="Gpu">
       <UniqueIdentifier>{806ef438-7fec-40ef-b419-96b0e5ddb4e8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Extract">
+      <UniqueIdentifier>{a2f4b0c1-6d3e-4b7a-9c58-1e0f2a7d4b31}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Assets">
+      <UniqueIdentifier>{c73d5e28-8b41-4f96-a0d7-52c9e6b13f84}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Camera">
+      <UniqueIdentifier>{4e91a7c6-2fb8-4d05-8e3a-6b7c0d19f52e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Input">
+      <UniqueIdentifier>{9b06c3d7-51e4-4a28-b7f9-3d8e0a4c61b7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Gpu\Passes">
+      <UniqueIdentifier>{f18a4d92-7c60-4e3b-95ad-0b26c8e7f341}</UniqueIdentifier>
     </Filter>
     <Filter Include="Project Files">
       <UniqueIdentifier>{94ec7fe9-4de9-4296-9b13-285350279a6b}</UniqueIdentifier>

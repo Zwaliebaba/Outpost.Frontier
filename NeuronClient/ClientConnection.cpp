@@ -92,6 +92,33 @@ void ClientConnection::SendPing()
   ++m_pingCount;
 }
 
+bool ClientConnection::SendOrder(std::span<const std::uint8_t> _payload)
+{
+  if (m_state != ClientLinkState::Joined || m_transport == nullptr || _payload.empty())
+  {
+    return false;
+  }
+
+  std::array<std::uint8_t, MAX_DATAGRAM_BYTES> buffer{};
+  ByteWriter writer{buffer};
+  WriteWireType(writer, WireType::OrderSubmit);
+  writer.WriteBytes(_payload.data(), _payload.size());
+  if (!writer.Ok())
+  {
+    // Longer than a datagram. The game's own cap makes this unreachable for an
+    // order it would build, so reaching it means a payload from somewhere else
+    // -- and a truncated order is worse than none.
+    return false;
+  }
+
+  if (!m_transport->Send(m_connection, TransportChannel::Control, writer.Written()))
+  {
+    return false;
+  }
+  ++m_orderSendCount;
+  return true;
+}
+
 TransportStats ClientConnection::Stats() const
 {
   return m_transport == nullptr ? TransportStats{} : m_transport->Stats(m_connection);
@@ -130,9 +157,14 @@ void ClientConnection::HandleMessage(const TransportEvent& _event)
     m_clientId = welcome.clientId;
     m_serverTick = welcome.tick;
     m_serverTickRate = welcome.tickRate;
+    m_worldId = welcome.worldId;
+    m_anchorX = welcome.anchorX;
+    m_anchorY = welcome.anchorY;
     m_state = ClientLinkState::Joined;
     m_lastStatsCounter = Clock::Counter(); // The first NET line is due a full interval after joining.
     NEURON_LOG_INFO("joined as client %u (server at tick %u, %u Hz)", m_clientId, m_serverTick, static_cast<unsigned>(m_serverTickRate));
+    NEURON_LOG_INFO("world %u anchored at (%lld, %lld)", static_cast<unsigned>(m_worldId), static_cast<long long>(m_anchorX),
+                    static_cast<long long>(m_anchorY));
     return;
   }
 
@@ -146,6 +178,50 @@ void ClientConnection::HandleMessage(const TransportEvent& _event)
                      static_cast<unsigned long long>(update.serverSchemaHash), static_cast<unsigned long long>(update.serverContentHash),
                      static_cast<unsigned long long>(m_schemaHash), static_cast<unsigned long long>(m_contentHash));
     m_state = ClientLinkState::Rejected;
+    return;
+  }
+
+  case WireType::Snapshot:
+  {
+    // Everything after the type word is the game's, byte for byte. The
+    // connection's whole job here is to not touch it.
+    const std::span<const std::uint8_t> payload = reader.Remaining();
+    if (payload.empty())
+    {
+      return;
+    }
+
+    ++m_snapshotCount;
+    if (m_pendingSnapshots.size() >= MAX_PENDING_SNAPSHOTS)
+    {
+      // Drop the oldest. Full snapshots supersede each other (ADR-004 §6), so
+      // the freshest is the one worth keeping when the frame loop is behind.
+      m_pendingSnapshots.erase(m_pendingSnapshots.begin());
+      ++m_snapshotOverflowCount;
+    }
+    m_pendingSnapshots.emplace_back(payload.begin(), payload.end());
+    return;
+  }
+
+  case WireType::OrderAck:
+  {
+    OrderAck ack;
+    if (!Read(reader, ack))
+    {
+      return;
+    }
+    ++m_orderAckCount;
+
+    // Straight into `OrderVerdict`, which is the type both seams speak
+    // (OrderIntent.h): the same four numbers the client's own pre-check
+    // produces, so a ghost cannot tell where its answer came from. The reason
+    // code is the game's and is copied without being read.
+    OrderVerdict verdict;
+    verdict.accepted = ack.accepted != 0;
+    verdict.reasonCode = ack.reasonCode;
+    verdict.serverOrderId = ack.serverOrderId;
+    verdict.orderSeq = ack.orderSeq;
+    m_pendingVerdicts.push_back(verdict);
     return;
   }
 
@@ -262,6 +338,12 @@ void ClientConnection::Disconnect()
   m_transport.reset();
   m_connection = INVALID_CONNECTION;
   m_state = ClientLinkState::Disconnected;
+
+  // Undelivered promises die with the link. A verdict drained after a
+  // reconnect would be answering an order the new session never heard, and the
+  // sequence numbers restart, so it could match the wrong ghost outright.
+  m_pendingVerdicts.clear();
+  m_pendingSnapshots.clear();
 }
 
 } // namespace Neuron
