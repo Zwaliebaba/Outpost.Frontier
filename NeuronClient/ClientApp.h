@@ -38,7 +38,9 @@
  * what is in it: it asks for one per frame and draws what it gets. The parked
  * fleet still exists, but it is on the other side of the seam now -- which is
  * the difference between a placeholder the engine ships and a placeholder the
- * game supplies. S7 replaces the implementation and nothing here changes.
+ * game supplies. S7 replaced the implementation and nothing here changed, which
+ * was the point of the seam. Shaders now arrive the same way, as compiled bytes
+ * rather than a directory to go looking in.
  */
 
 namespace Neuron
@@ -53,10 +55,18 @@ public:
   ClientApp(const ClientApp&) = delete;
   ClientApp& operator=(const ClientApp&) = delete;
 
-  /// The world view is borrowed, not owned, and must outlive the client --
-  /// the same contract `ServerHost::Start` has with its simulation. The
-  /// composition root owns both (ADR-008).
-  [[nodiscard]] bool Initialise(const ClientConfig& _config, WorldView& _worldView);
+  /*
+   * The world view is borrowed, not owned, and must outlive the client -- the
+   * same contract `ServerHost::Start` has with its simulation. The composition
+   * root owns both (ADR-008).
+   *
+   * `_shaders` is borrowed on the same terms and for the same reason: the
+   * engine has no opinion about which shaders a game draws with, so the
+   * composition root supplies the compiled bytes. In practice they are byte
+   * arrays with static storage duration, so outliving the client costs the
+   * caller nothing.
+   */
+  [[nodiscard]] bool Initialise(const ClientConfig& _config, const PipelineShaders& _shaders, WorldView& _worldView);
 
   /// Runs until the window closes. Returns a process exit code.
   [[nodiscard]] int Run();
@@ -76,6 +86,8 @@ private:
   [[nodiscard]] PassConstants BuildPassConstants() const;
 
   ClientConfig m_config;
+  /// Copied, but the spans inside still point at the caller's arrays.
+  PipelineShaders m_shaders;
   WorldView* m_worldView = nullptr;
   Window m_window;
   ClientConnection m_connection;

@@ -11,12 +11,35 @@
       <UniqueIdentifier>{5f83fdad-674d-492b-8102-e14c89b3a2c4}</UniqueIdentifier>
     </Filter>
     <Filter Include="Shaders">
-      <UniqueIdentifier>{73249d42-f4d6-4494-8e1d-a8b317b4a698}</UniqueIdentifier>
+      <UniqueIdentifier>{6f1b7c4e-2a55-4d1f-9c73-8b0d2e6a41c9}</UniqueIdentifier>
     </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="Shaders\OpaqueVS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\OpaquePS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\NebulaVS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\NebulaPS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config">
       <Filter>Project Files</Filter>
+    </None>
+    <None Include="Shaders\Opaque.hlsli">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="Shaders\Nebula.hlsli">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="Shaders\PassConstants.hlsli">
+      <Filter>Shaders</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>
@@ -36,6 +59,9 @@
     <ClCompile Include="ReplicatedWorldView.cpp">
       <Filter>Boot</Filter>
     </ClCompile>
+    <ClCompile Include="ShaderTable.cpp">
+      <Filter>Shaders</Filter>
+    </ClCompile>
     <ClCompile Include="UniverseLoad.cpp">
       <Filter>Config</Filter>
     </ClCompile>
@@ -53,6 +79,9 @@
     </ClInclude>
     <ClInclude Include="ReplicatedWorldView.h">
       <Filter>Boot</Filter>
+    </ClInclude>
+    <ClInclude Include="ShaderTable.h">
+      <Filter>Shaders</Filter>
     </ClInclude>
     <ClInclude Include="UniverseLoad.h">
       <Filter>Config</Filter>

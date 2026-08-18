@@ -35,13 +35,16 @@ struct ClientConfig
    * business (ADR-013 §6) -- but it is told where they are and never goes
    * looking, and it is told which meshes to load rather than deciding.
    *
+   * Shaders are not here. They are compiled into the executable and handed to
+   * `ClientApp::Initialise` as bytes, so there is no path to configure and no
+   * way to point a build at a shader it was not built with.
+   *
    * `meshFiles` is ordered, and the index is the classId that `InstanceRecord`
    * carries. The engine has no opinion about which index is a Carrier; the
    * composition root supplies the list, because the composition root is the
    * only thing that knows the game (ADR-014).
    */
   std::string meshDirectory = "GameData/Meshes";
-  std::string shaderDirectory = "GameData/Shaders";
   std::vector<std::string> meshFiles;
   std::string fontFamily = "Consolas";
 

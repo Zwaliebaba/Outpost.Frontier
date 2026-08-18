@@ -7,8 +7,7 @@
 #include <DirectXMath.h>
 
 #include <cstdint>
-#include <string>
-#include <string_view>
+#include <span>
 
 /*
  * Root signature, shaders and pipeline states (ADR-006 §12).
@@ -19,10 +18,19 @@
  * would mean rebinding descriptor tables at every pass boundary for no gain at
  * this size.
  *
- * Shaders are HLSL under GameData/Shaders and are compiled at boot. They are
- * content, like the meshes and the universe file: a shader edit is a restart,
- * not a rebuild, and a compile error is a diagnostic with the file and line in
- * it rather than a build break in a project nobody was touching.
+ * Shaders arrive compiled, as bytes, from the composition root. This project
+ * does not read them, name them or know where they came from -- the same
+ * arrangement `WorldView` gave the world in S5c, for the same reason: the
+ * engine ships around a second game (ADR-014), and a hard-coded shader path is
+ * a game-shaped fact.
+ *
+ * They used to be HLSL under `GameData/Shaders`, compiled at boot by
+ * `D3DCompileFromFile`, on the argument that a shader is content like a mesh
+ * and an edit should be a restart rather than a rebuild. Owner directive: they
+ * are built now, by `fxc` as part of `Outpost.vcxproj`, into byte arrays the
+ * executable carries. The trade is deliberate -- a shader edit is a rebuild
+ * again, and in exchange a broken shader fails the build in CI instead of the
+ * client at boot on a machine with a GPU.
  */
 
 namespace Neuron
@@ -49,10 +57,11 @@ struct FrameConstants
 };
 
 /*
- * Mirrors `cbuffer PassConstants : register(b1)`, which BOTH Opaque.hlsl and
- * Nebula.hlsl declare. Two shaders declaring one cbuffer differently is a bug
- * with no error message anywhere, so this struct and those two declarations
- * are edited together or not at all.
+ * Mirrors `cbuffer PassConstants : register(b1)`, declared once in
+ * `Outpost/Shaders/PassConstants.hlsli` and included by every shader that binds
+ * the slot. Two declarations of one cbuffer disagreeing is a bug with no error
+ * message anywhere; there is one on the HLSL side and this one here, and the
+ * pair is edited together or not at all.
  *
  * The plane mapping is three float2s in float4 slots. The padding is deliberate:
  * packing them into two registers saves 16 bytes on a buffer written once a
@@ -67,6 +76,27 @@ struct PassConstants
   DirectX::XMFLOAT4 planeUpPerNdc;    // xy = plane metres per unit of NDC y.
   DirectX::XMFLOAT4 nebulaTint;       // rgb = linear tint, w = peak intensity.
   DirectX::XMFLOAT4 nebulaTile;       // x = 1 / tile metres.
+};
+
+/*
+ * The compiled shaders, borrowed.
+ *
+ * Spans over byte arrays the caller owns -- in practice `Outpost/CompiledShaders`
+ * headers, which have static storage duration and outlive everything. Nothing
+ * here is copied, so a caller handing over a local buffer would be handing over
+ * a dangling one; the contract is the same one `ClientApp` has with its
+ * `WorldView`.
+ *
+ * Named for the stage rather than the file, because the file is the caller's
+ * business. An empty span is a missing shader and `Create` refuses on it: a PSO
+ * built from nothing is a device-removed crash several frames later.
+ */
+struct PipelineShaders
+{
+  std::span<const std::uint8_t> opaqueVertex;
+  std::span<const std::uint8_t> opaquePixel;
+  std::span<const std::uint8_t> nebulaVertex;
+  std::span<const std::uint8_t> nebulaPixel;
 };
 
 /// Root parameter slots. Named because a bare index at a Set call site is the
@@ -91,7 +121,7 @@ public:
   GpuPipelines(const GpuPipelines&) = delete;
   GpuPipelines& operator=(const GpuPipelines&) = delete;
 
-  [[nodiscard]] bool Create(ID3D12Device* _device, std::string_view _shaderDirectory);
+  [[nodiscard]] bool Create(ID3D12Device* _device, const PipelineShaders& _shaders);
   void Destroy();
 
   [[nodiscard]] ID3D12RootSignature* RootSignature() const noexcept { return m_rootSignature.get(); }
@@ -100,8 +130,8 @@ public:
 
 private:
   [[nodiscard]] bool CreateRootSignature(ID3D12Device* _device);
-  [[nodiscard]] bool CreateOpaquePipeline(ID3D12Device* _device, std::string_view _shaderDirectory);
-  [[nodiscard]] bool CreateNebulaPipeline(ID3D12Device* _device, std::string_view _shaderDirectory);
+  [[nodiscard]] bool CreateOpaquePipeline(ID3D12Device* _device, const PipelineShaders& _shaders);
+  [[nodiscard]] bool CreateNebulaPipeline(ID3D12Device* _device, const PipelineShaders& _shaders);
 
   GpuPtr<ID3D12RootSignature> m_rootSignature;
   GpuPtr<ID3D12PipelineState> m_opaque;

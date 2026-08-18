@@ -45,9 +45,10 @@ ClientApp::~ClientApp()
   Shutdown();
 }
 
-bool ClientApp::Initialise(const ClientConfig& _config, WorldView& _worldView)
+bool ClientApp::Initialise(const ClientConfig& _config, const PipelineShaders& _shaders, WorldView& _worldView)
 {
   m_config = _config;
+  m_shaders = _shaders;
   m_worldView = &_worldView;
 
   WindowDesc windowDesc;
@@ -134,7 +135,7 @@ bool ClientApp::CreateContent()
     return false;
   }
 
-  bool ok = m_pipelines.Create(m_device.Device(), m_config.shaderDirectory);
+  bool ok = m_pipelines.Create(m_device.Device(), m_shaders);
   ok = ok && m_meshes.Create(m_device, m_config.meshDirectory, m_config.meshFiles, m_taskPool);
   ok = ok && m_uploadRing.Create(m_device.Device(), UPLOAD_BYTES_PER_FRAME, GpuSwapChain::BUFFER_COUNT);
 

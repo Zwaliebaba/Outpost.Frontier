@@ -5,78 +5,39 @@
 #include "Log.h"
 #include "RenderWorld.h"
 
-#include <d3dcompiler.h>
-
 #include <cstddef>
-#include <string>
-#include <vector>
-
-#pragma comment(lib, "d3dcompiler.lib")
 
 namespace Neuron
 {
 namespace
 {
 
-std::string JoinPath(std::string_view _directory, std::string_view _fileName)
-{
-  std::string path(_directory);
-  if (!path.empty() && path.back() != '/' && path.back() != '\\')
-  {
-    path += '/';
-  }
-  path.append(_fileName);
-  return path;
-}
-
-std::wstring ToWide(const std::string& _utf8)
-{
-  const int count = MultiByteToWideChar(CP_UTF8, 0, _utf8.c_str(), -1, nullptr, 0);
-  std::wstring result(static_cast<std::size_t>(count), L'\0');
-  MultiByteToWideChar(CP_UTF8, 0, _utf8.c_str(), -1, result.data(), count);
-  return result;
-}
-
 /*
- * Compiles one entry point, from a file, at boot.
+ * The bytes for one stage, in the shape D3D12 wants them.
  *
- * D3DCompileFromFile rather than a build step, and shader model 5.1 rather than
- * 6.x: 5.1 is everything the MVP frame asks for, d3dcompiler_47.dll ships with
- * Windows, and dxcompiler.dll does not. The trade is that a broken shader is
- * found when the client starts rather than when it builds -- which is why the
- * failure path prints the compiler's own message, file and line included, and
- * refuses to start rather than rendering nothing and saying nothing.
+ * This is all that is left of what used to be a hundred lines of
+ * `D3DCompileFromFile`, `ToWide` and error-blob printing. The shaders are
+ * compiled by `fxc` as part of Outpost.vcxproj now, so a broken shader is a
+ * build failure with a file and a line, in CI, on a machine with no GPU --
+ * rather than a boot failure on a machine that has one.
  */
-[[nodiscard]] bool CompileShader(const std::string& _path, const char* _entryPoint, const char* _target, GpuPtr<ID3DBlob>& _outBlob)
+[[nodiscard]] D3D12_SHADER_BYTECODE Bytecode(std::span<const std::uint8_t> _code) noexcept
 {
-  UINT flags = D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_WARNINGS_ARE_ERRORS;
-#if defined(_DEBUG)
-  flags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
-#else
-  flags |= D3DCOMPILE_OPTIMIZATION_LEVEL3;
-#endif
+  return D3D12_SHADER_BYTECODE{_code.data(), _code.size()};
+}
 
-  GpuPtr<ID3DBlob> errors;
-  const HRESULT result = D3DCompileFromFile(ToWide(_path).c_str(), nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, _entryPoint, _target,
-                                            flags, 0, _outBlob.put(), errors.put());
-  if (FAILED(result))
+/// Every stage has to be present. A PSO built from an empty blob is not an
+/// error at creation -- it is a device removal several frames later, with no
+/// message naming the shader that was missing.
+[[nodiscard]] bool AllPresent(const PipelineShaders& _shaders) noexcept
+{
+  const bool ok = !_shaders.opaqueVertex.empty() && !_shaders.opaquePixel.empty() && !_shaders.nebulaVertex.empty() &&
+                  !_shaders.nebulaPixel.empty();
+  if (!ok)
   {
-    if (errors != nullptr)
-    {
-      NEURON_LOG_ERROR("%s", static_cast<const char*>(errors->GetBufferPointer()));
-    }
-    NEURON_LOG_ERROR("could not compile %s:%s as %s (hr 0x%08lx)", _path.c_str(), _entryPoint, _target,
-                     static_cast<unsigned long>(result));
-    return false;
+    NEURON_LOG_ERROR("pipelines: the composition root supplied an empty shader; refusing to build a pipeline from nothing");
   }
-
-  // A warning-free compile is the bar; warnings are errors above, so anything
-  // that reaches here and still has a message is worth reading.
-  if (errors != nullptr && errors->GetBufferSize() > 1)
-  {
-    NEURON_LOG_WARNING("%s", static_cast<const char*>(errors->GetBufferPointer()));
-  }
-  return true;
+  return ok;
 }
 
 } // namespace
@@ -199,17 +160,8 @@ bool GpuPipelines::CreateRootSignature(ID3D12Device* _device)
   return true;
 }
 
-bool GpuPipelines::CreateOpaquePipeline(ID3D12Device* _device, std::string_view _shaderDirectory)
+bool GpuPipelines::CreateOpaquePipeline(ID3D12Device* _device, const PipelineShaders& _shaders)
 {
-  const std::string path = JoinPath(_shaderDirectory, "Opaque.hlsl");
-
-  GpuPtr<ID3DBlob> vertexShader;
-  GpuPtr<ID3DBlob> pixelShader;
-  if (!CompileShader(path, "VertexMain", "vs_5_1", vertexShader) || !CompileShader(path, "PixelMain", "ps_5_1", pixelShader))
-  {
-    return false;
-  }
-
   // Slot 0 is the mesh, slot 1 is the instance stream. classId is not in the
   // layout: the draw call already knows the class, because the class is what
   // selected the mesh (RenderWorld.h).
@@ -233,8 +185,8 @@ bool GpuPipelines::CreateOpaquePipeline(ID3D12Device* _device, std::string_view 
 
   D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
   desc.pRootSignature = m_rootSignature.get();
-  desc.VS = {vertexShader->GetBufferPointer(), vertexShader->GetBufferSize()};
-  desc.PS = {pixelShader->GetBufferPointer(), pixelShader->GetBufferSize()};
+  desc.VS = Bytecode(_shaders.opaqueVertex);
+  desc.PS = Bytecode(_shaders.opaquePixel);
   desc.InputLayout = {elements, static_cast<UINT>(_countof(elements))};
   desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
   desc.NumRenderTargets = 1;
@@ -273,21 +225,12 @@ bool GpuPipelines::CreateOpaquePipeline(ID3D12Device* _device, std::string_view 
  * everything the Opaque pass drew, which is the position the corpus frame gives
  * it and the reason hulls read as being inside the cloud.
  */
-bool GpuPipelines::CreateNebulaPipeline(ID3D12Device* _device, std::string_view _shaderDirectory)
+bool GpuPipelines::CreateNebulaPipeline(ID3D12Device* _device, const PipelineShaders& _shaders)
 {
-  const std::string path = JoinPath(_shaderDirectory, "Nebula.hlsl");
-
-  GpuPtr<ID3DBlob> vertexShader;
-  GpuPtr<ID3DBlob> pixelShader;
-  if (!CompileShader(path, "VertexMain", "vs_5_1", vertexShader) || !CompileShader(path, "PixelMain", "ps_5_1", pixelShader))
-  {
-    return false;
-  }
-
   D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
   desc.pRootSignature = m_rootSignature.get();
-  desc.VS = {vertexShader->GetBufferPointer(), vertexShader->GetBufferSize()};
-  desc.PS = {pixelShader->GetBufferPointer(), pixelShader->GetBufferSize()};
+  desc.VS = Bytecode(_shaders.nebulaVertex);
+  desc.PS = Bytecode(_shaders.nebulaPixel);
   desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
   desc.NumRenderTargets = 1;
   desc.RTVFormats[0] = RENDER_TARGET_FORMAT;
@@ -326,9 +269,9 @@ bool GpuPipelines::CreateNebulaPipeline(ID3D12Device* _device, std::string_view 
   return true;
 }
 
-bool GpuPipelines::Create(ID3D12Device* _device, std::string_view _shaderDirectory)
+bool GpuPipelines::Create(ID3D12Device* _device, const PipelineShaders& _shaders)
 {
-  if (_device == nullptr)
+  if (_device == nullptr || !AllPresent(_shaders))
   {
     return false;
   }
@@ -339,16 +282,20 @@ bool GpuPipelines::Create(ID3D12Device* _device, std::string_view _shaderDirecto
   {
     return false;
   }
-  if (!CreateOpaquePipeline(_device, _shaderDirectory))
+  if (!CreateOpaquePipeline(_device, _shaders))
   {
     return false;
   }
-  if (!CreateNebulaPipeline(_device, _shaderDirectory))
+  if (!CreateNebulaPipeline(_device, _shaders))
   {
     return false;
   }
 
-  NEURON_LOG_INFO("pipelines: opaque and nebula built from %s", std::string(_shaderDirectory).c_str());
+  // The sizes, because they are the one thing about a compiled-in shader worth
+  // seeing at boot: a stage that shrank to nothing between builds shows up here
+  // rather than as an empty screen.
+  NEURON_LOG_INFO("pipelines: opaque (%zu + %zu B) and nebula (%zu + %zu B) built", _shaders.opaqueVertex.size(),
+                  _shaders.opaquePixel.size(), _shaders.nebulaVertex.size(), _shaders.nebulaPixel.size());
   return true;
 }
 

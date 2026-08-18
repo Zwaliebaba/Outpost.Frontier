@@ -29,6 +29,36 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <FxCompile Include="Shaders\OpaqueVS.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <EntryPointName>VertexMain</EntryPointName>
+      <HeaderFileOutput>$(ProjectDir)CompiledShaders\OpaqueVS.h</HeaderFileOutput>
+      <VariableName>g_pOpaqueVS</VariableName>
+    </FxCompile>
+    <FxCompile Include="Shaders\OpaquePS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <EntryPointName>PixelMain</EntryPointName>
+      <HeaderFileOutput>$(ProjectDir)CompiledShaders\OpaquePS.h</HeaderFileOutput>
+      <VariableName>g_pOpaquePS</VariableName>
+    </FxCompile>
+    <FxCompile Include="Shaders\NebulaVS.hlsl">
+      <ShaderType>Vertex</ShaderType>
+      <EntryPointName>VertexMain</EntryPointName>
+      <HeaderFileOutput>$(ProjectDir)CompiledShaders\NebulaVS.h</HeaderFileOutput>
+      <VariableName>g_pNebulaVS</VariableName>
+    </FxCompile>
+    <FxCompile Include="Shaders\NebulaPS.hlsl">
+      <ShaderType>Pixel</ShaderType>
+      <EntryPointName>PixelMain</EntryPointName>
+      <HeaderFileOutput>$(ProjectDir)CompiledShaders\NebulaPS.h</HeaderFileOutput>
+      <VariableName>g_pNebulaPS</VariableName>
+    </FxCompile>
+    <!-- Included by the .hlsl files above; fxc resolves them beside the source. -->
+    <None Include="Shaders\Nebula.hlsli" />
+    <None Include="Shaders\Opaque.hlsli" />
+    <None Include="Shaders\PassConstants.hlsli" />
+  </ItemGroup>
+  <ItemGroup>
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
@@ -36,6 +66,7 @@
     <ClCompile Include="AppConfig.cpp" />
     <ClCompile Include="ConfigLoad.cpp" />
     <ClCompile Include="ReplicatedWorldView.cpp" />
+    <ClCompile Include="ShaderTable.cpp" />
     <ClCompile Include="UniverseLoad.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="SelfTest.cpp" />
@@ -45,6 +76,7 @@
     <ClInclude Include="AppConfig.h" />
     <ClInclude Include="ConfigLoad.h" />
     <ClInclude Include="ReplicatedWorldView.h" />
+    <ClInclude Include="ShaderTable.h" />
     <ClInclude Include="UniverseLoad.h" />
     <ClInclude Include="SelfTest.h" />
   </ItemGroup>
@@ -86,13 +118,20 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <FxCompile>
+      <ShaderModel>5.1</ShaderModel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>true</DisableOptimizations>
+      <EnableDebuggingInformation>true</EnableDebuggingInformation>
+      <ObjectFileOutput>$(IntDir)%(Filename).cso</ObjectFileOutput>
+    </FxCompile>
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)NeuronCore;$(SolutionDir)NeuronClient;$(SolutionDir)NeuronServer;$(SolutionDir)GameLogic;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)CompiledShaders;$(SolutionDir)NeuronCore;$(SolutionDir)NeuronClient;$(SolutionDir)NeuronServer;$(SolutionDir)GameLogic;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
     </ClCompile>
@@ -105,6 +144,13 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <FxCompile>
+      <ShaderModel>5.1</ShaderModel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+      <DisableOptimizations>false</DisableOptimizations>
+      <EnableDebuggingInformation>false</EnableDebuggingInformation>
+      <ObjectFileOutput>$(IntDir)%(Filename).cso</ObjectFileOutput>
+    </FxCompile>
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
@@ -113,7 +159,7 @@
       <PreprocessorDefinitions>NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
-      <AdditionalIncludeDirectories>$(SolutionDir)NeuronCore;$(SolutionDir)NeuronClient;$(SolutionDir)NeuronServer;$(SolutionDir)GameLogic;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)CompiledShaders;$(SolutionDir)NeuronCore;$(SolutionDir)NeuronClient;$(SolutionDir)NeuronServer;$(SolutionDir)GameLogic;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
     </ClCompile>
@@ -130,6 +176,15 @@
     <Import Project="..\packages\Microsoft.Windows.CppWinRT.3.0.260715.1\build\native\Microsoft.Windows.CppWinRT.targets" Condition="Exists('..\packages\Microsoft.Windows.CppWinRT.3.0.260715.1\build\native\Microsoft.Windows.CppWinRT.targets')" />
     <Import Project="..\packages\Microsoft.Native.Quic.MsQuic.Schannel.2.6.0\build\native\Microsoft.Native.Quic.MsQuic.schannel.targets" Condition="Exists('..\packages\Microsoft.Native.Quic.MsQuic.Schannel.2.6.0\build\native\Microsoft.Native.Quic.MsQuic.schannel.targets')" />
   </ImportGroup>
+  <!--
+    fxc writes /Fh straight to the path it is given and does not create the
+    directory on the way; the failure reads as a file error rather than a
+    missing folder. CompiledShaders holds build output only and is not in
+    source control, so on a fresh clone it does not exist yet.
+  -->
+  <Target Name="EnsureCompiledShaderDirectory" BeforeTargets="FxCompile">
+    <MakeDir Directories="$(ProjectDir)CompiledShaders" />
+  </Target>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>
       <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
