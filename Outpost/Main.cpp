@@ -78,6 +78,8 @@ void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigP
   NEURON_LOG_INFO("server: port %u, max sessions %u", static_cast<unsigned>(_config.server.port),
                   static_cast<unsigned>(_config.server.maxSessions));
   NEURON_LOG_INFO("universe: %s", _config.universeDefinition.c_str());
+  NEURON_LOG_INFO("content: %u meshes from %s, shaders from %s", static_cast<unsigned>(_config.content.meshes.size()),
+                  _config.content.meshDirectory.c_str(), _config.content.shaderDirectory.c_str());
   NEURON_LOG_INFO("window: %ux%u %s, vsync %s, ui scale %.2f", static_cast<unsigned>(_config.client.window.width),
                   static_cast<unsigned>(_config.client.window.height), _config.client.window.mode.c_str(),
                   _config.client.renderer.vsync ? "on" : "off", _config.client.ui.scale);
@@ -105,6 +107,18 @@ Neuron::ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
   client.frameCap = _config.client.renderer.frameCap;
   client.serverHost = _config.client.connectHost;
   client.serverPort = _config.client.connectPort;
+
+  // Content: where it is and which meshes to load, in classId order. The client
+  // opens the files, but it is told what to open -- the engine has no opinion
+  // about which index is a Carrier (ADR-014).
+  client.meshDirectory = _config.content.meshDirectory;
+  client.shaderDirectory = _config.content.shaderDirectory;
+  client.meshFiles = _config.content.meshes;
+  client.fontFamily = _config.client.ui.font;
+
+  client.cameraZoomMetres = static_cast<float>(_config.client.camera.zoomMetres);
+  client.cameraYawSnapDegrees = static_cast<float>(_config.client.camera.yawSnapDegrees);
+  client.uiScale = static_cast<float>(_config.client.ui.scale);
 #if defined(_DEBUG)
   client.enableDebugLayer = true; // Every debug run gets the validation layer.
 #endif

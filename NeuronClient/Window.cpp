@@ -126,6 +126,123 @@ bool Window::ConsumeResize(std::uint32_t& _outWidth, std::uint32_t& _outHeight)
   return true;
 }
 
+InputFrame Window::ConsumeInput() noexcept
+{
+  m_input.viewportWidth = m_width;
+  m_input.viewportHeight = m_height;
+  m_input.windowFocused = GetForegroundWindow() == m_handle;
+
+  const InputFrame frame = m_input;
+
+  // Everything that describes *this frame* resets; everything that describes a
+  // held state does not. Getting that split wrong is how a key sticks down or a
+  // wheel notch fires for ever.
+  m_input.cursorDeltaX = 0;
+  m_input.cursorDeltaY = 0;
+  m_input.wheelSteps = 0.0f;
+  for (bool& pressed : m_input.buttonPressed)
+  {
+    pressed = false;
+  }
+  for (bool& released : m_input.buttonReleased)
+  {
+    released = false;
+  }
+  for (bool& pressed : m_input.actionPressed)
+  {
+    pressed = false;
+  }
+
+  return frame;
+}
+
+void Window::SetButton(InputButton _button, bool _down) noexcept
+{
+  const auto index = static_cast<std::uint32_t>(_button);
+  if (_down && !m_input.buttonDown[index])
+  {
+    m_input.buttonPressed[index] = true;
+  }
+  if (!_down && m_input.buttonDown[index])
+  {
+    m_input.buttonReleased[index] = true;
+  }
+  m_input.buttonDown[index] = _down;
+
+  // Capture is counted rather than set, so releasing one button mid-drag of
+  // another does not drop the drag that is still in progress.
+  if (_down)
+  {
+    if (m_captureCount++ == 0)
+    {
+      SetCapture(m_handle);
+    }
+  }
+  else if (m_captureCount > 0 && --m_captureCount == 0)
+  {
+    ReleaseCapture();
+  }
+}
+
+void Window::SetKey(WPARAM _virtualKey, bool _down) noexcept
+{
+  // The whole virtual-key table, in the one file entitled to know about
+  // virtual keys. Left and right buttons are deliberately not here: box-select
+  // (S8) and the order puck (S9) need them, so the camera takes the middle
+  // button, the wheel, the edges and these keys (InputMap.h).
+  auto action = InputAction::Modifier;
+  switch (_virtualKey)
+  {
+  case 'W':
+  case VK_UP:
+    action = InputAction::PanForward;
+    break;
+  case 'S':
+  case VK_DOWN:
+    action = InputAction::PanBack;
+    break;
+  case 'A':
+  case VK_LEFT:
+    action = InputAction::PanLeft;
+    break;
+  case 'D':
+  case VK_RIGHT:
+    action = InputAction::PanRight;
+    break;
+  case 'Q':
+    action = InputAction::YawLeft;
+    break;
+  case 'E':
+    action = InputAction::YawRight;
+    break;
+  case VK_PRIOR:
+  case VK_OEM_PLUS:
+  case VK_ADD:
+    action = InputAction::ZoomIn;
+    break;
+  case VK_NEXT:
+  case VK_OEM_MINUS:
+  case VK_SUBTRACT:
+    action = InputAction::ZoomOut;
+    break;
+  case VK_HOME:
+    action = InputAction::ResetView;
+    break;
+  case VK_MENU:
+    action = InputAction::Modifier;
+    break;
+  default:
+    return; // Not a camera key. S8 and S9 add their own.
+  }
+
+  const auto index = static_cast<std::uint32_t>(action);
+  if (_down && !m_input.actionDown[index])
+  {
+    m_input.actionPressed[index] = true; // Auto-repeat must not re-fire an edge.
+  }
+  m_input.actionDown[index] = _down;
+}
+
 LRESULT CALLBACK Window::WindowProc(HWND _window, UINT _message, WPARAM _wParam, LPARAM _lParam) noexcept
 {
   // WM_NCCREATE is the first message a window receives, so this is where the
@@ -181,6 +298,82 @@ LRESULT Window::HandleMessage(HWND _window, UINT _message, WPARAM _wParam, LPARA
     return 0;
   }
 
+  case WM_MOUSEMOVE:
+  {
+    // GET_X_LPARAM, not LOWORD: with the mouse captured a drag reports
+    // negative client coordinates, and LOWORD would read those as 65000.
+    const auto x = static_cast<std::int32_t>(static_cast<std::int16_t>(LOWORD(_lParam)));
+    const auto y = static_cast<std::int32_t>(static_cast<std::int16_t>(HIWORD(_lParam)));
+    if (m_haveCursor)
+    {
+      m_input.cursorDeltaX += x - m_lastCursorX;
+      m_input.cursorDeltaY += y - m_lastCursorY;
+    }
+    m_lastCursorX = x;
+    m_lastCursorY = y;
+    m_haveCursor = true;
+    m_input.cursorX = x;
+    m_input.cursorY = y;
+    m_input.cursorInsideWindow =
+        x >= 0 && y >= 0 && x < static_cast<std::int32_t>(m_width) && y < static_cast<std::int32_t>(m_height);
+
+    if (!m_input.cursorInsideWindow)
+    {
+      break;
+    }
+    // Asking for WM_MOUSELEAVE every move is cheap and is the only way to be
+    // told the cursor left: the window gets no move message once it has.
+    TRACKMOUSEEVENT track{};
+    track.cbSize = sizeof(track);
+    track.dwFlags = TME_LEAVE;
+    track.hwndTrack = _window;
+    TrackMouseEvent(&track);
+    return 0;
+  }
+
+  case WM_MOUSELEAVE:
+    m_input.cursorInsideWindow = false;
+    return 0;
+
+  case WM_LBUTTONDOWN:
+    SetButton(InputButton::Left, true);
+    return 0;
+  case WM_LBUTTONUP:
+    SetButton(InputButton::Left, false);
+    return 0;
+  case WM_RBUTTONDOWN:
+    SetButton(InputButton::Right, true);
+    return 0;
+  case WM_RBUTTONUP:
+    SetButton(InputButton::Right, false);
+    return 0;
+  case WM_MBUTTONDOWN:
+    SetButton(InputButton::Middle, true);
+    return 0;
+  case WM_MBUTTONUP:
+    SetButton(InputButton::Middle, false);
+    return 0;
+
+  case WM_MOUSEWHEEL:
+    // Accumulated as a fraction of a notch. A high-resolution wheel sends
+    // multiples smaller than WHEEL_DELTA, and rounding them here would make a
+    // smooth wheel feel like a ratchet.
+    m_input.wheelSteps += static_cast<float>(GET_WHEEL_DELTA_WPARAM(_wParam)) / static_cast<float>(WHEEL_DELTA);
+    return 0;
+
+  case WM_KILLFOCUS:
+    // Every held state is a lie the moment focus goes, and a key released over
+    // another window never sends its WM_KEYUP here. The cursor reference goes
+    // too, so coming back at a different point is not a drag of the difference.
+    m_input = InputFrame{};
+    m_haveCursor = false;
+    if (m_captureCount != 0)
+    {
+      m_captureCount = 0;
+      ReleaseCapture();
+    }
+    return 0;
+
   case WM_SYSKEYDOWN:
     // Alt+Enter belongs to the client, not to DXGI's own fullscreen handling,
     // which the flip-model swapchain disables anyway.
@@ -188,6 +381,11 @@ LRESULT Window::HandleMessage(HWND _window, UINT _message, WPARAM _wParam, LPARA
     {
       return 0;
     }
+    SetKey(_wParam, true); // Alt arrives as a system key, not a plain one.
+    break;
+
+  case WM_SYSKEYUP:
+    SetKey(_wParam, false);
     break;
 
   case WM_KEYDOWN:
@@ -196,7 +394,12 @@ LRESULT Window::HandleMessage(HWND _window, UINT _message, WPARAM _wParam, LPARA
       m_closeRequested = true;
       return 0;
     }
-    break;
+    SetKey(_wParam, true);
+    return 0;
+
+  case WM_KEYUP:
+    SetKey(_wParam, false);
+    return 0;
 
   default:
     break;

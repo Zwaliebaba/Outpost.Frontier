@@ -12,6 +12,7 @@ namespace
 
 constexpr DXGI_FORMAT BACK_BUFFER_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
 constexpr DXGI_FORMAT RENDER_TARGET_VIEW_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+constexpr DXGI_FORMAT DEPTH_BUFFER_FORMAT = DXGI_FORMAT_D32_FLOAT;
 
 } // namespace
 
@@ -68,8 +69,49 @@ bool GpuSwapChain::Create(GpuDevice& _device, HWND _window, std::uint32_t _width
   check_hresult(_device.Device()->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(m_rtvHeap.put())));
   m_rtvStride = _device.Device()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
+  D3D12_DESCRIPTOR_HEAP_DESC depthHeapDesc{};
+  depthHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+  depthHeapDesc.NumDescriptors = 1; // One depth buffer, shared by every frame:
+                                    // it is cleared at the top of each one, so
+                                    // there is nothing to double-buffer.
+  depthHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+  check_hresult(_device.Device()->CreateDescriptorHeap(&depthHeapDesc, IID_PPV_ARGS(m_dsvHeap.put())));
+
   CreateRenderTargets();
+  CreateDepthBuffer();
   return true;
+}
+
+void GpuSwapChain::CreateDepthBuffer()
+{
+  D3D12_HEAP_PROPERTIES heap{};
+  heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+  D3D12_RESOURCE_DESC desc{};
+  desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  desc.Width = m_width;
+  desc.Height = m_height;
+  desc.DepthOrArraySize = 1;
+  desc.MipLevels = 1;
+  desc.Format = DEPTH_BUFFER_FORMAT;
+  desc.SampleDesc.Count = 1;
+  desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+  desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+
+  // The clear value must match what the pass actually clears to, or the driver
+  // loses its fast-clear path and the debug layer says so every frame.
+  D3D12_CLEAR_VALUE clear{};
+  clear.Format = DEPTH_BUFFER_FORMAT;
+  clear.DepthStencil.Depth = 1.0f;
+
+  check_hresult(m_device->Device()->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear,
+                                                            IID_PPV_ARGS(m_depthBuffer.put())));
+  NAME_D3D12_OBJECT(m_depthBuffer);
+
+  D3D12_DEPTH_STENCIL_VIEW_DESC viewDesc{};
+  viewDesc.Format = DEPTH_BUFFER_FORMAT;
+  viewDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
+  m_device->Device()->CreateDepthStencilView(m_depthBuffer.get(), &viewDesc, m_dsvHeap->GetCPUDescriptorHandleForHeapStart());
 }
 
 void GpuSwapChain::CreateRenderTargets()
@@ -97,6 +139,7 @@ void GpuSwapChain::ReleaseRenderTargets()
     // before CreateRenderTargets fills them again.
     buffer = nullptr;
   }
+  m_depthBuffer = nullptr; // Same rule, and it is the swapchain's size too.
 }
 
 bool GpuSwapChain::Resize(std::uint32_t _width, std::uint32_t _height)
@@ -126,6 +169,7 @@ bool GpuSwapChain::Resize(std::uint32_t _width, std::uint32_t _height)
   m_height = _height;
   NEURON_LOG_DEBUG("swapchain resized to %ux%u", _width, _height);
   CreateRenderTargets();
+  CreateDepthBuffer();
   return true;
 }
 
@@ -160,10 +204,16 @@ D3D12_CPU_DESCRIPTOR_HANDLE GpuSwapChain::CurrentRenderTargetView() const noexce
   return handle;
 }
 
+D3D12_CPU_DESCRIPTOR_HANDLE GpuSwapChain::DepthStencilView() const noexcept
+{
+  return m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+}
+
 void GpuSwapChain::Destroy()
 {
   ReleaseRenderTargets();
   m_rtvHeap = nullptr;
+  m_dsvHeap = nullptr;
   if (m_frameLatencyWaitable != nullptr)
   {
     CloseHandle(m_frameLatencyWaitable);

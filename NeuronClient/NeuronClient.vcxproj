@@ -25,6 +25,15 @@
     <ClCompile Include="GpuDevice.cpp" />
     <ClCompile Include="GpuSwapChain.cpp" />
     <ClCompile Include="Window.cpp" />
+    <ClCompile Include="GlyphAtlas.cpp" />
+    <ClCompile Include="GpuMeshes.cpp" />
+    <ClCompile Include="GpuPasses.cpp" />
+    <ClCompile Include="GpuPipelines.cpp" />
+    <ClCompile Include="GpuUploadRing.cpp" />
+    <ClCompile Include="InputMap.cpp" />
+    <ClCompile Include="IsoCamera.cpp" />
+    <ClCompile Include="ObjMesh.cpp" />
+    <ClCompile Include="RenderWorld.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DirectXHelper.h" />
@@ -38,6 +47,15 @@
     <ClInclude Include="GpuDevice.h" />
     <ClInclude Include="GpuSwapChain.h" />
     <ClInclude Include="Window.h" />
+    <ClInclude Include="GlyphAtlas.h" />
+    <ClInclude Include="GpuMeshes.h" />
+    <ClInclude Include="GpuPasses.h" />
+    <ClInclude Include="GpuPipelines.h" />
+    <ClInclude Include="GpuUploadRing.h" />
+    <ClInclude Include="InputMap.h" />
+    <ClInclude Include="IsoCamera.h" />
+    <ClInclude Include="ObjMesh.h" />
+    <ClInclude Include="RenderWorld.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\NeuronCore\NeuronCore.vcxproj">

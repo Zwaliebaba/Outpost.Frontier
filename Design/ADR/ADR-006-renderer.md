@@ -34,10 +34,28 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
    varies across the view, and picking loses its uniform-direction ray. Ortho keeps scale
    uniform (tonnage stays readable — the icon sheet's size channel), makes zoom one number
    (ortho half-height), and matches the prints.
-3a. **Camera and picking use DirectXMath directly** (ADR-010): `XMMatrixOrthographicOffCenterRH`
-   + `XMMatrixLookAtRH` for view/projection, `XMPlaneIntersectLine` for the cursor-ray ∩
+3a. **Camera and picking use DirectXMath directly** (ADR-010): `XMMatrixOrthographicOffCenterLH`
+   + `XMMatrixLookAtLH` for view/projection, `XMPlaneIntersectLine` for the cursor-ray ∩
    ground-plane test, `XMVectorLerp` for snapshot interpolation. Matrices are stored as
    `XMFLOAT4X4`, instance positions as `XMFLOAT3`.
+
+   **The `LH` suffix is a correction, made in slice S5 (2026-08-18), and it is forced by
+   ADR-001.** This ADR originally named the `RH` variants. ADR-001 §3 fixes render space as
+   `world = (sim.x, h_cosmetic, sim.y)` with `+Y` up — so `+X` is east, `+Y` is up and `+Z` is
+   north, and that basis is **left-handed** (a right-handed basis with east and up in those
+   places puts `+Z` due *south*). Feeding a left-handed world to `XMMatrixLookAtRH` mirrors the
+   view: with the camera south of the focus looking north, east projects to the *left* of the
+   screen. That is not a taste question, it is a map that reads backwards, and it was caught by
+   projecting the corner of a viewport through both variants rather than by looking at it.
+
+   Of the two ways to make them agree — negate `sim.y` on the way into render space, or use the
+   `LH` entry points — the `LH` entry points win, because ADR-001 is the root decision this ADR
+   depends on and its coordinate conventions are marked normative. Handedness was never part of
+   *this* ADR's argument, which is about orthographic versus perspective; the suffix was
+   incidental detail, and incidental detail yields to a normative convention. Consequences are
+   confined to the camera: `LH` clips depth to `[0,1]` exactly as `RH` does, and the corpus
+   meshes come out clockwise-in-NDC front-facing, which is D3D12's default rasteriser state
+   (`FrontCounterClockwise = FALSE`).
 4. **Elevation fixed at 30°**; this is normative because the corpus specifies selection rings
    as **2:1 plane ellipses** — an ortho ground circle projects at `sin(elevation)`, and
    `sin 30° = 0.5`. Yaw: free orbit about the focus point with 45° snap detents. Zoom:

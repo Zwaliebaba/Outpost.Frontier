@@ -109,10 +109,10 @@ for the atlas bake, **XAudio2 + X3DAudio**). No GameLogic (ADR-014).
 | Seam | `WorldView.h` (`ApplySnapshot`, `BuildScene`, `PreCheck`, `SolvePreview`, `EncodeOrder`) + the neutral types it speaks: `RenderScene`, `OrderIntent`, `FormationPreview` | Engine-declared, GameLogic-implemented, exe-injected; BounceParity runs the same function through it (ADR-014 §2–3) |
 | App | `ClientApp.h` (`Run`, takes a `WorldView&`) `ClientConfig.h` (plain struct) `Window.h` `ClearColour.h` | Frame loop on Main thread (ADR-007); `ClearColour` is deliberately free of D3D and C++/WinRT headers so presentation maths is testable without a device |
 | Net/state | `ClientConnection.h` (handshake, ping) `SnapshotBuffer.h` (ring, interp/extrap ≤250 ms, STALE) | Feeds Extract only |
-| Extract | `RenderWorld.h` (`InstanceRecord`, overlay lists, HUD state) | The future Game/Render thread seam |
-| GPU | `GpuCom.h` (`GpuPtr` = `winrt::com_ptr`) `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuPasses.h` (Clear/Opaque/OverlayWorld/Ui) `GpuPipelines.h` | Fixed pass list w/ reserved slots (ADR-006); COM ownership is `winrt::com_ptr` throughout, created via `IID_PPV_ARGS(x.put())` (AGENTS.md §5) |
-| Assets | `ObjMesh.h` (loader → submesh ranges) `GlyphAtlas.h` (DWrite bake) | Boot-time, TaskPool |
-| Camera/input | `IsoCamera.h` (ortho 30°, yaw snap, zoom) `Picking.h` (`XMPlaneIntersectLine` + 2D tests) `InputMap.h` | Client-only state |
+| Extract | `RenderWorld.h` (`InstanceRecord`, `RenderScene`, overlay lists, HUD state) | The future Game/Render thread seam. `InstanceRecord` is 20 bytes *and is the per-instance vertex stream*, so its size is a static assert rather than a comment |
+| GPU | `GpuCom.h` (`GpuPtr` = `winrt::com_ptr`) `GpuDevice.h` `GpuSwapChain.h` (+ the depth buffer, which is the only other resource the swapchain's size owns) `GpuUploadRing.h` `GpuMeshes.h` (VB/IB per class) `GpuPasses.h` (Clear/Opaque/OverlayWorld/Ui) `GpuPipelines.h` | Fixed pass list w/ reserved slots (ADR-006); COM ownership is `winrt::com_ptr` throughout, created via `IID_PPV_ARGS(x.put())` (AGENTS.md §5) |
+| Assets | `ObjMesh.h` (loader → submesh ranges) `GlyphAtlas.h` (DWrite bake) | Boot-time, TaskPool. Both parsers are free of D3D and C++/WinRT headers so `NeuronClientTests` can drive them with no device |
+| Camera/input | `IsoCamera.h` (ortho 30°, yaw snap, zoom) `Picking.h` (`XMPlaneIntersectLine` + 2D tests) `InputMap.h` (`InputFrame` → `CameraIntent`; `Window` owns the virtual-key table) | Client-only state |
 | HUD | `HudLayout.h` `HudRoster.h` (context bar, ability rack stub, toasts) `OrderPuck.h` (drag/facing/ghost lifecycle) | Prints are the spec |
 | Audio | `AudioSystem.h` (XAudio2 graph, voice pool) `AudioListener.h` (focus/zoom listener model) `AudioBank.h` (JSON bank + RIFF WAV) | 5 submixes; `AudioUpdate` stage after Extract (ADR-011) |
 
@@ -133,13 +133,14 @@ Each test project depends on its library under test plus that library's allowed 
   round-trip), UDP loopback handshake (real socket).
 - `NeuronServerTests` — `ServerHost` start/stop/join, session handshake against a raw
   core-level client, config structs built in code (no files).
-- `NeuronClientTests` — interpolation/extrapolation timeline, picking math, OBJ parser, audio
-  listener/emitter math, sound-bank parsing. **No D3D device and no audio device in unit
-  tests**; GPU/audio smoke lives in `selfTest`-adjacent manual slices.
+- `NeuronClientTests` — interpolation/extrapolation timeline, picking math, OBJ parser,
+  camera projection and input mapping, extract layout, audio listener/emitter math,
+  sound-bank parsing. **No D3D device and no audio device in unit tests**; GPU/audio smoke
+  lives in `selfTest`-adjacent manual slices.
 
-> Repo observation: the freshly added test .vcxprojs contain **no ProjectReference yet** to
-> the libraries they test (and will need include paths to match). Project files are
-> owner-maintained per the brief — flagged here rather than edited.
+> Resolved (S5): the test .vcxprojs now carry `ProjectReference`s and matching include paths.
+> The observation that they did not is kept here only because it is why the client's
+> device-free headers are device-free.
 
 ## Include discipline (ADR-013)
 

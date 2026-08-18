@@ -42,8 +42,9 @@ nobody wrote. We are not doing that.
    (z/w zeroed by `XMLoadFloat2`). Heading stays a scalar radian (ADR-001); no quaternions in
    the sim. `XMScalarSinCos` for heading→direction, `XMScalarModAngle` for wrap.
 5. **The renderer and camera use the library's own solutions** rather than hand-rolled
-   equivalents: `XMMatrixOrthographicOffCenterRH` / `XMMatrixLookAtRH` for the iso camera
-   (ADR-006), `XMMatrixAffineTransformation` or explicit `XMMatrixRotationY` × translation for
+   equivalents: `XMMatrixOrthographicOffCenterLH` / `XMMatrixLookAtLH` for the iso camera
+   (ADR-006 §3a — `LH`, because ADR-001's render basis is left-handed and the `RH`
+   variants mirror it east-for-west), `XMMatrixAffineTransformation` or explicit `XMMatrixRotationY` × translation for
    instances, `XMPlaneIntersectLine` for cursor-ray ∩ ground-plane picking, `XMVectorLerp` for
    snapshot interpolation, `BoundingFrustum`/`BoundingBox` (DirectXCollision) when culling
    lands. If a genuinely missing operation appears, it is written as a **local free function in

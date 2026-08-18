@@ -169,11 +169,62 @@ void ReadUi(const JsonValue& _parent, UiSettings& _settings, ConfigDiagnostics& 
   {
     return;
   }
-  WarnUnknownKeys(ui, {"scale", "palette"}, "client.ui", _diagnostics);
+  WarnUnknownKeys(ui, {"scale", "palette", "font"}, "client.ui", _diagnostics);
   // 0.8-1.6 is the settings sheet's range, and the layout is scale-independent
   // rather than a scaled bitmap, so the floor is a real constraint.
   ReadDouble(ui, "scale", _settings.scale, 0.8, 1.6, "client.ui", _diagnostics);
   ReadText(ui, "palette", _settings.palette, "client.ui", _diagnostics);
+  ReadText(ui, "font", _settings.font, "client.ui", _diagnostics);
+}
+
+/// A list of file names. Present-but-empty is an error rather than a fallback:
+/// a config that says "no meshes" and gets nine of them is a config that lies.
+void ReadTextList(const JsonValue& _parent, const char* _name, std::vector<std::string>& _value, std::string_view _path,
+                  ConfigDiagnostics& _diagnostics)
+{
+  const JsonValue member = _parent.Member(_name);
+  if (!member.Valid())
+  {
+    return;
+  }
+  if (!member.IsArray())
+  {
+    _diagnostics.errors.push_back(std::string(_path) + "." + _name + " must be a list of file names");
+    return;
+  }
+
+  std::vector<std::string> names;
+  names.reserve(member.Count());
+  for (std::size_t i = 0; i < member.Count(); ++i)
+  {
+    const JsonValue entry = member.At(i);
+    if (entry.Kind() != JsonKind::String)
+    {
+      _diagnostics.errors.push_back(std::string(_path) + "." + _name + " entry " + std::to_string(i) + " must be text");
+      return;
+    }
+    names.emplace_back(entry.AsString());
+  }
+
+  if (names.empty())
+  {
+    _diagnostics.errors.push_back(std::string(_path) + "." + _name + " is empty");
+    return;
+  }
+  _value = std::move(names);
+}
+
+void ReadContent(const JsonValue& _root, ContentSettings& _settings, ConfigDiagnostics& _diagnostics)
+{
+  const JsonValue content = _root.Member("content");
+  if (!content.Valid())
+  {
+    return;
+  }
+  WarnUnknownKeys(content, {"meshDirectory", "shaderDirectory", "meshes"}, "content", _diagnostics);
+  ReadText(content, "meshDirectory", _settings.meshDirectory, "content", _diagnostics);
+  ReadText(content, "shaderDirectory", _settings.shaderDirectory, "content", _diagnostics);
+  ReadTextList(content, "meshes", _settings.meshes, "content", _diagnostics);
 }
 
 void ReadClient(const JsonValue& _root, ClientSettings& _settings, ConfigDiagnostics& _diagnostics)
@@ -232,7 +283,7 @@ void ApplyConfigLayer(const JsonValue& _root, AppConfig& _config, ConfigDiagnost
     return;
   }
 
-  WarnUnknownKeys(_root, {"mode", "selfTest", "logging", "universe", "server", "client"}, "", _diagnostics);
+  WarnUnknownKeys(_root, {"mode", "selfTest", "logging", "universe", "content", "server", "client"}, "", _diagnostics);
 
   const JsonValue mode = _root.Member("mode");
   if (mode.Valid())
@@ -283,6 +334,7 @@ void ApplyConfigLayer(const JsonValue& _root, AppConfig& _config, ConfigDiagnost
     ReadUInt(server, "maxSessions", _config.server.maxSessions, 1, 1024, "server", _diagnostics);
   }
 
+  ReadContent(_root, _config.content, _diagnostics);
   ReadClient(_root, _config.client, _diagnostics);
 }
 

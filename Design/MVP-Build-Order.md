@@ -51,8 +51,11 @@ Wired at the use sites rather than left as a library nobody calls: the sim threa
 ADR-002's "release counter" taken literally — telemetry is not compiled out of Release); the
 frame loop registers `Main` and spans `Frame`, `Net`, `Render`; `wWinMain` calls
 `DirectX::XMVerifyCPUSupport()` before anything computes (ADR-010, R11).
-**Outstanding:** the `GAME/EXTRACT/RENDER/UI` rows the corpus HUD shows need those stages to
-exist — they arrive with S5. `GameLogicTests` is still unwired (its library is empty).
+**Outstanding:** ~~the `GAME/EXTRACT/RENDER/UI` rows the corpus HUD shows need those stages to
+exist — they arrive with S5.~~ **Closed by S5:** the frame loop now spans `Net`, `Game`,
+`Extract`, `Render` and `Ui`, and the opaque pass spans `Opaque` inside `Render`; `Ui` is
+declared and empty until S11 gives it something to draw. `GameLogicTests` is still unwired
+(its library is empty).
 
 ### S2b — JSON parser & configuration
 `Json.h/.cpp` (iterative parse, flat-node DOM, exact `int64`, comments + trailing commas,
@@ -154,6 +157,56 @@ renders — no net yet.
 **Accept:** `NeuronClientTests` OBJ parser (counts/ranges vs known meshes); visual checkpoint
 vs `tactical-hud.png` vibe (dark space, green accents, silhouettes readable at min zoom);
 frame time < 2 ms at 41 instances.
+**Built ✅ (code):**
+`ObjMesh.h/.cpp` — hand-rolled OBJ/MTL parse, faces regrouped into submesh ranges in canonical
+material order (so Structure's 117 interleaved `usemtl` groups become five draws), vertices
+deduplicated on (position, normal) so hard edges stay hard, bounds and hull radius, and
+`(line, column, message)` diagnostics on every malformed input. Free of D3D and C++/WinRT
+headers, like `ClearColour.h`, so the tests need no device.
+`IsoCamera.h/.cpp` — orthographic, elevation fixed at 30°, focus on the plane, free orbit with
+45° detents, multiplicative zoom clamped to 0.5–40 km, and pan that undoes the foreshortening
+(screen-up costs 1/sin 30° = 2× screen-right, the same factor as the 2:1 rings).
+`InputMap.h/.cpp` + `Window` input — `InputFrame` → `CameraIntent`, pure and testable; the
+virtual-key table lives in `Window`, which is the only file entitled to know what `VK_OEM_PLUS`
+is. Bindings avoid the left and right buttons on purpose: S8 needs one for box-select and S9
+the other for the order puck, so the camera takes the middle button, the wheel, the screen edge
+and the keyboard, with Alt turning a middle-drag from a pan into an orbit.
+`RenderWorld.h/.cpp` — `InstanceRecord` (20 bytes, ADR-006 §6's field names, static-asserted
+because it *is* the per-instance vertex stream), `RenderScene` sorted by `classId` into
+contiguous per-class runs, and the parked-fleet placeholder S7 deletes.
+`GpuUploadRing.h/.cpp` `GpuPipelines.h/.cpp` `GpuMeshes.h/.cpp` `GpuPasses.h/.cpp` — a
+per-frame linear upload allocator, the shared root signature and the opaque PSO, VB/IB per
+class in a default heap, and the `Clear → Opaque` pass list with the rest of ADR-006 §1's nodes
+written out as reserved slots. The depth buffer joins `GpuSwapChain`, which is the one other
+thing that owns the swapchain's size.
+`GlyphAtlas.h/.cpp` — DirectWrite bakes printable ASCII plus the box and marker glyphs into one
+R8 texture, one task per size on the boot `TaskPool`, packed and blitted single-threaded so the
+layout does not depend on the thread schedule. Baked but not yet drawn: the Ui pass is S11.
+`GameData/Shaders/Opaque.hlsl` — compiled at boot, so a shader is content like a mesh. Nine
+mesh file names move into `Outpost.json` under `content`, and their order *is* the `classId`
+order: the engine loads the list it is handed and has no opinion about which index is a Carrier
+(ADR-014).
+
+**One design correction, made here rather than papered over.** ADR-006 §3a named the `RH`
+DirectXMath entry points, and ADR-001 §3 fixes render space as `(sim.x, h, sim.y)` with `+Y`
+up — which is a *left*-handed basis. Together they mirror the view: with the camera south of
+the focus looking north, east projected to the **left** of the screen. It was caught by pushing
+a viewport corner through the matrices in a test rather than by reading the code. ADR-001 is
+the root decision and its conventions are normative, so ADR-006 yielded: the camera now uses
+`XMMatrixLookAtLH` / `XMMatrixOrthographicOffCenterLH`, and ADR-006 §3a and ADR-010 §5 record
+why. `NeuronClientTests` keeps an `EastIsOnTheRightOfTheScreen` case so it cannot come back.
+
+**Verified:** `NeuronClientTests` covers the OBJ parser against hand-written text *and* against
+the nine shipped meshes' real counts and ranges, eight malformed-input diagnostics, camera
+projection at six yaws (focus centred, viewport edges exact, ground circles 2:1, cosmetic height
+lifts without shifting, the whole 40 km grid inside the depth range), zoom/detent/pan state, the
+input bindings, and the extract layout.
+**Outstanding:** everything needing a GPU — the visual checkpoint against `tactical-hud.png`,
+the `< 2 ms at 41 instances` frame-time measurement, and a debug-layer-clean run. CI has no GPU
+and no display, so nothing below the parser and the maths has been *executed* anywhere; the
+GPU-side code is compiled-and-reviewed only. The atlas is baked and resident but nothing samples
+it until S11, and the animated S1 clear colour is still under the scene — it stays inside the
+art direction's blue, but it is the first thing to delete if the visual checkpoint dislikes it.
 
 ### S5b — Universe definition & Vesta-3
 `UniversePos`/`UniverseDef` types + pure JSON-backed parse in GameLogic (ADR-009 + ADR-012,

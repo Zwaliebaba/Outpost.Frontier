@@ -75,6 +75,23 @@ struct UiSettings
 {
   double scale = 1.0;
   std::string palette = "default";
+  std::string font = "Consolas"; // A monospace face for the glyph atlas (ADR-006 §9).
+};
+
+/*
+ * Where the client's boot-time content lives, and which meshes it loads.
+ *
+ * The mesh list is ordered, and the order *is* the classId the renderer draws
+ * with: the engine is game-free (ADR-014), so it has no opinion about which
+ * index is a Carrier. Ships come first, smallest to largest, and the structure
+ * last -- and the parked-fleet placeholder S5 renders reads it that way.
+ */
+struct ContentSettings
+{
+  std::string meshDirectory = "GameData/Meshes";
+  std::string shaderDirectory = "GameData/Shaders";
+  std::vector<std::string> meshes = {"Interceptor.obj", "Bomber.obj",  "Corvette.obj",   "Frigate.obj",  "Hauler.obj",
+                                     "Miner.obj",       "Carrier.obj", "Battleship.obj", "Structure.obj"};
 };
 
 struct ClientSettings
@@ -96,6 +113,7 @@ struct AppConfig
   std::string universeDefinition = "GameData/Universe/Frontier.json";
   ServerSettings server;
   ClientSettings client;
+  ContentSettings content;
 };
 
 struct ConfigDiagnostics
