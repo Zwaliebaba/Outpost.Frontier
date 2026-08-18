@@ -41,10 +41,10 @@ constexpr const char* VALID_UNIVERSE = R"json({
       "centre": { "x": 4200000000, "y": -1750000000 },
       "celestials": [
         { "id": 1, "kind": "star",   "name": "Vesta",   "position": { "x": 4200000000, "y": -1750000000 }, "radiusMetres": 696000000 },
-        { "id": 2, "kind": "planet", "name": "Kessler", "position": { "x": 4310000000, "y": -1750000000 }, "radiusMetres": 6051000 }
+        { "id": 2, "kind": "planet", "name": "Kessler", "position": { "x": 111700000000, "y": -1750000000 }, "radiusMetres": 6051000 }
       ],
       "stations": [
-        { "id": 1, "name": "Anchorage", "position": { "x": 4309400000, "y": -1749880000 } }
+        { "id": 1, "name": "Anchorage", "position": { "x": 111700000000, "y": -1741949000 } }
       ]
     }
   ]
@@ -248,9 +248,9 @@ public:
 
     constexpr const char* reordered = R"json({
       // reformatted, re-ordered, and commented
-      "systems": [ { "stations": [ { "position": { "y": -1749880000, "x": 4309400000 }, "name": "Anchorage", "id": 1 } ],
+      "systems": [ { "stations": [ { "position": { "y": -1741949000, "x": 111700000000 }, "name": "Anchorage", "id": 1 } ],
         "celestials": [
-          { "radiusMetres": 6051000, "position": { "x": 4310000000, "y": -1750000000 }, "name": "Kessler", "kind": "planet", "id": 2 },
+          { "radiusMetres": 6051000, "position": { "x": 111700000000, "y": -1750000000 }, "name": "Kessler", "kind": "planet", "id": 2 },
           { "radiusMetres": 696000000, "position": { "y": -1750000000, "x": 4200000000 }, "name": "Vesta", "kind": "star", "id": 1 } ],
         "centre": { "y": -1750000000, "x": 4200000000 }, "name": "Vesta-3", "region": 1, "id": 1 } ],
       "regions": [ { "name": "Reach", "id": 1 } ],
@@ -327,15 +327,15 @@ public:
     const GridAnchor anchor = universe.StartAnchor();
 
     Assert::AreEqual<std::uint16_t>(1, anchor.system);
-    Assert::AreEqual<std::int64_t>(4309400000, anchor.origin.x);
-    Assert::AreEqual<std::int64_t>(-1749880000, anchor.origin.y);
+    Assert::AreEqual<std::int64_t>(111700000000, anchor.origin.x);
+    Assert::AreEqual<std::int64_t>(-1741949000, anchor.origin.y);
   }
 
   TEST_METHOD(AnchorPlusLocalReconstructsTheExactPosition)
   {
     // ADR-009 §2's promise, as a property. Integer throughout, so "without
     // loss" means bit-exact rather than close enough.
-    const UniversePos anchor{4309400000, -1749880000};
+    const UniversePos anchor{111700000000, -1741949000};
     const std::int64_t offsets[] = {0, 1, -1, 7, -7, 999, -999, 12345, -12345, GRID_HALF_EXTENT_METRES, -GRID_HALF_EXTENT_METRES};
 
     for (const std::int64_t dx : offsets)
@@ -356,7 +356,7 @@ public:
 
   TEST_METHOD(OffGridPositionsAreRefusedRatherThanWrapped)
   {
-    const UniversePos anchor{4309400000, -1749880000};
+    const UniversePos anchor{111700000000, -1741949000};
     LocalOffsetCm local;
 
     Assert::IsTrue(LocalFromUniverse(anchor, UniversePos{anchor.x + GRID_HALF_EXTENT_METRES, anchor.y}, local),

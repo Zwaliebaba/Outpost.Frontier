@@ -32,9 +32,15 @@
       // (ADR-009 §3). Positions *within* a system are gameplay-real.
       "centre": { "x": 4200000000, "y": -1750000000 },
 
-      // Landmarks, and later economy anchors. They are hundreds of millions of
-      // metres away -- far outside any tactical grid -- so they are backdrop
-      // rather than anything the fleet flies to.
+      // Landmarks, and later economy anchors. Distances here are real: Kessler
+      // orbits at 0.72 AU and Halgren at 1.0 AU, which puts the nearest one --
+      // Kessler, which the station orbits -- 8,051 km away, or 400 times the
+      // tactical grid's half-extent, and the star a hundred million kilometres
+      // out. That is why they are backdrop rather than anywhere the fleet flies
+      // (ADR-009 §9): at tactical zoom every one of them is a point.
+      //
+      // Radii are Sol's, Venus's and Earth's. Getting them right costs nothing
+      // and means a body never has to be re-placed once something draws it.
       "celestials": [
         {
           "id": 1,
@@ -47,14 +53,14 @@
           "id": 2,
           "kind": "planet",
           "name": "Kessler",
-          "position": { "x": 4310000000, "y": -1750000000 },
+          "position": { "x": 111700000000, "y": -1750000000 },
           "radiusMetres": 6051000
         },
         {
           "id": 3,
           "kind": "planet",
           "name": "Halgren",
-          "position": { "x": 3970000000, "y": -1670000000 },
+          "position": { "x": -91800000000, "y": 112850000000 },
           "radiusMetres": 6371000
         }
       ],
@@ -62,11 +68,14 @@
       // One station in the MVP (ADR-009 §9); the format and the loader both
       // take two, which is the system cap. Move this position and the grid
       // anchor moves with it -- the scene is read from here, not compiled in.
+      //
+      // The Anchorage holds a 2,000 km orbit over Kessler: 8,051,000 m from the
+      // planet's centre, less its 6,051,000 m radius.
       "stations": [
         {
           "id": 1,
           "name": "Vesta-3 Anchorage",
-          "position": { "x": 4309400000, "y": -1749880000 }
+          "position": { "x": 111700000000, "y": -1741949000 }
         }
       ]
 
