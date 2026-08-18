@@ -34,24 +34,48 @@
       <EntryPointName>VertexMain</EntryPointName>
       <HeaderFileOutput>$(ProjectDir)CompiledShaders\OpaqueVS.h</HeaderFileOutput>
       <VariableName>g_pOpaqueVS</VariableName>
+      <VariableName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">g_p%(Filename)</VariableName>
+      <HeaderFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(ProjectDir)CompiledShaders\%(Filename).h</HeaderFileOutput>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      </ObjectFileOutput>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">6.7</ShaderModel>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">/Qembed_debug %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
     <FxCompile Include="Shaders\OpaquePS.hlsl">
       <ShaderType>Pixel</ShaderType>
       <EntryPointName>PixelMain</EntryPointName>
       <HeaderFileOutput>$(ProjectDir)CompiledShaders\OpaquePS.h</HeaderFileOutput>
       <VariableName>g_pOpaquePS</VariableName>
+      <VariableName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">g_p%(Filename)</VariableName>
+      <HeaderFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(ProjectDir)CompiledShaders\%(Filename).h</HeaderFileOutput>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      </ObjectFileOutput>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">6.7</ShaderModel>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">/Qembed_debug %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
     <FxCompile Include="Shaders\NebulaVS.hlsl">
       <ShaderType>Vertex</ShaderType>
       <EntryPointName>VertexMain</EntryPointName>
       <HeaderFileOutput>$(ProjectDir)CompiledShaders\NebulaVS.h</HeaderFileOutput>
       <VariableName>g_pNebulaVS</VariableName>
+      <VariableName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">g_p%(Filename)</VariableName>
+      <HeaderFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(ProjectDir)CompiledShaders\%(Filename).h</HeaderFileOutput>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      </ObjectFileOutput>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">6.7</ShaderModel>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">/Qembed_debug %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
     <FxCompile Include="Shaders\NebulaPS.hlsl">
       <ShaderType>Pixel</ShaderType>
       <EntryPointName>PixelMain</EntryPointName>
       <HeaderFileOutput>$(ProjectDir)CompiledShaders\NebulaPS.h</HeaderFileOutput>
       <VariableName>g_pNebulaPS</VariableName>
+      <VariableName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">g_p%(Filename)</VariableName>
+      <HeaderFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(ProjectDir)CompiledShaders\%(Filename).h</HeaderFileOutput>
+      <ObjectFileOutput Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+      </ObjectFileOutput>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">6.7</ShaderModel>
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">/Qembed_debug %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
     <!-- Included by the .hlsl files above; fxc resolves them beside the source. -->
     <None Include="Shaders\Nebula.hlsli" />
@@ -79,10 +103,6 @@
     <ClInclude Include="ShaderTable.h" />
     <ClInclude Include="UniverseLoad.h" />
     <ClInclude Include="SelfTest.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <FxCompile Include="Shaders\Nebula.hlsl" />
-    <FxCompile Include="Shaders\Opaque.hlsl" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
