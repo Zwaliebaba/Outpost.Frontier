@@ -95,13 +95,8 @@ listed in R14 and the S4 notes was found by pushing and reading the log.
    `GameData/Meshes` *are* the standard ship set (8 ships + `Structure` for stations);
    `HullClass` keeps the 11-value closed taxonomy with **Fighter and Cruiser as reserved,
    unused ids** so wire, icons, and palettes never renumber when content arrives.
-3. **Package hygiene (harmless, trimmable):** every library and the exe reference the msquic
-   *and* C++/WinRT NuGet packages; by the dependency map only NeuronCore needs msquic, and only
-   NeuronClient needs C++/WinRT (for `winrt::com_ptr`). Note the constraint this creates: the
-   `Tests/*` projects have **no** packages, so anything a test includes must not reach a
-   C++/WinRT header — which is why `ClearColour` is a separate, dependency-free header.
-4. Language standard is `stdcpplatest` across configs for the five main projects, and was added
+3. Language standard is `stdcpplatest` across configs for the five main projects, and was added
    to the four `Tests/*` projects (see item 1); nothing to do.
-5. Mesh conventions confirmed for the loader: triangulated `f v/vt/vn`, per-face normals via
+4. Mesh conventions confirmed for the loader: triangulated `f v/vt/vn`, per-face normals via
    duplicated vertices, Y-up, **forward = −Z**, shared 5-material palette
    (`hull/plate/glass/accent/thruster`) identical across all `.mtl` files.
