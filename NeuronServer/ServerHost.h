@@ -29,7 +29,7 @@ namespace Neuron
 struct SessionInfo
 {
   std::uint32_t clientId = 0;
-  ConnectionId connection = InvalidConnection;
+  ConnectionId connection = INVALID_CONNECTION;
   bool handshakeComplete = false;
   std::uint32_t lastPingTick = 0;
 };
@@ -53,13 +53,28 @@ public:
   /// Waits for the sim thread to exit. Stop() first, or this never returns.
   void Join();
 
-  [[nodiscard]] bool Running() const noexcept { return m_running.load(std::memory_order_acquire); }
-  [[nodiscard]] std::uint16_t BoundPort() const noexcept { return m_boundPort; }
+  [[nodiscard]] bool Running() const noexcept
+  {
+    return m_running.load(std::memory_order_acquire);
+  }
+  [[nodiscard]] std::uint16_t BoundPort() const noexcept
+  {
+    return m_boundPort;
+  }
 
   // Read from any thread: these are counters for logging and the debug HUD.
-  [[nodiscard]] std::uint32_t TickCount() const noexcept { return m_tick.load(std::memory_order_relaxed); }
-  [[nodiscard]] std::uint32_t OverrunCount() const noexcept { return m_overruns.load(std::memory_order_relaxed); }
-  [[nodiscard]] std::uint32_t SessionCount() const noexcept { return m_sessionCount.load(std::memory_order_relaxed); }
+  [[nodiscard]] std::uint32_t TickCount() const noexcept
+  {
+    return m_tick.load(std::memory_order_relaxed);
+  }
+  [[nodiscard]] std::uint32_t OverrunCount() const noexcept
+  {
+    return m_overruns.load(std::memory_order_relaxed);
+  }
+  [[nodiscard]] std::uint32_t SessionCount() const noexcept
+  {
+    return m_sessionCount.load(std::memory_order_relaxed);
+  }
 
 private:
   void SimThread();

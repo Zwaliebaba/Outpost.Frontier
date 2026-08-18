@@ -40,7 +40,7 @@ public:
   constexpr std::uint32_t Next() noexcept
   {
     const std::uint64_t previous = m_state;
-    m_state = previous * Multiplier + m_increment;
+    m_state = previous * MULTIPLIER + m_increment;
     const auto xorshifted = static_cast<std::uint32_t>(((previous >> 18u) ^ previous) >> 27u);
     const auto rotation = static_cast<std::uint32_t>(previous >> 59u);
     return (xorshifted >> rotation) | (xorshifted << ((~rotation + 1u) & 31u));
@@ -74,7 +74,7 @@ public:
   [[nodiscard]] constexpr std::uint64_t Increment() const noexcept { return m_increment; }
 
 private:
-  static constexpr std::uint64_t Multiplier = 6364136223846793005ull;
+  static constexpr std::uint64_t MULTIPLIER = 6364136223846793005ull;
 
   std::uint64_t m_state = 0;
   std::uint64_t m_increment = 0xda3e39cb94b95bdbull;

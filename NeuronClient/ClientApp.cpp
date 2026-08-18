@@ -58,7 +58,7 @@ void ClientApp::CreateFrameResources()
   // One allocator per back buffer: an allocator cannot be reset while the GPU
   // is still executing commands recorded from it, and the fence value stored
   // beside it is what proves that it is safe.
-  for (std::uint32_t i = 0; i < GpuSwapChain::BufferCount; ++i)
+  for (std::uint32_t i = 0; i < GpuSwapChain::BUFFER_COUNT; ++i)
   {
     check_hresult(m_device.Device()->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(m_commandAllocators[i].put())));
   }

@@ -75,7 +75,7 @@ public:
     Assert::IsTrue(server.BoundPort() != 0, L"ephemeral port was not reported");
 
     const ConnectionId toServer = client.Connect("127.0.0.1", server.BoundPort());
-    Assert::IsTrue(toServer != InvalidConnection);
+    Assert::IsTrue(toServer != INVALID_CONNECTION);
 
     const std::array<std::uint8_t, 4> control{1, 2, 3, 4};
     Assert::IsTrue(client.Send(toServer, TransportChannel::Control, control));
@@ -94,7 +94,7 @@ public:
     Assert::AreEqual<std::uint8_t>(1, serverPayloads.front()[0]);
 
     // The server learned the client's address from the datagram, so it can answer.
-    ConnectionId toClient = InvalidConnection;
+    ConnectionId toClient = INVALID_CONNECTION;
     for (ConnectionId candidate = 1; candidate < 8; ++candidate)
     {
       if (server.State(candidate) == ConnectionState::Connected)
@@ -103,7 +103,7 @@ public:
         break;
       }
     }
-    Assert::IsTrue(toClient != InvalidConnection, L"the server did not register the peer");
+    Assert::IsTrue(toClient != INVALID_CONNECTION, L"the server did not register the peer");
 
     const std::array<std::uint8_t, 3> state{9, 8, 7};
     Assert::IsTrue(server.Send(toClient, TransportChannel::State, state));
@@ -133,7 +133,7 @@ public:
     std::array<std::uint8_t, 256> buffer{};
     ByteWriter writer{buffer};
     WriteWireType(writer, WireType::Hello);
-    Write(writer, Hello{ProtocolVersion, 0xabcdef, 0x123456, "tester"});
+    Write(writer, Hello{PROTOCOL_VERSION, 0xabcdef, 0x123456, "tester"});
     Assert::IsTrue(writer.Ok());
     Assert::IsTrue(client.Send(toServer, TransportChannel::Control, writer.Written()));
 
@@ -152,7 +152,7 @@ public:
 
     Hello hello;
     Assert::IsTrue(Read(reader, hello));
-    Assert::AreEqual<std::uint16_t>(ProtocolVersion, hello.protocolVersion);
+    Assert::AreEqual<std::uint16_t>(PROTOCOL_VERSION, hello.protocolVersion);
     Assert::AreEqual<std::uint64_t>(0xabcdef, hello.schemaHash);
     Assert::IsTrue(hello.playerName == "tester");
     Assert::IsTrue(reader.FullyConsumed());
@@ -167,10 +167,10 @@ public:
     Assert::IsTrue(server.Listen(0));
     const ConnectionId toServer = client.Connect("127.0.0.1", server.BoundPort());
 
-    const std::vector<std::uint8_t> oversize(UdpTransport::MaxPayloadBytes + 1, 0xcd);
+    const std::vector<std::uint8_t> oversize(UdpTransport::MAX_PAYLOAD_BYTES + 1, 0xcd);
     Assert::IsFalse(client.Send(toServer, TransportChannel::State, oversize));
 
-    const std::vector<std::uint8_t> largest(UdpTransport::MaxPayloadBytes, 0xcd);
+    const std::vector<std::uint8_t> largest(UdpTransport::MAX_PAYLOAD_BYTES, 0xcd);
     Assert::IsTrue(client.Send(toServer, TransportChannel::State, largest));
   }
 
@@ -258,7 +258,7 @@ public:
     const std::uint64_t hash = CoreSchemaHash();
     Assert::AreEqual(hash, CoreSchemaHash()); // Same build, same answer.
     Assert::IsTrue(hash != 0);
-    Assert::AreNotEqual(hash, HashText(CoreSchemaText)); // The version is folded in.
+    Assert::AreNotEqual(hash, HashText(CORE_SCHEMA_TEXT)); // The version is folded in.
   }
 };
 

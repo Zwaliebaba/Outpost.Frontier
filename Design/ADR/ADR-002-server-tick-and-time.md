@@ -36,7 +36,7 @@ has no twitch input.
 
 ## Decision
 
-1. **Fixed timestep, 20 Hz.** `TickRate = 20`, `TickDt = 50 ms` exactly (`dt = 0.05f` in sim).
+1. **Fixed timestep, 20 Hz.** `TICK_RATE = 20`, `TICK_DT = 50 ms` exactly (`dt = 0.05f` in sim).
    Tick index is `uint32` (~6.8 years of uptime; wraps are a non-problem but comparisons use
    serial arithmetic anyway). Simulation time *is* the tick count; GameLogic never reads a
    clock (ADR-005).
@@ -50,7 +50,7 @@ has no twitch input.
    without a wire change (ADR-004).
 4. **Client render is free-running** (vsync or uncapped) and never blocks on the network.
    Per frame the client:
-   - estimates server time `t_est = serverTick_latest + age/TickDt`, smoothed with a slew
+   - estimates server time `t_est = serverTick_latest + age/TICK_DT`, smoothed with a slew
      limiter (no jumps; ±2 % rate correction), giving the *drift* readout the debug HUD shows;
    - renders at `t_render = t_est − InterpDelay`, with **InterpDelay = 2 ticks (100 ms)**;
    - **interpolates** ship transforms between the two snapshots bracketing `t_render`
@@ -81,7 +81,7 @@ has no twitch input.
   1 tick) only with evidence.
 - Interpolation requires ≥ 2 buffered snapshots before the world first renders "live" —
   connection flow must tolerate a ~100 ms warm-up (join screen covers it).
-- All sim constants tune against a fixed 50 ms dt; changing TickRate later is a *balancing*
+- All sim constants tune against a fixed 50 ms dt; changing TICK_RATE later is a *balancing*
   event, not a refactor (nothing outside GameLogic assumes 50 ms except via named constants).
 - Server CPU budget per tick is 50 ms hard ceiling; the `tickOverrun` counter is a release
   telemetry field from day one (`debug-hud.png` Tier 1).

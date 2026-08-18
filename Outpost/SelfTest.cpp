@@ -21,25 +21,25 @@ namespace
 
 /// Generous: the point is to catch "never happened", not to measure. A healthy
 /// loopback finishes in well under a second.
-constexpr double TimeoutMs = 10000.0;
+constexpr double TIMEOUT_MS = 10000.0;
 
 /// One pong proves the path; three prove the cadence keeps running.
-constexpr std::uint64_t RequiredPongs = 3;
+constexpr std::uint64_t REQUIRED_PONGS = 3;
 
 /// A round trip over loopback is measured in microseconds. A whole second means
 /// the number is being computed wrong, not that the link is slow.
-constexpr double ImplausibleRoundTripMs = 1000.0;
+constexpr double IMPLAUSIBLE_ROUND_TRIP_MS = 1000.0;
 
 /// How long the tick-cadence measurement runs. Long enough that one late tick
 /// does not move the mean, short enough that nobody skips the self test.
-constexpr double CadenceWindowMs = 3000.0;
+constexpr double CADENCE_WINDOW_MS = 3000.0;
 
 /// ADR-002's rate, and what the mean period is checked against. The tolerance
 /// is the loose one: S3's "50 ms +/- 0.5" is a measurement for an *idle*
 /// machine, and this runs wherever it is run. The tight number is reported
 /// rather than asserted, so a person can read it and judge.
-constexpr double ExpectedTickPeriodMs = 50.0;
-constexpr double AcceptableTickPeriodDriftMs = 5.0;
+constexpr double EXPECTED_TICK_PERIOD_MS = 50.0;
+constexpr double ACCEPTABLE_TICK_PERIOD_DRIFT_MS = 5.0;
 
 class Checklist
 {
@@ -57,7 +57,10 @@ public:
     }
   }
 
-  [[nodiscard]] std::uint32_t Failures() const noexcept { return m_failures; }
+  [[nodiscard]] std::uint32_t Failures() const noexcept
+  {
+    return m_failures;
+  }
 
 private:
   std::uint32_t m_failures = 0;
@@ -65,11 +68,10 @@ private:
 
 /// Services the client until the predicate holds or the deadline passes. The
 /// server has its own thread, so only this end needs pumping.
-template <typename Predicate>
-bool PumpUntil(Neuron::ClientConnection& _client, Predicate _predicate)
+template <typename Predicate> bool PumpUntil(Neuron::ClientConnection& _client, Predicate _predicate)
 {
   const std::int64_t start = Neuron::Clock::Counter();
-  while (Neuron::Clock::MillisecondsBetween(start, Neuron::Clock::Counter()) < TimeoutMs)
+  while (Neuron::Clock::MillisecondsBetween(start, Neuron::Clock::Counter()) < TIMEOUT_MS)
   {
     _client.Poll();
     if (_predicate())
@@ -106,8 +108,8 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
 
   {
     Neuron::ClientConnection client;
-    const bool connected = client.Connect("127.0.0.1", server.BoundPort(), _simulation.SchemaHash(), _simulation.ContentHash(),
-                                          "self test");
+    const bool connected =
+      client.Connect("127.0.0.1", server.BoundPort(), _simulation.SchemaHash(), _simulation.ContentHash(), "self test");
     checks.Record("client opens a socket", connected);
 
     if (connected)
@@ -118,9 +120,9 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
       checks.Record("server reports 20 Hz", client.ServerTickRate() == 20);
       checks.Record("server counts the session", server.SessionCount() == 1);
 
-      const bool ponged = PumpUntil(client, [&] { return client.PongCount() >= RequiredPongs; });
+      const bool ponged = PumpUntil(client, [&] { return client.PongCount() >= REQUIRED_PONGS; });
       checks.Record("heartbeat crosses the loopback", ponged);
-      checks.Record("round trip is plausible", client.RoundTripMs() >= 0.0 && client.RoundTripMs() < ImplausibleRoundTripMs);
+      checks.Record("round trip is plausible", client.RoundTripMs() >= 0.0 && client.RoundTripMs() < IMPLAUSIBLE_ROUND_TRIP_MS);
       checks.Record("server advances its tick", client.ServerTick() > 0);
 
       const Neuron::TransportStats stats = client.Stats();
@@ -139,7 +141,7 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
   // the session table to empty rather than assuming it already has.
   bool emptied = false;
   const std::int64_t waitStart = Neuron::Clock::Counter();
-  while (Neuron::Clock::MillisecondsBetween(waitStart, Neuron::Clock::Counter()) < TimeoutMs)
+  while (Neuron::Clock::MillisecondsBetween(waitStart, Neuron::Clock::Counter()) < TIMEOUT_MS)
   {
     if (server.SessionCount() == 0)
     {
@@ -158,17 +160,17 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
   {
     const std::uint32_t before = server.TickCount();
     const std::int64_t start = Neuron::Clock::Counter();
-    Sleep(static_cast<DWORD>(CadenceWindowMs));
+    Sleep(static_cast<DWORD>(CADENCE_WINDOW_MS));
     const double elapsedMs = Neuron::Clock::MillisecondsBetween(start, Neuron::Clock::Counter());
     const std::uint32_t ticks = server.TickCount() - before;
     const double meanPeriodMs = ticks == 0 ? 0.0 : elapsedMs / static_cast<double>(ticks);
 
-    NEURON_LOG_INFO("self test: %u ticks in %.0f ms -- mean period %.3f ms (want %.1f +/- 0.5 idle), %u overrun(s)", ticks,
-                    elapsedMs, meanPeriodMs, ExpectedTickPeriodMs, server.OverrunCount());
+    NEURON_LOG_INFO("self test: %u ticks in %.0f ms -- mean period %.3f ms (want %.1f +/- 0.5 idle), %u overrun(s)", ticks, elapsedMs,
+                    meanPeriodMs, EXPECTED_TICK_PERIOD_MS, server.OverrunCount());
 
-    checks.Record("the tick loop keeps its cadence",
-                  ticks > 0 && meanPeriodMs > ExpectedTickPeriodMs - AcceptableTickPeriodDriftMs &&
-                    meanPeriodMs < ExpectedTickPeriodMs + AcceptableTickPeriodDriftMs);
+    checks.Record("the tick loop keeps its cadence", ticks > 0 &&
+                                                       meanPeriodMs > EXPECTED_TICK_PERIOD_MS - ACCEPTABLE_TICK_PERIOD_DRIFT_MS &&
+                                                       meanPeriodMs < EXPECTED_TICK_PERIOD_MS + ACCEPTABLE_TICK_PERIOD_DRIFT_MS);
   }
 
   server.Stop();

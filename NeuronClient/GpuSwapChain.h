@@ -24,7 +24,7 @@ class GpuDevice;
 class GpuSwapChain
 {
 public:
-  static constexpr std::uint32_t BufferCount = 3;
+  static constexpr std::uint32_t BUFFER_COUNT = 3;
 
   GpuSwapChain() = default;
   ~GpuSwapChain();
@@ -69,7 +69,7 @@ private:
   GpuDevice* m_device = nullptr;
   GpuPtr<IDXGISwapChain3> m_swapChain;
   GpuPtr<ID3D12DescriptorHeap> m_rtvHeap;
-  GpuPtr<ID3D12Resource> m_backBuffers[BufferCount];
+  GpuPtr<ID3D12Resource> m_backBuffers[BUFFER_COUNT];
   HANDLE m_frameLatencyWaitable = nullptr;
   std::uint32_t m_rtvStride = 0;
   std::uint32_t m_currentIndex = 0;

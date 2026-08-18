@@ -36,8 +36,8 @@ namespace Neuron
 
 consteval std::uint32_t FixedMessage(const char* _msg)
 {
-  return static_cast<std::uint32_t>(_msg[0]) << 24 | static_cast<std::uint32_t>(_msg[1]) << 16 |
-         static_cast<std::uint32_t>(_msg[2]) << 8 | static_cast<std::uint32_t>(_msg[3]);
+  return static_cast<std::uint32_t>(_msg[0]) << 24 | static_cast<std::uint32_t>(_msg[1]) << 16 | static_cast<std::uint32_t>(_msg[2]) << 8 |
+         static_cast<std::uint32_t>(_msg[3]);
 }
 
 #if defined _DEBUG
@@ -57,8 +57,7 @@ inline void SetNameIndexed(ID3D12Object* _object, const LPCWSTR _name, const UIN
 
 #else
 inline void SetName([[maybe_unused]] ID3D12Object* _object, [[maybe_unused]] const LPCWSTR _name) {}
-inline void SetNameIndexed([[maybe_unused]] ID3D12Object* _object, [[maybe_unused]] const LPCWSTR _name,
-                           [[maybe_unused]] const UINT _index)
+inline void SetNameIndexed([[maybe_unused]] ID3D12Object* _object, [[maybe_unused]] const LPCWSTR _name, [[maybe_unused]] const UINT _index)
 {
 }
 #endif

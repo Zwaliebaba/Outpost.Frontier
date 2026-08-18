@@ -26,7 +26,7 @@ namespace Neuron
 
 /// The whole datagram, header included. Nothing may depend on loopback being
 /// willing to carry more than a real link would.
-inline constexpr std::size_t MaxDatagramBytes = 1152;
+inline constexpr std::size_t MAX_DATAGRAM_BYTES = 1152;
 
 enum class TransportChannel : std::uint8_t
 {
@@ -54,7 +54,7 @@ enum class DisconnectReason : std::uint16_t
 };
 
 using ConnectionId = std::uint32_t;
-inline constexpr ConnectionId InvalidConnection = 0;
+inline constexpr ConnectionId INVALID_CONNECTION = 0;
 
 struct TransportStats
 {
@@ -78,7 +78,7 @@ struct TransportEvent
   };
 
   Type type = Type::None;
-  ConnectionId connection = InvalidConnection;
+  ConnectionId connection = INVALID_CONNECTION;
   TransportChannel channel = TransportChannel::Control;
   DisconnectReason reason = DisconnectReason::None;
 

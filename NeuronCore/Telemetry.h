@@ -64,7 +64,7 @@ struct TelemetryStat
 };
 
 using LaneId = std::uint32_t;
-inline constexpr LaneId InvalidLane = 0xffffffffu;
+inline constexpr LaneId INVALID_LANE = 0xffffffffu;
 
 /*
  * The registry.
@@ -77,8 +77,8 @@ inline constexpr LaneId InvalidLane = 0xffffffffu;
 class Telemetry
 {
 public:
-  static constexpr std::uint32_t MaxLanes = 16;
-  static constexpr std::size_t LaneCapacity = 512; // Events per lane between drains.
+  static constexpr std::uint32_t MAX_LANES = 16;
+  static constexpr std::size_t LANE_CAPACITY = 512; // Events per lane between drains.
 
   /*
    * Registers the calling thread under a lane name.
@@ -97,9 +97,12 @@ public:
   /// For threads we do not own -- msquic workers, XAudio2 callbacks. Identical
   /// mechanism; named separately because the call site means something
   /// different, and because a foreign thread must register before it records.
-  static LaneId RegisterExternalThread(std::string_view _name) noexcept { return RegisterLane(_name); }
+  static LaneId RegisterExternalThread(std::string_view _name) noexcept
+  {
+    return RegisterLane(_name);
+  }
 
-  /// The calling thread's lane, or InvalidLane if it never registered.
+  /// The calling thread's lane, or INVALID_LANE if it never registered.
   [[nodiscard]] static LaneId CurrentLane() noexcept;
 
   /// Records into the calling thread's lane. An unregistered thread is a
@@ -127,7 +130,7 @@ private:
   {
     char name[32]{};
     std::uint32_t threadId = 0;
-    RingBuffer<TelemetryEvent, LaneCapacity> events;
+    RingBuffer<TelemetryEvent, LANE_CAPACITY> events;
   };
 
   /*
@@ -140,7 +143,7 @@ private:
    */
   struct LaneTable
   {
-    Lane lanes[MaxLanes];
+    Lane lanes[MAX_LANES];
     std::atomic<std::uint32_t> claimed{0};   // Indices handed out.
     std::atomic<std::uint32_t> published{0}; // Indices finished being filled in.
   };
@@ -162,7 +165,7 @@ private:
 class TelemetrySnapshot
 {
 public:
-  static constexpr std::size_t MaxStats = 64;
+  static constexpr std::size_t MAX_STATS = 64;
 
   /// Drains one lane into the aggregate. Repeated calls accumulate, so a
   /// collector can walk every lane and then read the totals once.
@@ -173,20 +176,26 @@ public:
 
   void Clear() noexcept;
 
-  [[nodiscard]] std::span<const TelemetryStat> Stats() const noexcept { return {m_stats, m_statCount}; }
+  [[nodiscard]] std::span<const TelemetryStat> Stats() const noexcept
+  {
+    return {m_stats, m_statCount};
+  }
 
   /// The named stat, or nullptr. For a HUD row or a test.
   [[nodiscard]] const TelemetryStat* Find(std::string_view _name) const noexcept;
 
   /// Events that arrived after the aggregate was full. Distinct from a lane's
   /// own drops: this one says the snapshot ran out of names, not the ring.
-  [[nodiscard]] std::uint32_t OverflowCount() const noexcept { return m_overflow; }
+  [[nodiscard]] std::uint32_t OverflowCount() const noexcept
+  {
+    return m_overflow;
+  }
 
   /// Counter ticks to milliseconds. Only meaningful for spans.
   [[nodiscard]] static double Milliseconds(std::int64_t _counterTicks) noexcept;
 
 private:
-  TelemetryStat m_stats[MaxStats]{};
+  TelemetryStat m_stats[MAX_STATS]{};
   std::size_t m_statCount = 0;
   std::uint32_t m_overflow = 0;
 };
@@ -196,12 +205,15 @@ class TelemetrySpan
 {
 public:
   explicit TelemetrySpan(const char* _name) noexcept
-    : m_name(_name)
-    , m_start(Clock::Counter())
+    : m_name(_name),
+      m_start(Clock::Counter())
   {
   }
 
-  ~TelemetrySpan() noexcept { Telemetry::Record(TelemetryKind::Span, m_name, Clock::Counter() - m_start); }
+  ~TelemetrySpan() noexcept
+  {
+    Telemetry::Record(TelemetryKind::Span, m_name, Clock::Counter() - m_start);
+  }
 
   TelemetrySpan(const TelemetrySpan&) = delete;
   TelemetrySpan& operator=(const TelemetrySpan&) = delete;
@@ -217,7 +229,11 @@ private:
 #define NEURON_TELEMETRY_JOIN(_a, _b) NEURON_TELEMETRY_JOIN2(_a, _b)
 
 /// Times the enclosing scope under a literal name: NEURON_SPAN("Tick").
-#define NEURON_SPAN(_name) const ::Neuron::TelemetrySpan NEURON_TELEMETRY_JOIN(neuronSpan, __LINE__){_name}
+#define NEURON_SPAN(_name)                                                  \
+  const ::Neuron::TelemetrySpan NEURON_TELEMETRY_JOIN(neuronSpan, __LINE__) \
+  {                                                                         \
+    _name                                                                   \
+  }
 
 /// Adds to a named running total: NEURON_COUNTER("TickOverrun", 1).
 #define NEURON_COUNTER(_name, _value) ::Neuron::Telemetry::Record(::Neuron::TelemetryKind::Counter, _name, (_value))

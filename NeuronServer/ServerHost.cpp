@@ -16,22 +16,20 @@ namespace Neuron
 {
 namespace
 {
-
 /// ADR-002 §1: fixed 20 Hz. Deliberately a constant rather than configuration.
-constexpr std::uint32_t TickRate = 20;
-constexpr double TickIntervalMs = 1000.0 / TickRate;
+constexpr std::uint32_t TICK_RATE = 20;
+constexpr double TICK_INTERVAL_MS = 1000.0 / TICK_RATE;
 
 /// Past this much debt the loop stops trying to catch up and jumps to now
 /// (ADR-002 §2). Chasing a 250 ms hole one tick at a time is how a stalled
 /// server becomes a permanently late one.
-constexpr double MaxTickDebtMs = 250.0;
-constexpr std::uint32_t MaxCatchUpTicks = 2;
+constexpr double MAX_TICK_DEBT_MS = 250.0;
+constexpr std::uint32_t MAX_CATCH_UP_TICKS = 2;
 
 /// How often each session's NET line goes to the log. The client logs the same
 /// cadence from its own side, so a disagreement between the two is itself the
 /// diagnosis (S4).
-constexpr double StatsIntervalMs = 5000.0;
-
+constexpr double STATS_INTERVAL_MS = 5000.0;
 } // namespace
 
 ServerHost::~ServerHost()
@@ -43,9 +41,7 @@ ServerHost::~ServerHost()
 bool ServerHost::Start(const ServerConfig& _config, Simulation& _simulation)
 {
   if (m_running.load(std::memory_order_acquire))
-  {
     return false;
-  }
 
   m_config = _config;
   m_simulation = &_simulation;
@@ -68,7 +64,7 @@ bool ServerHost::Start(const ServerConfig& _config, Simulation& _simulation)
   m_running.store(true, std::memory_order_release);
   m_thread = std::thread(&ServerHost::SimThread, this);
 
-  NEURON_LOG_INFO("server host started on port %u at %u Hz", static_cast<unsigned>(m_boundPort), TickRate);
+  NEURON_LOG_INFO("server host started on port %u at %u Hz", static_cast<unsigned>(m_boundPort), TICK_RATE);
   return true;
 }
 
@@ -80,9 +76,7 @@ void ServerHost::Stop()
 void ServerHost::Join()
 {
   if (m_thread.joinable())
-  {
     m_thread.join();
-  }
   m_running.store(false, std::memory_order_release);
 }
 
@@ -91,9 +85,7 @@ SessionInfo* ServerHost::FindSession(ConnectionId _connection)
   for (SessionInfo& session : m_sessions)
   {
     if (session.connection == _connection)
-    {
       return &session;
-    }
   }
   return nullptr;
 }
@@ -115,91 +107,87 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
 
   switch (type)
   {
-    case WireType::Hello:
+  case WireType::Hello:
+  {
+    Hello hello;
+    if (!Read(reader, hello))
     {
-      Hello hello;
-      if (!Read(reader, hello))
-      {
-        NEURON_LOG_WARNING("malformed Hello from connection %u", _event.connection);
-        m_transport->Close(_event.connection, DisconnectReason::ProtocolError);
-        return;
-      }
+      NEURON_LOG_WARNING("malformed Hello from connection %u", _event.connection);
+      m_transport->Close(_event.connection, DisconnectReason::ProtocolError);
+      return;
+    }
 
-      std::array<std::uint8_t, 256> buffer{};
-      ByteWriter writer{buffer};
+    std::array<std::uint8_t, 256> buffer{};
+    ByteWriter writer{buffer};
 
-      // Fail closed on a mismatch (ADR-004 §3). Better a clear refusal at the
-      // door than a session that disagrees about what the bytes mean.
-      if (hello.protocolVersion != ProtocolVersion || hello.schemaHash != m_simulation->SchemaHash() ||
-          hello.contentHash != m_simulation->ContentHash())
-      {
-        NEURON_LOG_WARNING("refusing connection %u: schema or content mismatch", _event.connection);
-        WriteWireType(writer, WireType::UpdateRequired);
-        Write(writer, UpdateRequired{m_simulation->SchemaHash(), m_simulation->ContentHash()});
-        SendTo(_event.connection, TransportChannel::Control, writer);
-        m_transport->Close(_event.connection, DisconnectReason::Refused);
-        return;
-      }
-
-      if (m_sessions.size() >= m_config.maxSessions)
-      {
-        WriteWireType(writer, WireType::Refuse);
-        Write(writer, Refuse{RefuseReason::ServerFull});
-        SendTo(_event.connection, TransportChannel::Control, writer);
-        m_transport->Close(_event.connection, DisconnectReason::Refused);
-        return;
-      }
-
-      SessionInfo session;
-      session.clientId = m_nextClientId++;
-      session.connection = _event.connection;
-      session.handshakeComplete = true;
-      m_sessions.push_back(session);
-      m_sessionCount.store(static_cast<std::uint32_t>(m_sessions.size()), std::memory_order_relaxed);
-
-      Welcome welcome;
-      welcome.clientId = session.clientId;
-      welcome.tick = m_tick.load(std::memory_order_relaxed);
-      welcome.tickRate = static_cast<std::uint16_t>(TickRate);
-      welcome.schemaHash = m_simulation->SchemaHash();
-      welcome.contentHash = m_simulation->ContentHash();
-
-      WriteWireType(writer, WireType::Welcome);
-      Write(writer, welcome);
+    // Fail closed on a mismatch (ADR-004 §3). Better a clear refusal at the
+    // door than a session that disagrees about what the bytes mean.
+    if (hello.protocolVersion != PROTOCOL_VERSION || hello.schemaHash != m_simulation->SchemaHash() ||
+        hello.contentHash != m_simulation->ContentHash())
+    {
+      NEURON_LOG_WARNING("refusing connection %u: schema or content mismatch", _event.connection);
+      WriteWireType(writer, WireType::UpdateRequired);
+      Write(writer, UpdateRequired{m_simulation->SchemaHash(), m_simulation->ContentHash()});
       SendTo(_event.connection, TransportChannel::Control, writer);
-
-      NEURON_LOG_INFO("client %u joined as '%s'", session.clientId,
-                      hello.playerName.empty() ? "(unnamed)" : hello.playerName.c_str());
+      m_transport->Close(_event.connection, DisconnectReason::Refused);
       return;
     }
 
-    case WireType::Ping:
+    if (m_sessions.size() >= m_config.maxSessions)
     {
-      Ping ping;
-      if (!Read(reader, ping))
-      {
-        return;
-      }
-      // Echoed untouched: the client measures its own round trip without the
-      // two machines agreeing on a clock.
-      std::array<std::uint8_t, 64> buffer{};
-      ByteWriter writer{buffer};
-      WriteWireType(writer, WireType::Pong);
-      Write(writer, Pong{ping.clientSendMicroseconds, m_tick.load(std::memory_order_relaxed)});
-      SendTo(_event.connection, TransportChannel::State, writer);
+      WriteWireType(writer, WireType::Refuse);
+      Write(writer, Refuse{RefuseReason::ServerFull});
+      SendTo(_event.connection, TransportChannel::Control, writer);
+      m_transport->Close(_event.connection, DisconnectReason::Refused);
       return;
     }
 
-    case WireType::Goodbye:
-    {
-      NEURON_LOG_INFO("connection %u said goodbye", _event.connection);
-      m_transport->Close(_event.connection, DisconnectReason::ClosedByPeer);
-      return;
-    }
+    SessionInfo session;
+    session.clientId = m_nextClientId++;
+    session.connection = _event.connection;
+    session.handshakeComplete = true;
+    m_sessions.push_back(session);
+    m_sessionCount.store(static_cast<std::uint32_t>(m_sessions.size()), std::memory_order_relaxed);
 
-    default:
-      NEURON_LOG_WARNING("unexpected message type %u from connection %u", static_cast<unsigned>(type), _event.connection);
+    Welcome welcome;
+    welcome.clientId = session.clientId;
+    welcome.tick = m_tick.load(std::memory_order_relaxed);
+    welcome.tickRate = static_cast<std::uint16_t>(TICK_RATE);
+    welcome.schemaHash = m_simulation->SchemaHash();
+    welcome.contentHash = m_simulation->ContentHash();
+
+    WriteWireType(writer, WireType::Welcome);
+    Write(writer, welcome);
+    SendTo(_event.connection, TransportChannel::Control, writer);
+
+    NEURON_LOG_INFO("client %u joined as '%s'", session.clientId, hello.playerName.empty() ? "(unnamed)" : hello.playerName.c_str());
+    return;
+  }
+
+  case WireType::Ping:
+  {
+    Ping ping;
+    if (!Read(reader, ping))
       return;
+    // Echoed untouched: the client measures its own round trip without the
+    // two machines agreeing on a clock.
+    std::array<std::uint8_t, 64> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::Pong);
+    Write(writer, Pong{ping.clientSendMicroseconds, m_tick.load(std::memory_order_relaxed)});
+    SendTo(_event.connection, TransportChannel::State, writer);
+    return;
+  }
+
+  case WireType::Goodbye:
+  {
+    NEURON_LOG_INFO("connection %u said goodbye", _event.connection);
+    m_transport->Close(_event.connection, DisconnectReason::ClosedByPeer);
+    return;
+  }
+
+  default:
+    NEURON_LOG_WARNING("unexpected message type %u from connection %u", static_cast<unsigned>(type), _event.connection);
   }
 }
 
@@ -209,8 +197,8 @@ void ServerHost::LogNetStats()
   for (const SessionInfo& session : m_sessions)
   {
     const TransportStats stats = m_transport->Stats(session.connection);
-    NEURON_LOG_INFO("net(session %u): rtt %.2f ms, resends %llu, dropped %llu, dgrams %llu/%llu, bytes %llu/%llu",
-                    session.clientId, stats.roundTripMs, static_cast<unsigned long long>(stats.controlResends),
+    NEURON_LOG_INFO("net(session %u): rtt %.2f ms, resends %llu, dropped %llu, dgrams %llu/%llu, bytes %llu/%llu", session.clientId,
+                    stats.roundTripMs, static_cast<unsigned long long>(stats.controlResends),
                     static_cast<unsigned long long>(stats.datagramsDropped), static_cast<unsigned long long>(stats.datagramsSent),
                     static_cast<unsigned long long>(stats.datagramsReceived), static_cast<unsigned long long>(stats.bytesSent),
                     static_cast<unsigned long long>(stats.bytesReceived));
@@ -226,33 +214,33 @@ void ServerHost::PollTransport()
   {
     switch (event.type)
     {
-      case TransportEvent::Type::Connected:
-        NEURON_LOG_DEBUG("connection %u opened", event.connection);
-        break;
+    case TransportEvent::Type::Connected:
+      NEURON_LOG_DEBUG("connection %u opened", event.connection);
+      break;
 
-      case TransportEvent::Type::Disconnected:
+    case TransportEvent::Type::Disconnected:
+    {
+      // A client leaving returns the server to an empty session table, not to
+      // a shutdown (ADR-008 §1).
+      for (auto session = m_sessions.begin(); session != m_sessions.end(); ++session)
       {
-        // A client leaving returns the server to an empty session table, not to
-        // a shutdown (ADR-008 §1).
-        for (auto session = m_sessions.begin(); session != m_sessions.end(); ++session)
+        if (session->connection == event.connection)
         {
-          if (session->connection == event.connection)
-          {
-            NEURON_LOG_INFO("client %u left (reason %u)", session->clientId, static_cast<unsigned>(event.reason));
-            m_sessions.erase(session);
-            m_sessionCount.store(static_cast<std::uint32_t>(m_sessions.size()), std::memory_order_relaxed);
-            break;
-          }
+          NEURON_LOG_INFO("client %u left (reason %u)", session->clientId, static_cast<unsigned>(event.reason));
+          m_sessions.erase(session);
+          m_sessionCount.store(static_cast<std::uint32_t>(m_sessions.size()), std::memory_order_relaxed);
+          break;
         }
-        break;
       }
+      break;
+    }
 
-      case TransportEvent::Type::Message:
-        HandleMessage(event);
-        break;
+    case TransportEvent::Type::Message:
+      HandleMessage(event);
+      break;
 
-      default:
-        break;
+    default:
+      break;
     }
   }
 }
@@ -265,7 +253,7 @@ void ServerHost::SimThread()
 
   WaitableTimer timer;
   const std::int64_t frequency = Clock::Frequency();
-  const auto tickInterval = static_cast<std::int64_t>(static_cast<double>(frequency) / TickRate);
+  const auto tickInterval = static_cast<std::int64_t>(static_cast<double>(frequency) / TICK_RATE);
 
   // Absolute schedule: each deadline is derived from the last one, so a slow
   // tick is absorbed instead of added to every tick after it (ADR-002 §2).
@@ -281,10 +269,8 @@ void ServerHost::SimThread()
       PollTransport();
     }
 
-    if (!m_sessions.empty() && Clock::MillisecondsBetween(m_lastStatsCounter, Clock::Counter()) >= StatsIntervalMs)
-    {
+    if (!m_sessions.empty() && Clock::MillisecondsBetween(m_lastStatsCounter, Clock::Counter()) >= STATS_INTERVAL_MS)
       LogNetStats();
-    }
 
     const std::uint32_t tick = m_tick.fetch_add(1, std::memory_order_relaxed) + 1;
     {
@@ -298,7 +284,7 @@ void ServerHost::SimThread()
 
     const std::int64_t now = Clock::Counter();
     const double behindMs = Clock::MillisecondsBetween(nextDeadline, now);
-    if (behindMs > MaxTickDebtMs)
+    if (behindMs > MAX_TICK_DEBT_MS)
     {
       // Too far behind to catch up honestly: drop the debt and say so, rather
       // than sprinting through ticks the world never really experienced.
@@ -310,8 +296,8 @@ void ServerHost::SimThread()
     else if (behindMs > 0.0)
     {
       // A little behind: run at most a couple of extra ticks to close the gap.
-      const auto owed = static_cast<std::uint32_t>(behindMs / TickIntervalMs);
-      for (std::uint32_t i = 0; i < owed && i < MaxCatchUpTicks; ++i)
+      const auto owed = static_cast<std::uint32_t>(behindMs / TICK_INTERVAL_MS);
+      for (std::uint32_t i = 0; i < owed && i < MAX_CATCH_UP_TICKS; ++i)
       {
         const std::uint32_t extra = m_tick.fetch_add(1, std::memory_order_relaxed) + 1;
         {
@@ -339,5 +325,4 @@ void ServerHost::SimThread()
   NEURON_LOG_INFO("server host stopped after %u ticks (%u overruns)", m_tick.load(std::memory_order_relaxed),
                   m_overruns.load(std::memory_order_relaxed));
 }
-
 } // namespace Neuron

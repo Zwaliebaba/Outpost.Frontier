@@ -117,7 +117,7 @@ std::uint64_t CoreSchemaHash() noexcept
 {
   // Folded in with the protocol version: a framing change and a layout change
   // are both reasons for two builds to refuse each other.
-  return HashText(CoreSchemaText, HashValue(ProtocolVersion));
+  return HashText(CORE_SCHEMA_TEXT, HashValue(PROTOCOL_VERSION));
 }
 
 } // namespace Neuron

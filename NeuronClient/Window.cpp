@@ -9,7 +9,7 @@ namespace Neuron
 namespace
 {
 
-constexpr const wchar_t* WindowClassName = L"OutpostFrontierWindow";
+constexpr const wchar_t* WINDOW_CLASS_NAME = L"OutpostFrontierWindow";
 
 std::wstring ToWide(const std::string& _utf8)
 {
@@ -45,7 +45,7 @@ bool Window::Create(const WindowDesc& _desc)
   windowClass.lpfnWndProc = &Window::WindowProc;
   windowClass.hInstance = m_instance;
   windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-  windowClass.lpszClassName = WindowClassName;
+  windowClass.lpszClassName = WINDOW_CLASS_NAME;
   // No background brush: the swapchain owns every pixel, and letting GDI paint
   // one produces a white flash on the first frames.
   windowClass.hbrBackground = nullptr;
@@ -67,7 +67,7 @@ bool Window::Create(const WindowDesc& _desc)
   const int windowWidth = rect.right - rect.left;
   const int windowHeight = rect.bottom - rect.top;
 
-  m_handle = CreateWindowExW(0, WindowClassName, ToWide(_desc.title).c_str(), style, CW_USEDEFAULT, CW_USEDEFAULT, windowWidth,
+  m_handle = CreateWindowExW(0, WINDOW_CLASS_NAME, ToWide(_desc.title).c_str(), style, CW_USEDEFAULT, CW_USEDEFAULT, windowWidth,
                              windowHeight, nullptr, nullptr, m_instance, this);
   if (m_handle == nullptr)
   {
@@ -94,7 +94,7 @@ void Window::Destroy()
   }
   if (m_classRegistered)
   {
-    UnregisterClassW(WindowClassName, m_instance);
+    UnregisterClassW(WINDOW_CLASS_NAME, m_instance);
     m_classRegistered = false;
   }
 }
@@ -148,58 +148,58 @@ LRESULT Window::HandleMessage(HWND _window, UINT _message, WPARAM _wParam, LPARA
 {
   switch (_message)
   {
-    case WM_CLOSE:
-      m_closeRequested = true;
-      return 0;
+  case WM_CLOSE:
+    m_closeRequested = true;
+    return 0;
 
-    case WM_DESTROY:
-      m_handle = nullptr;
-      m_closeRequested = true;
-      PostQuitMessage(0);
-      return 0;
+  case WM_DESTROY:
+    m_handle = nullptr;
+    m_closeRequested = true;
+    PostQuitMessage(0);
+    return 0;
 
-    case WM_SIZE:
+  case WM_SIZE:
+  {
+    const auto width = static_cast<std::uint32_t>(LOWORD(_lParam));
+    const auto height = static_cast<std::uint32_t>(HIWORD(_lParam));
+    m_minimised = _wParam == SIZE_MINIMIZED || width == 0 || height == 0;
+    if (!m_minimised && (width != m_width || height != m_height))
     {
-      const auto width = static_cast<std::uint32_t>(LOWORD(_lParam));
-      const auto height = static_cast<std::uint32_t>(HIWORD(_lParam));
-      m_minimised = _wParam == SIZE_MINIMIZED || width == 0 || height == 0;
-      if (!m_minimised && (width != m_width || height != m_height))
-      {
-        m_width = width;
-        m_height = height;
-        m_resized = true; // Consumed by the frame loop, which owns the swapchain.
-      }
+      m_width = width;
+      m_height = height;
+      m_resized = true; // Consumed by the frame loop, which owns the swapchain.
+    }
+    return 0;
+  }
+
+  case WM_GETMINMAXINFO:
+  {
+    // A zero-sized client area is a swapchain error, so refuse to go there.
+    auto* info = reinterpret_cast<MINMAXINFO*>(_lParam);
+    info->ptMinTrackSize.x = 320;
+    info->ptMinTrackSize.y = 240;
+    return 0;
+  }
+
+  case WM_SYSKEYDOWN:
+    // Alt+Enter belongs to the client, not to DXGI's own fullscreen handling,
+    // which the flip-model swapchain disables anyway.
+    if (_wParam == VK_RETURN)
+    {
       return 0;
     }
+    break;
 
-    case WM_GETMINMAXINFO:
+  case WM_KEYDOWN:
+    if (_wParam == VK_ESCAPE)
     {
-      // A zero-sized client area is a swapchain error, so refuse to go there.
-      auto* info = reinterpret_cast<MINMAXINFO*>(_lParam);
-      info->ptMinTrackSize.x = 320;
-      info->ptMinTrackSize.y = 240;
+      m_closeRequested = true;
       return 0;
     }
+    break;
 
-    case WM_SYSKEYDOWN:
-      // Alt+Enter belongs to the client, not to DXGI's own fullscreen handling,
-      // which the flip-model swapchain disables anyway.
-      if (_wParam == VK_RETURN)
-      {
-        return 0;
-      }
-      break;
-
-    case WM_KEYDOWN:
-      if (_wParam == VK_ESCAPE)
-      {
-        m_closeRequested = true;
-        return 0;
-      }
-      break;
-
-    default:
-      break;
+  default:
+    break;
   }
   return DefWindowProcW(_window, _message, _wParam, _lParam);
 }

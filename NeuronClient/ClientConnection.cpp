@@ -18,11 +18,11 @@ namespace
 
 /// Often enough for a live RTT readout, rare enough to be invisible next to
 /// snapshot traffic.
-constexpr double PingIntervalMs = 250.0;
+constexpr double PING_INTERVAL_MS = 250.0;
 
 /// How often the NET line goes to the log. Frequent enough to see a link
 /// degrade, rare enough that nobody turns logging off because of it.
-constexpr double StatsIntervalMs = 5000.0;
+constexpr double STATS_INTERVAL_MS = 5000.0;
 
 } // namespace
 
@@ -42,7 +42,7 @@ bool ClientConnection::Connect(const std::string& _host, std::uint16_t _port, st
 
   auto transport = std::make_unique<UdpTransport>();
   m_connection = transport->Connect(_host, _port);
-  if (m_connection == InvalidConnection)
+  if (m_connection == INVALID_CONNECTION)
   {
     return false;
   }
@@ -57,7 +57,7 @@ bool ClientConnection::Connect(const std::string& _host, std::uint16_t _port, st
 void ClientConnection::SendHello()
 {
   Hello hello;
-  hello.protocolVersion = ProtocolVersion;
+  hello.protocolVersion = PROTOCOL_VERSION;
   hello.schemaHash = m_schemaHash;
   hello.contentHash = m_contentHash;
   hello.playerName = m_playerName;
@@ -107,11 +107,11 @@ void ClientConnection::LogNetStats()
   const std::uint64_t lost = m_pingCount > m_pongCount ? m_pingCount - m_pongCount : 0;
   const double lossPercent = m_pingCount == 0 ? 0.0 : 100.0 * static_cast<double>(lost) / static_cast<double>(m_pingCount);
 
-  NEURON_LOG_INFO("net(client %u): rtt %.2f ms, ping loss %.1f%% (%llu/%llu), resends %llu, dgrams %llu/%llu, bytes %llu/%llu",
-                  m_clientId, m_roundTripMs, lossPercent, static_cast<unsigned long long>(lost),
-                  static_cast<unsigned long long>(m_pingCount), static_cast<unsigned long long>(stats.controlResends),
-                  static_cast<unsigned long long>(stats.datagramsSent), static_cast<unsigned long long>(stats.datagramsReceived),
-                  static_cast<unsigned long long>(stats.bytesSent), static_cast<unsigned long long>(stats.bytesReceived));
+  NEURON_LOG_INFO("net(client %u): rtt %.2f ms, ping loss %.1f%% (%llu/%llu), resends %llu, dgrams %llu/%llu, bytes %llu/%llu", m_clientId,
+                  m_roundTripMs, lossPercent, static_cast<unsigned long long>(lost), static_cast<unsigned long long>(m_pingCount),
+                  static_cast<unsigned long long>(stats.controlResends), static_cast<unsigned long long>(stats.datagramsSent),
+                  static_cast<unsigned long long>(stats.datagramsReceived), static_cast<unsigned long long>(stats.bytesSent),
+                  static_cast<unsigned long long>(stats.bytesReceived));
   m_lastStatsCounter = Clock::Counter();
 }
 
@@ -120,74 +120,72 @@ void ClientConnection::HandleMessage(const TransportEvent& _event)
   ByteReader reader{_event.payload};
   switch (ReadWireType(reader))
   {
-    case WireType::Welcome:
+  case WireType::Welcome:
+  {
+    Welcome welcome;
+    if (!Read(reader, welcome))
     {
-      Welcome welcome;
-      if (!Read(reader, welcome))
-      {
-        return;
-      }
-      m_clientId = welcome.clientId;
-      m_serverTick = welcome.tick;
-      m_serverTickRate = welcome.tickRate;
-      m_state = ClientLinkState::Joined;
-      m_lastStatsCounter = Clock::Counter(); // The first NET line is due a full interval after joining.
-      NEURON_LOG_INFO("joined as client %u (server at tick %u, %u Hz)", m_clientId, m_serverTick,
-                      static_cast<unsigned>(m_serverTickRate));
       return;
     }
+    m_clientId = welcome.clientId;
+    m_serverTick = welcome.tick;
+    m_serverTickRate = welcome.tickRate;
+    m_state = ClientLinkState::Joined;
+    m_lastStatsCounter = Clock::Counter(); // The first NET line is due a full interval after joining.
+    NEURON_LOG_INFO("joined as client %u (server at tick %u, %u Hz)", m_clientId, m_serverTick, static_cast<unsigned>(m_serverTickRate));
+    return;
+  }
 
-    case WireType::UpdateRequired:
+  case WireType::UpdateRequired:
+  {
+    UpdateRequired update;
+    (void)Read(reader, update);
+    // Fail closed and say which half disagrees, so the answer is "rebuild" or
+    // "re-export content" rather than "it does not connect".
+    NEURON_LOG_ERROR("refused: build mismatch (server schema %llx content %llx; ours %llx / %llx)",
+                     static_cast<unsigned long long>(update.serverSchemaHash), static_cast<unsigned long long>(update.serverContentHash),
+                     static_cast<unsigned long long>(m_schemaHash), static_cast<unsigned long long>(m_contentHash));
+    m_state = ClientLinkState::Rejected;
+    return;
+  }
+
+  case WireType::Refuse:
+  {
+    Refuse refuse;
+    (void)Read(reader, refuse);
+    NEURON_LOG_ERROR("refused by the server (reason %u)", static_cast<unsigned>(refuse.reason));
+    m_state = ClientLinkState::Rejected;
+    return;
+  }
+
+  case WireType::Pong:
+  {
+    Pong pong;
+    if (!Read(reader, pong))
     {
-      UpdateRequired update;
-      (void)Read(reader, update);
-      // Fail closed and say which half disagrees, so the answer is "rebuild" or
-      // "re-export content" rather than "it does not connect".
-      NEURON_LOG_ERROR("refused: build mismatch (server schema %llx content %llx; ours %llx / %llx)",
-                       static_cast<unsigned long long>(update.serverSchemaHash),
-                       static_cast<unsigned long long>(update.serverContentHash), static_cast<unsigned long long>(m_schemaHash),
-                       static_cast<unsigned long long>(m_contentHash));
-      m_state = ClientLinkState::Rejected;
       return;
     }
-
-    case WireType::Refuse:
+    const auto now = static_cast<std::uint64_t>(Clock::MicrosecondsSinceStart());
+    m_roundTripMs = static_cast<double>(now - pong.clientSendMicroseconds) / 1000.0;
+    m_serverTick = pong.serverTick;
+    if (m_pongCount == 0)
     {
-      Refuse refuse;
-      (void)Read(reader, refuse);
-      NEURON_LOG_ERROR("refused by the server (reason %u)", static_cast<unsigned>(refuse.reason));
-      m_state = ClientLinkState::Rejected;
-      return;
+      // The heartbeat has crossed the loopback and come back: milestone M0.
+      NEURON_LOG_INFO("first pong: server tick %u, round trip %.3f ms", m_serverTick, m_roundTripMs);
     }
+    ++m_pongCount;
+    return;
+  }
 
-    case WireType::Pong:
-    {
-      Pong pong;
-      if (!Read(reader, pong))
-      {
-        return;
-      }
-      const auto now = static_cast<std::uint64_t>(Clock::MicrosecondsSinceStart());
-      m_roundTripMs = static_cast<double>(now - pong.clientSendMicroseconds) / 1000.0;
-      m_serverTick = pong.serverTick;
-      if (m_pongCount == 0)
-      {
-        // The heartbeat has crossed the loopback and come back: milestone M0.
-        NEURON_LOG_INFO("first pong: server tick %u, round trip %.3f ms", m_serverTick, m_roundTripMs);
-      }
-      ++m_pongCount;
-      return;
-    }
+  case WireType::Goodbye:
+  {
+    NEURON_LOG_INFO("server said goodbye");
+    m_state = ClientLinkState::Disconnected;
+    return;
+  }
 
-    case WireType::Goodbye:
-    {
-      NEURON_LOG_INFO("server said goodbye");
-      m_state = ClientLinkState::Disconnected;
-      return;
-    }
-
-    default:
-      return;
+  default:
+    return;
   }
 }
 
@@ -205,20 +203,20 @@ void ClientConnection::Poll()
   {
     switch (event.type)
     {
-      case TransportEvent::Type::Message:
-        HandleMessage(event);
-        break;
+    case TransportEvent::Type::Message:
+      HandleMessage(event);
+      break;
 
-      case TransportEvent::Type::Disconnected:
-        if (m_state != ClientLinkState::Rejected)
-        {
-          NEURON_LOG_WARNING("connection lost (reason %u)", static_cast<unsigned>(event.reason));
-          m_state = ClientLinkState::Disconnected;
-        }
-        break;
+    case TransportEvent::Type::Disconnected:
+      if (m_state != ClientLinkState::Rejected)
+      {
+        NEURON_LOG_WARNING("connection lost (reason %u)", static_cast<unsigned>(event.reason));
+        m_state = ClientLinkState::Disconnected;
+      }
+      break;
 
-      default:
-        break;
+    default:
+      break;
     }
   }
 
@@ -233,11 +231,11 @@ void ClientConnection::Poll()
   }
 
   const std::int64_t now = Clock::Counter();
-  if (Clock::MillisecondsBetween(m_lastPingCounter, now) >= PingIntervalMs)
+  if (Clock::MillisecondsBetween(m_lastPingCounter, now) >= PING_INTERVAL_MS)
   {
     SendPing();
   }
-  if (Clock::MillisecondsBetween(m_lastStatsCounter, now) >= StatsIntervalMs)
+  if (Clock::MillisecondsBetween(m_lastStatsCounter, now) >= STATS_INTERVAL_MS)
   {
     LogNetStats();
   }
@@ -262,7 +260,7 @@ void ClientConnection::Disconnect()
 
   m_transport->Shutdown();
   m_transport.reset();
-  m_connection = InvalidConnection;
+  m_connection = INVALID_CONNECTION;
   m_state = ClientLinkState::Disconnected;
 }
 

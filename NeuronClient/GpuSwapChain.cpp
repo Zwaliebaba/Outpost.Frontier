@@ -10,8 +10,8 @@ namespace Neuron
 namespace
 {
 
-constexpr DXGI_FORMAT BackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-constexpr DXGI_FORMAT RenderTargetViewFormat = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+constexpr DXGI_FORMAT BACK_BUFFER_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM;
+constexpr DXGI_FORMAT RENDER_TARGET_VIEW_FORMAT = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
 
 } // namespace
 
@@ -30,10 +30,10 @@ bool GpuSwapChain::Create(GpuDevice& _device, HWND _window, std::uint32_t _width
   DXGI_SWAP_CHAIN_DESC1 desc{};
   desc.Width = _width;
   desc.Height = _height;
-  desc.Format = BackBufferFormat;
+  desc.Format = BACK_BUFFER_FORMAT;
   desc.SampleDesc.Count = 1; // Flip model forbids multisampled buffers; MSAA resolves into these.
   desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-  desc.BufferCount = BufferCount;
+  desc.BufferCount = BUFFER_COUNT;
   desc.Scaling = DXGI_SCALING_NONE;
   desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
   desc.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
@@ -63,7 +63,7 @@ bool GpuSwapChain::Create(GpuDevice& _device, HWND _window, std::uint32_t _width
 
   D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
   heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-  heapDesc.NumDescriptors = BufferCount;
+  heapDesc.NumDescriptors = BUFFER_COUNT;
   heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE; // RTVs are never shader-visible.
   check_hresult(_device.Device()->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(m_rtvHeap.put())));
   m_rtvStride = _device.Device()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
@@ -75,11 +75,11 @@ bool GpuSwapChain::Create(GpuDevice& _device, HWND _window, std::uint32_t _width
 void GpuSwapChain::CreateRenderTargets()
 {
   D3D12_RENDER_TARGET_VIEW_DESC viewDesc{};
-  viewDesc.Format = RenderTargetViewFormat; // sRGB view over a UNORM buffer.
+  viewDesc.Format = RENDER_TARGET_VIEW_FORMAT; // sRGB view over a UNORM buffer.
   viewDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
 
   D3D12_CPU_DESCRIPTOR_HANDLE handle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
-  for (std::uint32_t i = 0; i < BufferCount; ++i)
+  for (std::uint32_t i = 0; i < BUFFER_COUNT; ++i)
   {
     check_hresult(m_swapChain->GetBuffer(i, IID_PPV_ARGS(m_backBuffers[i].put())));
     m_device->Device()->CreateRenderTargetView(m_backBuffers[i].get(), &viewDesc, handle);
@@ -120,7 +120,7 @@ bool GpuSwapChain::Resize(std::uint32_t _width, std::uint32_t _height)
     flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
   }
 
-  check_hresult(m_swapChain->ResizeBuffers(BufferCount, _width, _height, BackBufferFormat, flags));
+  check_hresult(m_swapChain->ResizeBuffers(BUFFER_COUNT, _width, _height, BACK_BUFFER_FORMAT, flags));
 
   m_width = _width;
   m_height = _height;

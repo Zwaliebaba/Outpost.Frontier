@@ -23,7 +23,7 @@ namespace Neuron
 namespace
 {
 
-constexpr std::uint32_t InvalidIndex = JsonValue::InvalidIndex;
+constexpr std::uint32_t INVALID_INDEX = JsonValue::INVALID_INDEX;
 
 [[nodiscard]] bool IsWhitespace(char _c) noexcept
 {
@@ -41,10 +41,10 @@ class JsonParser
 {
 public:
   JsonParser(std::string_view _text, JsonDocument& _document, std::vector<JsonError>& _errors, const JsonLimits& _limits) noexcept
-    : m_text(_text)
-    , m_document(_document)
-    , m_errors(_errors)
-    , m_limits(_limits)
+    : m_text(_text),
+      m_document(_document),
+      m_errors(_errors),
+      m_limits(_limits)
   {
   }
 
@@ -71,7 +71,7 @@ public:
     }
 
     const std::uint32_t root = ParseValue();
-    if (root == InvalidIndex)
+    if (root == INVALID_INDEX)
     {
       return false;
     }
@@ -97,13 +97,19 @@ public:
 private:
   struct Frame
   {
-    std::uint32_t node = InvalidIndex;
-    std::uint32_t lastChild = InvalidIndex;
+    std::uint32_t node = INVALID_INDEX;
+    std::uint32_t lastChild = INVALID_INDEX;
     bool isObject = false;
   };
 
-  [[nodiscard]] bool AtEnd() const noexcept { return m_position >= m_text.size(); }
-  [[nodiscard]] char Peek() const noexcept { return AtEnd() ? '\0' : m_text[m_position]; }
+  [[nodiscard]] bool AtEnd() const noexcept
+  {
+    return m_position >= m_text.size();
+  }
+  [[nodiscard]] char Peek() const noexcept
+  {
+    return AtEnd() ? '\0' : m_text[m_position];
+  }
 
   char Advance() noexcept
   {
@@ -199,50 +205,50 @@ private:
     if (AtEnd())
     {
       Error("expected a value");
-      return InvalidIndex;
+      return INVALID_INDEX;
     }
 
     const char c = Peek();
     switch (c)
     {
-      case '{':
-      case '[':
+    case '{':
+    case '[':
+    {
+      const bool isObject = c == '{';
+      if (m_stack.size() >= m_limits.maxDepth)
       {
-        const bool isObject = c == '{';
-        if (m_stack.size() >= m_limits.maxDepth)
-        {
-          Error("nesting is deeper than the limit");
-          return InvalidIndex;
-        }
-        Advance();
-        const std::uint32_t node = NewNode(isObject ? JsonKind::Object : JsonKind::Array);
-        m_stack.push_back(Frame{node, InvalidIndex, isObject});
-        return node;
+        Error("nesting is deeper than the limit");
+        return INVALID_INDEX;
       }
-      case '"':
+      Advance();
+      const std::uint32_t node = NewNode(isObject ? JsonKind::Object : JsonKind::Array);
+      m_stack.push_back(Frame{node, INVALID_INDEX, isObject});
+      return node;
+    }
+    case '"':
+    {
+      std::uint32_t offset = 0;
+      std::uint32_t length = 0;
+      if (!ParseString(offset, length))
       {
-        std::uint32_t offset = 0;
-        std::uint32_t length = 0;
-        if (!ParseString(offset, length))
-        {
-          return InvalidIndex;
-        }
-        const std::uint32_t node = NewNode(JsonKind::String);
-        m_document.m_nodes[node].textOffset = offset;
-        m_document.m_nodes[node].textLength = length;
-        return node;
+        return INVALID_INDEX;
       }
-      case 't':
-      case 'f':
-      case 'n':
-        return ParseKeyword();
-      default:
-        if (c == '-' || IsDigit(c))
-        {
-          return ParseNumber();
-        }
-        Error("expected a value");
-        return InvalidIndex;
+      const std::uint32_t node = NewNode(JsonKind::String);
+      m_document.m_nodes[node].textOffset = offset;
+      m_document.m_nodes[node].textLength = length;
+      return node;
+    }
+    case 't':
+    case 'f':
+    case 'n':
+      return ParseKeyword();
+    default:
+      if (c == '-' || IsDigit(c))
+      {
+        return ParseNumber();
+      }
+      Error("expected a value");
+      return INVALID_INDEX;
     }
   }
 
@@ -267,7 +273,7 @@ private:
       return;
     }
 
-    if (m_stack[frameIndex].lastChild != InvalidIndex)
+    if (m_stack[frameIndex].lastChild != INVALID_INDEX)
     {
       if (Peek() != ',')
       {
@@ -315,7 +321,7 @@ private:
     }
 
     const std::uint32_t child = ParseValue();
-    if (child == InvalidIndex)
+    if (child == INVALID_INDEX)
     {
       return;
     }
@@ -326,7 +332,7 @@ private:
 
     Frame& frame = m_stack[frameIndex];
     JsonDocument::Node& parent = m_document.m_nodes[frame.node];
-    if (frame.lastChild == InvalidIndex)
+    if (frame.lastChild == INVALID_INDEX)
     {
       parent.firstChild = child;
     }
@@ -344,7 +350,7 @@ private:
     // cost more than it saves.
     const std::string_view name = m_document.Text(_offset, _length);
     std::uint32_t child = m_document.m_nodes[_object].firstChild;
-    while (child != InvalidIndex)
+    while (child != INVALID_INDEX)
     {
       const JsonDocument::Node& node = m_document.m_nodes[child];
       if (m_document.Text(node.nameOffset, node.nameLength) == name)
@@ -387,7 +393,7 @@ private:
       return NewNode(JsonKind::Null);
     }
     Error("expected true, false or null");
-    return InvalidIndex;
+    return INVALID_INDEX;
   }
 
   [[nodiscard]] std::uint32_t ParseNumber()
@@ -402,7 +408,7 @@ private:
     if (!IsDigit(Peek()))
     {
       Error("expected a digit");
-      return InvalidIndex;
+      return INVALID_INDEX;
     }
     while (IsDigit(Peek()))
     {
@@ -415,7 +421,7 @@ private:
       if (!IsDigit(Peek()))
       {
         Error("expected a digit after the decimal point");
-        return InvalidIndex;
+        return INVALID_INDEX;
       }
       while (IsDigit(Peek()))
       {
@@ -433,7 +439,7 @@ private:
       if (!IsDigit(Peek()))
       {
         Error("expected a digit in the exponent");
-        return InvalidIndex;
+        return INVALID_INDEX;
       }
       while (IsDigit(Peek()))
       {
@@ -460,7 +466,7 @@ private:
       if (result.ec == std::errc::result_out_of_range)
       {
         Error("integer does not fit in 64 bits");
-        return InvalidIndex;
+        return INVALID_INDEX;
       }
     }
 
@@ -469,7 +475,7 @@ private:
     if (result.ec != std::errc{} || result.ptr != last)
     {
       Error("malformed number");
-      return InvalidIndex;
+      return INVALID_INDEX;
     }
     const std::uint32_t node = NewNode(JsonKind::Number);
     m_document.m_nodes[node].number = value;
@@ -576,70 +582,70 @@ private:
       }
       switch (const char escape = Advance())
       {
-        case '"':
-          m_document.m_strings.push_back('"');
-          break;
-        case '\\':
-          m_document.m_strings.push_back('\\');
-          break;
-        case '/':
-          m_document.m_strings.push_back('/');
-          break;
-        case 'b':
-          m_document.m_strings.push_back('\b');
-          break;
-        case 'f':
-          m_document.m_strings.push_back('\f');
-          break;
-        case 'n':
-          m_document.m_strings.push_back('\n');
-          break;
-        case 'r':
-          m_document.m_strings.push_back('\r');
-          break;
-        case 't':
-          m_document.m_strings.push_back('\t');
-          break;
-        case 'u':
+      case '"':
+        m_document.m_strings.push_back('"');
+        break;
+      case '\\':
+        m_document.m_strings.push_back('\\');
+        break;
+      case '/':
+        m_document.m_strings.push_back('/');
+        break;
+      case 'b':
+        m_document.m_strings.push_back('\b');
+        break;
+      case 'f':
+        m_document.m_strings.push_back('\f');
+        break;
+      case 'n':
+        m_document.m_strings.push_back('\n');
+        break;
+      case 'r':
+        m_document.m_strings.push_back('\r');
+        break;
+      case 't':
+        m_document.m_strings.push_back('\t');
+        break;
+      case 'u':
+      {
+        std::uint32_t code = 0;
+        if (!ParseHex4(code))
         {
-          std::uint32_t code = 0;
-          if (!ParseHex4(code))
-          {
-            return false;
-          }
-          if (code >= 0xd800 && code <= 0xdbff)
-          {
-            // High surrogate: the low half must follow, or the text is not UTF-16.
-            if (m_position + 1 >= m_text.size() || m_text[m_position] != '\\' || m_text[m_position + 1] != 'u')
-            {
-              Error("high surrogate without a following low surrogate");
-              return false;
-            }
-            Advance();
-            Advance();
-            std::uint32_t low = 0;
-            if (!ParseHex4(low))
-            {
-              return false;
-            }
-            if (low < 0xdc00 || low > 0xdfff)
-            {
-              Error("expected a low surrogate");
-              return false;
-            }
-            code = 0x10000 + ((code - 0xd800) << 10) + (low - 0xdc00);
-          }
-          else if (code >= 0xdc00 && code <= 0xdfff)
-          {
-            Error("unpaired low surrogate");
-            return false;
-          }
-          AppendUtf8(code);
-          break;
-        }
-        default:
-          Error(std::string("unknown escape '\\") + escape + "'");
           return false;
+        }
+        if (code >= 0xd800 && code <= 0xdbff)
+        {
+          // High surrogate: the low half must follow, or the text is not UTF-16.
+          if (m_position + 1 >= m_text.size() || m_text[m_position] != '\\' || m_text[m_position + 1] != 'u')
+          {
+            Error("high surrogate without a following low surrogate");
+            return false;
+          }
+          Advance();
+          Advance();
+          std::uint32_t low = 0;
+          if (!ParseHex4(low))
+          {
+            return false;
+          }
+          if (low < 0xdc00 || low > 0xdfff)
+          {
+            Error("expected a low surrogate");
+            return false;
+          }
+          code = 0x10000 + ((code - 0xd800) << 10) + (low - 0xdc00);
+        }
+        else if (code >= 0xdc00 && code <= 0xdfff)
+        {
+          Error("unpaired low surrogate");
+          return false;
+        }
+        AppendUtf8(code);
+        break;
+      }
+      default:
+        Error(std::string("unknown escape '\\") + escape + "'");
+        return false;
       }
     }
 
@@ -747,7 +753,7 @@ JsonValue JsonValue::Member(std::string_view _name) const noexcept
     return {};
   }
   std::uint32_t child = m_document->m_nodes[m_index].firstChild;
-  while (child != InvalidIndex)
+  while (child != INVALID_INDEX)
   {
     const JsonDocument::Node& node = m_document->m_nodes[child];
     if (m_document->Text(node.nameOffset, node.nameLength) == _name)
@@ -771,11 +777,11 @@ JsonValue JsonValue::At(std::size_t _index) const noexcept
     return {};
   }
   std::uint32_t child = m_document->m_nodes[m_index].firstChild;
-  for (std::size_t i = 0; i < _index && child != InvalidIndex; ++i)
+  for (std::size_t i = 0; i < _index && child != INVALID_INDEX; ++i)
   {
     child = m_document->m_nodes[child].nextSibling;
   }
-  return child == InvalidIndex ? JsonValue{} : JsonValue{m_document, child};
+  return child == INVALID_INDEX ? JsonValue{} : JsonValue{m_document, child};
 }
 
 std::string_view JsonValue::Name() const noexcept

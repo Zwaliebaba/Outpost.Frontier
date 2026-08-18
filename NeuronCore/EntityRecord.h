@@ -27,11 +27,11 @@
 namespace Neuron
 {
 
-inline constexpr std::uint16_t InvalidEntityId = 0xffffu;
+inline constexpr std::uint16_t INVALID_ENTITY_ID = 0xffffu;
 
 struct EntityRecord
 {
-  std::uint16_t id = InvalidEntityId;
+  std::uint16_t id = INVALID_ENTITY_ID;
   std::uint8_t typeId = 0;
   std::uint8_t flags = 0;
   std::int32_t posXCm = 0;
@@ -43,7 +43,7 @@ struct EntityRecord
   std::uint8_t gaugeB = 0;
 };
 
-inline constexpr std::size_t EntityRecordBytes = 20;
+inline constexpr std::size_t ENTITY_RECORD_BYTES = 20;
 
 void WriteEntityRecord(ByteWriter& _writer, const EntityRecord& _record) noexcept;
 [[nodiscard]] EntityRecord ReadEntityRecord(ByteReader& _reader) noexcept;

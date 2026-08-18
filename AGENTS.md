@@ -30,7 +30,8 @@ C codebase and has to exempt it; here the rules apply to every line, from the fi
 | Global | `g_camelCase` | `g_frameCount` |
 | Parameter | `_camelCase` | `_shipId`, `_fileName` |
 | Local | `camelCase` | `stationIndex` |
-| Constant, enumerator | `PascalCase` | `TickRate`, `QueueFull` |
+| Constant (`constexpr`, `static constexpr`) | `UPPER_CASE` | `TICK_RATE`, `MAX_DATAGRAM_BYTES` |
+| Enumerator | `PascalCase` | `QueueFull` |
 | Macro | `SCREAMING_SNAKE` | `NEURON_SPAN`, `NEURON_ASSERT_OWNER` |
 | Namespace | `PascalCase` | `Neuron`, `Game` |
 | File | `PascalCase.cpp` / `.h` | `Transport.cpp` |
@@ -57,9 +58,10 @@ Unlike the sibling tree, Frontier genuinely has two implementations from the out
 (ADR-003), so the hierarchy above is real rather than illustrative. Where there is only ever
 one implementation, do not invent a base class for it.
 
-**R3 — Compile-time constants are Constants.** `static constexpr` members and namespace-scope
-`constexpr`/`inline constexpr` take PascalCase: `TickRate`, `TickDt`, `InterpDelayTicks`,
-`MaxDatagramBytes`, `MaxOrderLegs`. `sm_` is reserved for *mutable* statics, which are rare
+**R3 — Compile-time constants are UPPER_CASE.** `static constexpr` members and namespace-scope
+`constexpr`/`inline constexpr` take UPPER_CASE: `TICK_RATE`, `TICK_DT`, `INTERP_DELAY_TICKS`,
+`MAX_DATAGRAM_BYTES`, `MAX_ORDER_LEGS`. Enumerators are not constants in this sense and stay
+PascalCase (`QueueFull`). `sm_` is reserved for *mutable* statics, which are rare
 and must document their thread-safety.
 
 **R4 — Acronyms capitalize as words**: `HudRoster`, `UdpTransport`, `GpuDevice`, `JsonWriter`
@@ -107,7 +109,7 @@ state their width explicitly on every field.
 namespace Neuron
 {
 
-inline constexpr std::uint32_t MaxDatagramBytes = 1152;   // R3: constant → PascalCase
+inline constexpr std::uint32_t MAX_DATAGRAM_BYTES = 1152; // R3: constant → UPPER_CASE
 
 enum class ConnectionState : std::uint8_t { Connecting, Connected, Draining, Closed };
 
@@ -252,7 +254,13 @@ Format the lines you write. Do not reformat files you are only passing through.
   `__uuidof(IThing)` and `put_void()` separately — it derives the IID from the pointer's own
   type, and hand-spelling both lets them disagree, which the compiler cannot catch. `put()`
   asserts the pointer is empty rather than silently releasing what was there, so release
-  before refilling. Include `<unknwn.h>` before `<winrt/base.h>` or classic COM interfaces are
+  before refilling. Two helpers in `NeuronClient/DirectXHelper.h` are part of this sanction:
+  `IID_GRAPHICS_PPV_ARGS(thing)` for the APIs that take an IID plus `void**` — it expands to
+  `__uuidof` + `put_void()`, which is safe *here* because the macro derives both from the same
+  argument; and `NAME_D3D12_OBJECT(thing)` / `NAME_D3D12_OBJECT_INDEXED(array, n)`, which give
+  a D3D12 object its variable's name in debug builds so a debug-layer message says which
+  object it means — name long-lived D3D12 objects when they are created.
+  Include `<unknwn.h>` before `<winrt/base.h>` or classic COM interfaces are
   unsupported. This is the COM-helper sanction only — do not reach for the WinRT projection as
   a UI or async framework. A project that includes these headers needs the C++/WinRT package,
   so keep them out of headers that test projects consume.

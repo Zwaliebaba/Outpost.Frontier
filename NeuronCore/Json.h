@@ -65,17 +65,29 @@ class JsonValue
 public:
   JsonValue() noexcept = default;
   JsonValue(const JsonDocument* _document, std::uint32_t _index) noexcept
-    : m_document(_document)
-    , m_index(_index)
+    : m_document(_document),
+      m_index(_index)
   {
   }
 
-  [[nodiscard]] bool Valid() const noexcept { return m_document != nullptr && m_index != InvalidIndex; }
+  [[nodiscard]] bool Valid() const noexcept
+  {
+    return m_document != nullptr && m_index != INVALID_INDEX;
+  }
   [[nodiscard]] JsonKind Kind() const noexcept;
 
-  [[nodiscard]] bool IsNull() const noexcept { return Valid() && Kind() == JsonKind::Null; }
-  [[nodiscard]] bool IsObject() const noexcept { return Valid() && Kind() == JsonKind::Object; }
-  [[nodiscard]] bool IsArray() const noexcept { return Valid() && Kind() == JsonKind::Array; }
+  [[nodiscard]] bool IsNull() const noexcept
+  {
+    return Valid() && Kind() == JsonKind::Null;
+  }
+  [[nodiscard]] bool IsObject() const noexcept
+  {
+    return Valid() && Kind() == JsonKind::Object;
+  }
+  [[nodiscard]] bool IsArray() const noexcept
+  {
+    return Valid() && Kind() == JsonKind::Array;
+  }
   [[nodiscard]] bool IsNumeric() const noexcept;
 
   /// Typed reads. Each returns the fallback when this value is missing or the wrong kind,
@@ -87,7 +99,10 @@ public:
 
   /// Object member by name. Invalid handle when absent -- chaining stays safe.
   [[nodiscard]] JsonValue Member(std::string_view _name) const noexcept;
-  [[nodiscard]] bool HasMember(std::string_view _name) const noexcept { return Member(_name).Valid(); }
+  [[nodiscard]] bool HasMember(std::string_view _name) const noexcept
+  {
+    return Member(_name).Valid();
+  }
 
   /// Element count for arrays and objects; 0 otherwise.
   [[nodiscard]] std::size_t Count() const noexcept;
@@ -99,11 +114,11 @@ public:
   /// Line the value starts on, for diagnostics that point at the file.
   [[nodiscard]] std::uint32_t Line() const noexcept;
 
-  static constexpr std::uint32_t InvalidIndex = 0xffffffffu;
+  static constexpr std::uint32_t INVALID_INDEX = 0xffffffffu;
 
 private:
   const JsonDocument* m_document = nullptr;
-  std::uint32_t m_index = InvalidIndex;
+  std::uint32_t m_index = INVALID_INDEX;
 };
 
 class JsonDocument
@@ -117,7 +132,10 @@ public:
                                   const JsonLimits& _limits = {});
 
   [[nodiscard]] JsonValue Root() const noexcept;
-  [[nodiscard]] bool Empty() const noexcept { return m_nodes.empty(); }
+  [[nodiscard]] bool Empty() const noexcept
+  {
+    return m_nodes.empty();
+  }
 
 private:
   friend class JsonValue;
@@ -134,8 +152,8 @@ private:
     std::int64_t integer = 0;
     double number = 0.0;
     bool boolean = false;
-    std::uint32_t firstChild = JsonValue::InvalidIndex;
-    std::uint32_t nextSibling = JsonValue::InvalidIndex;
+    std::uint32_t firstChild = JsonValue::INVALID_INDEX;
+    std::uint32_t nextSibling = JsonValue::INVALID_INDEX;
     std::uint32_t childCount = 0;
   };
 

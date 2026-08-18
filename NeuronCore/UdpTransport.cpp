@@ -52,7 +52,7 @@ private:
 
 int WinsockScope::sm_references = 0;
 
-constexpr std::uint8_t FlagAckOnly = 0x80;
+constexpr std::uint8_t FLAG_ACK_ONLY = 0x80;
 
 /// Sequence numbers wrap, so "newer" is a distance question rather than a
 /// greater-than one.
@@ -135,14 +135,14 @@ ConnectionId UdpTransport::Connect(const std::string& _host, std::uint16_t _port
 {
   if (!OpenSocket(0)) // Ephemeral local port; the peer is addressed per send.
   {
-    return InvalidConnection;
+    return INVALID_CONNECTION;
   }
 
   in_addr resolved{};
   if (inet_pton(AF_INET, _host.c_str(), &resolved) != 1)
   {
     NEURON_LOG_ERROR("'%s' is not an IPv4 address", _host.c_str());
-    return InvalidConnection;
+    return INVALID_CONNECTION;
   }
 
   Endpoint endpoint;
@@ -194,17 +194,17 @@ UdpTransport::Connection* UdpTransport::FindByEndpoint(const Endpoint& _endpoint
 void UdpTransport::SendRaw(Connection& _connection, TransportChannel _channel, std::uint16_t _sequence, std::uint16_t _ack,
                            std::span<const std::uint8_t> _payload)
 {
-  if (m_socket == ~static_cast<std::uintptr_t>(0) || _payload.size() > MaxPayloadBytes)
+  if (m_socket == ~static_cast<std::uintptr_t>(0) || _payload.size() > MAX_PAYLOAD_BYTES)
   {
     ++_connection.stats.datagramsDropped;
     return;
   }
 
-  std::uint8_t datagram[MaxDatagramBytes];
+  std::uint8_t datagram[MAX_DATAGRAM_BYTES];
   datagram[0] = static_cast<std::uint8_t>(_channel);
   if (_payload.empty() && _channel == TransportChannel::Control && _sequence == 0)
   {
-    datagram[0] |= FlagAckOnly; // A bare acknowledgement carries nothing else.
+    datagram[0] |= FLAG_ACK_ONLY; // A bare acknowledgement carries nothing else.
   }
   datagram[1] = static_cast<std::uint8_t>(_sequence & 0xff);
   datagram[2] = static_cast<std::uint8_t>(_sequence >> 8);
@@ -214,7 +214,7 @@ void UdpTransport::SendRaw(Connection& _connection, TransportChannel _channel, s
   datagram[6] = static_cast<std::uint8_t>(_payload.size() >> 8);
   if (!_payload.empty())
   {
-    std::memcpy(datagram + HeaderBytes, _payload.data(), _payload.size());
+    std::memcpy(datagram + HEADER_BYTES, _payload.data(), _payload.size());
   }
 
   sockaddr_in address{};
@@ -222,7 +222,7 @@ void UdpTransport::SendRaw(Connection& _connection, TransportChannel _channel, s
   address.sin_addr.s_addr = _connection.endpoint.address;
   address.sin_port = _connection.endpoint.port;
 
-  const int total = static_cast<int>(HeaderBytes + _payload.size());
+  const int total = static_cast<int>(HEADER_BYTES + _payload.size());
   const int sent = sendto(static_cast<SOCKET>(m_socket), reinterpret_cast<const char*>(datagram), total, 0,
                           reinterpret_cast<const sockaddr*>(&address), sizeof(address));
   if (sent == SOCKET_ERROR)
@@ -238,7 +238,7 @@ void UdpTransport::SendRaw(Connection& _connection, TransportChannel _channel, s
 bool UdpTransport::Send(ConnectionId _connection, TransportChannel _channel, std::span<const std::uint8_t> _payload)
 {
   Connection* connection = Find(_connection);
-  if (connection == nullptr || connection->state == ConnectionState::Closed || _payload.size() > MaxPayloadBytes)
+  if (connection == nullptr || connection->state == ConnectionState::Closed || _payload.size() > MAX_PAYLOAD_BYTES)
   {
     return false;
   }
@@ -271,8 +271,8 @@ bool UdpTransport::Send(ConnectionId _connection, TransportChannel _channel, std
   return true;
 }
 
-void UdpTransport::QueueEvent(TransportEvent::Type _type, ConnectionId _connection, TransportChannel _channel,
-                              DisconnectReason _reason, std::span<const std::uint8_t> _payload)
+void UdpTransport::QueueEvent(TransportEvent::Type _type, ConnectionId _connection, TransportChannel _channel, DisconnectReason _reason,
+                              std::span<const std::uint8_t> _payload)
 {
   QueuedEvent event;
   event.type = _type;
@@ -292,11 +292,11 @@ void UdpTransport::ReceiveAll()
 
   for (;;)
   {
-    std::uint8_t datagram[MaxDatagramBytes];
+    std::uint8_t datagram[MAX_DATAGRAM_BYTES];
     sockaddr_in from{};
     int fromSize = sizeof(from);
-    const int received = recvfrom(static_cast<SOCKET>(m_socket), reinterpret_cast<char*>(datagram), static_cast<int>(sizeof(datagram)),
-                                  0, reinterpret_cast<sockaddr*>(&from), &fromSize);
+    const int received = recvfrom(static_cast<SOCKET>(m_socket), reinterpret_cast<char*>(datagram), static_cast<int>(sizeof(datagram)), 0,
+                                  reinterpret_cast<sockaddr*>(&from), &fromSize);
     if (received == SOCKET_ERROR)
     {
       const int error = WSAGetLastError();
@@ -316,7 +316,7 @@ void UdpTransport::ReceiveAll()
       NEURON_LOG_WARNING("recvfrom failed (%d)", error);
       return;
     }
-    if (received < static_cast<int>(HeaderBytes))
+    if (received < static_cast<int>(HEADER_BYTES))
     {
       continue; // Too short to be ours.
     }
@@ -337,12 +337,12 @@ void UdpTransport::ReceiveAll()
     }
 
     const auto channel = static_cast<TransportChannel>(datagram[0] & 0x0f);
-    const bool ackOnly = (datagram[0] & FlagAckOnly) != 0;
+    const bool ackOnly = (datagram[0] & FLAG_ACK_ONLY) != 0;
     const auto sequence = static_cast<std::uint16_t>(datagram[1] | (datagram[2] << 8));
     const auto ack = static_cast<std::uint16_t>(datagram[3] | (datagram[4] << 8));
     const auto length = static_cast<std::uint16_t>(datagram[5] | (datagram[6] << 8));
 
-    if (static_cast<std::size_t>(received) != HeaderBytes + length)
+    if (static_cast<std::size_t>(received) != HEADER_BYTES + length)
     {
       ++connection->stats.datagramsDropped; // Header disagrees with the datagram.
       continue;
@@ -379,7 +379,7 @@ void UdpTransport::ReceiveAll()
       continue;
     }
 
-    const std::span<const std::uint8_t> payload{datagram + HeaderBytes, length};
+    const std::span<const std::uint8_t> payload{datagram + HEADER_BYTES, length};
 
     if (channel == TransportChannel::Control)
     {
@@ -408,7 +408,7 @@ void UdpTransport::ServiceResends()
       continue;
     }
     PendingControl& front = connection.controlQueue.front();
-    if (!front.sent || Clock::MillisecondsBetween(front.lastSentCounter, now) < ResendIntervalMs)
+    if (!front.sent || Clock::MillisecondsBetween(front.lastSentCounter, now) < RESEND_INTERVAL_MS)
     {
       continue;
     }
@@ -427,7 +427,7 @@ void UdpTransport::ServiceTimeouts()
     {
       continue;
     }
-    if (Clock::MillisecondsBetween(connection.lastReceivedCounter, now) > TimeoutMs)
+    if (Clock::MillisecondsBetween(connection.lastReceivedCounter, now) > TIMEOUT_MS)
     {
       connection.state = ConnectionState::Closed;
       QueueEvent(TransportEvent::Type::Disconnected, connection.id, TransportChannel::Control, DisconnectReason::TimedOut, {});

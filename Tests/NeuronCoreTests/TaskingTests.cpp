@@ -35,8 +35,8 @@ namespace
 {
 
 /// Lane names are roles, and these are this file's roles alone.
-constexpr const char* SpanLane = "TestSpans";
-constexpr const char* CounterLane = "TestCounters";
+constexpr const char* SPAN_LANE = "TestSpans";
+constexpr const char* COUNTER_LANE = "TestCounters";
 
 /// Drains a lane completely and returns what was in it.
 std::vector<TelemetryEvent> DrainLane(LaneId _lane)
@@ -99,18 +99,18 @@ public:
     // threads pushing at once without corrupting each other's slots. The
     // consumer is this thread, so every assertion runs where the framework can
     // report it.
-    constexpr std::uint32_t ProducerCount = 4;
-    constexpr std::uint32_t PerProducer = 20000;
-    constexpr std::uint32_t Total = ProducerCount * PerProducer;
+    constexpr std::uint32_t PRODUCER_COUNT = 4;
+    constexpr std::uint32_t PER_PRODUCER = 20000;
+    constexpr std::uint32_t TOTAL = PRODUCER_COUNT * PER_PRODUCER;
 
     static MpscRingBuffer<std::uint32_t, 256> ring;
     std::vector<std::thread> producers;
-    for (std::uint32_t p = 0; p < ProducerCount; ++p)
+    for (std::uint32_t p = 0; p < PRODUCER_COUNT; ++p)
     {
       producers.emplace_back(
         [p]
         {
-          for (std::uint32_t i = 0; i < PerProducer; ++i)
+          for (std::uint32_t i = 0; i < PER_PRODUCER; ++i)
           {
             // Encode which producer sent it, so the consumer can prove nothing
             // was invented, torn, or reordered within a producer.
@@ -124,8 +124,8 @@ public:
     }
 
     std::uint32_t received = 0;
-    std::uint32_t nextExpected[ProducerCount]{};
-    while (received < Total)
+    std::uint32_t nextExpected[PRODUCER_COUNT]{};
+    while (received < TOTAL)
     {
       std::uint32_t item = 0;
       if (!ring.TryPop(item))
@@ -135,7 +135,7 @@ public:
       }
       const std::uint32_t producer = item >> 24;
       const std::uint32_t index = item & 0x00ffffffu;
-      Assert::IsTrue(producer < ProducerCount, L"an item arrived from a producer that does not exist");
+      Assert::IsTrue(producer < PRODUCER_COUNT, L"an item arrived from a producer that does not exist");
       Assert::AreEqual(nextExpected[producer], index, L"a producer's items arrived out of order or were lost");
       ++nextExpected[producer];
       ++received;
@@ -146,7 +146,7 @@ public:
       producer.join();
     }
 
-    Assert::AreEqual(Total, received);
+    Assert::AreEqual(TOTAL, received);
     Assert::IsTrue(ring.Empty());
   }
 };
@@ -156,9 +156,9 @@ TEST_CLASS(TelemetryTests)
 public:
   TEST_METHOD(ARegisteredLaneRecordsAndDrains)
   {
-    const LaneId lane = Telemetry::RegisterLane(SpanLane);
-    Assert::IsTrue(lane != InvalidLane, L"the registry refused a lane");
-    Assert::IsTrue(std::strcmp(SpanLane, Telemetry::LaneName(lane)) == 0, L"the lane came back under a different name");
+    const LaneId lane = Telemetry::RegisterLane(SPAN_LANE);
+    Assert::IsTrue(lane != INVALID_LANE, L"the registry refused a lane");
+    Assert::IsTrue(std::strcmp(SPAN_LANE, Telemetry::LaneName(lane)) == 0, L"the lane came back under a different name");
     Assert::AreEqual(lane, Telemetry::CurrentLane());
 
     (void)DrainLane(lane); // Whatever an earlier test left.
@@ -175,13 +175,13 @@ public:
   {
     // A lane is a role, not a thread: a restarted pool must reuse "Worker 0"
     // rather than spend another lane on it.
-    const LaneId first = Telemetry::RegisterLane(SpanLane);
-    const LaneId again = Telemetry::RegisterLane(SpanLane);
+    const LaneId first = Telemetry::RegisterLane(SPAN_LANE);
+    const LaneId again = Telemetry::RegisterLane(SPAN_LANE);
     Assert::AreEqual(first, again);
 
     // ...and a different name from this same thread does not steal a lane,
     // because this thread already has one.
-    const LaneId other = Telemetry::RegisterLane(CounterLane);
+    const LaneId other = Telemetry::RegisterLane(COUNTER_LANE);
     Assert::AreEqual(first, other);
   }
 
@@ -199,7 +199,7 @@ public:
         NEURON_SPAN("AlsoFromNowhere");
       });
     stranger.join();
-    Assert::AreEqual(InvalidLane, observed, L"a thread that never registered was given a lane");
+    Assert::AreEqual(INVALID_LANE, observed, L"a thread that never registered was given a lane");
   }
 
   TEST_METHOD(SpanMeasuresRoughlyTheTimeItsScopeTook)
@@ -208,7 +208,7 @@ public:
     // purpose -- what is being checked is that a span measures its own scope
     // and reports it in counter ticks, not that a shared CI runner sleeps
     // accurately.
-    const LaneId lane = Telemetry::RegisterLane(SpanLane);
+    const LaneId lane = Telemetry::RegisterLane(SPAN_LANE);
     (void)DrainLane(lane);
 
     {
@@ -227,7 +227,7 @@ public:
 
   TEST_METHOD(NestedSpansBothRecordAndTheOuterIsLonger)
   {
-    const LaneId lane = Telemetry::RegisterLane(SpanLane);
+    const LaneId lane = Telemetry::RegisterLane(SPAN_LANE);
     (void)DrainLane(lane);
 
     {
@@ -251,7 +251,7 @@ public:
 
   TEST_METHOD(SnapshotAggregatesRepeatsByName)
   {
-    const LaneId lane = Telemetry::RegisterLane(SpanLane);
+    const LaneId lane = Telemetry::RegisterLane(SPAN_LANE);
     (void)DrainLane(lane);
 
     for (int i = 0; i < 5; ++i)
@@ -272,11 +272,11 @@ public:
 
   TEST_METHOD(AFullLaneDropsAndCountsRatherThanBlocking)
   {
-    const LaneId lane = Telemetry::RegisterLane(SpanLane);
+    const LaneId lane = Telemetry::RegisterLane(SPAN_LANE);
     (void)DrainLane(lane);
 
     const std::uint64_t before = Telemetry::DroppedCount(lane);
-    for (std::size_t i = 0; i < Telemetry::LaneCapacity + 64; ++i)
+    for (std::size_t i = 0; i < Telemetry::LANE_CAPACITY + 64; ++i)
     {
       NEURON_COUNTER("Flood", 1);
     }
@@ -418,7 +418,7 @@ public:
       Assert::AreEqual(1, ran.load());
       pool.Stop();
     }
-    Assert::IsTrue(Telemetry::LaneCount() <= Telemetry::MaxLanes, L"restarting the pool leaked lanes");
+    Assert::IsTrue(Telemetry::LaneCount() <= Telemetry::MAX_LANES, L"restarting the pool leaked lanes");
   }
 };
 

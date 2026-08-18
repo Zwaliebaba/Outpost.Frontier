@@ -41,16 +41,19 @@ public:
   void Shutdown() override;
   [[nodiscard]] ConnectionState State(ConnectionId _connection) const override;
   [[nodiscard]] TransportStats Stats(ConnectionId _connection) const override;
-  [[nodiscard]] std::uint16_t BoundPort() const override { return m_boundPort; }
+  [[nodiscard]] std::uint16_t BoundPort() const override
+  {
+    return m_boundPort;
+  }
 
   /// Header bytes ahead of every payload: channel/flags, sequence, ack, length.
-  static constexpr std::size_t HeaderBytes = 7;
-  static constexpr std::size_t MaxPayloadBytes = MaxDatagramBytes - HeaderBytes;
+  static constexpr std::size_t HEADER_BYTES = 7;
+  static constexpr std::size_t MAX_PAYLOAD_BYTES = MAX_DATAGRAM_BYTES - HEADER_BYTES;
 
   /// How long an unanswered control message waits before it is sent again.
-  static constexpr double ResendIntervalMs = 50.0;
+  static constexpr double RESEND_INTERVAL_MS = 50.0;
   /// A connection with no traffic at all for this long is gone.
-  static constexpr double TimeoutMs = 10000.0;
+  static constexpr double TIMEOUT_MS = 10000.0;
 
 private:
   struct Endpoint
@@ -74,7 +77,7 @@ private:
 
   struct Connection
   {
-    ConnectionId id = InvalidConnection;
+    ConnectionId id = INVALID_CONNECTION;
     Endpoint endpoint;
     ConnectionState state = ConnectionState::Closed;
     TransportStats stats;
@@ -109,7 +112,7 @@ private:
   struct QueuedEvent
   {
     TransportEvent::Type type = TransportEvent::Type::None;
-    ConnectionId connection = InvalidConnection;
+    ConnectionId connection = INVALID_CONNECTION;
     TransportChannel channel = TransportChannel::Control;
     DisconnectReason reason = DisconnectReason::None;
     std::vector<std::uint8_t> payload;

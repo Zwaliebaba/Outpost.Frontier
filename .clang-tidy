@@ -69,11 +69,11 @@ CheckOptions:
   - { key: readability-identifier-naming.FunctionCase,             value: CamelCase  }
   - { key: readability-identifier-naming.MethodCase,               value: CamelCase  }
 
-  # ── Constants: PascalCase (R3) ─────────────────────────────────────────────────────
-  - { key: readability-identifier-naming.ConstexprVariableCase,    value: CamelCase  }
-  - { key: readability-identifier-naming.GlobalConstantCase,       value: CamelCase  }
-  - { key: readability-identifier-naming.ClassConstantCase,        value: CamelCase  }
-  - { key: readability-identifier-naming.StaticConstantCase,       value: CamelCase  }
+  # ── Constants: UPPER_CASE (R3); enumerators stay PascalCase above ──────────────────
+  - { key: readability-identifier-naming.ConstexprVariableCase,    value: UPPER_CASE }
+  - { key: readability-identifier-naming.GlobalConstantCase,       value: UPPER_CASE }
+  - { key: readability-identifier-naming.ClassConstantCase,        value: UPPER_CASE }
+  - { key: readability-identifier-naming.StaticConstantCase,       value: UPPER_CASE }
 
   # ── Storage prefixes ───────────────────────────────────────────────────────────────
   - { key: readability-identifier-naming.PrivateMemberCase,        value: camelBack  }

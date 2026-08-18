@@ -169,12 +169,12 @@ public:
 
     UdpTransport client;
     const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
-    Assert::IsTrue(link != InvalidConnection);
+    Assert::IsTrue(link != INVALID_CONNECTION);
 
     std::array<std::uint8_t, 256> buffer{};
     ByteWriter writer{buffer};
     WriteWireType(writer, WireType::Hello);
-    Write(writer, Hello{ProtocolVersion, simulation.SchemaHash(), simulation.ContentHash(), "harness"});
+    Write(writer, Hello{PROTOCOL_VERSION, simulation.SchemaHash(), simulation.ContentHash(), "harness"});
     Assert::IsTrue(client.Send(link, TransportChannel::Control, writer.Written()));
 
     Welcome welcome;
@@ -257,7 +257,7 @@ public:
     std::array<std::uint8_t, 256> buffer{};
     ByteWriter writer{buffer};
     WriteWireType(writer, WireType::Hello);
-    Write(writer, Hello{ProtocolVersion, simulation.SchemaHash(), 0xdeadbeef, "wrong-content"});
+    Write(writer, Hello{PROTOCOL_VERSION, simulation.SchemaHash(), 0xdeadbeef, "wrong-content"});
     Assert::IsTrue(client.Send(link, TransportChannel::Control, writer.Written()));
 
     UpdateRequired update;

@@ -10,8 +10,8 @@ namespace Neuron
 namespace
 {
 
-constexpr float TurnsToRadians = 2.0f * std::numbers::pi_v<float> / 65536.0f;
-constexpr float RadiansToTurns = 65536.0f / (2.0f * std::numbers::pi_v<float>);
+constexpr float TURNS_TO_RADIANS = 2.0f * std::numbers::pi_v<float> / 65536.0f;
+constexpr float RADIANS_TO_TURNS = 65536.0f / (2.0f * std::numbers::pi_v<float>);
 
 } // namespace
 
@@ -47,12 +47,12 @@ EntityRecord ReadEntityRecord(ByteReader& _reader) noexcept
 
 float HeadingToRadians(std::uint16_t _headingTurns16) noexcept
 {
-  return static_cast<float>(_headingTurns16) * TurnsToRadians;
+  return static_cast<float>(_headingTurns16) * TURNS_TO_RADIANS;
 }
 
 std::uint16_t RadiansToHeading(float _radians) noexcept
 {
-  const float turns = _radians * RadiansToTurns;
+  const float turns = _radians * RADIANS_TO_TURNS;
   // fmod keeps the value in range before the cast; a heading of -pi and one of
   // +pi must land on the same quantised value.
   float wrapped = std::fmod(turns, 65536.0f);

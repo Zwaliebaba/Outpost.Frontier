@@ -14,7 +14,7 @@ namespace
 {
 
 /// The calling thread's lane. thread_local so recording costs no lookup.
-thread_local LaneId t_lane = InvalidLane;
+thread_local LaneId t_lane = INVALID_LANE;
 
 /// Case-sensitive compare against a lane's fixed-size name buffer.
 [[nodiscard]] bool NameMatches(const char* _laneName, std::string_view _name) noexcept
@@ -33,7 +33,7 @@ Telemetry::LaneTable& Telemetry::Table() noexcept
 
 LaneId Telemetry::RegisterLane(std::string_view _name) noexcept
 {
-  if (t_lane != InvalidLane)
+  if (t_lane != INVALID_LANE)
   {
     return t_lane; // Already registered: registering twice is a mistake, not a second lane.
   }
@@ -55,14 +55,14 @@ LaneId Telemetry::RegisterLane(std::string_view _name) noexcept
   }
 
   const std::uint32_t index = table.claimed.fetch_add(1, std::memory_order_relaxed);
-  if (index >= MaxLanes)
+  if (index >= MAX_LANES)
   {
     // The corpus's client budget is 8 and its HUD refuses a ninth; this refuses
     // a seventeenth the same way -- loudly, at startup, rather than by quietly
     // dropping the lane's measurements for the rest of the run.
-    NEURON_LOG_ERROR("telemetry: no lane left for '%.*s' (cap is %u)", static_cast<int>(_name.size()), _name.data(), MaxLanes);
-    table.claimed.store(MaxLanes, std::memory_order_relaxed);
-    return InvalidLane;
+    NEURON_LOG_ERROR("telemetry: no lane left for '%.*s' (cap is %u)", static_cast<int>(_name.size()), _name.data(), MAX_LANES);
+    table.claimed.store(MAX_LANES, std::memory_order_relaxed);
+    return INVALID_LANE;
   }
 
   Lane& lane = table.lanes[index];
@@ -140,7 +140,7 @@ void Telemetry::Reset() noexcept
     lane.name[0] = '\0';
     lane.threadId = 0;
   }
-  t_lane = InvalidLane;
+  t_lane = INVALID_LANE;
 }
 
 void TelemetrySnapshot::DrainLane(LaneId _lane) noexcept
@@ -166,7 +166,7 @@ void TelemetrySnapshot::DrainLane(LaneId _lane) noexcept
 
     if (stat == nullptr)
     {
-      if (m_statCount == MaxStats)
+      if (m_statCount == MAX_STATS)
       {
         ++m_overflow; // Counted, not silently merged into someone else's row.
         continue;

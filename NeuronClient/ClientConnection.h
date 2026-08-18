@@ -20,9 +20,9 @@ namespace Neuron
 enum class ClientLinkState : std::uint8_t
 {
   Idle,
-  Connecting,   // Socket open, Hello sent, waiting for the answer.
-  Joined,       // Welcome received: the session exists.
-  Rejected,     // The server refused us, and said why.
+  Connecting, // Socket open, Hello sent, waiting for the answer.
+  Joined,     // Welcome received: the session exists.
+  Rejected,   // The server refused us, and said why.
   Disconnected
 };
 
@@ -45,18 +45,39 @@ public:
 
   void Disconnect();
 
-  [[nodiscard]] ClientLinkState State() const noexcept { return m_state; }
-  [[nodiscard]] std::uint32_t ClientId() const noexcept { return m_clientId; }
-  [[nodiscard]] std::uint32_t ServerTick() const noexcept { return m_serverTick; }
-  [[nodiscard]] std::uint16_t ServerTickRate() const noexcept { return m_serverTickRate; }
-  [[nodiscard]] double RoundTripMs() const noexcept { return m_roundTripMs; }
-  [[nodiscard]] std::uint64_t PongCount() const noexcept { return m_pongCount; }
+  [[nodiscard]] ClientLinkState State() const noexcept
+  {
+    return m_state;
+  }
+  [[nodiscard]] std::uint32_t ClientId() const noexcept
+  {
+    return m_clientId;
+  }
+  [[nodiscard]] std::uint32_t ServerTick() const noexcept
+  {
+    return m_serverTick;
+  }
+  [[nodiscard]] std::uint16_t ServerTickRate() const noexcept
+  {
+    return m_serverTickRate;
+  }
+  [[nodiscard]] double RoundTripMs() const noexcept
+  {
+    return m_roundTripMs;
+  }
+  [[nodiscard]] std::uint64_t PongCount() const noexcept
+  {
+    return m_pongCount;
+  }
 
   /// Datagram counters for the HUD's NET readout. Loss on the reliable channel
   /// shows up as controlResends; on the unreliable one it is the gap between
   /// pings sent and pongs counted.
   [[nodiscard]] TransportStats Stats() const;
-  [[nodiscard]] std::uint64_t PingCount() const noexcept { return m_pingCount; }
+  [[nodiscard]] std::uint64_t PingCount() const noexcept
+  {
+    return m_pingCount;
+  }
 
 private:
   void HandleMessage(const TransportEvent& _event);
@@ -65,7 +86,7 @@ private:
   void LogNetStats();
 
   std::unique_ptr<Transport> m_transport;
-  ConnectionId m_connection = InvalidConnection;
+  ConnectionId m_connection = INVALID_CONNECTION;
   ClientLinkState m_state = ClientLinkState::Idle;
 
   std::uint64_t m_schemaHash = 0;

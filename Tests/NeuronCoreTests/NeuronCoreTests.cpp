@@ -116,7 +116,7 @@ public:
     std::uint8_t storage[64]{};
     ByteWriter writer{std::span<std::uint8_t>{storage}};
     WriteEntityRecord(writer, EntityRecord{});
-    Assert::AreEqual(EntityRecordBytes, writer.BytesWritten());
+    Assert::AreEqual(ENTITY_RECORD_BYTES, writer.BytesWritten());
   }
 
   TEST_METHOD(RoundTripsThroughTheWire)
@@ -192,8 +192,8 @@ public:
   {
     // The schema hash is built from a constexpr string, so this must hold.
     static_assert(HashText("outpost") != 0);
-    constexpr std::uint64_t hash = HashText("outpost");
-    Assert::AreEqual(HashText("outpost"), hash);
+    constexpr std::uint64_t HASH = HashText("outpost");
+    Assert::AreEqual(HashText("outpost"), HASH);
   }
 
   TEST_METHOD(AccumulatesInOrder)
@@ -284,12 +284,12 @@ public:
   {
     // The case the ring exists for: a foreign thread pushing while the owner drains.
     static RingBuffer<std::uint32_t, 1024> ring;
-    constexpr std::uint32_t Count = 200000;
+    constexpr std::uint32_t COUNT = 200000;
 
     std::thread producer(
       []()
       {
-        for (std::uint32_t i = 0; i < Count; ++i)
+        for (std::uint32_t i = 0; i < COUNT; ++i)
         {
           while (!ring.TryPush(i))
           {
@@ -299,7 +299,7 @@ public:
       });
 
     std::uint32_t expected = 0;
-    while (expected < Count)
+    while (expected < COUNT)
     {
       std::uint32_t value = 0;
       if (ring.TryPop(value))
@@ -309,7 +309,7 @@ public:
       }
     }
     producer.join();
-    Assert::AreEqual(Count, expected);
+    Assert::AreEqual(COUNT, expected);
   }
 };
 

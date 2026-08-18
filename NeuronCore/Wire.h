@@ -21,7 +21,7 @@
 namespace Neuron
 {
 
-inline constexpr std::uint16_t ProtocolVersion = 1;
+inline constexpr std::uint16_t PROTOCOL_VERSION = 1;
 
 enum class WireType : std::uint16_t
 {
@@ -48,7 +48,7 @@ enum class RefuseReason : std::uint16_t
 /// at the door rather than halfway through a session (ADR-004 §3).
 struct Hello
 {
-  std::uint16_t protocolVersion = ProtocolVersion;
+  std::uint16_t protocolVersion = PROTOCOL_VERSION;
   std::uint64_t schemaHash = 0;
   std::uint64_t contentHash = 0;
   std::string playerName;
@@ -119,14 +119,13 @@ void Write(ByteWriter& _writer, const Goodbye& _message) noexcept;
  * or retyped must change the string beside it, or two builds will disagree
  * silently instead of refusing each other at the handshake.
  */
-inline constexpr std::string_view CoreSchemaText =
-  "Hello{u16 protocolVersion,u64 schemaHash,u64 contentHash,str playerName}"
-  "Welcome{u32 clientId,u32 tick,u16 tickRate,u64 schemaHash,u64 contentHash}"
-  "UpdateRequired{u64 serverSchemaHash,u64 serverContentHash}"
-  "Refuse{u16 reason}"
-  "Ping{u64 clientSendMicroseconds}"
-  "Pong{u64 clientSendMicroseconds,u32 serverTick}"
-  "Goodbye{u16 reason}";
+inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,u64 schemaHash,u64 contentHash,str playerName}"
+                                                     "Welcome{u32 clientId,u32 tick,u16 tickRate,u64 schemaHash,u64 contentHash}"
+                                                     "UpdateRequired{u64 serverSchemaHash,u64 serverContentHash}"
+                                                     "Refuse{u16 reason}"
+                                                     "Ping{u64 clientSendMicroseconds}"
+                                                     "Pong{u64 clientSendMicroseconds,u32 serverTick}"
+                                                     "Goodbye{u16 reason}";
 
 [[nodiscard]] std::uint64_t CoreSchemaHash() noexcept;
 

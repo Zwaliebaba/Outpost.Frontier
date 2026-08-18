@@ -51,9 +51,9 @@ private:
   GpuDevice m_device;
   GpuSwapChain m_swapChain;
 
-  GpuPtr<ID3D12CommandAllocator> m_commandAllocators[GpuSwapChain::BufferCount];
+  GpuPtr<ID3D12CommandAllocator> m_commandAllocators[GpuSwapChain::BUFFER_COUNT];
   GpuPtr<ID3D12GraphicsCommandList> m_commandList;
-  std::uint64_t m_frameFenceValues[GpuSwapChain::BufferCount] = {};
+  std::uint64_t m_frameFenceValues[GpuSwapChain::BUFFER_COUNT] = {};
 
   std::uint64_t m_frameCount = 0;
   std::int64_t m_lastNetLogCounter = 0;

@@ -14,8 +14,8 @@ namespace Outpost
 namespace
 {
 
-constexpr const char* BaseConfigName = "Outpost.json";
-constexpr const char* UserConfigName = "Settings.json";
+constexpr const char* BASE_CONFIG_NAME = "Outpost.json";
+constexpr const char* USER_CONFIG_NAME = "Settings.json";
 
 std::string ToUtf8(const std::wstring& _wide)
 {
@@ -129,10 +129,10 @@ bool LoadAppConfig(AppConfig& _outConfig, ConfigPaths& _outPaths, ConfigDiagnost
   // Working directory first, then beside the executable. The directory is what
   // replaces a command line: a runner chooses a configuration by choosing where
   // it launches from.
-  const std::string beside = ExecutableDirectory() + BaseConfigName;
-  if (FileExists(BaseConfigName))
+  const std::string beside = ExecutableDirectory() + BASE_CONFIG_NAME;
+  if (FileExists(BASE_CONFIG_NAME))
   {
-    _outPaths.base = BaseConfigName;
+    _outPaths.base = BASE_CONFIG_NAME;
   }
   else if (FileExists(beside))
   {
@@ -140,7 +140,7 @@ bool LoadAppConfig(AppConfig& _outConfig, ConfigPaths& _outPaths, ConfigDiagnost
   }
   else
   {
-    _diagnostics.errors.push_back(std::string("no ") + BaseConfigName + " in the working directory or beside the executable");
+    _diagnostics.errors.push_back(std::string("no ") + BASE_CONFIG_NAME + " in the working directory or beside the executable");
     return false;
   }
 
@@ -170,7 +170,7 @@ bool LoadAppConfig(AppConfig& _outConfig, ConfigPaths& _outPaths, ConfigDiagnost
   const std::string userDirectory = UserSettingsDirectory();
   if (!userDirectory.empty())
   {
-    _outPaths.userLayer = userDirectory + UserConfigName;
+    _outPaths.userLayer = userDirectory + USER_CONFIG_NAME;
     std::string userText;
     if (ReadTextFile(_outPaths.userLayer, userText))
     {

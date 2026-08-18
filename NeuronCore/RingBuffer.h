@@ -38,7 +38,7 @@ public:
   [[nodiscard]] bool TryPush(const T& _item) noexcept
   {
     const std::size_t write = m_write.load(std::memory_order_relaxed);
-    const std::size_t next = (write + 1) & Mask;
+    const std::size_t next = (write + 1) & MASK;
     if (next == m_read.load(std::memory_order_acquire))
     {
       m_dropped.fetch_add(1, std::memory_order_relaxed);
@@ -58,7 +58,7 @@ public:
       return false;
     }
     _outItem = m_items[read];
-    m_read.store((read + 1) & Mask, std::memory_order_release);
+    m_read.store((read + 1) & MASK, std::memory_order_release);
     return true;
   }
 
@@ -71,7 +71,7 @@ public:
   {
     const std::size_t write = m_write.load(std::memory_order_acquire);
     const std::size_t read = m_read.load(std::memory_order_acquire);
-    return (write - read) & Mask;
+    return (write - read) & MASK;
   }
 
   [[nodiscard]] static constexpr std::size_t Capacity() noexcept { return CapacityPowerOfTwo - 1; }
@@ -80,7 +80,7 @@ public:
   [[nodiscard]] std::uint64_t DroppedCount() const noexcept { return m_dropped.load(std::memory_order_relaxed); }
 
 private:
-  static constexpr std::size_t Mask = CapacityPowerOfTwo - 1;
+  static constexpr std::size_t MASK = CapacityPowerOfTwo - 1;
 
   T m_items[CapacityPowerOfTwo]{};
   std::atomic<std::size_t> m_write{0};
@@ -128,7 +128,7 @@ public:
     Slot* slot = nullptr;
     for (;;)
     {
-      slot = &m_slots[position & Mask];
+      slot = &m_slots[position & MASK];
       const std::size_t sequence = slot->sequence.load(std::memory_order_acquire);
       const auto distance = static_cast<std::ptrdiff_t>(sequence) - static_cast<std::ptrdiff_t>(position);
       if (distance == 0)
@@ -161,7 +161,7 @@ public:
     Slot* slot = nullptr;
     for (;;)
     {
-      slot = &m_slots[position & Mask];
+      slot = &m_slots[position & MASK];
       const std::size_t sequence = slot->sequence.load(std::memory_order_acquire);
       const auto distance = static_cast<std::ptrdiff_t>(sequence) - static_cast<std::ptrdiff_t>(position + 1);
       if (distance == 0)
@@ -182,14 +182,14 @@ public:
     }
 
     _outItem = slot->item;
-    slot->sequence.store(position + Mask + 1, std::memory_order_release); // Free for the next lap.
+    slot->sequence.store(position + MASK + 1, std::memory_order_release); // Free for the next lap.
     return true;
   }
 
   [[nodiscard]] bool Empty() const noexcept
   {
     const std::size_t position = m_read.load(std::memory_order_acquire);
-    const std::size_t sequence = m_slots[position & Mask].sequence.load(std::memory_order_acquire);
+    const std::size_t sequence = m_slots[position & MASK].sequence.load(std::memory_order_acquire);
     return static_cast<std::ptrdiff_t>(sequence) - static_cast<std::ptrdiff_t>(position + 1) < 0;
   }
 
@@ -207,7 +207,7 @@ public:
   [[nodiscard]] std::uint64_t DroppedCount() const noexcept { return m_dropped.load(std::memory_order_relaxed); }
 
 private:
-  static constexpr std::size_t Mask = CapacityPowerOfTwo - 1;
+  static constexpr std::size_t MASK = CapacityPowerOfTwo - 1;
 
   struct Slot
   {
