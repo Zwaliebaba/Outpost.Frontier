@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 using namespace DirectX;
 
@@ -66,6 +67,152 @@ constexpr float MIN_TURN_LIMIT_ERROR_RADIANS = 1.0e-4f;
 
   const float halfStep = 0.5f * _accelMetresPerSecSq * World::TICK_SECONDS;
   return std::sqrt(halfStep * halfStep + 2.0f * _accelMetresPerSecSq * braking) - halfStep;
+}
+
+/// The contact radius for a raw class byte off the tables. The byte was
+/// validated at spawn, so the clamping lookup is enough.
+[[nodiscard]] float ContactRadiusOf(std::uint8_t _rawClass) noexcept
+{
+  return ShipClass(static_cast<HullClass>(_rawClass)).collisionRadiusMetres;
+}
+
+/// A hull the contact model treats as terrain: it cannot move, so nothing may
+/// push it and it never scans traffic. `Structure`, in practice.
+[[nodiscard]] bool IsAnchored(std::uint8_t _rawClass) noexcept
+{
+  return ShipClass(static_cast<HullClass>(_rawClass)).maxSpeedMetresPerSec <= 0.0f;
+}
+
+/// What the traffic around a ship allows it to do this tick (ADR-015 §2).
+struct TrafficSteer
+{
+  /// The course to fly: toward the target, deflected sideways when something
+  /// sits in the corridor.
+  float desiredHeadingRadians = 0.0f;
+
+  /// The most speed the nearest obstruction ahead leaves room to stop from.
+  float speedCapMetresPerSec = std::numeric_limits<float>::max();
+};
+
+/*
+ * Avoidance: what a seeking ship does about the ships it would otherwise fly
+ * through. Two limits, independent because they answer different failures.
+ *
+ * **Braking** is the guarantee. Along the heading actually flown, the nearest
+ * point of contact with each ship ahead is exact circle arithmetic --
+ * `ahead - sqrt(contact^2 - side^2)` -- and speed is capped by the same
+ * discrete-step arrival profile that stops a ship on its station, aimed at that
+ * point. `ArrivalSpeed` reaches zero a tolerance short, so a blocked ship
+ * parks with a gap rather than nosing in; and because the profile grows with
+ * distance, far traffic caps nothing and no horizon check is needed.
+ *
+ * **Deflection** is the manners. In the frame of the course the ship *wants*,
+ * the nearest blocker whose corridor it sits in bends the desired heading onto
+ * the tangent that clears it by `AVOID_CLEARANCE_FACTOR` of the combined
+ * radius. The tangent formula is continuous at the corridor's edge -- when
+ * `|side|` equals the clearance the deflection is exactly zero -- so there is
+ * no flicker to damp at the boundary. A blocker parked on the target itself is
+ * exempt: there is nothing sensible to steer around, so the ship brakes and
+ * parks adjacent instead of orbiting what it cannot reach (the leg then ends
+ * by its own deadline, ADR-005 §2). Head-on symmetry is broken by convention:
+ * dead-ahead traffic is passed to port, and two ships meeting nose to nose each
+ * deflect to their own left, which parts them.
+ *
+ * Deterministic by the same construction as everything else here: slot-order
+ * iteration, pure table data, no randomness (ADR-005 §5).
+ */
+[[nodiscard]] TrafficSteer SteerAroundTraffic(std::uint32_t _slot, std::span<const DirectX::XMFLOAT2> _positions,
+                                              std::span<const std::uint8_t> _classes, const ShipClassInfo& _info,
+                                              float _headingRadians, float _speedMetresPerSec, const Guidance& _guidance,
+                                              float _desiredHeadingRadians, float _distanceToTargetMetres) noexcept
+{
+  TrafficSteer steer;
+  steer.desiredHeadingRadians = _desiredHeadingRadians;
+  if (_info.maxSpeedMetresPerSec <= 0.0f)
+  {
+    return steer; // Anchored: a station neither brakes nor swerves.
+  }
+
+  const XMFLOAT2 position = _positions[_slot];
+  const float ownRadius = ContactRadiusOf(_classes[_slot]);
+
+  const float flownCos = std::cos(_headingRadians);
+  const float flownSin = std::sin(_headingRadians);
+  const float wantedCos = std::cos(_desiredHeadingRadians);
+  const float wantedSin = std::sin(_desiredHeadingRadians);
+
+  // Deflection answers to the nearest corridor blocker only: summing pushes
+  // from a crowd points somewhere no single member justifies, and the nearest
+  // one is the one that must be cleared first.
+  float nearestAhead = std::numeric_limits<float>::max();
+  float nearestSide = 0.0f;
+  float nearestClearance = 0.0f;
+
+  const float brakingDistance =
+      _speedMetresPerSec * _speedMetresPerSec / (2.0f * _info.accelMetresPerSecSq);
+
+  for (std::uint32_t other = 0; other < _positions.size(); ++other)
+  {
+    if (other == _slot)
+    {
+      continue;
+    }
+    const float relX = _positions[other].x - position.x;
+    const float relY = _positions[other].y - position.y;
+    const float contact = ownRadius + ContactRadiusOf(_classes[other]);
+
+    // Braking, in the frame of the heading actually flown.
+    const float aheadFlown = relX * flownCos + relY * flownSin;
+    if (aheadFlown > 0.0f)
+    {
+      const float sideFlown = flownCos * relY - flownSin * relX;
+      if (std::fabs(sideFlown) < contact)
+      {
+        const float reach = std::sqrt(contact * contact - sideFlown * sideFlown);
+        const float untilContact = std::max(aheadFlown - reach, 0.0f);
+        steer.speedCapMetresPerSec = std::min(steer.speedCapMetresPerSec, ArrivalSpeed(untilContact, _info.accelMetresPerSecSq));
+      }
+    }
+
+    // Deflection, in the frame of the course wanted.
+    const float targetGapX = _positions[other].x - _guidance.targetXMetres;
+    const float targetGapY = _positions[other].y - _guidance.targetYMetres;
+    if (targetGapX * targetGapX + targetGapY * targetGapY < contact * contact)
+    {
+      continue; // Parked on the destination: brake and park adjacent.
+    }
+    const float aheadWanted = relX * wantedCos + relY * wantedSin;
+    if (aheadWanted <= 0.0f || aheadWanted >= _distanceToTargetMetres)
+    {
+      continue; // Behind, or beyond the point this ship stops at anyway.
+    }
+    if (aheadWanted > brakingDistance + World::AVOID_LOOKAHEAD_RADII * contact)
+    {
+      continue; // Too far to matter yet at this speed.
+    }
+    const float sideWanted = wantedCos * relY - wantedSin * relX;
+    const float clearance = World::AVOID_CLEARANCE_FACTOR * contact;
+    if (std::fabs(sideWanted) >= clearance)
+    {
+      continue; // The corridor is already clear.
+    }
+    if (aheadWanted < nearestAhead)
+    {
+      nearestAhead = aheadWanted;
+      nearestSide = sideWanted;
+      nearestClearance = clearance;
+    }
+  }
+
+  if (nearestAhead < std::numeric_limits<float>::max())
+  {
+    const float distance = std::sqrt(nearestAhead * nearestAhead + nearestSide * nearestSide);
+    const float halfWidth = std::asin(std::min(nearestClearance / distance, 1.0f));
+    const float centre = std::atan2(nearestSide, nearestAhead);
+    const float toTangent = nearestSide > 0.0f ? centre - halfWidth : centre + halfWidth;
+    steer.desiredHeadingRadians = WrapAngle(_desiredHeadingRadians + toTangent);
+  }
+  return steer;
 }
 
 } // namespace
@@ -203,6 +350,7 @@ void World::Tick(std::uint32_t _tick)
   GroupAdvance();
   Steering();
   Integrate();
+  Separate();
 }
 
 ValidationView World::Validation() const noexcept
@@ -595,8 +743,12 @@ void World::Steering()
    * Ships move along their heading and cannot strafe (ADR-005 §2), so a turn is
    * the only way to change direction and the turn rate is what gives a hull its
    * character -- an Interceptor pivots, a Battleship sweeps. Formation keeping
-   * falls out of every ship seeking its own station; there is no inter-ship
-   * avoidance, because stations do not overlap by construction.
+   * falls out of every ship seeking its own station. Traffic bends the course
+   * and caps the speed (`SteerAroundTraffic`, ADR-015 §2): the MVP had no
+   * inter-ship avoidance because stations do not overlap by construction, and
+   * that same construction is what keeps a formation in flight clear of its own
+   * avoidance now that ships flying *between* stations no longer pass through
+   * whatever is en route.
    */
   const std::uint32_t count = ShipCount();
   for (std::uint32_t slot = 0; slot < count; ++slot)
@@ -620,9 +772,18 @@ void World::Steering()
     // once there. A ship that has arrived still turns, which is what makes a
     // fleet end a move facing the same way.
     float desiredHeading = guidance.arrivalFacingRadians;
+    float trafficSpeedCap = std::numeric_limits<float>::max();
     if (seeking)
     {
       desiredHeading = std::atan2(XMVectorGetY(toTarget), XMVectorGetX(toTarget));
+
+      // Only a ship going somewhere scans traffic. A holding ship has no course
+      // to bend and no speed to cap -- and what it cannot do is get out of the
+      // way, which is `Separate`'s problem, not steering's.
+      const TrafficSteer steer = SteerAroundTraffic(slot, m_positions, m_classes, info, m_headings[slot], SpeedAt(slot),
+                                                    guidance, desiredHeading, distance);
+      desiredHeading = steer.desiredHeadingRadians;
+      trafficSpeedCap = steer.speedCapMetresPerSec;
     }
 
     const float headingError = WrapAngle(desiredHeading - m_headings[slot]);
@@ -663,6 +824,11 @@ void World::Steering()
       {
         desiredSpeed = std::min(desiredSpeed, info.turnRateRadiansPerSec * distance / (2.0f * absError));
       }
+
+      // And the traffic's limit last: whatever the approach wants, the ship may
+      // not carry more speed than lets it stop short of the nearest hull in its
+      // path (ADR-015 §2).
+      desiredSpeed = std::min(desiredSpeed, trafficSpeedCap);
     }
 
     const float speed = SpeedAt(slot);
@@ -698,6 +864,106 @@ void World::Integrate()
     // ship only reaches here by drifting the last few metres at the edge. The
     // clamp is a floor under the invariant rather than a movement rule.
     m_positions[slot] = XMFLOAT2{ClampToPlayArea(result.x), ClampToPlayArea(result.y)};
+  }
+}
+
+void World::Separate()
+{
+  /*
+   * Contact resolution (ADR-015 §4): after everything has moved, no two hulls
+   * may stay inside each other. Steering exists to keep this from triggering;
+   * this exists because steering cannot promise it -- momentum a hull cannot
+   * shed, targets under other ships, and authored overlap all end here.
+   *
+   * The mechanics, and why each is shaped the way it is:
+   *
+   *   - **Positions move, velocities do not.** This is projection out of an
+   *     invalid state, not physics: contact transfers no momentum, ships shove
+   *     past each other shoulder-first, and the movement envelope (speed, turn,
+   *     acceleration) stays exactly what Steering granted. Anything fancier is
+   *     gameplay to design, not a defect to fix.
+   *   - **The split is by hull area** (radius squared), so a Battleship walks
+   *     through a crowd of Interceptors moving barely at all, and an anchored
+   *     hull -- a station -- is terrain: it takes none of the correction, ever.
+   *   - **Each pass moves a pair at most a quarter of their combined radius.**
+   *     Overlap can be authored (spawn layouts) as well as flown into, and
+   *     popping a deep overlap apart in one tick reads as a teleport on the
+   *     client; capped, it reads as ships pushing each other off, a few metres
+   *     a tick, until clear.
+   *   - **Gauss-Seidel in slot order, a fixed number of passes.** Sequential
+   *     updates in dense-array order are the determinism rule (ADR-005 §5)
+   *     applied to pairs; the fixed pass count keeps the tick's cost bounded,
+   *     and whatever a crowded tick leaves unresolved, the next tick continues.
+   *     Coincident centres -- a stacked spawn -- part eastward, an arbitrary
+   *     axis that only has to be the same one every run.
+   */
+  const std::uint32_t count = ShipCount();
+  for (std::uint32_t pass = 0; pass < SEPARATION_PASSES; ++pass)
+  {
+    bool touched = false;
+    for (std::uint32_t first = 0; first + 1 < count; ++first)
+    {
+      const float firstRadius = ContactRadiusOf(m_classes[first]);
+      const bool firstAnchored = IsAnchored(m_classes[first]);
+
+      for (std::uint32_t second = first + 1; second < count; ++second)
+      {
+        const bool secondAnchored = IsAnchored(m_classes[second]);
+        if (firstAnchored && secondAnchored)
+        {
+          continue; // Two stations. However authored, not this system's business.
+        }
+
+        const float secondRadius = ContactRadiusOf(m_classes[second]);
+        const float contact = firstRadius + secondRadius;
+        const float relX = m_positions[second].x - m_positions[first].x;
+        const float relY = m_positions[second].y - m_positions[first].y;
+        const float distanceSq = relX * relX + relY * relY;
+        if (distanceSq >= contact * contact)
+        {
+          continue;
+        }
+
+        const float distance = std::sqrt(distanceSq);
+        float axisX = 1.0f;
+        float axisY = 0.0f;
+        if (distance > 1.0e-4f)
+        {
+          axisX = relX / distance;
+          axisY = relY / distance;
+        }
+
+        const float step = std::min(contact - distance, contact * SEPARATION_STEP_FACTOR);
+
+        float firstShare = 0.0f;
+        float secondShare = 0.0f;
+        if (firstAnchored)
+        {
+          secondShare = 1.0f;
+        }
+        else if (secondAnchored)
+        {
+          firstShare = 1.0f;
+        }
+        else
+        {
+          const float firstArea = firstRadius * firstRadius;
+          const float secondArea = secondRadius * secondRadius;
+          firstShare = secondArea / (firstArea + secondArea);
+          secondShare = 1.0f - firstShare;
+        }
+
+        m_positions[first].x = ClampToPlayArea(m_positions[first].x - axisX * step * firstShare);
+        m_positions[first].y = ClampToPlayArea(m_positions[first].y - axisY * step * firstShare);
+        m_positions[second].x = ClampToPlayArea(m_positions[second].x + axisX * step * secondShare);
+        m_positions[second].y = ClampToPlayArea(m_positions[second].y + axisY * step * secondShare);
+        touched = true;
+      }
+    }
+    if (!touched)
+    {
+      break; // A pass with nothing to do; the next three would find the same.
+    }
   }
 }
 

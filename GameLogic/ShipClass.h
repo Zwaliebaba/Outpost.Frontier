@@ -75,6 +75,13 @@ struct ShipClassInfo
   /// a group. The formation solve reads it (S10); nothing else should.
   float formationSpacingMetres = 0.0f;
 
+  /// The hull's footprint on the plane: two ships are in contact when their
+  /// centres are closer than the sum of these (ADR-015). Smaller than the pick
+  /// radius -- picking is forgiving on purpose, contact must not be -- and at
+  /// most a quarter of the formation spacing, so ships parked on adjacent
+  /// stations are never in contact. A test holds both bounds.
+  float collisionRadiusMetres = 0.0f;
+
   /// False for the two reserved ids. A class with no content can still be named
   /// and still occupies its wire value; it simply must never be spawned.
   bool hasContent = true;

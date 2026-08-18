@@ -11,7 +11,8 @@ line (there is no argv) and ADR-009's line-oriented universe format (it is JSON)
 deletes the `NeuronCore/Math.h` the Dependency Map originally planned; ADR-013 replaces every
 subdirectory path used illustratively in earlier documents with flat file names; **ADR-014
 overturns Dependency Map ruling #2** — the engine libraries do not link GameLogic, and reach it
-through injected interfaces instead.
+through injected interfaces instead; ADR-015 spends ADR-005 §2's "no inter-ship avoidance in
+MVP" — ships collide now, and the tick gained a fifth system (`Separate`).
 
 ## Decisions at a glance
 
@@ -31,6 +32,7 @@ through injected interfaces instead.
 | [012](ADR/ADR-012-configuration-and-json.md) | Configuration *(owner directive)* | **JSON config files only — no argv, no environment**; custom NeuronCore parser (exact `int64`, iterative, diagnostics) also serving universe + banks; settings persist to a LocalAppData user layer |
 | [013](ADR/ADR-013-source-layout.md) | Source layout *(owner directive)* | **Flat project folders**, grouping via `.vcxproj.filters`; repo-wide unique file names; per-project include roots with unqualified includes |
 | [014](ADR/ADR-014-engine-game-separation.md) | Engine/game split *(owner ruling)* | **`Neuron*` never references GameLogic** — the engine declares `Simulation` and `WorldView`, GameLogic implements them, `Outpost.exe` injects them; neutral `EntityRecord` for replication |
+| [015](ADR/ADR-015-ship-collision.md) | Ship collision *(post-MVP)* | **Per-class contact radii; brake + tangent deflection in Steering; positional `Separate` after Integrate** — area-weighted, stations are terrain; no pathfinding, no momentum, no wire change |
 
 ## Coding standard
 
@@ -89,6 +91,18 @@ promoted from a textbook guess to a measurement.
 **What still needs a person and a GPU:** a second look at the overlay after the two size fixes,
 the visual checkpoint against the prints at min and max zoom, and the induced 400 ms stall
 reading as extrapolate-then-freeze rather than as a stutter.
+
+**The first post-MVP feature is in the tree: ship collision (ADR-015, 2026-08-18).** Ships no
+longer fly through each other — per-class contact radii in the class table, braking and
+tangential deflection inside Steering, and a fifth tick system (`Separate`) resolving residual
+overlap positionally, with stations as immovable terrain. Eight `ShipContactTests` scenarios
+plus a converging-crowd replay test joined `GameLogicTests`; nothing on the wire changed. Two
+things worth knowing: a target with a hull parked on it now ends with the mover parked
+adjacent and the leg expiring by its deadline (the obstructed-footprint item stays open, only
+its failure mode improved), and the authored starting fleet carried a real 6 m overlap between
+the Carrier and Battleship wings' line ends that `Separate` now heals on tick 1 — re-parking
+that layout is the owner's call. Verified so far on a Linux clang cross-build of GameLogic
+(all 111 GameLogicTests green there); the MSVC build and official suite run is CI's, as usual.
 
 **Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
