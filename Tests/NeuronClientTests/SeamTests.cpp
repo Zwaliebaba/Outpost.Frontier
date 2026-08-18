@@ -46,6 +46,8 @@ class StubWorldView final : public WorldView
 public:
   static constexpr std::uint16_t REFUSE_KIND = 7;
   static constexpr std::uint16_t REFUSE_REASON = 42;
+  static constexpr std::uint16_t DEFAULT_KIND = 5;
+  static constexpr std::uint16_t DEFAULT_PARAMETER = 9;
 
   /// Reads a tick out of the first four bytes, the way a real view reads it out
   /// of the snapshot header -- the engine cannot know it, so the game reports it.
@@ -107,8 +109,39 @@ public:
     return _writer.Ok();
   }
 
+  /// Numbers this stub made up, which is the point: the client copies them into
+  /// an intent and never learns what a 5 or a 9 is.
+  [[nodiscard]] OrderDefaults DefaultOrder() const override { return OrderDefaults{DEFAULT_KIND, DEFAULT_PARAMETER}; }
+
+  /// One order running, invented the same way. A real view reads these out of
+  /// the newest snapshot; the engine cannot tell the difference, and that is
+  /// what the seam is for.
+  void PollOrderFeedback(OrderFeedback& _outFeedback) override
+  {
+    ++m_feedbackCount;
+    _outFeedback.Clear();
+    _outFeedback.lastOrderSeqProcessed = m_lastOrderSeqProcessed;
+
+    OrderProgress progress;
+    progress.serverOrderId = 900;
+    progress.clientOrderSeq = m_lastOrderSeqProcessed;
+    progress.state = 1;
+    progress.legIndex = 2;
+    progress.legCount = 4;
+    progress.memberCount = 6;
+    (void)_outFeedback.Add(progress);
+  }
+
+  [[nodiscard]] const char* ReasonText(std::uint16_t _reasonCode) const override
+  {
+    return _reasonCode == REFUSE_REASON ? "the stub said no" : "something else";
+  }
+
   [[nodiscard]] std::uint64_t SchemaHash() const override { return 0xabcdefull; }
   [[nodiscard]] std::uint64_t ContentHash() const override { return 0x123456ull; }
+
+  void SetLastOrderSeqProcessed(std::uint32_t _seq) noexcept { m_lastOrderSeqProcessed = _seq; }
+  [[nodiscard]] std::uint32_t FeedbackCount() const noexcept { return m_feedbackCount; }
 
   [[nodiscard]] std::uint32_t SnapshotCount() const noexcept { return m_snapshotCount; }
   [[nodiscard]] std::uint32_t SceneCount() const noexcept { return m_sceneCount; }
@@ -120,6 +153,8 @@ private:
   std::uint32_t m_snapshotCount = 0;
   std::uint32_t m_sceneCount = 0;
   std::uint32_t m_lastTick = 0;
+  std::uint32_t m_feedbackCount = 0;
+  std::uint32_t m_lastOrderSeqProcessed = 0;
   double m_lastRenderTick = 0.0;
   std::vector<std::uint8_t> m_lastPayload;
 };
@@ -284,6 +319,67 @@ public:
     Assert::AreEqual<std::size_t>(6, writer.Written().size(), L"three u16s, and the engine chose none of them");
   }
 
+  TEST_METHOD(TheGameSaysWhatKindOfOrderThePuckMakes)
+  {
+    /*
+     * The client turns a gesture into a place and a facing. *Which command*
+     * that is belongs to a surface that does not exist yet, so until it does
+     * the answer comes from the game -- and the numbers are the game's, which
+     * this stub demonstrates by picking two nobody else uses. Leaving the
+     * intent's fields zero would have worked today and only because
+     * `OrderKind::Move` and `FormationId::Line` both happen to be zero.
+     */
+    StubWorldView view;
+    WorldView& seam = view;
+
+    const OrderDefaults defaults = seam.DefaultOrder();
+    Assert::AreEqual<std::uint16_t>(StubWorldView::DEFAULT_KIND, defaults.kind, L"the kind is the game's");
+    Assert::AreEqual<std::uint16_t>(StubWorldView::DEFAULT_PARAMETER, defaults.parameter, L"and so is the parameter");
+    Assert::AreNotEqual<std::uint16_t>(0, defaults.kind, L"and neither is zero by luck");
+  }
+
+  TEST_METHOD(OrderProgressCrossesAsNumbersTheEngineDoesNotInterpret)
+  {
+    // The promotion path. The engine polls, copies six numbers, and compares
+    // one of them for change -- it never learns that `state` has names.
+    StubWorldView view;
+    view.SetLastOrderSeqProcessed(31);
+    WorldView& seam = view;
+
+    OrderFeedback feedback;
+    seam.PollOrderFeedback(feedback);
+
+    Assert::AreEqual<std::uint32_t>(1, view.FeedbackCount(), L"polled, not pushed");
+    Assert::AreEqual<std::uint32_t>(31, feedback.lastOrderSeqProcessed, L"the high-water mark comes through");
+    Assert::AreEqual<std::uint32_t>(1, feedback.orderCount, L"one order running");
+    Assert::AreEqual<std::uint32_t>(900, feedback.orders[0].serverOrderId, L"with the id the game assigned");
+    Assert::AreEqual<std::uint8_t>(2, feedback.orders[0].legIndex, L"on leg two");
+    Assert::AreEqual<std::uint8_t>(4, feedback.orders[0].legCount, L"of four");
+  }
+
+  TEST_METHOD(TheBounceStringComesFromTheSameSideTheReasonCodeDid)
+  {
+    /*
+     * BounceParity's other half. The reason code is a number the engine cannot
+     * read, so the words have to come from whoever assigned it -- and both a
+     * local refusal and a server refusal reach this one function, which is what
+     * makes them say the same thing rather than two tables agreeing today.
+     */
+    StubWorldView view;
+    WorldView& seam = view;
+
+    OrderIntent intent;
+    intent.kind = StubWorldView::REFUSE_KIND;
+    intent.entityCount = 1;
+    const std::uint16_t id = 1;
+    intent.entityIds = &id;
+
+    const OrderVerdict verdict = seam.PreCheck(intent);
+    Assert::IsFalse(verdict.accepted, L"the stub refuses its own kind");
+    Assert::AreEqual("the stub said no", seam.ReasonText(verdict.reasonCode), L"and the text is its own too");
+    Assert::AreEqual("something else", seam.ReasonText(1234), L"a code it does not know still gets words");
+  }
+
   TEST_METHOD(EncodingRefusesRatherThanSendingHalfAnOrder)
   {
     // "Not sent" and "sent empty" are different outcomes, and only one of them
@@ -334,6 +430,16 @@ public:
     std::array<std::uint8_t, 16> buffer{};
     ByteWriter writer{buffer};
     Assert::IsFalse(view.EncodeOrder(OrderIntent{}, writer));
+
+    OrderFeedback feedback;
+    feedback.lastOrderSeqProcessed = 5;
+    Assert::IsTrue(feedback.Add(OrderProgress{}));
+    view.PollOrderFeedback(feedback);
+    Assert::AreEqual<std::uint32_t>(0, feedback.orderCount, L"a world with no orders reports none");
+    Assert::AreEqual<std::uint32_t>(0, feedback.lastOrderSeqProcessed, L"and no high-water mark either");
+
+    Assert::AreEqual<std::uint16_t>(0, view.DefaultOrder().kind, L"there is no command to give");
+    Assert::IsNotNull(view.ReasonText(0), L"and still never a null string to draw");
 
     Assert::AreEqual<std::uint64_t>(0, view.SchemaHash());
     Assert::AreEqual<std::uint64_t>(0, view.ContentHash());

@@ -11,11 +11,19 @@
 #include "FrameConstants.hlsli"
 #include "PassConstants.hlsli"
 
-// Must match OverlayKind in OverlayMark.h. Three values, and the shader
-// branches on them rather than the pass binding three pipelines.
+// Must match OverlayKind in OverlayMark.h. The shader branches on these rather
+// than the pass binding a pipeline per kind.
+//
+// Plane-lying kinds are numbered below the screen-facing ones so that "which
+// space is this quad built in" is one comparison rather than a list. The pass
+// draws the two halves separately with different depth state, and this is the
+// same boundary seen from inside the shader.
 #define OVERLAY_SELECTION_RING 0
-#define OVERLAY_HULL_BAR 1
-#define OVERLAY_SHIELD_BAR 2
+#define OVERLAY_ORDER_FOOTPRINT 1
+#define OVERLAY_ORDER_STATION 2
+#define OVERLAY_FIRST_SCREEN_FACING 3
+#define OVERLAY_HULL_BAR 3
+#define OVERLAY_SHIELD_BAR 4
 
 // Per instance, from OverlayMark (OverlayMark.h). The size channel packs four
 // floats whose meaning depends on the kind: a ring is sized in plane metres
@@ -34,7 +42,11 @@ struct VertexOutput
   float2 local : LOCAL;           // The quad corner, -1..1 on both axes.
   float4 colour : COLOUR;
   nointerpolation uint kind : KIND;
-  nointerpolation float fill : FILL; // 0..1.
+
+  /// `OverlayMark::fill`, raw: 0-65535 of a bar's width, or a footprint's dash
+  /// count. Not normalised here, because the two readings want different
+  /// scales and the stage that knows which is the pixel shader.
+  nointerpolation float fill : FILL;
 };
 
 /// Quad corners from the vertex id, as a triangle strip: 0 (-1,-1), 1 (+1,-1),

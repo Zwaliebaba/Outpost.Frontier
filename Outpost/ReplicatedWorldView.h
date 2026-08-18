@@ -65,6 +65,9 @@ public:
   [[nodiscard]] Neuron::OrderVerdict PreCheck(const Neuron::OrderIntent& _intent) override;
   void SolvePreview(const Neuron::OrderIntent& _intent, Neuron::OrderPreview& _outPreview) override;
   [[nodiscard]] bool EncodeOrder(const Neuron::OrderIntent& _intent, Neuron::ByteWriter& _writer) override;
+  [[nodiscard]] Neuron::OrderDefaults DefaultOrder() const override;
+  void PollOrderFeedback(Neuron::OrderFeedback& _outFeedback) override;
+  [[nodiscard]] const char* ReasonText(std::uint16_t _reasonCode) const override;
 
   [[nodiscard]] std::uint64_t SchemaHash() const override;
   [[nodiscard]] std::uint64_t ContentHash() const override { return m_desc.contentHash; }
@@ -81,6 +84,24 @@ private:
   /// Reused across frames rather than allocated per frame: this runs once per
   /// frame at whatever rate the display asks for.
   std::vector<Game::ReplicatedShip> m_sampled;
+
+  /*
+   * The ids `ValidateOrder` is given, refilled beside `m_sampled`.
+   *
+   * The same ships the frame drew, which is what makes a pre-check answer the
+   * question the player actually asked: they clicked something they could see,
+   * so the validation runs against what was on screen (ADR-006 §11). A separate
+   * array because `ValidationView` wants them contiguous, and because a ship
+   * this build has no mesh for is drawable-and-orderable in neither.
+   *
+   * A pre-check therefore runs against the *previous* frame's list, the client
+   * ordering before it extracts. That is one frame on top of the two ticks the
+   * replicated view is already behind by design (ADR-002 §4), and it is the
+   * same reason ADR-005 §4 says the authority's verdict is the only one that
+   * counts: a pre-check exists to make the common refusals instant, not to be
+   * right about all of them.
+   */
+  std::vector<Game::ShipId> m_validationIds;
 
   std::uint64_t m_rejectedSnapshots = 0;
 };

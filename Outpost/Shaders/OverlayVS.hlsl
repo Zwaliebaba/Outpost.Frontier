@@ -1,12 +1,13 @@
 // OverlayVS.hlsl -- one quad per instanced overlay mark (ADR-006 §8).
 //
-// Two spaces in one shader, chosen per kind. A selection ring is a circle *on
-// the plane*, so its quad is built in plane metres and pushed through the
-// view-projection -- which is what makes it foreshorten into the 2:1 ellipse
-// ADR-006 §4 fixed the elevation to produce, with no ellipse maths anywhere. A
-// bar is screen-facing, so its quad is built by anchoring the ship's position
-// in clip space and then offsetting in pixels, which keeps it the same size at
-// every zoom.
+// Two spaces in one shader, chosen per kind. A ring, an order footprint and a
+// station tick are circles *on the plane*, so their quads are built in plane
+// metres and pushed through the view-projection -- which is what makes them
+// foreshorten into the 2:1 ellipse ADR-006 §4 fixed the elevation to produce,
+// with no ellipse maths anywhere, and it is why a ghost's footprint lies on the
+// ground like the fleet it describes. A bar is screen-facing, so its quad is
+// built by anchoring the ship's position in clip space and then offsetting in
+// pixels, which keeps it the same size at every zoom.
 
 #include "Overlay.hlsli"
 
@@ -18,13 +19,14 @@ VertexOutput VertexMain(uint _vertexId : SV_VertexID, MarkInput _mark)
   output.local = corner;
   output.colour = _mark.colour;
   output.kind = _mark.kindAndFill.x;
-  output.fill = float(_mark.kindAndFill.y) * (1.0f / 65535.0f);
+  output.fill = float(_mark.kindAndFill.y);
 
-  if (_mark.kindAndFill.x == OVERLAY_SELECTION_RING)
+  if (_mark.kindAndFill.x < OVERLAY_FIRST_SCREEN_FACING)
   {
     // The quad lies on the plane, so render space is (x, 0, y) -- ADR-001 §3's
     // basis, with the cosmetic height left at zero because a ring is on the
-    // ground by definition.
+    // ground by definition. A selection ring, an order footprint and a station
+    // tick differ only in radius and in what the pixel shader draws inside.
     const float2 plane = _mark.anchorPlane + corner * _mark.size.x;
     output.clipPosition = mul(float4(plane.x, 0.0f, plane.y, 1.0f), g_viewProjection);
     return output;

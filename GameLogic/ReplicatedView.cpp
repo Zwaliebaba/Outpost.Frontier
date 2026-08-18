@@ -73,7 +73,8 @@ bool ReplicatedView::ApplySnapshot(std::span<const std::uint8_t> _payload)
 
   SnapshotHeader header;
   std::vector<Neuron::EntityRecord> ships;
-  if (!ReadSnapshot(reader, header, ships))
+  std::vector<OrderStateRecord> orders;
+  if (!ReadSnapshot(reader, header, ships, orders))
   {
     return false;
   }
@@ -93,6 +94,10 @@ bool ReplicatedView::ApplySnapshot(std::span<const std::uint8_t> _payload)
   m_frames[0].header = header;
   m_frames[0].ships = std::move(ships);
   m_count = std::min(m_count + 1, HISTORY);
+
+  // Replaced wholesale, and only past the staleness check above: an order area
+  // that arrived out of order describes a tick the view has already left.
+  m_latestOrders = std::move(orders);
   return true;
 }
 
@@ -199,6 +204,16 @@ std::uint16_t ReplicatedView::LatestShipCount() const noexcept
   return m_count > 0 ? m_frames[0].header.shipCount : 0;
 }
 
+std::span<const OrderStateRecord> ReplicatedView::LatestOrders() const noexcept
+{
+  return m_latestOrders;
+}
+
+std::uint32_t ReplicatedView::LastOrderSeqProcessed() const noexcept
+{
+  return m_count > 0 ? m_frames[0].header.lastOrderSeqProcessed : 0;
+}
+
 void ReplicatedView::Clear() noexcept
 {
   for (Frame& frame : m_frames)
@@ -207,6 +222,7 @@ void ReplicatedView::Clear() noexcept
     frame.ships.clear();
   }
   m_count = 0;
+  m_latestOrders.clear();
 }
 
 } // namespace Game

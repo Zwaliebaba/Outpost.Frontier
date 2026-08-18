@@ -192,9 +192,12 @@ void OverlayWorldPass::Record(const FrameContext& _context)
   commandList->SetGraphicsRootConstantBufferView(static_cast<UINT>(RootSlot::FrameConstants), _context.frameConstants);
   commandList->SetGraphicsRootConstantBufferView(static_cast<UINT>(RootSlot::PassConstants), _context.passConstants);
 
-  // Four vertices as a strip, instanced per mark. Rings first with depth,
-  // then bars without -- two pipelines over two contiguous ranges of one
-  // upload, which is what `ringCount` exists to make possible.
+  // Four vertices as a strip, instanced per mark. The plane-lying marks first
+  // with depth, then the screen-facing ones without -- two pipelines over two
+  // contiguous ranges of one upload, which is what `ringCount` exists to make
+  // possible. It is called `ringCount` because selection rings were the first
+  // thing in that half; from S9 it also holds order footprints and station
+  // ticks, which lie on the same plane and want the same depth state.
   if (marks.ringCount > 0)
   {
     commandList->SetPipelineState(_context.pipelines->OverlayRings());

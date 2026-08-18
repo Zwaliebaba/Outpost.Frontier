@@ -44,6 +44,18 @@ struct OrderIntent
   float facingRadians = 0.0f;
   bool queued = false; // Append to the queue rather than replace it.
 
+  /*
+   * The client's own monotonic counter, for the order it is about to send.
+   *
+   * The client allocates it, because the client is what has to match an ack to
+   * a ghost, and `EncodeOrder` places it inside the payload -- which is the
+   * only reason a number the engine assigns appears in a message the engine
+   * cannot read. `OrderVerdict::orderSeq` is the same number coming back.
+   *
+   * Zero on a pre-check: nothing has been sent, so nothing needs matching.
+   */
+  std::uint32_t orderSeq = 0;
+
   /// Which entities the command is for, as replicated ids (`EntityRecord::id`).
   /// A span rather than a container: the selection already exists somewhere,
   /// and the seam should not decide where.
@@ -124,6 +136,96 @@ struct OrderPreview
     markXMetres[markCount] = _xMetres;
     markYMetres[markCount] = _yMetres;
     ++markCount;
+    return true;
+  }
+};
+
+/*
+ * The opaque numbers a client needs before it has a command surface.
+ *
+ * `OrderIntent::kind` and `parameter` are GameLogic's, and a client that filled
+ * them in itself would have started choosing game semantics. Until the command
+ * wheel exists there is one kind and one formation, and the honest way to get
+ * them is to ask the side that knows. That the answer is currently `{0, 0}` is
+ * the point: a zeroed intent meaning Move-in-Line is a coincidence of two
+ * enumerations, and coincidences are what renumber.
+ */
+struct OrderDefaults
+{
+  std::uint16_t kind = 0;
+  std::uint16_t parameter = 0;
+};
+
+/*
+ * One order the authority is still working on, as the client's ghost needs it.
+ *
+ * Every field is a number: two identities and three counters. `state` is the
+ * game's enum and the engine only compares it for change, exactly as it only
+ * forwards `reasonCode` -- the client draws a different ghost when the state
+ * moves and never learns what "2" is called.
+ *
+ * This is what promotes a PENDING ghost when the ack was lost. The ack is
+ * reliable (ADR-003's control channel), so in practice it arrives first; the
+ * snapshot is the path that cannot be lost, because a snapshot the ghost's
+ * order is missing from is itself the signal that the order is over.
+ */
+struct OrderProgress
+{
+  std::uint32_t serverOrderId = 0;
+  std::uint32_t clientOrderSeq = 0;
+  std::uint8_t state = 0;
+  std::uint8_t legIndex = 0;
+  std::uint8_t legCount = 0;
+  std::uint8_t memberCount = 0;
+};
+
+/// How many live orders the game may report in one poll. The snapshot's order
+/// area is the real cap and it is GameLogic's; this is the engine's buffer for
+/// it, asserted equal where the two meet so a game that reports more than the
+/// client can hold fails to compile rather than to draw.
+inline constexpr std::uint32_t MAX_ORDER_PROGRESS = 16;
+
+/*
+ * What the authority says about the orders this client has outstanding.
+ *
+ * Polled once a frame rather than pushed, for the reason `BuildScene` is
+ * polled: the game already has the newest snapshot decoded, and a callback
+ * would mean the game deciding when the client's ghost list is allowed to
+ * change.
+ */
+struct OrderFeedback
+{
+  /*
+   * The highest sequence the authority has finished deciding about.
+   *
+   * A ghost whose sequence is at or below this has been answered -- accepted
+   * and present in `orders`, or accepted and already finished, or refused. A
+   * ghost above it is still in flight. One monotonic number closes the loop for
+   * every order at once, which is why it is in the snapshot header rather than
+   * being derivable from the records (ADR-004 §6).
+   */
+  std::uint32_t lastOrderSeqProcessed = 0;
+
+  OrderProgress orders[MAX_ORDER_PROGRESS] = {};
+  std::uint32_t orderCount = 0;
+
+  void Clear() noexcept
+  {
+    lastOrderSeqProcessed = 0;
+    orderCount = 0;
+  }
+
+  /// Appends, or reports the buffer is full. A dropped progress record means a
+  /// ghost draws one frame behind; silently overwriting one would mean a ghost
+  /// that never promotes.
+  [[nodiscard]] bool Add(const OrderProgress& _progress) noexcept
+  {
+    if (orderCount >= MAX_ORDER_PROGRESS)
+    {
+      return false;
+    }
+    orders[orderCount] = _progress;
+    ++orderCount;
     return true;
   }
 };

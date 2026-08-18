@@ -160,6 +160,18 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
    polylines with per-leg ETA labels. Plane-lying geometry depth-tests against hulls
    (hard test + bias in MVP; soft SRV occlusion is the reserved DepthPre upgrade);
    screen-facing marks (bars, labels) never occlude.
+
+   **8a. The split ran where the geometry does, not where the feature does** (S9). The order
+   footprint and its station ticks are circles on the plane, which is exactly what (A) draws —
+   so they are (A) kinds, and the ghost got its ring and its one-tick-per-ship without a draw
+   list. What is genuinely (B) is the *polyline*: a dashed lane between two points is not a
+   quad around one, and a per-leg ETA label is text. Both go with the Ui pass (§10).
+
+   The mark kinds are numbered plane-lying-first with `FIRST_SCREEN_FACING` as the boundary,
+   because the pass already draws the array in two contiguous halves with different depth
+   state. Two orderings that had to agree became one that cannot disagree — and a ghost mark
+   appended past the split would be drawn in the half that never depth-tests, where a
+   footprint lying under a Carrier would refuse to be occluded by it.
 9. **Text = DirectWrite-baked glyph atlas** at boot (ASCII + box glyphs, one monospace face,
    2–3 sizes), rendered as instanced quads in the Ui pass. This keeps one graphics API in the
    frame. **Rejected:** D3D11On12/D2D interop — a second device, wrapped-resource sync, and

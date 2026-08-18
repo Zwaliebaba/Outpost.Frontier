@@ -9,21 +9,6 @@ using namespace DirectX;
 
 namespace Neuron
 {
-namespace
-{
-
-/// Client-area pixels to NDC. Y flips: pixels count down from the top and NDC
-/// counts up from the centre.
-[[nodiscard]] XMFLOAT2 PixelsToNdc(float _x, float _y, std::uint32_t _width, std::uint32_t _height) noexcept
-{
-  if (_width == 0 || _height == 0)
-  {
-    return XMFLOAT2{0.0f, 0.0f};
-  }
-  return XMFLOAT2{(_x / static_cast<float>(_width)) * 2.0f - 1.0f, 1.0f - (_y / static_cast<float>(_height)) * 2.0f};
-}
-
-} // namespace
 
 bool Selection::Contains(std::uint16_t _id) const noexcept
 {
@@ -130,10 +115,10 @@ void Selection::EndDrag(std::span<const SceneEntity> _entities, const PlaneMappi
     return;
   }
 
-  // A click. The plane point under the cursor, then the nearest ship to it.
-  const XMFLOAT2 ndc = PixelsToNdc(m_currentX, m_currentY, _viewportWidth, _viewportHeight);
-  const XMFLOAT2 planePoint{_mapping.origin.x + _mapping.rightPerNdc.x * ndc.x + _mapping.upPerNdc.x * ndc.y,
-                            _mapping.origin.y + _mapping.rightPerNdc.y * ndc.x + _mapping.upPerNdc.y * ndc.y};
+  // A click. The plane point under the cursor, then the nearest ship to it --
+  // through the same two functions the order puck uses, which is ADR-006 §11's
+  // one code path rather than two that agree today.
+  const XMFLOAT2 planePoint = NdcToPlane(_mapping, PixelsToNdc(m_currentX, m_currentY, _viewportWidth, _viewportHeight));
   const std::uint16_t hit = PickPoint(_entities, planePoint, _minRadiusMetres);
 
   if (additive)

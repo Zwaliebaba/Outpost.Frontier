@@ -104,6 +104,43 @@ public:
   [[nodiscard]] virtual bool EncodeOrder(const OrderIntent& _intent, ByteWriter& _writer) = 0;
 
   /*
+   * What to put in an intent the player has not qualified.
+   *
+   * The client turns a gesture into a place and a facing; which *command* that
+   * is belongs to a surface that does not exist yet (the command wheel, S11),
+   * and until it does the answer is the game's single default. Asking beats
+   * leaving the fields zero, because zero meaning Move-in-Line is an accident
+   * of two enumerations rather than an agreement.
+   */
+  [[nodiscard]] virtual OrderDefaults DefaultOrder() const = 0;
+
+  /*
+   * What the authority has decided about orders already sent.
+   *
+   * Read out of the newest snapshot, which is the game's to parse. The client
+   * uses it to promote a PENDING ghost and to retire one whose order has
+   * finished; it reads the numbers and not their meanings (ADR-014 §5).
+   *
+   * Polled rather than pushed so the ghost list changes at a point in the frame
+   * the client chose.
+   */
+  virtual void PollOrderFeedback(OrderFeedback& _outFeedback) = 0;
+
+  /*
+   * The diagnostic text for a reason code.
+   *
+   * The bounce toast has to say *why*, and the reason enum is the game's
+   * (ADR-005 §4). The engine holds a code it cannot interpret, so the string
+   * comes from the same side the code did -- which is also what keeps a local
+   * refusal and a server refusal reading identically, since both codes travel
+   * the same path to the same function (`puck-and-wheel.png` §4's BounceParity).
+   *
+   * Never null: an unknown code returns a string saying so, because a toast
+   * with no text is the silent disappearance the print forbids.
+   */
+  [[nodiscard]] virtual const char* ReasonText(std::uint16_t _reasonCode) const = 0;
+
+  /*
    * The game's message layout and authored content, for the handshake.
    *
    * The same two numbers `Simulation` reports, from the same content -- and
@@ -145,6 +182,12 @@ public:
   void SolvePreview(const OrderIntent&, OrderPreview& _outPreview) override { _outPreview.Clear(); }
 
   [[nodiscard]] bool EncodeOrder(const OrderIntent&, ByteWriter&) override { return false; }
+
+  [[nodiscard]] OrderDefaults DefaultOrder() const override { return OrderDefaults{}; }
+
+  void PollOrderFeedback(OrderFeedback& _outFeedback) override { _outFeedback.Clear(); }
+
+  [[nodiscard]] const char* ReasonText(std::uint16_t) const override { return "no world"; }
 
   [[nodiscard]] std::uint64_t SchemaHash() const override { return 0; }
   [[nodiscard]] std::uint64_t ContentHash() const override { return 0; }

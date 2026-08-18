@@ -50,6 +50,12 @@
     <ClCompile Include="Picking.cpp">
       <Filter>Input</Filter>
     </ClCompile>
+    <ClCompile Include="OrderPuck.cpp">
+      <Filter>Input</Filter>
+    </ClCompile>
+    <ClCompile Include="OrderGhost.cpp">
+      <Filter>Extract</Filter>
+    </ClCompile>
     <ClCompile Include="Selection.cpp">
       <Filter>Input</Filter>
     </ClCompile>
@@ -127,6 +133,12 @@
     </ClInclude>
     <ClInclude Include="Picking.h">
       <Filter>Input</Filter>
+    </ClInclude>
+    <ClInclude Include="OrderPuck.h">
+      <Filter>Input</Filter>
+    </ClInclude>
+    <ClInclude Include="OrderGhost.h">
+      <Filter>Extract</Filter>
     </ClInclude>
     <ClInclude Include="Selection.h">
       <Filter>Input</Filter>

@@ -14,6 +14,8 @@
 #include "GpuUploadRing.h"
 #include "InputMap.h"
 #include "IsoCamera.h"
+#include "OrderGhost.h"
+#include "OrderPuck.h"
 #include "OverlayMark.h"
 #include "RenderWorld.h"
 #include "Selection.h"
@@ -81,6 +83,8 @@ private:
   void PollNetwork();
   void UpdateCamera(float _deltaSeconds);
   void UpdateSelection();
+  void UpdateOrders();
+  void CommitOrder(const PuckSample& _sample, double _nowSeconds);
   void ExtractScene();
   void RenderFrame();
   void HandleResize();
@@ -130,8 +134,32 @@ private:
 
   /// Which ships the player has, and the drag that changes it (ADR-006 §11).
   /// Client-only and never sent: the server learns what was selected only when
-  /// an order names it (S9).
+  /// an order names it.
   Selection m_selection;
+
+  /// The right-drag that turns the selection into a command, and the promises
+  /// made on the server's behalf until it answers (`puck-and-wheel.png` §2, §4).
+  OrderPuck m_puck;
+  OrderGhostList m_ghosts;
+
+  /// Reused across frames, like the scene: polled every frame and thrown away.
+  OrderFeedback m_orderFeedback;
+  OrderPreview m_orderPreview;
+
+  /// What kind of order the puck makes, asked of the game once at boot. It
+  /// cannot change while a build runs -- there is one command until the wheel
+  /// exists -- so asking per order would be asking the same question forever.
+  OrderDefaults m_orderDefaults;
+
+  /*
+   * The client's order counter, which the ack matches a ghost on.
+   *
+   * From 1, because zero means "not sent" everywhere it appears (`OrderIntent`,
+   * `OrderVerdict`, the snapshot's high-water mark). Monotonic and never
+   * reused; a locally refused order consumes one anyway, so a gap in the
+   * sequence the server sees is normal and means nothing.
+   */
+  std::uint32_t m_nextOrderSeq = 1;
 
   /// What the selection looks like: rings and gauge bars, rebuilt each frame
   /// from the selection and the scene, and reused rather than reallocated.

@@ -39,7 +39,7 @@ makes those libraries worth having.
      `BuildScene(renderTick, RenderScene&)`, `PreCheck(const OrderIntent&) → verdict`,
      `SolvePreview(const OrderIntent&, FormationPreview&)`, `EncodeOrder(const OrderIntent&,
      ByteWriter&)`. `ClientApp` owns window, device, passes, camera, picking and HUD; the game
-     supplies meaning.
+     supplies meaning. **S9 added three** — see §2c.
 2a. **Who holds the vtable** (settled by S5c, because the ADR as written could not be
    implemented). §1 says GameLogic depends on **NeuronCore only**. §2 says **GameLogic
    implements** `Neuron::Simulation` and `Neuron::WorldView`. Those interfaces are declared in
@@ -74,6 +74,32 @@ makes those libraries worth having.
    seam: `WorldView::PreCheck` and `Simulation::ApplyOrderBytes` must return the same verdict
    type or §3's BounceParity is a claim nothing can check — and NeuronClient cannot see
    NeuronServer, so the shared type has to sit below both.
+
+2c. **Three calls the client half needed** (S9, and each one replaces a guess the engine was
+   otherwise going to make):
+
+   - `DefaultOrder() → OrderDefaults{kind, parameter}`. The puck turns a gesture into a place
+     and a facing; *which command* that is belongs to a surface that does not exist until S11.
+     A client filling the fields in itself would have started choosing game semantics, and the
+     tempting shortcut — leave them zero — works only because `OrderKind::Move` and
+     `FormationId::Line` both happen to be zero. That is a coincidence of two enumerations, and
+     coincidences are what renumber.
+   - `PollOrderFeedback(OrderFeedback&)`. The snapshot's order-state records, as six numbers
+     per order. It is what promotes a PENDING ghost when the ack is lost and what retires one
+     whose order has finished — order records exist only while an order does, so absence is
+     itself the signal. Polled rather than pushed, so the ghost list changes at a point in the
+     frame the client chose. `state` crosses as a number the engine compares for change and
+     never names.
+   - `ReasonText(u16) → const char*`. The bounce toast has to say *why*, and the reason code is
+     a number the engine cannot read. Asking the side that assigned it is what makes a local
+     refusal and a server refusal say the same words rather than two tables agreeing today —
+     which is §3's parity claim applied to the string as well as the code. Never null: a toast
+     with no text is the silent disappearance `puck-and-wheel.png` §4 forbids.
+
+   `OrderIntent` also gained `orderSeq`, and it travels the awkward way for the same reason
+   `OrderVerdict::orderSeq` does (ADR-004 §7): the client allocates it because the client is
+   what matches an ack to a ghost, and `EncodeOrder` places it inside a payload the engine
+   frames and never parses.
 
 3. **BounceParity survives intact.** The client still runs the *identical* validation function
    — it is reached through an interface instead of a link-time symbol. Same code, same reason

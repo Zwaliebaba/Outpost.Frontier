@@ -51,6 +51,11 @@ bool ClientApp::Initialise(const ClientConfig& _config, const PipelineShaders& _
   m_shaders = _shaders;
   m_worldView = &_worldView;
 
+  // What the puck's orders are, from the side that knows. Once, at boot: there
+  // is one command until the wheel exists, and asking every frame would be
+  // asking a question whose answer is compiled in.
+  m_orderDefaults = _worldView.DefaultOrder();
+
   WindowDesc windowDesc;
   windowDesc.width = _config.windowWidth;
   windowDesc.height = _config.windowHeight;
@@ -220,6 +225,7 @@ int ClientApp::Run()
       NEURON_SPAN("Game");
       UpdateCamera(deltaSeconds);
       UpdateSelection();
+      UpdateOrders();
     }
     {
       NEURON_SPAN("Extract");
@@ -330,6 +336,133 @@ void ClientApp::UpdateSelection()
   }
 }
 
+void ClientApp::UpdateOrders()
+{
+  const double nowSeconds = Clock::SecondsSinceStart();
+
+  /*
+   * Answers first, gesture second, and the order matters.
+   *
+   * A ghost the authority decided about this frame should be promoted or
+   * bounced before a new one is added, so the two never contend for the same
+   * sequence and a bounce is never one frame stale. The gesture is the only
+   * part that can *create* work, so it goes last.
+   */
+  for (const OrderVerdict& verdict : m_connection.PendingVerdicts())
+  {
+    m_ghosts.OnVerdict(verdict, nowSeconds);
+    if (!verdict.accepted)
+    {
+      // The bounce toast's text, from the game (ADR-014 §3). Logged rather than
+      // drawn until the Ui pass exists (S11); the ghost's own bounce is the
+      // part the player can already see.
+      NEURON_LOG_INFO("order %u refused by the server: %s", verdict.orderSeq, m_worldView->ReasonText(verdict.reasonCode));
+    }
+  }
+  m_connection.ClearPendingVerdicts();
+
+  // What the newest snapshot says is still running. This is what promotes a
+  // ghost when the ack was lost, and what retires one whose order has finished.
+  m_worldView->PollOrderFeedback(m_orderFeedback);
+  m_ghosts.OnFeedback(m_orderFeedback, nowSeconds);
+  m_ghosts.Advance(nowSeconds);
+
+  if (m_connection.State() != ClientLinkState::Joined && !m_ghosts.Empty())
+  {
+    // The link went away. Every promise it was carrying died with it, and the
+    // sequence numbers restart on a reconnect, so keeping them would leave one
+    // session's ghosts hanging over the next one's fleet.
+    m_ghosts.Clear();
+  }
+
+  if (!m_input.windowFocused)
+  {
+    m_puck.Cancel(); // No release is coming for a drag that alt-tabbed away.
+    return;
+  }
+
+  const auto cursorX = static_cast<float>(m_input.cursorX);
+  const auto cursorY = static_cast<float>(m_input.cursorY);
+
+  if (m_input.Pressed(InputButton::Right))
+  {
+    m_puck.Begin(cursorX, cursorY, m_input.Down(InputAction::QueueOrder));
+  }
+  else if (m_puck.Active())
+  {
+    m_puck.Update(cursorX, cursorY);
+  }
+
+  if (!m_puck.Active() || !m_input.Released(InputButton::Right))
+  {
+    return;
+  }
+
+  // Resolved against the camera as it is now, not as it was at the press: the
+  // player may have panned mid-drag, and the destination is where they are
+  // looking when they let go.
+  PuckSample sample = m_puck.Resolve(m_camera.PlaneMappingForNdc(), m_input.viewportWidth, m_input.viewportHeight);
+  if (!sample.facingFromDrag)
+  {
+    // A click rather than an arc. The fleet arrives facing the way it went,
+    // which is the answer a player who did not think about facing expects.
+    sample.facingRadians = TravelFacingRadians(m_scene.entities, m_selection.Ids(), sample.targetMetres, 0.0f);
+  }
+  m_puck.Cancel();
+
+  CommitOrder(sample, nowSeconds);
+}
+
+void ClientApp::CommitOrder(const PuckSample& _sample, double _nowSeconds)
+{
+  const std::uint32_t orderSeq = m_nextOrderSeq++;
+  const OrderIntent intent = MakeOrderIntent(_sample, m_orderDefaults, m_selection.Ids(), orderSeq);
+
+  // The footprint, from the game's own formation solve -- the real one, one
+  // station per ship. Solved before the pre-check because a refused order still
+  // needs a ghost to bounce, and a ghost with no footprint is a bounce of
+  // nothing (`puck-and-wheel.png` §4).
+  m_worldView->SolvePreview(intent, m_orderPreview);
+
+  // Where the ghost bounces back to. The target itself when nothing selected is
+  // present, which makes a refused order with no fleet a fade rather than a
+  // flight to the origin.
+  DirectX::XMFLOAT2 origin = _sample.targetMetres;
+  (void)SelectionCentre(m_scene.entities, m_selection.Ids(), origin);
+
+  if (!m_ghosts.Add(intent, m_orderPreview, origin, _nowSeconds))
+  {
+    // More orders in flight than the snapshot can report on. Sending anyway
+    // would put an order on the wire whose refusal has nowhere to land.
+    NEURON_LOG_WARNING("too many orders in flight; order %u was not sent", orderSeq);
+    return;
+  }
+
+  const OrderVerdict local = m_worldView->PreCheck(intent);
+  if (!local.accepted)
+  {
+    // Refused here, and it must look exactly like being refused there -- same
+    // ghost, same bounce, same reason string, one round trip sooner. That is
+    // the whole reason the pre-check exists (ADR-014 §3).
+    m_ghosts.Refuse(orderSeq, local.reasonCode, true, _nowSeconds);
+    NEURON_LOG_INFO("order %u refused locally: %s", orderSeq, m_worldView->ReasonText(local.reasonCode));
+    return;
+  }
+
+  // The game writes its own bytes and the connection frames them; neither looks
+  // at the other's half (ADR-004 ruling 4).
+  std::array<std::uint8_t, MAX_DATAGRAM_BYTES> payload{};
+  ByteWriter writer{payload};
+  if (!m_worldView->EncodeOrder(intent, writer) || !writer.Ok() || !m_connection.SendOrder(writer.Written()))
+  {
+    // It never left, so there was never a promise. Forgotten rather than
+    // bounced: a bounce says the game refused it, and nothing did.
+    m_ghosts.Forget(orderSeq);
+    NEURON_LOG_WARNING("order %u could not be sent", orderSeq);
+    return;
+  }
+}
+
 void ClientApp::ExtractScene()
 {
   // The world, from the other side of the seam (ADR-014 §2). This function used
@@ -351,6 +484,13 @@ void ClientApp::ExtractScene()
   // The overlay is built from the same entities the pick ran over, so a ring is
   // drawn exactly where a click would have landed (ADR-006 §8, §11).
   BuildOverlayMarks(m_scene.entities, m_selection.Ids(), m_overlayTuning, m_camera.MetresPerPixel(), m_overlayMarks);
+
+  // Then the ghosts, which are plane-lying and go in beside the rings. After
+  // the selection because `BuildOverlayMarks` clears the list, and in this
+  // stage rather than in `UpdateOrders` so a ghost added this frame is drawn
+  // this frame -- a promise that appeared one frame late would be a promise
+  // made after the player had already looked.
+  BuildGhostMarks(m_ghosts.Ghosts(), m_overlayTuning, m_camera.MetresPerPixel(), Clock::SecondsSinceStart(), m_overlayMarks);
 }
 
 FrameConstants ClientApp::BuildFrameConstants() const

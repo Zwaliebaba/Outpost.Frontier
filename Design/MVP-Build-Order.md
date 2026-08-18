@@ -735,9 +735,72 @@ is the strongest available demonstration that the engine assumes no layout: a si
 something no game means still round-trips, and its refusal reason (4242, a number no game uses)
 arrives intact because nothing in between looked at it. A payload from a connection that never
 completed the handshake is dropped rather than acked, and never reaches the simulation.
-**Outstanding:** the client half. The right-drag order puck, `WorldView::PreCheck` and
-`SolvePreview` against the replicated view, `EncodeOrder`, the PENDING ghost and the reason
-toast. The client can receive an ack today and does nothing with it.
+**Built ✅ (code, the client half):**
+`OrderPuck.h/.cpp` — the right-drag gesture. **Press names the place, the drag names the
+arrival facing, release commits.** The print draws a touch gesture where the puck follows one
+finger and a second finger twists the footprint, and is explicit that the second degree of
+freedom is only free because planar movement bought it. A mouse has one pointer, so the two
+decisions are sequenced rather than concurrent — anchor-then-drag keeps both, where dragging
+the puck and taking the facing from elsewhere would have thrown the saving away instead of
+spending it. Below a 12-pixel slop the gesture reports *no* facing rather than a facing of
+zero, and the caller substitutes the obvious one: the way the fleet is already travelling.
+`OrderGhost.h/.cpp` — PENDING → UNDER WAY → REJECTED, with the print's 150 ms bounce. **A
+locally refused order gets a ghost too**, which is the whole point of the pre-check: §4's
+BounceParity gate says a local refusal must be indistinguishable from a remote one, and a
+local refusal that was only a log line would be trivially distinguishable.
+`OverlayMark` — two new kinds, `OrderFootprint` and `OrderStation`, and the enum renumbered
+so plane-lying kinds sort below screen-facing ones. Ghost marks are *inserted* at the
+ring/bar boundary rather than appended: both lie on the plane, and one appended past the
+split would be drawn in the half that never depth-tests, where a footprint under a Carrier
+would refuse to be occluded by it.
+`ReplicatedWorldView` — the real `PreCheck`, `SolvePreview` and `EncodeOrder`, all three
+through **one** intent-to-`OrderSubmit` conversion. Two copies would be two roundings, and
+ADR-005 §4's parity rule is exactly that the numbers validated are the numbers sent.
+`ReplicatedView` keeps the snapshot's order records, and `PollOrderFeedback` carries them
+across the seam as six numbers per order.
+`ClientConnection::SendOrder` on the **control** channel, and `OrderAck` drained as
+`OrderVerdict` — the same type the local pre-check produces, so a ghost cannot tell where
+its answer came from.
+
+**Three seam calls were added, and each replaces a guess.** `DefaultOrder` because a client
+filling in `kind` itself would be choosing game semantics, and zero meaning Move-in-Line is a
+coincidence of two enumerations rather than an agreement. `PollOrderFeedback` because the
+snapshot's order area is the promotion path that survives a lost ack. `ReasonText` because
+the bounce toast has to say *why*, and the code is a number the engine cannot read — so the
+words come from the side that assigned it, which is also what keeps a local and a remote
+refusal reading identically.
+
+**The client's `queuedLegs` is zero, knowingly.** The server resolves it from the group the
+first named ship belongs to; a snapshot order record carries a member *count* and not the
+members, so the client cannot. Reporting zero means an append that would fill the queue
+passes locally and is refused a round trip later — ADR-005 §4's designed case. The other
+direction is worse: a client guessing high would locally refuse an order the server would
+have taken, and no amount of waiting gets the player past that. Fixing it properly costs two
+bytes per member per order in a 1,150-byte datagram, to make instant a refusal that is
+already correct. Not paid.
+
+**A defect found on the way, in S8b's own tuning.** `OverlayTuning`'s selection ring and
+shield bar were written `0xAARRGGBB` out of habit and are read `R8G8B8A8_UNORM`, so the ring
+rendered amber and the shield bar blue. Neither had ever been looked at — S8b said in writing
+that its visual half was outstanding because a depth state needs a GPU, and a swapped colour
+needs exactly the same frame. The green hull bar survived only because `0x50e050` is a
+palindrome in bytes.
+
+**Verified:** `NeuronClientTests` 116 → 163, `GameLogicTests` 82 → 85. Mutation-tested:
+taking the drag's angle in pixels instead of on the plane, appending ghost marks past the
+ring/bar split, retiring a settled pending ghost with no grace, clamping the footprint with
+`min` instead of `max`, and letting a repeated refusal restart the bounce each fail exactly
+the tests named for them — **and one mutation caught a bad test again**. Replacing the order
+area *before* the staleness check changed nothing, because the test asserted on the header's
+high-water mark, which the frame ring already protects. It asserts on the records now.
+
+**Outstanding:** draw list *(B)* — the dashed lane from the fleet to the destination and the
+per-leg ETA labels. A line between two points is not a quad around one and a label is text,
+so both belong with the Ui pass (ADR-006 §10) and arrive with it in S11; the reason toast
+is logged until then, and the ghost's own bounce is the part the player can already see. The
+acceptance criteria that need a running session — promotion ≤ 100 ms on screen, and a
+deliberate out-of-bounds order bouncing identically local and remote — are a play test, not a
+unit test.
 
 ### S10 — Formations & the real footprint
 `SolveFormation` for Line/Wedge/Claw; puck footprint preview = the same solve (one tick per

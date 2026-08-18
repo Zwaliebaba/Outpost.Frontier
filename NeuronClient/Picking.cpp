@@ -9,6 +9,22 @@ using namespace DirectX;
 namespace Neuron
 {
 
+XMFLOAT2 PixelsToNdc(float _x, float _y, std::uint32_t _viewportWidth, std::uint32_t _viewportHeight) noexcept
+{
+  if (_viewportWidth == 0 || _viewportHeight == 0)
+  {
+    return XMFLOAT2{0.0f, 0.0f};
+  }
+  return XMFLOAT2{(_x / static_cast<float>(_viewportWidth)) * 2.0f - 1.0f,
+                  1.0f - (_y / static_cast<float>(_viewportHeight)) * 2.0f};
+}
+
+XMFLOAT2 NdcToPlane(const PlaneMapping& _mapping, const XMFLOAT2& _ndc) noexcept
+{
+  return XMFLOAT2{_mapping.origin.x + _mapping.rightPerNdc.x * _ndc.x + _mapping.upPerNdc.x * _ndc.y,
+                  _mapping.origin.y + _mapping.rightPerNdc.y * _ndc.x + _mapping.upPerNdc.y * _ndc.y};
+}
+
 bool PlaneToNdc(const PlaneMapping& _mapping, const XMFLOAT2& _planeMetres, XMFLOAT2& _outNdc) noexcept
 {
   // Solving `plane - origin = right * ndc.x + up * ndc.y` for ndc: a 2x2 with

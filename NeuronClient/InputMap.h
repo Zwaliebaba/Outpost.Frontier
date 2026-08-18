@@ -14,12 +14,18 @@
  *    of the frame, the tuning and the elapsed time, so the binding scheme can
  *    be tested without a window and without a device.
  *
- * The bindings are chosen to survive the slices that follow. Left-drag becomes
- * box-select (S8) and right-drag becomes the order puck (S9), so neither is
- * spent here: the camera takes the middle button, the wheel, the screen edge
- * and the keyboard, and Alt is what turns a middle-drag from a pan into an
- * orbit. Picking a binding now that S9 has to take back would be a worse kind
- * of cheap.
+ * The bindings are chosen to survive the slices that follow. Left-drag became
+ * box-select (S8) and right-drag the order puck (S9), so neither was spent
+ * here: the camera takes the middle button, the wheel, the screen edge and the
+ * keyboard, and Alt is what turns a middle-drag from a pan into an orbit.
+ * Picking a binding that S9 had to take back would have been a worse kind of
+ * cheap.
+ *
+ * `SelectAdd` and `QueueOrder` are both Shift and are still two actions. They
+ * never collide -- one qualifies a left drag and the other a right drag -- and
+ * keeping them separate is what makes the binding table honest: a player who
+ * moves "append to queue" off Shift must not silently take "add to selection"
+ * with it.
  */
 
 namespace Neuron
@@ -52,11 +58,12 @@ enum class InputAction : std::uint8_t
   ZoomIn,
   ZoomOut,
   ResetView,
-  Modifier,  // Alt: turns a middle-drag into an orbit.
-  SelectAdd  // Shift: a click adjusts the selection instead of replacing it.
+  Modifier,   // Alt: turns a middle-drag into an orbit.
+  SelectAdd,  // Shift: a click adjusts the selection instead of replacing it.
+  QueueOrder  // Shift: an order appends to the queue instead of replacing it.
 };
 
-inline constexpr std::uint32_t INPUT_ACTION_COUNT = 11;
+inline constexpr std::uint32_t INPUT_ACTION_COUNT = 12;
 
 /// One frame of input, already reduced to logical state. Edges (`pressed`,
 /// `released`) are separate from levels (`down`) because a detent nudge must

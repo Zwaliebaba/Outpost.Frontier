@@ -100,6 +100,25 @@ public:
   /// question as how many `SampleAt` returns at a given render tick.
   [[nodiscard]] std::uint16_t LatestShipCount() const noexcept;
 
+  /*
+   * The newest snapshot's order records, and the high-water mark beside them.
+   *
+   * Newest only, and not a history: a ghost is drawn against what the authority
+   * is doing *now*, and an order state from four snapshots ago is a state the
+   * server has already left. Ships need the history because they interpolate;
+   * an order state does not interpolate, it changes.
+   *
+   * Empty until an order flies, and empty again once the last one finishes --
+   * which is itself the signal that retires a ghost, since a finished order
+   * stops being reported rather than being reported as finished.
+   */
+  [[nodiscard]] std::span<const OrderStateRecord> LatestOrders() const noexcept;
+
+  /// The highest client sequence the authority has finished deciding about
+  /// (ADR-004 §6). Closes the ghost loop when an ack is lost, and stays put
+  /// when a snapshot arrives out of order.
+  [[nodiscard]] std::uint32_t LastOrderSeqProcessed() const noexcept;
+
   void Clear() noexcept;
 
 private:
@@ -114,6 +133,11 @@ private:
   /// time, and "index 0 is newest" is worth more than the copy costs.
   Frame m_frames[HISTORY];
   std::size_t m_count = 0;
+
+  /// The newest frame's orders. Beside the ring rather than inside it because
+  /// nothing looks back at an older one, and a per-frame copy would be seven
+  /// vectors kept alive so that none of them is read.
+  std::vector<OrderStateRecord> m_latestOrders;
 };
 
 } // namespace Game

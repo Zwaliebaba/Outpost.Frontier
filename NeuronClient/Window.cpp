@@ -191,60 +191,70 @@ void Window::SetKey(WPARAM _virtualKey, bool _down) noexcept
   // one is S8's click and box-select and the right one is S9's order puck, so
   // the camera takes the middle button, the wheel, the edges and these keys
   // (InputMap.h).
-  auto action = InputAction::Modifier;
+  //
+  // An array rather than a single action, because one key may carry more than
+  // one meaning: Shift is both "adjust the selection" and "append to the
+  // queue", which qualify different drags and so never collide.
+  InputAction actions[2] = {};
+  std::uint32_t count = 0;
+
   switch (_virtualKey)
   {
   case 'W':
   case VK_UP:
-    action = InputAction::PanForward;
+    actions[count++] = InputAction::PanForward;
     break;
   case 'S':
   case VK_DOWN:
-    action = InputAction::PanBack;
+    actions[count++] = InputAction::PanBack;
     break;
   case 'A':
   case VK_LEFT:
-    action = InputAction::PanLeft;
+    actions[count++] = InputAction::PanLeft;
     break;
   case 'D':
   case VK_RIGHT:
-    action = InputAction::PanRight;
+    actions[count++] = InputAction::PanRight;
     break;
   case 'Q':
-    action = InputAction::YawLeft;
+    actions[count++] = InputAction::YawLeft;
     break;
   case 'E':
-    action = InputAction::YawRight;
+    actions[count++] = InputAction::YawRight;
     break;
   case VK_PRIOR:
   case VK_OEM_PLUS:
   case VK_ADD:
-    action = InputAction::ZoomIn;
+    actions[count++] = InputAction::ZoomIn;
     break;
   case VK_NEXT:
   case VK_OEM_MINUS:
   case VK_SUBTRACT:
-    action = InputAction::ZoomOut;
+    actions[count++] = InputAction::ZoomOut;
     break;
   case VK_HOME:
-    action = InputAction::ResetView;
+    actions[count++] = InputAction::ResetView;
     break;
   case VK_MENU:
-    action = InputAction::Modifier;
+    actions[count++] = InputAction::Modifier;
     break;
   case VK_SHIFT:
-    action = InputAction::SelectAdd;
+    actions[count++] = InputAction::SelectAdd;
+    actions[count++] = InputAction::QueueOrder;
     break;
   default:
-    return; // Not a camera or selection key. S9 adds its own.
+    return; // Not a camera, selection or order key.
   }
 
-  const auto index = static_cast<std::uint32_t>(action);
-  if (_down && !m_input.actionDown[index])
+  for (std::uint32_t slot = 0; slot < count; ++slot)
   {
-    m_input.actionPressed[index] = true; // Auto-repeat must not re-fire an edge.
+    const auto index = static_cast<std::uint32_t>(actions[slot]);
+    if (_down && !m_input.actionDown[index])
+    {
+      m_input.actionPressed[index] = true; // Auto-repeat must not re-fire an edge.
+    }
+    m_input.actionDown[index] = _down;
   }
-  m_input.actionDown[index] = _down;
 }
 
 LRESULT CALLBACK Window::WindowProc(HWND _window, UINT _message, WPARAM _wParam, LPARAM _lParam) noexcept

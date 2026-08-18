@@ -41,6 +41,26 @@ namespace Neuron
  */
 
 /*
+ * Client-area pixels to NDC.
+ *
+ * Y flips: pixels count down from the top-left and NDC counts up from the
+ * centre. A zero-size viewport -- which is what a window reports before its
+ * first resize -- maps everything to the centre rather than dividing by it.
+ *
+ * Here rather than file-local in each caller because ADR-006 §11's "same plane
+ * point feeds the order puck -- one code path" is a claim about this arithmetic
+ * specifically: box selection, point picking and the order puck all turn a
+ * cursor into a plane point, and three copies of the flip is three chances for
+ * one of them to be off by a sign.
+ */
+[[nodiscard]] DirectX::XMFLOAT2 PixelsToNdc(float _x, float _y, std::uint32_t _viewportWidth,
+                                            std::uint32_t _viewportHeight) noexcept;
+
+/// NDC to a plane point, which is `PlaneMapping`'s own definition applied:
+/// `origin + rightPerNdc * ndc.x + upPerNdc * ndc.y`.
+[[nodiscard]] DirectX::XMFLOAT2 NdcToPlane(const PlaneMapping& _mapping, const DirectX::XMFLOAT2& _ndc) noexcept;
+
+/*
  * Plane point back to NDC -- the inverse of `PlaneMapping`.
  *
  * `PlaneMappingForNdc` goes one way and this goes the other, and they are

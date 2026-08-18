@@ -92,6 +92,33 @@ void ClientConnection::SendPing()
   ++m_pingCount;
 }
 
+bool ClientConnection::SendOrder(std::span<const std::uint8_t> _payload)
+{
+  if (m_state != ClientLinkState::Joined || m_transport == nullptr || _payload.empty())
+  {
+    return false;
+  }
+
+  std::array<std::uint8_t, MAX_DATAGRAM_BYTES> buffer{};
+  ByteWriter writer{buffer};
+  WriteWireType(writer, WireType::OrderSubmit);
+  writer.WriteBytes(_payload.data(), _payload.size());
+  if (!writer.Ok())
+  {
+    // Longer than a datagram. The game's own cap makes this unreachable for an
+    // order it would build, so reaching it means a payload from somewhere else
+    // -- and a truncated order is worse than none.
+    return false;
+  }
+
+  if (!m_transport->Send(m_connection, TransportChannel::Control, writer.Written()))
+  {
+    return false;
+  }
+  ++m_orderSendCount;
+  return true;
+}
+
 TransportStats ClientConnection::Stats() const
 {
   return m_transport == nullptr ? TransportStats{} : m_transport->Stats(m_connection);
@@ -173,6 +200,28 @@ void ClientConnection::HandleMessage(const TransportEvent& _event)
       ++m_snapshotOverflowCount;
     }
     m_pendingSnapshots.emplace_back(payload.begin(), payload.end());
+    return;
+  }
+
+  case WireType::OrderAck:
+  {
+    OrderAck ack;
+    if (!Read(reader, ack))
+    {
+      return;
+    }
+    ++m_orderAckCount;
+
+    // Straight into `OrderVerdict`, which is the type both seams speak
+    // (OrderIntent.h): the same four numbers the client's own pre-check
+    // produces, so a ghost cannot tell where its answer came from. The reason
+    // code is the game's and is copied without being read.
+    OrderVerdict verdict;
+    verdict.accepted = ack.accepted != 0;
+    verdict.reasonCode = ack.reasonCode;
+    verdict.serverOrderId = ack.serverOrderId;
+    verdict.orderSeq = ack.orderSeq;
+    m_pendingVerdicts.push_back(verdict);
     return;
   }
 
@@ -289,6 +338,12 @@ void ClientConnection::Disconnect()
   m_transport.reset();
   m_connection = INVALID_CONNECTION;
   m_state = ClientLinkState::Disconnected;
+
+  // Undelivered promises die with the link. A verdict drained after a
+  // reconnect would be answering an order the new session never heard, and the
+  // sequence numbers restart, so it could match the wrong ghost outright.
+  m_pendingVerdicts.clear();
+  m_pendingSnapshots.clear();
 }
 
 } // namespace Neuron

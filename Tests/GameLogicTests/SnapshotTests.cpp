@@ -68,6 +68,19 @@ void BuildFlyingWorld(World& _world, int _shipCount, std::vector<ShipId>& _outId
   }
 }
 
+/// Whether the view's newest order area mentions a client sequence.
+[[nodiscard]] bool HasOrder(const ReplicatedView& _view, std::uint32_t _clientOrderSeq)
+{
+  for (const OrderStateRecord& record : _view.LatestOrders())
+  {
+    if (record.clientOrderSeq == _clientOrderSeq)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
 } // namespace
 
 TEST_CLASS(SnapshotWireTests)
@@ -435,6 +448,95 @@ public:
     {
       Assert::IsTrue(ship.id != ids[2]);
     }
+  }
+
+  TEST_METHOD(TheOrderRecordsComeThroughForTheGhostToRead)
+  {
+    // The client's ghost is promoted by these, so a view that read the ships
+    // and dropped the order area would leave a PENDING ghost on screen with no
+    // path to promotion (`puck-and-wheel.png` §4).
+    World world;
+    std::vector<ShipId> ids;
+    BuildFlyingWorld(world, 4, ids, 10);
+
+    ReplicatedView view;
+    std::array<std::uint8_t, 512> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteSnapshot(world, writer));
+    Assert::IsTrue(view.ApplySnapshot(writer.Written()));
+
+    Assert::AreEqual<std::size_t>(1, view.LatestOrders().size(), L"the move BuildFlyingWorld gave is still running");
+    Assert::AreEqual<std::uint32_t>(1, view.LatestOrders()[0].clientOrderSeq, L"and it is the one that was submitted");
+    Assert::AreEqual<std::uint8_t>(4, view.LatestOrders()[0].memberCount, L"with all four ships in it");
+    Assert::AreEqual<std::uint32_t>(1, view.LastOrderSeqProcessed(), L"and the high-water mark says so too");
+  }
+
+  TEST_METHOD(AStaleSnapshotDoesNotRewindTheOrderState)
+  {
+    /*
+     * The same rule the ships follow, and it matters more here: an order state
+     * is not interpolated, it is *read*, so a reordered arrival would show a
+     * ghost a leg behind and then jump it forward again. The orders must be
+     * replaced only past the staleness check, not beside it.
+     */
+    World world;
+    std::vector<ShipId> ids;
+    BuildFlyingWorld(world, 3, ids, 10);
+
+    std::array<std::uint8_t, 512> older{};
+    Neuron::ByteWriter olderWriter{older};
+    Assert::IsTrue(WriteSnapshot(world, olderWriter));
+
+    OrderSubmit second;
+    second.orderSeq = 2;
+    (void)second.AddShip(ids[0]);
+    second.target.xCm = Neuron::MetresToCentimetres(-1500.0f);
+    second.target.yCm = Neuron::MetresToCentimetres(900.0f);
+    Assert::IsTrue(world.SubmitOrder(second).accepted);
+    for (std::uint32_t tick = 11; tick <= 20; ++tick)
+    {
+      world.Tick(tick);
+    }
+
+    std::array<std::uint8_t, 512> newer{};
+    Neuron::ByteWriter newerWriter{newer};
+    Assert::IsTrue(WriteSnapshot(world, newerWriter));
+
+    ReplicatedView view;
+    Assert::IsTrue(view.ApplySnapshot(newerWriter.Written()));
+    Assert::IsTrue(HasOrder(view, 2), L"the newest snapshot is running the second order");
+    Assert::AreEqual<std::uint32_t>(2, view.LastOrderSeqProcessed(), L"and has seen both");
+
+    // The assertion has to be about the *records*, not the header: the header
+    // is protected by the frame ring, so a version that replaced the order area
+    // before the staleness check would pass a high-water-mark test and still
+    // show a ghost a leg behind. That mutation was written and did survive an
+    // earlier draft of this test.
+    Assert::IsTrue(view.ApplySnapshot(olderWriter.Written()), L"a reordered snapshot is not an error");
+    Assert::IsTrue(HasOrder(view, 2), L"and must not put the older snapshot's orders back");
+    Assert::AreEqual<std::uint32_t>(2, view.LastOrderSeqProcessed(), L"nor rewind the high-water mark");
+  }
+
+  TEST_METHOD(AWorldWithNoOrdersReportsNone)
+  {
+    World world;
+    world.Reset(7);
+    ShipSpawn spawn;
+    spawn.hullClass = HullClass::Corvette;
+    (void)world.Spawn(spawn);
+    world.Tick(1);
+
+    ReplicatedView view;
+    std::array<std::uint8_t, 512> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteSnapshot(world, writer));
+    Assert::IsTrue(view.ApplySnapshot(writer.Written()));
+
+    Assert::IsTrue(view.LatestOrders().empty(), L"nothing ordered, nothing reported");
+    Assert::AreEqual<std::uint32_t>(0, view.LastOrderSeqProcessed(), L"and no sequence has been processed");
+
+    view.Clear();
+    Assert::IsTrue(view.LatestOrders().empty(), L"and clearing leaves nothing behind either");
   }
 
   TEST_METHOD(AGarbagePayloadIsRejectedAndChangesNothing)
