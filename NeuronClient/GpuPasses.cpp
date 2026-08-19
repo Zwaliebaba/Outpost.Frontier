@@ -388,14 +388,19 @@ void UiPass::Record(const FrameContext& _context)
   NEURON_COUNTER("UiInstances", static_cast<std::int64_t>(m_instances.size()));
 }
 
-void GpuPassList::Record(const FrameContext& _context)
+void GpuPassList::RecordWorld(const FrameContext& _context)
 {
   m_clear.Record(_context);
   m_opaque.Record(_context);
   m_nebula.Record(_context);
   m_overlayWorld.Record(_context);
+}
+
+void GpuPassList::RecordUi(const FrameContext& _context)
+{
   m_ui.Record(_context);
-  // Present is the swapchain's, not a recorded pass.
+  // Present is the swapchain's, not a recorded pass -- and so are the MSAA
+  // resolve and its barriers, which is why this half is a separate call.
 }
 
 } // namespace Neuron

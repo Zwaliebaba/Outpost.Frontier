@@ -55,6 +55,19 @@ struct ReplicatedShip
   /// roster is grouped by this, so it has to survive the wire (S11b).
   WingId wing = INVALID_WING_ID;
 
+  /*
+   * How fast the heading is observed to change, radians per second, CCW
+   * positive -- the shortest-arc difference between the two snapshots the
+   * sample interpolated, over the time between them. Zero while extrapolating,
+   * because a held heading is not a turn.
+   *
+   * This exists for the cosmetic bank (ADR-006 §6): the sim's velocity is
+   * always along its heading, so the turn itself is the only replicated signal
+   * a roll can be derived from, and the client's two bracketing snapshots are
+   * where a rate can honestly be measured.
+   */
+  float headingRateRadiansPerSec = 0.0f;
+
   /// Extrapolated past the cap and frozen. The icon sheet draws a marker for
   /// this; the point of surfacing it is that a frozen ship must never be
   /// mistaken for a stopped one.

@@ -83,7 +83,7 @@ sequenceDiagram
             S->>C: OrderAck{seq, reason} → same bounce, one round trip later
         else accepted
             S->>G: create OrderGroup, solve stations
-            Note over S: next tick: Ingest → GroupAdvance →<br/>Steering → Integrate → Emit
+            Note over S: next tick: Ingest → GroupAdvance →<br/>Steering → Integrate → Separate → Emit
             S->>C: Snapshot{tick, ships, orderStates} (datagram, every 50 ms)
             C->>C: buffer ≥2 snapshots, render at t−100 ms<br/>interpolate (extrapolate ≤250 ms → STALE)
             C-->>P: ghost promotes to underway; HUD shows ETA per leg
@@ -138,9 +138,11 @@ them is not owed, and no slice does it.
 ## Frame and tick anatomy
 
 **Sim thread, every 50 ms** (waitable timer, absolute schedule, snap-forward past 250 ms debt):
-`Poll transport → Ingest validated orders → GroupAdvance → Steering → Integrate → EmitSnapshot
-→ Send (≤1,152 B datagram/client)`. Budget: the tick must fit 50 ms with 1,024 entities; at
-MVP scale it is microseconds. `tickOverrun` is a release counter.
+`Poll transport → Ingest validated orders → GroupAdvance → Steering → Integrate → Separate →
+EmitSnapshot → Send (≤1,152 B datagram/client)`. `Separate` is ADR-015's fifth system —
+positional projection of residual contact, after Integrate, deterministic like the rest.
+Budget: the tick must fit 50 ms with 1,024 entities; at MVP scale it is microseconds.
+`tickOverrun` is a release counter.
 
 **Main thread, every frame** (vsync or free):
 `Pump Win32 → Poll transport → Game (camera, selection, orders) → Extract (interpolate →

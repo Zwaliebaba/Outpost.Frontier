@@ -65,13 +65,16 @@ enum class InputAction : std::uint8_t
   ZoomIn,
   ZoomOut,
   ResetView,
-  Modifier,       // Alt: turns a middle-drag into an orbit.
-  SelectAdd,      // Shift: a click adjusts the selection instead of replacing it.
-  QueueOrder,     // Shift: an order appends to the queue instead of replacing it.
-  CycleParameter  // F: steps the order parameter the puck will send (S10's formations).
+  Modifier,         // Alt: turns a middle-drag into an orbit.
+  SelectAdd,        // Shift: a click adjusts the selection instead of replacing it.
+  QueueOrder,       // Shift: an order appends to the queue instead of replacing it.
+  CycleParameter,   // F: steps the order parameter the puck will send (S10's formations).
+  ToggleDiagnostics // F1: shows/hides the Tier-1 counters strip (S14). The
+                    // print's rule: no new gesture -- the toggle is a setting,
+                    // plus an F-key where a keyboard exists (debug-hud.png §6).
 };
 
-inline constexpr std::uint32_t INPUT_ACTION_COUNT = 13;
+inline constexpr std::uint32_t INPUT_ACTION_COUNT = 14;
 
 /// One frame of input, already reduced to logical state. Edges (`pressed`,
 /// `released`) are separate from levels (`down`) because a detent nudge must

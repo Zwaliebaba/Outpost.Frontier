@@ -24,6 +24,7 @@
 #define OVERLAY_FIRST_SCREEN_FACING 3
 #define OVERLAY_HULL_BAR 3
 #define OVERLAY_SHIELD_BAR 4
+#define OVERLAY_STALE_MARKER 5
 
 // Per instance, from OverlayMark (OverlayMark.h). The size channel packs four
 // floats whose meaning depends on the kind: a ring is sized in plane metres

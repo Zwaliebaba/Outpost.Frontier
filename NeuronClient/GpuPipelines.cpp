@@ -175,6 +175,7 @@ bool GpuPipelines::CreateOpaquePipeline(ID3D12Device* _device, const PipelineSha
   static_assert(offsetof(InstanceRecord, heading) == 12, "INSTANCE_HEADING is declared at offset 12");
   static_assert(offsetof(InstanceRecord, teamColorId) == 16, "INSTANCE_CHANNELS is declared at offset 16");
   static_assert(offsetof(InstanceRecord, selectionAndLodBias) == 17, "INSTANCE_CHANNELS is two bytes wide");
+  static_assert(offsetof(InstanceRecord, bank) == 20, "INSTANCE_BANK is declared at offset 20 -- appended, so nothing above it moved");
   static_assert(sizeof(MeshVertex) == 24 && offsetof(MeshVertex, normal) == 12, "NORMAL is declared at offset 12");
 
   const D3D12_INPUT_ELEMENT_DESC elements[] = {
@@ -183,6 +184,7 @@ bool GpuPipelines::CreateOpaquePipeline(ID3D12Device* _device, const PipelineSha
       {"INSTANCE_POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 1, 0, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
       {"INSTANCE_HEADING", 0, DXGI_FORMAT_R32_FLOAT, 1, 12, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
       {"INSTANCE_CHANNELS", 0, DXGI_FORMAT_R8G8_UINT, 1, 16, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+      {"INSTANCE_BANK", 0, DXGI_FORMAT_R32_FLOAT, 1, 20, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
   };
 
   D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
@@ -194,7 +196,7 @@ bool GpuPipelines::CreateOpaquePipeline(ID3D12Device* _device, const PipelineSha
   desc.NumRenderTargets = 1;
   desc.RTVFormats[0] = RENDER_TARGET_FORMAT;
   desc.DSVFormat = DEPTH_FORMAT;
-  desc.SampleDesc.Count = 1; // No MSAA yet; the 4x offscreen target is S14.
+  desc.SampleDesc.Count = m_sampleCount; // The 4x offscreen target when MSAA is on (S14).
   desc.SampleMask = UINT_MAX;
 
   desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
@@ -240,7 +242,7 @@ bool GpuPipelines::CreateNebulaPipeline(ID3D12Device* _device, const PipelineSha
   // records, and a PSO claiming DXGI_FORMAT_UNKNOWN against a bound DSV is a
   // debug-layer error rather than a no-op.
   desc.DSVFormat = DEPTH_FORMAT;
-  desc.SampleDesc.Count = 1;
+  desc.SampleDesc.Count = m_sampleCount;
   desc.SampleMask = UINT_MAX;
 
   desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
@@ -315,7 +317,7 @@ bool GpuPipelines::CreateOverlayPipelines(ID3D12Device* _device, const PipelineS
   desc.NumRenderTargets = 1;
   desc.RTVFormats[0] = RENDER_TARGET_FORMAT;
   desc.DSVFormat = DEPTH_FORMAT;
-  desc.SampleDesc.Count = 1;
+  desc.SampleDesc.Count = m_sampleCount;
   desc.SampleMask = UINT_MAX;
 
   desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
@@ -396,6 +398,8 @@ bool GpuPipelines::CreateUiPipeline(ID3D12Device* _device, const PipelineShaders
   desc.NumRenderTargets = 1;
   desc.RTVFormats[0] = RENDER_TARGET_FORMAT;
   desc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+  // Always single-sampled, whatever the world passes use: the HUD draws after
+  // the MSAA resolve, straight onto the back buffer (S14).
   desc.SampleDesc.Count = 1;
   desc.SampleMask = UINT_MAX;
 
@@ -431,7 +435,7 @@ bool GpuPipelines::CreateUiPipeline(ID3D12Device* _device, const PipelineShaders
   return true;
 }
 
-bool GpuPipelines::Create(ID3D12Device* _device, const PipelineShaders& _shaders)
+bool GpuPipelines::Create(ID3D12Device* _device, const PipelineShaders& _shaders, std::uint32_t _sampleCount)
 {
   if (_device == nullptr || !AllPresent(_shaders))
   {
@@ -439,6 +443,7 @@ bool GpuPipelines::Create(ID3D12Device* _device, const PipelineShaders& _shaders
   }
 
   Destroy();
+  m_sampleCount = _sampleCount > 0 ? _sampleCount : 1;
 
   if (!CreateRootSignature(_device))
   {

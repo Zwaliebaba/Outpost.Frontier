@@ -77,38 +77,29 @@ moves between the trees without a rename pass. Three things it changed in these 
 - [Risk-Register.md](Risk-Register.md) — R1–R14 with designed-in mitigations + standing spikes.
   R6 and R14 are marked realised, with what actually happened.
 
-## Implementation state (2026-08-18)
+## Implementation state (2026-08-19)
 
-Slices S1, S2, S2b, S3, S4, S5, S5b, S5c, S5d, S6, S7, S8, S9 and S10 are in the tree and green
-in CI, along with **S11a** — the Ui pass, its device-free draw list and layout, and the toast
-stack that finally gives S9's bounce its second surface. The per-slice detail — what was built, and what a "done" slice still owes — lives in
-[MVP-Build-Order.md](MVP-Build-Order.md); it is not repeated here.
+**Every MVP slice is in the tree: S1 through S14** (with the inserted S2b, S5b, S5c and S5d),
+green in CI. The per-slice detail — what was built, and what a "done" slice still owes — lives
+in [MVP-Build-Order.md](MVP-Build-Order.md); it is not repeated here.
 
-**Milestone M1 — first commanded fleet — is code-complete and awaiting its play test.** The lap
-the Architecture Overview calls "the one data flow" now runs end to end: a right-drag becomes a
-plane point and an arrival facing, the game pre-checks it against the replicated view, the
-client draws a PENDING ghost and sends the order on the reliable channel, the authority
-validates it with **the same function**, the ghost promotes when the snapshot agrees, and a
-refusal bounces over 150 ms carrying the game's own reason code. What is left of M1 is what a
-unit test cannot see: promotion arriving within 100 ms on screen, and a deliberate
-out-of-bounds order looking identical whether the local pre-check or the server refused it.
+**The MVP is code-complete and awaiting its play test.** The lap the Architecture Overview
+calls "the one data flow" runs end to end — right-drag to plane point, pre-check, PENDING
+ghost, the authority validating with **the same function**, promotion from the snapshot,
+refusal bouncing with the game's own reason code — and S14 closed the milestone's machinery:
+the Tier-1 diagnostics strip (F1, `client.diagnostics.strip`), the aggregated `selfTest` that
+CI now runs headless in the shipping binary on every push (schema self-check, wire
+round-trips, a replay-determinism run, then the whole handshake + order + snapshot loop over
+QUIC loopback), 4× MSAA offscreen + resolve, cosmetic banking/hover, and the STALE marker.
+The merged tree — S14 plus ADR-015's collision — runs **477 tests green** across the four
+suites on MSVC.
 
-**The frame was run for the first time since S5, and it found three defects in one sitting.**
-Two overlay colours byte-swapped since S8; a ring whose thickness scaled with its own radius,
-so a large footprint drew as a forty-pixel band; and a puck sized to circumscribe the formation
-rather than mark the point the order was given, which for an eleven-ship Line put an ellipse
-across the whole viewport. All three are fixed. Every device-free test passed throughout — each
-defect lives in the product of two pieces of arithmetic that are individually right, which is
-the category a unit test cannot reach.
-
-**The same run closed two criteria that had been open since S7 and S8.** Interpolated motion
-reads as motion at 144 Hz over 20 Hz snapshots, and rings occlude behind a Carrier hull while
-gauge bars never do — `overlay-pass.png`'s rule holding, and the ring pipeline's depth bias
-promoted from a textbook guess to a measurement.
-
-**What still needs a person and a GPU:** a second look at the overlay after the two size fixes,
-the visual checkpoint against the prints at min and max zoom, and the induced 400 ms stall
-reading as extrapolate-then-freeze rather than as a stutter.
+**What still needs a person and a GPU** is the MVP definition itself demonstrated in a live
+session, plus the visual half of everything since the last owner run: the strip's numbers
+against `debug-hud.png`, MSAA, banking/hover and the STALE marker on screen, the visual
+checkpoint against the prints at min and max zoom, ships visibly routing around traffic
+(ADR-015's own eyes-on item), and the induced 400 ms stall reading as extrapolate-then-freeze
+— which still wants the debug key S7 has owed since it landed.
 
 **The universe phase is designed and not yet built (ADR-016, 2026-08-19).** The owner design
 session settled procedural generation (2,500 systems baked to authored content), warp
@@ -134,8 +125,9 @@ things worth knowing: a target with a hull parked on it now ends with the mover 
 adjacent and the leg expiring by its deadline (the obstructed-footprint item stays open, only
 its failure mode improved), and the authored starting fleet carried a real 6 m overlap between
 the Carrier and Battleship wings' line ends that `Separate` now heals on tick 1 — re-parking
-that layout is the owner's call. Verified so far on a Linux clang cross-build of GameLogic
-(all 111 GameLogicTests green there); the MSVC build and official suite run is CI's, as usual.
+that layout is the owner's call. Originally verified on a Linux clang cross-build of GameLogic;
+since the merge with S14 the full MSVC build and all four suites (477 tests, collision and S14
+together) have run green locally, with CI's run standing behind it as usual.
 
 **Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole

@@ -42,13 +42,11 @@ void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const s
                        const OverlayTuning& _tuning, float _metresPerPixel, OverlayMarkList& _outMarks)
 {
   _outMarks.Clear();
-  if (_selectedIds.empty())
-  {
-    return;
-  }
 
   // Rings first, then bars, because the two halves are two draws with
-  // different depth state and the split has to be a contiguous range.
+  // different depth state and the split has to be a contiguous range. No early
+  // exit on an empty selection any more: the STALE marker below draws on every
+  // frozen ship, selected or not (S14).
   const float minRadiusMetres = _tuning.ringMinRadiusPixels * _metresPerPixel;
 
   for (const std::uint16_t id : _selectedIds)
@@ -67,6 +65,29 @@ void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const s
     _outMarks.marks.push_back(ring);
   }
   _outMarks.ringCount = static_cast<std::uint32_t>(_outMarks.marks.size());
+
+  /*
+   * The STALE marker (icon sheet §4, S14): every frozen ship gets one, whether
+   * or not it is selected -- staleness is a fact about the feed, not about the
+   * selection, and the ship the player most needs warned about is the one they
+   * were not looking at. Screen-facing, so it goes in the bars' half and is
+   * never occluded by the hull it sits on.
+   */
+  for (const SceneEntity& entity : _entities)
+  {
+    if (!entity.stale)
+    {
+      continue;
+    }
+    OverlayMark marker;
+    marker.anchorPlane = entity.planeMetres;
+    marker.halfWidthPixels = _tuning.staleMarkerRadiusPixels;
+    marker.halfHeightPixels = _tuning.staleMarkerRadiusPixels;
+    marker.colourRgba = _tuning.staleRingColourRgba;
+    marker.kind = static_cast<std::uint16_t>(OverlayKind::StaleMarker);
+    marker.fill = _tuning.staleMarkerDashCount;
+    _outMarks.marks.push_back(marker);
+  }
 
   for (const std::uint16_t id : _selectedIds)
   {

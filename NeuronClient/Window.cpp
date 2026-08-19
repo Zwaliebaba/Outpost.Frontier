@@ -245,6 +245,9 @@ void Window::SetKey(WPARAM _virtualKey, bool _down) noexcept
   case 'F':
     actions[count++] = InputAction::CycleParameter;
     break;
+  case VK_F1:
+    actions[count++] = InputAction::ToggleDiagnostics;
+    break;
   default:
     return; // Not a camera, selection or order key.
   }

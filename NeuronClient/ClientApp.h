@@ -3,6 +3,7 @@
 #include "ClearColour.h"
 #include "ClientConfig.h"
 #include "ClientConnection.h"
+#include "DebugStrip.h"
 #include "GlyphAtlas.h"
 #include "GpuCom.h"
 #include "GpuDevice.h"
@@ -104,6 +105,20 @@ private:
   void CommitOrder(const PuckSample& _sample, double _nowSeconds);
   void ExtractScene();
   void BuildHud();
+
+  /*
+   * The Tier-1 strip's collection and build (S14). Runs inside `BuildHud`'s
+   * `Ui` span, so its cost lands in the UI row it is part of -- and measures
+   * itself besides, because the print's first honesty rule is that the
+   * observer effect is displayed rather than removed.
+   *
+   * The telemetry drain runs every frame whether or not the strip is visible:
+   * the collector is what keeps the lanes from overflowing (ADR-007 §8), and a
+   * drain that only ran while someone watched would report drops caused by
+   * nobody watching.
+   */
+  void CollectDiagnostics(double _nowSeconds);
+
   void RenderFrame();
   void HandleResize();
 
@@ -242,6 +257,18 @@ private:
   /// the count is capped and a HUD must not allocate to describe itself.
   RosterRow m_rosterRows[MAX_ROSTER_ROWS] = {};
   std::uint32_t m_rosterRowCount = 0;
+
+  /*
+   * The Tier-1 strip (S14). `m_telemetry` is the collector's aggregate --
+   * cleared, refilled from every lane and folded into the history once a
+   * frame, on this thread, because the debug HUD is the collector ADR-007 §8
+   * promised the lanes. Visibility starts from configuration and F1 flips it.
+   */
+  TelemetrySnapshot m_telemetry;
+  DebugStripHistory m_stripHistory;
+  DebugStripReadout m_stripReadout;
+  double m_stripCostMs = 0.0;
+  bool m_diagnosticsVisible = false;
 
   GpuPtr<ID3D12CommandAllocator> m_commandAllocators[GpuSwapChain::BUFFER_COUNT];
   GpuPtr<ID3D12GraphicsCommandList> m_commandList;

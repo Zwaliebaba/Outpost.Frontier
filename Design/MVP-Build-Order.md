@@ -1,6 +1,7 @@
 # MVP Build Order — Vertical Slices
 
-**Status:** Session output 2026-08-17 · **implementation progress appended 2026-08-18.**
+**Status:** Session output 2026-08-17 · **implementation progress appended 2026-08-18 · S14
+landed — the MVP is code-complete, awaiting its play test.**
 Each slice is independently testable, lands green (`Tests/` + `selfTest` where applicable),
 and is sized at "a few days" or less. Order matters — later slices assume earlier ones.
 Milestones: **M0** = the brief's named first milestone; **M1** = first commanded fleet;
@@ -1328,6 +1329,130 @@ transport handshake, replay determinism run, wire round-trips — exit-code CI g
 **Accept:** MVP playable definition demonstrated end-to-end — select fleet, issue queued
 formation moves, watch execution with status + feedback; `selfTest`
 green on a GPU-less runner; counters strip numbers plausible vs `debug-hud.png` rows.
+
+**Built ✅ (the strip):**
+`DebugStrip.h/.cpp` — the Tier-1 strip, split device-free exactly as the HUD is:
+`DebugStripHistory` accumulates the per-frame telemetry drain and **latches display values on
+a quarter-second cadence** (a number changing 144 times a second is a flicker, not a
+reading), and `BuildDebugStrip` emits panels and text runs into the HUD's own `UiDrawList` —
+the strip is chrome drawn by the pass that already exists, costing no pipeline of its own.
+Rows: FRAME with FPS and a p95 over the last 256 frames, the five stage budgets as bars
+(over-budget is a colour, not a clamp — a bar pinned at full must still say *how* it got
+there), LINK, SNAP with the drift row `SnapshotBuffer` has carried since S7, SIM (drawn only
+when a Sim lane lives in this process — a row of zeros in `mode: "client"` would claim a
+measurement of a machine this process cannot see), WORLD, and DROPS.
+
+**The client became the collector ADR-007 §8 promised.** Until now nothing drained the
+telemetry lanes in windowed mode — they filled, wrapped, and counted drops nobody read. The
+drain now runs every frame whether or not the strip is visible, because a collector that only
+ran while someone watched would report drops caused by nobody watching. The print's two
+honesty rules are both structural: the strip's own cost is measured around its collection and
+build and displayed as the title row's `dbg` figure, and the DROPS row carries the lanes' own
+overflow counters — an instrument that quietly discards data under load produces confident
+graphs of exactly the frames that went wrong.
+
+**The toggle is a setting with a shortcut, not a gesture** (`debug-hud.png` §6):
+`client.diagnostics.strip` (shipped `false`, user-layer writable — it is a preference), and
+F1 flips the same bit at runtime. `tickOverrun` reaches the strip through the ordinary lane
+mechanism: in host mode the Sim thread's lane lives in the same process and the collector
+drains it like any other, so nothing crossed the transport seam to put it on screen.
+
+**Built ✅ (the selfTest aggregate):** the S14 list, in the order that keeps a transport
+failure from masking a determinism one — schema self-check (nonzero, stable, and the shipping
+simulation states the same number `GameSchemaHash()` computes), an order round-tripped
+byte-exactly, a snapshot round-tripped **emit → bytes → apply and compared in integers**
+against the records read straight off the payload, and a replay-determinism run: the same
+scripted 400 ticks twice with hash checkpoints at 200 and 400, plus the control that makes
+agreement mean something — a third run with one target moved a metre must diverge. All in the
+shipping binary on the machine actually running it, which is the one place a stray `/fp`
+switch or a local compiler difference can be caught before it is a desync report.
+
+CI runs it: a new workflow step launches `Outpost.exe` from a scratch directory whose
+`Outpost.json` sets `mode: "headless"` + `selfTest: true`, waits on the process, and fails the
+build on a nonzero exit code with the log tailed into the summary. One check changed meaning
+for it: "no tick overran" became "ticks did not persistently overrun" (≤ 2, count logged),
+because a shared runner is not a real-time system — the same argument S3's loose CI bound
+already made, applied to the same loop.
+
+**Built ✅ (polish):**
+*4× MSAA offscreen + resolve.* `GpuSwapChain` owns the multisampled colour target and depth
+buffer beside the back buffers whose size all three share; the world passes render there and
+the frame loop resolves before the Ui pass draws single-sampled on the back buffer.
+`GpuPassList::Record` split into `RecordWorld`/`RecordUi` so the resolve and its barriers sit
+with the frame loop — barriers are not a pass, and neither is a resolve. The S2b-era
+`client.renderer.msaa` key is finally read; an unsupported count falls back to 1 with a log
+line. The resolve averages in gamma space (format `UNORM`, matching the typed back buffer)
+rather than risking a typed-format mismatch — recorded in ADR-006 §12 with the trade stated.
+
+*Cosmetic banking/hover.* The interesting discovery: ADR-006 §6 said "from replicated
+velocity/heading only", and the sim's **no-strafing rule makes a slip angle identically
+zero** — velocity is always along heading, so there is nothing to derive a roll from in one
+sample. The bank therefore comes from the heading *rate* the client measures between its two
+bracketing snapshots (`ReplicatedShip::headingRateRadiansPerSec`, zero while extrapolating —
+a held heading is not a turn), normalised by the class's own turn-rate and speed limits in
+`Game::CosmeticBankRadians` so a Battleship at its full slow rate banks as deliberately as an
+Interceptor at its fast one. `InstanceRecord` grew its first field since S5 — `f32 bank`,
+20 → 24 bytes, **appended** so every existing offset holds, the discipline `UiInstance::axis`
+established. Hover is a per-class constant in the class table beside `pickRadiusMetres`,
+cosmetic like it; the `SceneEntity` keeps the plane point, so rings, bars and picking never
+learn about either (ADR-001 §2's "never pickable" held by construction).
+
+*STALE marker.* The icon sheet's state marker (§4), as a new screen-facing overlay kind: a
+dashed ring in the stale colour on **every** frozen ship, selected or not — staleness is a
+fact about the feed, and the ship the player most needs warned about is the one they were not
+looking at. Screen-facing because a readout about the feed must never hide behind the hull it
+warns about; dashed because that is the sheet's convention for the unresolved. The top bar
+gains a feed-level `STALE` chip beside NET when the whole world is frozen past the 250 ms cap,
+and the strip's SNAP row spells it out with the age and drift numbers behind it.
+
+**Verified:** 469 tests across the four suites, up from 453. The strip's two halves are
+asserted separately — the history's latching, counter accumulation across windows, and the
+absent-SIM rule as arithmetic; the builder as *words* (a stale feed says STALE in the caution
+colour, no session reads `no session` rather than an invented zero, drops recolour their row,
+every run stays inside the panel). The bank is mutation-shaped at its edges: full rate at
+full speed is exactly the clamp, the sign flips with the turn, half speed halves it, a wild
+rate cannot roll a ship onto its back, and a Structure (turn rate zero) never banks rather
+than dividing by it. The heading rate is asserted against the two quantised headings read
+straight off the wire, and an extrapolated sample reports no turn. The full selfTest was run
+headless on this machine: **33 checks, exit 0** — the ten new ones green, transport min RTT
+0.232 ms, mean tick period 50.130 ms, no overruns. The windowed client ran 18 s under the
+debug layer with MSAA 4× and the strip enabled, and exited 0.
+
+**Outstanding, and it is the milestone's own acceptance:** everything a person at a GPU must
+judge. The MVP playable definition demonstrated end-to-end is a play test, not a unit test.
+The strip's numbers being *plausible* against `debug-hud.png`'s rows needs eyes on a live
+frame, as does everything this slice drew: whether 4× MSAA reads as smoothing (and whether
+the gamma-space resolve's slightly darker edges matter on a near-black scene), whether the
+bank's sign and magnitude read as a ship leaning *into* its turn rather than out of it,
+whether the hover heights sit well under the rings, and whether the STALE marker earns its
+place — which still wants the induced-stall debug key S7 has owed since it landed, because a
+healthy loopback session never goes stale on its own.
+
+## 🏁 MVP — **code-complete, awaiting the play test**, 2026-08-18
+
+**Every criterion a machine can check is green, and the machine now checks more of them than
+any earlier milestone**: CI runs 469 tests across the four suites *and* the aggregated
+`selfTest` in the shipping binary on a GPU-less runner, on every push. What remains is the
+definition itself — *select fleet, issue queued formation moves, watch execution with status
+and feedback* — demonstrated by a person in a live session, plus S14's own visual half
+(strip plausibility, MSAA, banking/hover, the STALE marker) and the manual items carried
+open from earlier slices: the S7 induced-stall gesture (still wanting its debug key), the S5
+visual checkpoint and frame-time measurement, S9's on-screen promotion timing and
+identical-bounce comparison, and S10's Claw-of-twelve footprint read.
+
+None of those can move a test count, which is the argument the M1 section already made: the
+manual pass is not polish, it is the only instrument that covers a whole category of defect.
+Its price is known — the first frame anyone looked at found three defects every unit test had
+passed over.
+
+**What follows the MVP is already moving.** The first post-MVP feature landed beside S14 and
+merged with it: ship collision (ADR-015) — contact radii in the class table, braking and
+deflection inside Steering, a fifth tick system (`Separate`) — recorded in that ADR rather
+than as a slice here, because it belongs to no build order's sequence. The universe phase is
+designed (ADR-016) and has its own plan, [Universe-Build-Order.md](Universe-Build-Order.md),
+with no slice started. S15 below stays this document's own tail.
+
+---
 
 ### S15 — Audio thin slice *(post-MVP-core; must not displace S1–S14)*
 XAudio2 device + mastering voice + five submixes with gains from config; pooled source

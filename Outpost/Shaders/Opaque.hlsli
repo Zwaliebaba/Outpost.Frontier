@@ -26,6 +26,7 @@ struct VertexInput
   float3 instancePosition : INSTANCE_POSITION;
   float instanceHeading : INSTANCE_HEADING;
   uint2 instanceChannels : INSTANCE_CHANNELS; // x = teamColorId, y = selectionAndLodBias.
+  float instanceBank : INSTANCE_BANK;         // Cosmetic roll, radians; positive drops starboard (S14).
 };
 
 struct VertexOutput

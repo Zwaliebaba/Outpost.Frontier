@@ -38,6 +38,10 @@
                   "tileMetres": 96000, "resolution": 256, "octaves": 4,
                   "coverage": 0.55, "contrast": 2.0, "seed": 1 },
     "audio":    { "master": 1.0, "world": 1.0, "ui": 0.8, "music": 0.6, "alerts": 1.0, "ambience": 0.7 },
-    "ui":       { "scale": 1.0, "palette": "default", "font": "Consolas" }
+    "ui":       { "scale": 1.0, "palette": "default", "font": "Consolas" },
+
+    // The Tier-1 diagnostics strip (debug-hud.png): ships in every build, off
+    // by default. F1 toggles it at runtime; this is where the toggle lives.
+    "diagnostics": { "strip": false }
   }
 }

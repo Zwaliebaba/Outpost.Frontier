@@ -152,17 +152,29 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
       continue;
     }
 
+    const auto hull = static_cast<Game::HullClass>(ship.classId);
+    const Game::ShipClassInfo& classInfo = Game::ShipClass(hull);
+
     InstanceRecord instance;
     // Local plane metres straight into render space: x east, y the cosmetic
-    // height, z north (ADR-001 §3). The cosmetic height stays zero until the
-    // per-class hover the same ADR reserves.
-    instance.posWorld = DirectX::XMFLOAT3{ship.positionMetres.x, 0.0f, ship.positionMetres.y};
+    // height, z north (ADR-001 §3). The height is the class's hover -- purely
+    // cosmetic, so the entity below keeps the plane point and the selection
+    // ring stays on the ground beneath the hull.
+    instance.posWorld = DirectX::XMFLOAT3{ship.positionMetres.x, classInfo.hoverMetres, ship.positionMetres.y};
     instance.heading = ship.headingRadians;
     instance.teamColorId = 0;
     // Selection and LOD bias are the overlay's channels (S8). The stale flag
     // rides here so the marker the icon sheet draws has something to read.
     instance.selectionAndLodBias = ship.stale ? 1u : 0u;
     instance.classId = renderClass;
+    // The bank, from replicated quantities only (ADR-006 §6): the heading rate
+    // the view measured between its two bracketing snapshots, and the sampled
+    // speed. This is the "computed in Extract" the ADR reserves, running on the
+    // game's side of the seam because the class envelope it normalises by is
+    // the game's.
+    const float speed = std::sqrt(ship.velocityMetresPerSec.x * ship.velocityMetresPerSec.x +
+                                  ship.velocityMetresPerSec.y * ship.velocityMetresPerSec.y);
+    instance.bank = Game::CosmeticBankRadians(hull, ship.headingRateRadiansPerSec, speed);
     _outScene.instances.push_back(instance);
 
     // The same ship again, in the shape picking and the overlay want. `id`
@@ -174,7 +186,7 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
     Neuron::SceneEntity entity;
     entity.id = ship.id;
     entity.planeMetres = ship.positionMetres;
-    entity.pickRadiusMetres = Game::ShipClass(static_cast<Game::HullClass>(ship.classId)).pickRadiusMetres;
+    entity.pickRadiusMetres = classInfo.pickRadiusMetres;
     entity.hullGauge = ship.hullGauge;
     entity.shieldGauge = ship.shieldGauge;
     entity.stale = ship.stale;

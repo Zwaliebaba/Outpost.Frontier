@@ -125,7 +125,14 @@ public:
   GpuPipelines(const GpuPipelines&) = delete;
   GpuPipelines& operator=(const GpuPipelines&) = delete;
 
-  [[nodiscard]] bool Create(ID3D12Device* _device, const PipelineShaders& _shaders);
+  /*
+   * `_sampleCount` is the world passes' MSAA count -- 1, or the swapchain's
+   * offscreen target's 4 (ADR-006 §13, S14). The opaque, nebula and overlay
+   * pipelines take it because they draw before the resolve; the Ui pipeline
+   * always builds single-sampled, because the HUD draws on the resolved back
+   * buffer where glyph edges land on pixel boundaries anyway.
+   */
+  [[nodiscard]] bool Create(ID3D12Device* _device, const PipelineShaders& _shaders, std::uint32_t _sampleCount = 1);
   void Destroy();
 
   [[nodiscard]] ID3D12RootSignature* RootSignature() const noexcept { return m_rootSignature.get(); }
@@ -156,6 +163,10 @@ private:
   [[nodiscard]] bool CreateNebulaPipeline(ID3D12Device* _device, const PipelineShaders& _shaders);
   [[nodiscard]] bool CreateOverlayPipelines(ID3D12Device* _device, const PipelineShaders& _shaders);
   [[nodiscard]] bool CreateUiPipeline(ID3D12Device* _device, const PipelineShaders& _shaders);
+
+  /// The world passes' sample count, stored between Create's helpers. 1 or the
+  /// MSAA count; never read after Create returns.
+  std::uint32_t m_sampleCount = 1;
 
   GpuPtr<ID3D12RootSignature> m_rootSignature;
   GpuPtr<ID3D12PipelineState> m_opaque;

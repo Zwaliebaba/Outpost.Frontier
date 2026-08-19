@@ -26,6 +26,15 @@ struct ClientConfig
   std::uint32_t frameCap = 0; // 0 = uncapped; vsync usually makes this moot.
   bool enableDebugLayer = false;
 
+  /// World-pass MSAA (S14): 1 disables, 4 is the shipped default. An
+  /// unsupported count falls back to 1 at swapchain creation with a log line.
+  std::uint32_t msaaSamples = 4;
+
+  /// Whether the Tier-1 diagnostics strip starts visible (`debug-hud.png`).
+  /// Off by default and toggled at runtime by F1 -- the setting is where the
+  /// toggle *lives*, the key is merely a shortcut to it.
+  bool diagnosticsStrip = false;
+
   std::string serverHost = "127.0.0.1";
   std::uint16_t serverPort = 7777;
   std::string playerName;

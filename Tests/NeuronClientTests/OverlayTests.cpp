@@ -177,6 +177,52 @@ public:
     Assert::AreNotEqual(tuning.ringColourRgba, marks.marks[0].colourRgba);
   }
 
+  TEST_METHOD(AFrozenShipGetsAStaleMarkerWhetherOrNotItIsSelected)
+  {
+    // The icon sheet's STALE state marker (S14). Staleness is a fact about the
+    // feed, not the selection: the ship the player most needs warned about is
+    // the one they were not looking at.
+    const std::vector<SceneEntity> entities = {Ship(1, 10.0f, 20.0f, 12.0f, 255, 255, true),
+                                               Ship(2, 30.0f, 40.0f, 12.0f, 255, 255, false)};
+    const OverlayTuning tuning;
+
+    OverlayMarkList marks;
+    BuildOverlayMarks(entities, {}, tuning, METRES_PER_PIXEL_CLOSE, marks);
+
+    Assert::AreEqual<std::uint32_t>(0, marks.ringCount, L"nothing selected, so no plane-lying marks");
+    Assert::AreEqual<std::uint32_t>(1, CountOfKind(marks, OverlayKind::StaleMarker),
+                                    L"one marker for the one frozen ship, and none for the live one");
+
+    const OverlayMark& marker = marks.marks[0];
+    Assert::AreEqual(10.0f, marker.anchorPlane.x, 1e-6f);
+    Assert::AreEqual(20.0f, marker.anchorPlane.y, 1e-6f);
+    Assert::AreEqual(tuning.staleMarkerRadiusPixels, marker.halfWidthPixels, 1e-6f,
+                     L"screen-facing: sized in pixels so it survives every zoom");
+    Assert::AreEqual<std::uint16_t>(tuning.staleMarkerDashCount, marker.fill,
+                                    L"dashed -- the sheet's convention for the unresolved");
+    Assert::AreEqual(tuning.staleRingColourRgba, marker.colourRgba);
+  }
+
+  TEST_METHOD(TheStaleMarkerIsScreenFacingAndNeverInTheDepthTestedHalf)
+  {
+    // A readout about the feed must not hide behind the hull it is warning
+    // about, so the marker lives past the ring/bar split with the bars.
+    const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f, 255, 255, true)};
+    const std::vector<std::uint16_t> selected = {1};
+
+    OverlayMarkList marks;
+    BuildOverlayMarks(entities, selected, OverlayTuning{}, METRES_PER_PIXEL_CLOSE, marks);
+
+    Assert::IsTrue(static_cast<std::uint16_t>(OverlayKind::StaleMarker) >=
+                   static_cast<std::uint16_t>(OverlayKind::FIRST_SCREEN_FACING));
+    for (std::uint32_t index = 0; index < marks.ringCount; ++index)
+    {
+      Assert::AreNotEqual<std::uint16_t>(static_cast<std::uint16_t>(OverlayKind::StaleMarker), marks.marks[index].kind,
+                                         L"no marker below the split");
+    }
+    Assert::AreEqual<std::uint32_t>(1, CountOfKind(marks, OverlayKind::StaleMarker));
+  }
+
   TEST_METHOD(AGaugeIsTwoFiftyFiveNotAHundred)
   {
     // A ship spawns at 255 and that is full. Treating it as a percentage would
