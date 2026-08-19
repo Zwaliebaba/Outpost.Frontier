@@ -99,6 +99,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="NeuronClientTests.cpp" />
+    <ClCompile Include="AudioTests.cpp" />
     <ClCompile Include="CameraTests.cpp" />
     <ClCompile Include="DebugStripTests.cpp" />
     <ClCompile Include="ObjMeshTests.cpp" />

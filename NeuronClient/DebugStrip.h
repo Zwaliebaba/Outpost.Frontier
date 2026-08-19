@@ -50,6 +50,8 @@ struct DebugStripReadout
   double fps = 0.0;
   double gameMs = 0.0;
   double extractMs = 0.0;
+  /// The `AudioUpdate` stage (ADR-011 §9), the fifth budget row.
+  double audioMs = 0.0;
   double renderMs = 0.0;
   double uiMs = 0.0;
   double netMs = 0.0;
@@ -82,6 +84,11 @@ struct DebugStripReadout
   std::uint32_t drawnInstances = 0;
   std::uint32_t drawCalls = 0;
   std::uint32_t glyphQuads = 0;
+
+  /// Live source voices and what the two pools could ever hand out (ADR-011
+  /// §3). Zero capacity is a client running silently.
+  std::uint32_t audioVoices = 0;
+  std::uint32_t audioVoiceCap = 0;
 
   // The drop counters -- the measurement about the measurement.
   std::uint64_t telemetryDrops = 0;
@@ -124,6 +131,7 @@ private:
     StageFrame = 0,
     StageGame,
     StageExtract,
+    StageAudio,
     StageRender,
     StageUi,
     StageNet,

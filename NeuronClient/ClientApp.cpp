@@ -224,6 +224,12 @@ bool ClientApp::CreateContent()
     (void)m_nebula.Create(m_device, m_config.nebula, nebulaSlot);
   }
 
+  // Not part of `ok` either, and for a stronger reason than the nebula's: a
+  // machine with no audio device must still run the game (ADR-011,
+  // Consequences). Every call on a device that did not open is a no-op, so
+  // nothing downstream asks whether there are speakers.
+  (void)m_audio.Create(m_config.audio, m_config.audioDirectory, m_config.soundBankFile);
+
   // Stopped here rather than at shutdown, and that is the rule rather than
   // tidiness: this pool is for boot bakes, and a pool that outlives boot is a
   // pool something will eventually submit a frame's work to (ADR-007 §4).
@@ -287,6 +293,12 @@ int ClientApp::Run()
       NEURON_SPAN("Extract");
       ExtractScene();
     }
+    {
+      // The fifth budget row (ADR-011 §9), immediately after Extract because
+      // it reads the scene Extract just built.
+      NEURON_SPAN("Audio");
+      AudioUpdate();
+    }
     BuildHud();
     m_swapChain.WaitForFrameLatency();
     {
@@ -311,16 +323,26 @@ void ClientApp::PollNetwork()
   // Every snapshot that arrived goes straight across the seam, oldest first.
   // The engine has framed and ordered them and has not looked inside; what the
   // bytes mean is the world view's business (ADR-014 §5).
+  //
+  // Unless F10 has cut the feed, in which case they are dropped where they
+  // stand -- dropped rather than held, because a sender that stopped is what
+  // this reproduces, and a queue released on the way out would replay a burst
+  // of history the world never lived through. Everything else stays up: the
+  // clock is not touched either, so the age the SNAP row reports is the real
+  // time since the last snapshot the world actually saw.
   const double nowSeconds = Clock::SecondsSinceStart();
-  for (const std::vector<std::uint8_t>& payload : m_connection.PendingSnapshots())
+  if (!m_feedFrozen)
   {
-    // The tick comes back from the game, because the game is the only side that
-    // can read it. Zero means the payload was rejected, and a rejected snapshot
-    // must not move the clock.
-    const std::uint32_t tick = m_worldView->ApplySnapshot(payload);
-    if (tick != 0)
+    for (const std::vector<std::uint8_t>& payload : m_connection.PendingSnapshots())
     {
-      m_snapshots.OnSnapshot(tick, nowSeconds);
+      // The tick comes back from the game, because the game is the only side
+      // that can read it. Zero means the payload was rejected, and a rejected
+      // snapshot must not move the clock.
+      const std::uint32_t tick = m_worldView->ApplySnapshot(payload);
+      if (tick != 0)
+      {
+        m_snapshots.OnSnapshot(tick, nowSeconds);
+      }
     }
   }
   m_connection.ClearPendingSnapshots();
@@ -367,6 +389,15 @@ void ClientApp::UpdateHud()
   if (m_input.Pressed(InputAction::ToggleDiagnostics))
   {
     m_diagnosticsVisible = !m_diagnosticsVisible;
+  }
+
+  // The induced stall, beside the strip's toggle because it is the instrument
+  // the strip is read with. Logged rather than drawn: the screen is what is
+  // being judged while this is on, so the record of it belongs in the file.
+  if (m_input.Pressed(InputAction::ToggleFeedFreeze))
+  {
+    m_feedFrozen = !m_feedFrozen;
+    NEURON_LOG_INFO("feed %s (F10)", m_feedFrozen ? "cut -- the world will go stale" : "restored");
   }
 
   m_commandButtonCount =
@@ -480,6 +511,11 @@ void ClientApp::UpdateOrders()
       // out-of-bounds clicks is one row with a count rather than five rows.
       const char* reason = m_worldView->ReasonText(verdict.reasonCode);
       (void)m_toasts.Raise(ToastPriority::Urgent, verdict.reasonCode, "ORDER REJECTED", reason, nowSeconds);
+      // The third surface one refusal owes, beside the bouncing ghost and the
+      // toast (ADR-011 §12a). Raised on both bounce paths for the same reason
+      // the other two are: a local refusal and a remote one must be
+      // indistinguishable to the player (ADR-005 §4).
+      m_audio.PlayCue(ORDER_REJECTED_SOUND_ID);
       NEURON_LOG_INFO("order %u refused by the server: %s", verdict.orderSeq, reason);
     }
   }
@@ -598,6 +634,7 @@ void ClientApp::CommitOrder(const PuckSample& _sample, double _nowSeconds)
     // and two surfaces reading identically is most of what that means.
     const char* reason = m_worldView->ReasonText(local.reasonCode);
     (void)m_toasts.Raise(ToastPriority::Urgent, local.reasonCode, "ORDER REJECTED", reason, _nowSeconds);
+    m_audio.PlayCue(ORDER_REJECTED_SOUND_ID);
     NEURON_LOG_INFO("order %u refused locally: %s", orderSeq, reason);
     return;
   }
@@ -644,6 +681,42 @@ void ClientApp::ExtractScene()
   // this frame -- a promise that appeared one frame late would be a promise
   // made after the player had already looked.
   BuildGhostMarks(m_ghosts.Ghosts(), m_overlayTuning, m_camera.MetresPerPixel(), Clock::SecondsSinceStart(), m_overlayMarks);
+}
+
+void ClientApp::AudioUpdate()
+{
+  if (!m_audio.Ready())
+  {
+    return;
+  }
+
+  // The listener is the camera's focus, raised by the zoom (ADR-011 §4). This
+  // is the whole spatialisation model, and it is three numbers from the camera.
+  m_audio.SetListener(MakeAudioListener(m_camera.Focus(), m_camera.YawRadians(), m_camera.ZoomMetres()));
+
+  /*
+   * An engine loop declared for every ship on screen.
+   *
+   * Declared rather than started: the pool decides how many of these actually
+   * sound, so a fleet of forty asks forty times and the cap answers. The id is
+   * the scene entity's own, which is what lets a loop be recognised next frame
+   * instead of retriggered -- and what retires it the frame its ship dies.
+   *
+   * The station is a `Structure` and hums like everything else here. That is
+   * the thin slice being thin: one 3D cue, applied uniformly, is what proves
+   * the architecture. Which hull makes which noise is the sound designer's
+   * question and it is answered in the bank, not here.
+   */
+  for (const SceneEntity& entity : m_scene.entities)
+  {
+    // The plane point, without the cosmetic hover the instance carries. ADR-011
+    // §5 says emitters are render positions, and this is metres below one: the
+    // entity list is the only side with ids to key a loop on, and a hover of a
+    // few metres against a falloff measured in kilometres is inaudible.
+    m_audio.UpdateLoop(ENGINE_LOOP_SOUND_ID, entity.id, MakeAudioEmitter(entity.planeMetres, 0.0f));
+  }
+
+  m_audio.Update(Clock::SecondsSinceStart());
 }
 
 FrameConstants ClientApp::BuildFrameConstants() const
@@ -1286,6 +1359,8 @@ void ClientApp::CollectDiagnostics(double _nowSeconds)
   m_stripReadout.glyphQuads = m_passes.Ui().GlyphCount();
   m_stripReadout.missingGlyphs = m_passes.Ui().MissingGlyphCount();
   m_stripReadout.snapshotDrops = m_connection.SnapshotOverflowCount();
+  m_stripReadout.audioVoices = m_audio.ActiveVoices();
+  m_stripReadout.audioVoiceCap = m_audio.VoiceCapacity();
 
   std::uint64_t telemetryDrops = 0;
   for (LaneId lane = 0; lane < Telemetry::LaneCount(); ++lane)
@@ -1440,6 +1515,11 @@ void ClientApp::Shutdown()
   }
 
   m_taskPool.Stop(); // Idempotent; boot normally stopped it already.
+
+  // Before the GPU teardown rather than after: XAudio2 owns threads that are
+  // still mixing until this returns, and they have nothing to do with D3D12 --
+  // stopping them first keeps the two shutdowns from interleaving.
+  m_audio.Destroy();
 
   m_glyphAtlas.Destroy();
   m_meshes.Destroy();

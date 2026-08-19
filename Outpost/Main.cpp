@@ -515,6 +515,26 @@ ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
   client.meshFiles = _config.content.meshes;
   client.fontFamily = _config.client.ui.font;
 
+  // The audio content, resolved by the same rule the meshes are: a bare
+  // `GameData/Audio` is relative to a working directory that differs between
+  // the debugger and a deployment.
+  const std::string audioDirectory = Outpost::ResolveContentPath(_config.content.audioDirectory);
+  client.audioDirectory = audioDirectory.empty() ? _config.content.audioDirectory : audioDirectory;
+  const std::string soundBank = Outpost::ResolveContentPath(_config.content.soundBank);
+  client.soundBankFile = soundBank.empty() ? _config.content.soundBank : soundBank;
+
+  // Mapped field by field for the same reason the nebula is: the engine may not
+  // take a type from the host (ADR-012, ADR-014).
+  client.audio.enabled = _config.client.audio.enabled;
+  client.audio.master = static_cast<float>(_config.client.audio.master);
+  client.audio.world = static_cast<float>(_config.client.audio.world);
+  client.audio.ambience = static_cast<float>(_config.client.audio.ambience);
+  client.audio.ui = static_cast<float>(_config.client.audio.ui);
+  client.audio.music = static_cast<float>(_config.client.audio.music);
+  client.audio.alerts = static_cast<float>(_config.client.audio.alerts);
+  client.audio.voiceCap3D = _config.client.audio.voiceCap3D;
+  client.audio.voiceCap2D = _config.client.audio.voiceCap2D;
+
   client.cameraZoomMetres = static_cast<float>(_config.client.camera.zoomMetres);
 
   // Two structs describing the same thing, mapped rather than shared: the

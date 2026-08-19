@@ -15,6 +15,33 @@
 namespace Neuron
 {
 
+/*
+ * Audio, as the settings sheet describes it (ADR-011 §2, ADR-012).
+ *
+ * Linear gains, one per submix plus the master, because the sliders a settings
+ * screen draws are linear and two scales would eventually be converted wrongly
+ * in one direction. Named fields rather than an array indexed by
+ * `SoundCategory`: this struct is configuration, and configuration that has to
+ * agree with an enum's ordering is configuration with a silent way to be wrong.
+ */
+struct AudioSettings
+{
+  bool enabled = true;
+
+  float master = 1.0f;
+  float world = 1.0f;
+  float ambience = 0.7f;
+  float ui = 0.8f;
+  float music = 0.6f;
+  float alerts = 1.0f;
+
+  /// Concurrent source voices, split by what they cost (ADR-011 §3). The 3D
+  /// pool is the one that meets a fleet, and its cap is the reason a 200-ship
+  /// scene does not become 200 voices.
+  std::uint32_t voiceCap3D = 32;
+  std::uint32_t voiceCap2D = 16;
+};
+
 struct ClientConfig
 {
   std::uint32_t windowWidth = 1600;
@@ -56,6 +83,13 @@ struct ClientConfig
   std::string meshDirectory = "GameData/Meshes";
   std::vector<std::string> meshFiles;
   std::string fontFamily = "Consolas";
+
+  /// Where the WAVs live and which bank names them (ADR-011 §10-11). Told,
+  /// like the meshes, rather than discovered: the client opens its own assets
+  /// but never goes looking for them.
+  std::string audioDirectory = "GameData/Audio";
+  std::string soundBankFile = "GameData/Audio/SoundBank.json";
+  AudioSettings audio;
 
   /// Camera start state and detent spacing (ADR-006 §4).
   float cameraZoomMetres = 8000.0f;

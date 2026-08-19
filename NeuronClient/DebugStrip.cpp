@@ -16,7 +16,7 @@ namespace
  * on the strip because a NEURON_SPAN with this name exists, and retuning the
  * strip never touches the loop.
  */
-constexpr const char* STAGE_NAMES[] = {"Frame", "Game", "Extract", "Render", "Ui", "Net", "Tick"};
+constexpr const char* STAGE_NAMES[] = {"Frame", "Game", "Extract", "Audio", "Render", "Ui", "Net", "Tick"};
 
 /*
  * Per-stage budgets, milliseconds, for the bars -- the print draws each stage
@@ -25,7 +25,7 @@ constexpr const char* STAGE_NAMES[] = {"Frame", "Game", "Extract", "Render", "Ui
  * present, and the strip's job is to show which one is eating it. Over budget
  * is a colour change, not a clamp: a bar pinned at 100% hides how far over.
  */
-constexpr double STAGE_BUDGET_MS[] = {6.9, 2.0, 0.6, 2.5, 0.7, 0.5, 50.0};
+constexpr double STAGE_BUDGET_MS[] = {6.9, 2.0, 0.6, 0.4, 2.5, 0.7, 0.5, 50.0};
 
 static_assert(sizeof(STAGE_BUDGET_MS) / sizeof(STAGE_BUDGET_MS[0]) == sizeof(STAGE_NAMES) / sizeof(STAGE_NAMES[0]),
               "every stage row has a budget");
@@ -124,6 +124,7 @@ void DebugStripHistory::FillTimings(DebugStripReadout& _out) const
   _out.fps = m_displayFps;
   _out.gameMs = m_displayMs[StageGame];
   _out.extractMs = m_displayMs[StageExtract];
+  _out.audioMs = m_displayMs[StageAudio];
   _out.renderMs = m_displayMs[StageRender];
   _out.uiMs = m_displayMs[StageUi];
   _out.netMs = m_displayMs[StageNet];
@@ -141,9 +142,12 @@ UiRect BuildDebugStrip(const DebugStripReadout& _readout, const DebugStripStyle&
 
   // Sized by its columns rather than measured: the face is monospace, so the
   // widest row is a character count and the panel is that many cells.
-  constexpr float PANEL_CELLS = 46.0f;
+  constexpr float PANEL_CELLS = 58.0f;
   const bool hasSimRow = _readout.simTickMs >= 0.0;
-  const float rowCount = hasSimRow ? 12.0f : 11.0f; // Title, FRAME, five stages, LINK, SNAP, [SIM], WORLD, DROPS.
+  // Title, FRAME, six stages, LINK, SNAP, [SIM], WORLD, DROPS. The stage rows
+  // gained AUDIO in S15 and the WORLD row gained the voice count with it, which
+  // is what widened the panel.
+  const float rowCount = hasSimRow ? 13.0f : 12.0f;
   const UiRect panel{_style.x, _style.y, PANEL_CELLS * cell + 2.0f * pad, rowCount * lineStep + 2.0f * pad};
 
   _ui.AddQuad(panel, _palette.panel);
@@ -177,11 +181,14 @@ UiRect BuildDebugStrip(const DebugStripReadout& _readout, const DebugStripStyle&
     double budgetMs;
   };
   const StageRow stageRows[] = {
+      // The indices are STAGE_NAMES' own order, minus `Frame` at 0 and `Tick`
+      // at the end -- those two are not stage bars.
       {"GAME", _readout.gameMs, STAGE_BUDGET_MS[1]},
       {"EXTRACT", _readout.extractMs, STAGE_BUDGET_MS[2]},
-      {"RENDER", _readout.renderMs, STAGE_BUDGET_MS[3]},
-      {"UI", _readout.uiMs, STAGE_BUDGET_MS[4]},
-      {"NET", _readout.netMs, STAGE_BUDGET_MS[5]},
+      {"AUDIO", _readout.audioMs, STAGE_BUDGET_MS[3]},
+      {"RENDER", _readout.renderMs, STAGE_BUDGET_MS[4]},
+      {"UI", _readout.uiMs, STAGE_BUDGET_MS[5]},
+      {"NET", _readout.netMs, STAGE_BUDGET_MS[6]},
   };
   const float barX = textX + 18.0f * cell;
   const float barWidth = PANEL_CELLS * cell - 18.0f * cell - pad;
@@ -251,8 +258,13 @@ UiRect BuildDebugStrip(const DebugStripReadout& _readout, const DebugStripStyle&
   // Viewer-held counts only: replicated is what the game handed the frame,
   // drawn is what the opaque pass issued. A gap between the two is a mesh or
   // mapping problem, and having both on one row is what makes it visible.
-  std::snprintf(buffer, sizeof(buffer), "WORLD   %u repl   %u drawn   %u draws   %u glyphs", _readout.replicated,
-                _readout.drawnInstances, _readout.drawCalls, _readout.glyphQuads);
+  //
+  // The voice count rides here for the same reason: it is what the frame is
+  // *holding*, and it is the only way to see the pool's cap doing its job --
+  // a fleet of forty asking for engines and the mixer carrying its 32.
+  std::snprintf(buffer, sizeof(buffer), "WORLD   %u repl   %u drawn   %u draws   %u glyphs   %u/%u voices",
+                _readout.replicated, _readout.drawnInstances, _readout.drawCalls, _readout.glyphQuads,
+                _readout.audioVoices, _readout.audioVoiceCap);
   _ui.AddText(textX, rowY, _style.smallSizeIndex, _palette.phosphorBody, buffer);
   rowY += lineStep;
 

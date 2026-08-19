@@ -1,0 +1,69 @@
+// Outpost: Frontier -- the sound bank (ADR-011 §11).
+//
+// `soundId -> { file, category, gain, pitchVariance, maxInstances, cooldownMs,
+// minDistance, maxDistance }`. Design tuning is data: a cue's falloff, its
+// instance cap and how often it may retrigger are edits here, not rebuilds.
+//
+// Two ids are the engine's own, because the client raises those events itself
+// (ADR-011 §12, AudioDevice.h): `ship.engine` and `order.rejected`. Everything
+// else a bank declares is content asking to be played by something.
+//
+// Categories are the five submixes, and the spelling is significant -- an
+// unknown one skips the cue with a diagnostic rather than guessing. Only
+// `world3d` is spatialised, and **every spatialised file must be mono**:
+// X3DAudio positions channels rather than sources, so a stereo "3D" cue smears
+// across the field instead of sitting in it (ADR-011 §5).
+//
+// Distances are metres, matching the world (ADR-009), because
+// `CurveDistanceScaler` is set from `maxDistance` -- 6000 here is six real
+// kilometres, and the tactical grid's half-extent is 20 km.
+//
+// **The two WAVs are placeholders.** They are synthesised programmer audio --
+// a hum and a blip -- and exist so the graph, the pool and the listener model
+// can be heard working. They are the first thing a sound designer replaces, and
+// nothing but this file has to change when they do.
+{
+  "sounds": {
+
+    // The fleet's bed. One per ship, declared every frame by the client and
+    // allocated by the pool, which is what makes the 32-voice cap visible: a
+    // 40-ship fleet asks 40 times and hears the nearest few.
+    //
+    // `maxInstances` is deliberately the pool's own 3D cap rather than
+    // something smaller -- the ear-side limit for this cue *is* the mixer-side
+    // one, and a lower number here would silence ships the pool had room for.
+    //
+    // **The distances are set against the listener's height, not the fleet's
+    // width, and that is the thing to understand before retuning them.** The
+    // ear sits over the camera's focus raised by the zoom (ADR-011 §4), so at
+    // the default 8 km zoom every ship is already about 8 km away however
+    // tightly the fleet is parked. A 6 km falloff -- which looks generous
+    // against a 1.4 km wing radius -- is therefore silence on a fresh session.
+    // These span the camera instead: full volume while zoomed in past 2 km,
+    // fading to nothing by 24 km, which is most of the way to the 40 km
+    // maximum zoom. Zooming out receding to silence is the model working.
+    "ship.engine": {
+      "file": "EngineLoop.wav",
+      "category": "world3d",
+      "gain": 0.35,
+      "pitchVariance": 0.06,
+      "maxInstances": 32,
+      "minDistance": 2000,
+      "maxDistance": 24000
+    },
+
+    // The third surface a refusal owes, beside the bouncing ghost and the
+    // toast. `alerts` rather than `ui` so it outranks the engines when the pool
+    // is full: the one moment this plays is the moment the player must hear it.
+    //
+    // The cooldown is the whole reason that field exists -- a burst of
+    // out-of-bounds clicks is one refusal to the ear, not eight.
+    "order.rejected": {
+      "file": "OrderRejected.wav",
+      "category": "alerts",
+      "gain": 0.5,
+      "maxInstances": 2,
+      "cooldownMs": 120
+    }
+  }
+}

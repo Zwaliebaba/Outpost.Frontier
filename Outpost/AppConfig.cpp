@@ -153,7 +153,14 @@ void ReadAudio(const JsonValue& _parent, AudioSettings& _settings, ConfigDiagnos
   {
     return;
   }
-  WarnUnknownKeys(audio, {"master", "world", "ui", "music", "alerts", "ambience"}, "client.audio", _diagnostics);
+  WarnUnknownKeys(audio, {"enabled", "master", "world", "ui", "music", "alerts", "ambience", "voiceCap3D", "voiceCap2D"},
+                  "client.audio", _diagnostics);
+  ReadBool(audio, "enabled", _settings.enabled, "client.audio", _diagnostics);
+  // Capped rather than open: these size fixed pools, and a bank that asked for
+  // a thousand voices would be asking the mixer for the failure ADR-011 §3
+  // exists to prevent.
+  ReadUInt(audio, "voiceCap3D", _settings.voiceCap3D, 1, 256, "client.audio", _diagnostics);
+  ReadUInt(audio, "voiceCap2D", _settings.voiceCap2D, 1, 128, "client.audio", _diagnostics);
   ReadDouble(audio, "master", _settings.master, 0.0, 1.0, "client.audio", _diagnostics);
   ReadDouble(audio, "world", _settings.world, 0.0, 1.0, "client.audio", _diagnostics);
   ReadDouble(audio, "ui", _settings.ui, 0.0, 1.0, "client.audio", _diagnostics);
@@ -232,9 +239,11 @@ void ReadContent(const JsonValue& _root, ContentSettings& _settings, ConfigDiagn
   {
     return;
   }
-  WarnUnknownKeys(content, {"meshDirectory", "meshes"}, "content", _diagnostics);
+  WarnUnknownKeys(content, {"meshDirectory", "meshes", "audioDirectory", "soundBank"}, "content", _diagnostics);
   ReadText(content, "meshDirectory", _settings.meshDirectory, "content", _diagnostics);
   ReadTextList(content, "meshes", _settings.meshes, "content", _diagnostics);
+  ReadText(content, "audioDirectory", _settings.audioDirectory, "content", _diagnostics);
+  ReadText(content, "soundBank", _settings.soundBank, "content", _diagnostics);
 }
 
 void ReadClient(const JsonValue& _root, ClientSettings& _settings, ConfigDiagnostics& _diagnostics)

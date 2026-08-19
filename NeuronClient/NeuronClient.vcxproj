@@ -19,6 +19,8 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="AudioDevice.cpp" />
+    <ClCompile Include="AudioListener.cpp" />
     <ClCompile Include="ClearColour.cpp" />
     <ClCompile Include="ClientApp.cpp" />
     <ClCompile Include="ClientConnection.cpp" />
@@ -45,11 +47,16 @@
     <ClCompile Include="Selection.cpp" />
     <ClCompile Include="RenderWorld.cpp" />
     <ClCompile Include="SnapshotBuffer.cpp" />
+    <ClCompile Include="SoundBank.cpp" />
     <ClCompile Include="ToastStack.cpp" />
     <ClCompile Include="UiDrawList.cpp" />
     <ClCompile Include="UiLayout.cpp" />
+    <ClCompile Include="VoicePool.cpp" />
+    <ClCompile Include="WavClip.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="AudioDevice.h" />
+    <ClInclude Include="AudioListener.h" />
     <ClInclude Include="DirectXHelper.h" />
     <ClInclude Include="NeuronClient.h" />
     <ClInclude Include="pch.h" />
@@ -80,6 +87,9 @@
     <ClInclude Include="Picking.h" />
     <ClInclude Include="Selection.h" />
     <ClInclude Include="RenderWorld.h" />
+    <ClInclude Include="SoundBank.h" />
+    <ClInclude Include="VoicePool.h" />
+    <ClInclude Include="WavClip.h" />
     <ClInclude Include="ToastStack.h" />
     <ClInclude Include="UiDrawList.h" />
     <ClInclude Include="CommandRow.h" />

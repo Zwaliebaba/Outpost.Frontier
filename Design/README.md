@@ -93,10 +93,11 @@ moves between the trees without a rename pass. Three things it changed in these 
 ## Implementation state (2026-08-19)
 
 **Every MVP slice is in the tree: S1 through S14** (with the inserted S2b, S5b, S5c and S5d),
-green in CI. The per-slice detail — what was built, and what a "done" slice still owes — lives
-in [MVP-Build-Order.md](MVP-Build-Order.md); it is not repeated here.
+green in CI, **and the post-MVP audio slice S15 with them**. The per-slice detail — what was
+built, and what a "done" slice still owes — lives in [MVP-Build-Order.md](MVP-Build-Order.md);
+it is not repeated here.
 
-**The MVP is code-complete and awaiting its play test.** The lap the Architecture Overview
+**The MVP is met — the play test was signed off 2026-08-19.** The lap the Architecture Overview
 calls "the one data flow" runs end to end — right-drag to plane point, pre-check, PENDING
 ghost, the authority validating with **the same function**, promotion from the snapshot,
 refusal bouncing with the game's own reason code — and S14 closed the milestone's machinery:
@@ -104,15 +105,39 @@ the Tier-1 diagnostics strip (F1, `client.diagnostics.strip`), the aggregated `s
 CI now runs headless in the shipping binary on every push (schema self-check, wire
 round-trips, a replay-determinism run, then the whole handshake + order + snapshot loop over
 QUIC loopback), 4× MSAA offscreen + resolve, cosmetic banking/hover, and the STALE marker.
-The merged tree — S14 plus ADR-015's collision — runs **477 tests green** across the four
-suites on MSVC.
+The merged tree — S14 plus ADR-015's collision, and now S15's audio — runs **499 tests green**
+across the four suites on MSVC.
 
-**What still needs a person and a GPU** is the MVP definition itself demonstrated in a live
-session, plus the visual half of everything since the last owner run: the strip's numbers
-against `debug-hud.png`, MSAA, banking/hover and the STALE marker on screen, the visual
-checkpoint against the prints at min and max zoom, ships visibly routing around traffic
-(ADR-015's own eyes-on item), and the induced 400 ms stall reading as extrapolate-then-freeze
-— which still wants the debug key S7 has owed since it landed.
+**The half that needed a person and a GPU is done (2026-08-19):** the MVP definition
+demonstrated in a live session, together with the visual items outstanding since the last
+owner run — the strip's numbers against `debug-hud.png`, MSAA, banking/hover and the STALE
+marker on screen, the visual checkpoint against the prints, ships visibly routing around
+traffic (ADR-015's own eyes-on item), and the induced stall reading as
+extrapolate-then-freeze. That last one finally has the debug key S7 had owed since it landed:
+**F10 cuts the snapshot feed** while leaving the link up, so the staleness path can be seen at
+all on a loopback session that never stalls on its own.
+
+**What the play test cost, and why that is the point.** It opened by finding a defect no
+automated check could: a deadlock in `QuicTransport::Poll` — `m_lock` held across a
+connection-scoped `GetParam`, against the msquic worker every callback locks on — that froze
+the client a second after connecting and left a live window showing nothing. 477 tests and a
+green headless `selfTest` ran through it without noticing, because the suites that drive the
+same call pass and the race only bites at frame cadence. The fix reads the stats outside the
+lock, and exposed a second bug beside it: both send paths read `send->buffer.Length` after
+handing the buffer to msquic, which may free it inline. Both are in the tree; MVP-Build-Order
+carries the detail.
+
+**Audio landed the same day (S15, ADR-011).** The XAudio2 graph — mastering voice, five
+submixes, pooled source voices — sits behind one pimpl the way msquic does, with four
+device-free halves in front of it carrying every decision: the JSON sound bank, a RIFF chunk
+reader, the listener model, and the voice-allocation policy. That split is what makes 21 of the
+new tests possible at all, since CI has no sound card. The listener is ADR-011 §4's: the ear at
+the camera's focus, raised by the zoom, so panning moves the audio frame and zooming out lets
+the battle recede. Two cues ship — a 3D engine bed per ship and the refusal alert on both
+bounce paths — and the strip's WORLD row shows the pool doing its job: **41 ships ask and 32
+sound**. Two ADR-011 §8 threading details are deliberately not built and are named in the slice
+notes rather than left missing. **Nobody has heard it yet**; the WAVs are synthesised
+placeholders and the manual pass is S15's real acceptance.
 
 **The universe phase is designed and not yet built (ADR-016, 2026-08-19).** The owner design
 session settled procedural generation (2,500 systems baked to authored content), warp
@@ -139,13 +164,13 @@ adjacent and the leg expiring by its deadline (the obstructed-footprint item sta
 its failure mode improved), and the authored starting fleet carried a real 6 m overlap between
 the Carrier and Battleship wings' line ends that `Separate` now heals on tick 1 — re-parking
 that layout is the owner's call. Originally verified on a Linux clang cross-build of GameLogic;
-since the merge with S14 the full MSVC build and all four suites (477 tests, collision and S14
+since the merge with S14 the full MSVC build and all four suites (499 tests, collision and S14
 together) have run green locally, with CI's run standing behind it as usual.
 
 **Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
 handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. The
-suite now stands at **477** — 263 client, 130 GameLogic, 74 core, 10 server. Its
+suite now stands at **499** — 284 client, 130 GameLogic, 75 core, 10 server. Its
 visible half — window open, swapchain presenting, heartbeat live — together with the four
 other criteria that need a GPU and a person (five minutes clean under the debug layer,
 PresentMon showing the flip model, a clean exit, and the 60-second tick cadence on an idle

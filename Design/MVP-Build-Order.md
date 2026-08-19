@@ -1,7 +1,7 @@
 # MVP Build Order — Vertical Slices
 
 **Status:** Session output 2026-08-17 · **implementation progress appended 2026-08-18 · S14
-landed — the MVP is code-complete, awaiting its play test.**
+landed; play test signed off 2026-08-19 — the MVP is met.**
 Each slice is independently testable, lands green (`Tests/` + `selfTest` where applicable),
 and is sized at "a few days" or less. Order matters — later slices assume earlier ones.
 Milestones: **M0** = the brief's named first milestone; **M1** = first commanded fleet;
@@ -20,6 +20,29 @@ manual checkpoints.
 
 ---
 
+## Open items across the whole document (swept 2026-08-19)
+
+Every `**Outstanding:**` line below was re-read against the tree on this date and either closed
+with a strikethrough and a dated note, or left open and sharpened. **Six things are genuinely
+open**, and none of them blocks the MVP or M1 — both are met:
+
+| # | Open item | Slice | Why it is still open |
+|---|---|---|---|
+| 1 | **Borderless-fullscreen has no runtime toggle** — the mode is read once at `Window::Create` and Alt+Enter is swallowed without doing anything | S1 | Never built, despite the old note saying "wired". Costs an action, a key and a swapchain resize; nothing has asked for it |
+| 2 | **The station-moves-the-grid demonstration has not been run** — edit `stations[0].position`, restart, watch the anchor follow | S5b | Needs a deliberate content edit; a play test does not perform one |
+| 3 | **No sim-side stall injector** — F10 cuts the client's *feed*, which is indistinguishable from the client's side but does not pause the authority | S7 | Only matters the day something tests the server stalling rather than the link going quiet |
+| 4 | **What the puck should do when a station lands inside a gate or another fleet** | S10 | A design decision nobody has taken; `puck-and-wheel.png` §6 lists it OPEN |
+| 5 | **Nobody has heard the audio** — the manual pass is S15's real acceptance, and the two WAVs are synthesised placeholders | S15 | Landed 2026-08-19; no listening pass since |
+| 6 | **The Debug CI leg does not gate** (`continue-on-error`) while R22 is open, so a green tick certifies **Release only** | — | Risk-Register R22. A confirmed deadlock was removed from the file R22 names, but confirming it *was* the CI hang needs green Debug legs, not an argument |
+
+Two more that belong to no slice and are recorded where they live rather than here: ADR-011 §8's
+callback ring and external-lane registration (deliberately deferred, named in S15's notes), and
+the fact that **nothing in the build copies `GameData/` beside the executable** — the deployed
+copy under `x64/<config>/` is maintained by hand, which is a trap for the next person to add
+content and find it missing at runtime.
+
+---
+
 ### S1 — Window, device, swapchain
 Raw Win32 window; DX12 device + direct queue; flip-model swapchain (3 buffers, waitable, 2
 frames in flight); clear-to-colour animates; resize + fullscreen-borderless toggle; clean
@@ -31,7 +54,18 @@ shutdown; debug layer clean.
 messages, PresentMon showing the flip model, and a clean exit — were run by the owner on a GPU
 machine and passed. Note the scope: they were run against S1–S4's clear-and-present frame, so
 they do not cover the passes S5 added.
-**Outstanding:** resize and borderless-fullscreen toggle are wired but still unexercised.
+**Outstanding, and sharpened 2026-08-19 — this was not quite the truth.** Resize *is* wired end
+to end (`Window::ConsumeResize` → the frame loop's `HandleResize`, which owns the swapchain) and
+has run in anger since. **The borderless-fullscreen "toggle" was never wired at all**: the mode
+is read once from `client.window.mode` at `Window::Create` and picks `WS_POPUP` over
+`WS_OVERLAPPEDWINDOW` (`Window.cpp:60`), and there is no runtime path to change it — no
+`InputAction`, no entry in the virtual-key table, no method on `Window`. Alt+Enter is
+*swallowed* rather than handled (`Window.cpp:400-406`), and that is deliberate for the right
+reason and misleading for another: the comment says the chord "belongs to the client, not to
+DXGI's own fullscreen handling", which is true, but the client then does nothing with it. So
+the honest state is **config-only borderless, and a chord reserved for a feature that does not
+exist**. Left open rather than built: it costs an action, a key and a swapchain resize, and
+nothing in the MVP or the universe phase has asked for it yet.
 
 ### S2 — NeuronCore foundations
 `Assert/Log/Time(QPC)/Hash(FNV)/Random(PCG32)`, `ByteReader/Writer`, SPSC/MPSC rings,
@@ -241,12 +275,16 @@ handedness-sensitive path, and the only one the corpus does not otherwise exerci
 projection at six yaws (focus centred, viewport edges exact, ground circles 2:1, cosmetic height
 lifts without shifting, the whole 40 km grid inside the depth range), zoom/detent/pan state, the
 input bindings, and the extract layout.
-**Outstanding:** everything needing a GPU — the visual checkpoint against `tactical-hud.png`,
+**Outstanding:** ~~everything needing a GPU — the visual checkpoint against `tactical-hud.png`,
 the `< 2 ms at 41 instances` frame-time measurement, and a debug-layer-clean run. CI has no GPU
 and no display, so nothing below the parser and the maths has been *executed* anywhere; the
-GPU-side code is compiled-and-reviewed only. The atlas is baked and resident but nothing samples
-it until S11, and the animated S1 clear colour is still under the scene — it stays inside the
-art direction's blue, but it is the first thing to delete if the visual checkpoint dislikes it.
+GPU-side code is compiled-and-reviewed only.~~ **All three closed by 2026-08-19.** The visual
+checkpoint went with the play test; the budget is **measured** rather than judged — the strip's
+RENDER row reads 1.10–1.62 ms on the 41-instance scene, against the 2 ms the criterion asked
+for; and the client runs debug-layer-clean, which every windowed session since has confirmed by
+logging nothing from it. The atlas is baked and resident but nothing samples it until S11, and
+the animated S1 clear colour was replaced by S14's static near-black — a background that changes
+on its own competes with the fleet in front of it.
 
 ### S5b — Universe definition & Vesta-3
 `UniversePos`/`UniverseDef` types + pure JSON-backed parse in GameLogic (ADR-009 + ADR-012,
@@ -302,10 +340,11 @@ a celestial renderer; reading it as one is what made a design gap look like queu
 Owner decision on 2026-08-18: celestials are data the game reads, not content the frame draws
 (ADR-009 §9a). Parsed, hashed, and loaded identically by both halves is the whole requirement,
 and it is met.
-**Outstanding, and needing a GPU:** confirming on screen that moving the station in the file
-moves it in the world. The demonstration is to edit `stations[0].position` and restart — the
-logged grid anchor moves with it, and a second station added to the array appears at its
-offset, with nothing rebuilt.
+**Outstanding, and still open as of 2026-08-19 — a play test does not cover this one.** The
+demonstration is to edit `stations[0].position` and restart: the logged grid anchor moves with
+it, and a second station added to the array appears at its offset, with nothing rebuilt. That
+is a deliberate content edit, not something looking at a running session performs, so the
+2026-08-19 pass leaves it exactly where it was. It is cheap to run and nobody has run it.
 
 ### S5d — The Nebula node *(taken out of order, at the owner's request)*
 The reserved `Nebula` slot in ADR-006 §1, built: a CPU-baked periodic field
@@ -356,9 +395,11 @@ field's determinism, its distribution, its seamless wrap, the continuous functio
 refusal of settings that describe no field, wrapping fetches, and the plane mapping — including
 3,200 round trips through the real view-projection across eight yaws, four zooms and three
 focus positions, worst NDC error 7.6e-6.
-**Outstanding, and needing a GPU:** what the haze actually looks like. The numbers say sparse,
+**Outstanding, and needing a GPU:** ~~what the haze actually looks like. The numbers say sparse,
 smooth and world-anchored; whether it reads as space behind a fleet is a judgement no test
-makes. The knobs for that are in `client.nebula` and take effect on restart.
+makes.~~ **Seen and accepted 2026-08-19** — the field is under every frame of the play test, so
+this closed with it rather than as a separate look. The knobs are in `client.nebula` and take
+effect on restart, which is where a retune goes if the art direction moves.
 
 ### S5c — The engine/game seams
 `Neuron::Simulation` (NeuronServer) and `Neuron::WorldView` (NeuronClient) declared, with the
@@ -406,10 +447,16 @@ truncating quietly, and an encode that refuses rather than sending half an order
 includes no GameLogic header and the project references no GameLogic, which is the claim.
 CI now fails if any engine or test project names GameLogic, or if any engine source includes a
 GameLogic header.
-**Outstanding:** the seam is declared and driven, but nothing real is behind it yet —
+**Outstanding:** ~~the seam is declared and driven, but nothing real is behind it yet —
 `ParkedFleetView` invents a fleet and refuses every order, because GameLogic has no world until
-S6 and no snapshots until S7. `ClientApp` calling `BuildScene` every frame is not covered by a
-test: that needs a device and a window, and remains a manual checkpoint.
+S6 and no snapshots until S7.~~ **Closed by S6/S7.** `ParkedFleetView` is gone; the seam's
+implementors are `Outpost::ReplicatedWorldView` (548 lines — `BuildScene`, `PreCheck`,
+`SolvePreview`, `EncodeOrder`, `ApplySnapshot`, `ReasonText`) and `UniverseSimulation` in
+`Main.cpp`, both injected by the composition root. The header keeps a tombstone naming what it
+replaced, which is the right way to retire a placeholder.
+`ClientApp` calling `BuildScene` every frame is still not covered by a test: that needs a
+device and a window, and remains a manual checkpoint — discharged with the play test on
+2026-08-19.
 
 ### S6 — GameLogic sim + replay determinism
 World tables, `ShipClassTable` (11-value enum, 9 with content — Fighter/Cruiser reserved),
@@ -471,9 +518,12 @@ cannot tell circling from a wide approach. Tables: reserved classes refuse to sp
 class from the wire is refused rather than clamped, and ids survive the swap-and-pop that keeps
 the arrays dense. CI now fails GameLogic for reading a clock, drawing unseeded randomness,
 calling an `XM*Est` function, or naming a `UniversePos` in per-tick code.
-**Outstanding:** nothing replicates. The world moves and no one can see it until `EmitSnapshot`
-and the snapshot format land in S7 — which is also when the server gets a scripted patrol to
-give these ships somewhere to go.
+**Outstanding:** ~~nothing replicates. The world moves and no one can see it until
+`EmitSnapshot` and the snapshot format land in S7 — which is also when the server gets a
+scripted patrol to give these ships somewhere to go.~~ **Closed by S7**, exactly as written:
+`Game::WriteSnapshot` fills the datagram, `ServerHost::BroadcastSnapshot` fans it out per
+session per tick, and the client applies it through the seam into `ReplicatedView`. The
+scripted patrol arrived with it, in `UniverseSimulation::AdvanceTick`.
 
 ### S7 — Snapshots over the wire → moving ships on screen
 `EmitSnapshot` (full, quantised) → datagram → `ReplicatedView.ApplySnapshot` →
@@ -538,9 +588,27 @@ stall reads as extrapolate-then-freeze rather than as a stutter, are judgements 
 makes — they need a GPU. The numbers say both hold.~~
 **Smoothness confirmed by the owner, 2026-08-18.** Interpolation at 144 Hz render over 20 Hz
 snapshots reads as motion, which is the claim `SnapshotBuffer` was built to make and the one
-its unit tests could only make in numbers. Still owed: the **induced 400 ms stall** reading as
-extrapolate-then-freeze rather than as a stutter — a separate gesture, and it needs the debug
-key that triggers it.
+its unit tests could only make in numbers. ~~Still owed: the **induced 400 ms stall** reading
+as extrapolate-then-freeze rather than as a stutter — a separate gesture, and it needs the
+debug key that triggers it.~~
+**Closed 2026-08-19, and the debug key is the reason it could be.** The gesture arrived as
+**F10** (S14's notes carry it): it cuts the snapshot feed inside `PollNetwork` while leaving
+the link up, so the extrapolate-then-freeze path runs on a loopback session that never stalls
+on its own. Signed off with the rest of the play test that day.
+
+**Read the closure precisely, because F10 is not literally what this row asked for.** The
+criterion said an induced *400 ms sim* stall; F10 is an **indefinite, client-side feed cut**.
+From the client's own side those are the same event — no snapshot arrives, the view extrapolates
+to `MAX_EXTRAPOLATION_TICKS`, freezes, marks stale, and snaps clean on the next one — which is
+the whole of what this row was ever able to observe. What it does *not* reproduce is a server
+that stopped ticking, and it crosses the 250 ms extrapolation cap by how long the toggle is
+held rather than by a bounded stall. **A sim-side stall injector is still unwritten**, and the
+day something needs to test the *authority* pausing rather than the feed going quiet, that is
+the gap to fill.
+
+Worth keeping the shape of this entry regardless: the item sat open for seven slices not
+because it was hard but because **nothing could produce the condition it described**, and an
+acceptance criterion no one can stage is one that quietly never closes.
 
 ### S7a — Shaders are built, not loaded *(out of order, at the owner's request)*
 Owner directive: split each shader into a vertex and a pixel file, move them into
@@ -582,10 +650,15 @@ on unknown keys, so a stale user layer says so rather than being quietly ignored
 expanding the includes and comparing declaration-for-declaration against the files as they were
 — every declaration preserved, none added, one entry point per file. There is no HLSL compiler
 outside Windows, so that textual check plus CI's HLSL-compiler run is the whole of it.
-**Outstanding:** nothing renders differently, and that is the claim a GPU has to confirm. The
+**Outstanding:** ~~nothing renders differently, and that is the claim a GPU has to confirm. The
 bytes are compiled from the same source with the same flags to the same shader model, so a
 visible difference would be a surprise rather than a risk — but "should be identical" is not
-"was identical", and only a frame on screen settles it.
+"was identical", and only a frame on screen settles it.~~
+**Closed 2026-08-19, and worth being exact about what closed.** The frame is *correct* — the
+play test looked at hulls, overlays and HUD drawn by the compiled-in bytes and accepted all of
+it. What was never going to be provable after the fact is *identity with the loaded path*: that
+path no longer exists to compare against, so "was identical" stopped being a question the day
+the loader was deleted. Correctness is the claim that mattered and it is the one that holds.
 
 ### S8 — Picking, selection, world-space overlay
 Ray∩plane picking; click / shift-click / box-select; OverlayWorld pass: selection ellipses
@@ -837,19 +910,26 @@ was right, the shader's arithmetic was right, and the *product* of the two was a
 across the screen. That is the third defect this slice found which only a frame could find,
 after S8's byte-swapped colours.
 
-**Outstanding:** draw list *(B)* — the dashed lane from the fleet to the destination and the
+**Outstanding:** ~~draw list *(B)* — the dashed lane from the fleet to the destination and the
 per-leg ETA labels. A line between two points is not a quad around one and a label is text,
 so both belong with the Ui pass (ADR-006 §10) and arrive with it in S11; the reason toast
-is logged until then, and the ghost's own bounce is the part the player can already see. The
-acceptance criteria that need a running session — promotion ≤ 100 ms on screen, and a
+is logged until then, and the ghost's own bounce is the part the player can already see.~~
+**Closed by S11, as scheduled.** `GhostLane` builds the dashed polyline and its per-leg ETA
+labels into the HUD's own `UiDrawList` — its header opens "ADR-006 §8's draw list *(B)*, at
+last" — and `LaneTests` covers the dashing and the labels. The reason toast landed with it.
+~~The acceptance criteria that need a running session — promotion ≤ 100 ms on screen, and a
 deliberate out-of-bounds order bouncing identically local and remote — are a play test, not a
-unit test.
+unit test.~~ **Both signed off by the owner 2026-08-19** with the rest of the M1 table.
 
-## 🏁 M1 — first commanded fleet: **code-complete, awaiting a play test**, 2026-08-18
+## 🏁 M1 — first commanded fleet: **met**, 2026-08-19
 
-**Every criterion a machine can check is green.** What is left is what no unit test can see —
+~~**Every criterion a machine can check is green.** What is left is what no unit test can see —
 three things that need a GPU, a window and a person, and one of them (the overlay's depth
-behaviour) has been owed since S8.
+behaviour) has been owed since S8.~~
+
+**Every criterion is green, machine-checked and human alike.** The five manual rows below were
+signed off by the owner on 2026-08-19, in the same session that closed the MVP — including the
+induced stall, which had been unstageable until **F10** arrived to cut the feed.
 
 The slices M1 rests on are S5–S9. Their acceptance criteria, and how each stands:
 
@@ -866,12 +946,12 @@ The slices M1 rests on are S5–S9. Their acceptance criteria, and how each stan
 | Validation parity: identical verdict and reason on quantised inputs | S9 | `GameLogicTests`, a six-case matrix run through both a server view and a client view, checked for being neither all-accepted nor all-refused | ✅ |
 | A refused order bounces rather than vanishing, local and remote alike | S9 | `NeuronClientTests` compares the two ghosts field by field at the same instant | ✅ |
 | **Motion visually smooth at 144 Hz render / 20 Hz snapshots** | S7 | a person, at a machine with a GPU | ✅ **owner-validated 2026-08-18** |
-| Induced 400 ms sim stall extrapolates, freezes, recovers clean | S7 | manual, with a debug key | ⏳ |
-| Visual checkpoint vs `tactical-hud.png`; frame time < 2 ms at 41 instances | S5 | manual | ⏳ |
+| Induced 400 ms sim stall extrapolates, freezes, recovers clean | S7 | manual, with a debug key — **the key is F10** (S14), which is why this could finally be staged. It cuts the *feed*, not the sim: identical from the client's side, but a sim-side stall injector remains unwritten (see S7's note) | ✅ **owner-validated 2026-08-19**, with that caveat |
+| Visual checkpoint vs `tactical-hud.png`; frame time < 2 ms at 41 instances | S5 | manual for the look; the budget is **measured** — the strip's RENDER row reads 1.10–1.62 ms on the 41-instance scene | ✅ **owner-validated 2026-08-19** |
 | **Rings occlude behind a Carrier hull; bars never do** | S8 | manual — `overlay-pass.png`'s rule; the depth-bias pair (`-100`, slope-scaled `-1`) was a guess and is now a measurement | ✅ **owner-validated 2026-08-18** |
-| Overlay marks are legible at fleet scale | S8, S9 | manual — **run once, 2026-08-18, and it failed**: ring thickness scaled with radius and the puck circumscribed the formation. Both fixed; needs a second look | ⏳ |
-| On-screen promotion ≤ 100 ms | S9 | manual | ⏳ |
-| The out-of-bounds bounce looks identical local vs server | S9 | manual — the code paths are asserted identical; whether a *person* can tell them apart is the actual criterion | ⏳ |
+| Overlay marks are legible at fleet scale | S8, S9 | manual — **run once, 2026-08-18, and it failed**: ring thickness scaled with radius and the puck circumscribed the formation. Both fixed, and the second look was taken | ✅ **owner-validated 2026-08-19** |
+| On-screen promotion ≤ 100 ms | S9 | manual | ✅ **owner-validated 2026-08-19** |
+| The out-of-bounds bounce looks identical local vs server | S9 | manual — the code paths are asserted identical; whether a *person* can tell them apart is the actual criterion | ✅ **owner-validated 2026-08-19** |
 
 **The frame has now been run, and it both found and closed things.** It found three defects no
 device-free test could reach — two overlay colours byte-swapped since S8, a ring whose
@@ -885,6 +965,14 @@ That is the argument for the manual pass in one paragraph: it is not polish, it 
 instrument that covers a whole category of defect *and* the only one that can retire a
 criterion no number can settle. Its cost was measured in the three slices that shipped before
 anyone looked.
+
+**The second pass, 2026-08-19, closed the remaining five** — and made the same argument again,
+harder. It began by finding a deadlock that made the session undemonstrable at all
+(`QuicTransport::Poll` holding its lock across a blocking `GetParam`; S14's notes carry the
+mechanism), which 477 tests and a green headless `selfTest` had run straight through. Four of
+the five rows it then retired had been waiting on nothing but a person; the fifth, the induced
+stall, had been waiting on a **key that did not exist**. Both are the same lesson from
+different ends: a criterion is only as closeable as the instrument that stages it.
 
 
 ### S10 — Formations & the real footprint
@@ -944,12 +1032,13 @@ trailing it, the Claw cupping backward, and the Wedge stepping a whole spacing o
 each fail exactly the tests named for them.
 
 **Outstanding:** the print's own open question — *what the puck should do when a station lands
-inside a gate or another fleet.* `puck-and-wheel.png` §6 lists it under OPEN and it is still
-open; nothing in this slice makes it worse, because stations that do not overlap each other can
-still overlap the world. And the acceptance criterion that needs a person: **a fleet of twelve
-arriving in Claw matching the print's footprint pattern.** The geometry is measured and the
-separation is exact; whether the crescent *reads* as the sheet's crescent at tactical zoom is a
-frame, not a number.
+inside a gate or another fleet.* `puck-and-wheel.png` §6 lists it under OPEN and **it is still
+open as of 2026-08-19**: it is a design decision nobody has taken, not a build item, and
+nothing in this slice makes it worse, because stations that do not overlap each other can still
+overlap the world. ~~And the acceptance criterion that needs a person: **a fleet of twelve
+arriving in Claw matching the print's footprint pattern.**~~ **That one closed with the play
+test.** The geometry was already measured and the separation exact; whether the crescent *reads*
+as the sheet's crescent at tactical zoom was the frame-not-a-number part, and it was looked at.
 
 ### S11 — HUD v1
 Glyph-quad Ui pass: top bar (ships, net RTT bars, sim indicator), fleet roster with wing rows
@@ -1422,39 +1511,76 @@ headless on this machine: **33 checks, exit 0** — the ten new ones green, tran
 0.232 ms, mean tick period 50.130 ms, no overruns. The windowed client ran 18 s under the
 debug layer with MSAA 4× and the strip enabled, and exited 0.
 
-**Outstanding, and it is the milestone's own acceptance:** everything a person at a GPU must
+**Outstanding at landing, and closed 2026-08-19:** everything a person at a GPU must
 judge. The MVP playable definition demonstrated end-to-end is a play test, not a unit test.
 The strip's numbers being *plausible* against `debug-hud.png`'s rows needs eyes on a live
 frame, as does everything this slice drew: whether 4× MSAA reads as smoothing (and whether
 the gamma-space resolve's slightly darker edges matter on a near-black scene), whether the
 bank's sign and magnitude read as a ship leaning *into* its turn rather than out of it,
 whether the hover heights sit well under the rings, and whether the STALE marker earns its
-place — which still wants the induced-stall debug key S7 has owed since it landed, because a
+place — which wanted the induced-stall debug key S7 had owed since it landed, because a
 healthy loopback session never goes stale on its own.
 
-## 🏁 MVP — **code-complete, awaiting the play test**, 2026-08-18
+**F10 is that key (2026-08-19).** `InputAction::ToggleFeedFreeze` cuts the snapshot feed
+inside `PollNetwork`, dropping what arrives rather than queueing it: a sender that stopped is
+what it reproduces, and a queue released on the way out would replay a burst of history the
+world never lived through. The link stays up, so what runs is exactly the path a lost sender
+takes — the top bar's STALE chip past the 250 ms cap, the SNAP row's age and drift in the
+caution colour, and the dashed screen-facing marker on every hull, selected or not. It is
+logged rather than drawn, because an on-screen "feed cut" badge would alter the very picture
+it exists to let someone look at. F10 is a *system* key, so it arrives as `WM_SYSKEYDOWN` and
+is answered there: left to `DefWindowProc` it opens the window menu and takes the keyboard
+with it. `INPUT_ACTION_COUNT` gained a `static_assert` on the way past — `InputFrame`'s action
+arrays are sized by it, so an action added without it writes past their end rather than
+failing to build.
 
-**Every criterion a machine can check is green, and the machine now checks more of them than
-any earlier milestone**: CI runs 469 tests across the four suites *and* the aggregated
-`selfTest` in the shipping binary on a GPU-less runner, on every push. What remains is the
-definition itself — *select fleet, issue queued formation moves, watch execution with status
-and feedback* — demonstrated by a person in a live session, plus S14's own visual half
-(strip plausibility, MSAA, banking/hover, the STALE marker) and the manual items carried
-open from earlier slices: the S7 induced-stall gesture (still wanting its debug key), the S5
-visual checkpoint and frame-time measurement, S9's on-screen promotion timing and
-identical-bounce comparison, and S10's Claw-of-twelve footprint read.
+**And the play test found what 477 tests and a green `selfTest` could not: the client
+deadlocked about a second after connecting.** `QuicTransport::Poll` held `m_lock` across a
+connection-scoped `GetParam`, which msquic services by queueing to that connection's worker
+and waiting — the same worker every callback in the file takes `m_lock` on. Main thread
+holding the lock and waiting for the worker; worker inside a callback waiting for the lock.
+The frame loop froze on its first frames after the handshake, the window stayed up showing
+nothing, and the server timed the client out with `reason 2`. The file's own locking rules had
+named this exact hazard for `ConnectionClose`/`ListenerClose`/`RegistrationClose` and had not
+thought of `GetParam`. Fixed by reading the stats outside the lock, together with a
+use-after-free the fix exposed: both send paths read `send->buffer.Length` *after* handing the
+buffer to msquic, which may free it inline from `SEND_COMPLETE`, and had been returning
+plausible numbers by luck.
 
-None of those can move a test count, which is the argument the M1 section already made: the
+## 🏁 MVP — **met**, play test signed off 2026-08-19
+
+**Every criterion is green, the machine-checked and the human alike.** CI runs 499 tests
+across the four suites *and* the aggregated `selfTest` in the shipping binary on a GPU-less
+runner, on every push; and the definition itself — *select fleet, issue queued formation
+moves, watch execution with status and feedback* — was demonstrated by the owner in a live
+session, together with S14's visual half (strip plausibility, MSAA, banking/hover, the STALE
+marker behind its new F10) and the manual items carried open from earlier slices.
+
+None of those could move a test count, which is the argument the M1 section already made: the
 manual pass is not polish, it is the only instrument that covers a whole category of defect.
-Its price is known — the first frame anyone looked at found three defects every unit test had
-passed over.
+Its price was known — the first frame anyone looked at found three defects every unit test had
+passed over — and this milestone raised it. The session meant to *demonstrate* the MVP began
+by finding a deadlock that made it undemonstrable: engine code that 477 tests and a green
+`selfTest` ran straight through, in a client that froze one second in (the mechanism is in
+S14's notes above). A green tick said the tree was ready. Only a person at a GPU could say
+whether the game was, and the first thing they saw was that it was not.
+
+**One qualification stands, and it is on the machine half.** The Debug leg of CI is still
+`continue-on-error` while R22 is open, so a green run certifies **Release** only. That
+deadlock is a strong candidate for R22's cause — it is in the file R22 names, in a call
+`NeuronCoreTests`' loopback pump drives hard, and it is a race, which is the shape R22
+reported — but R22's own hypothesis was a different mechanism in `Teardown`, and settling it
+takes green Debug runs rather than an argument. `continue-on-error` comes out of the build job
+the day that holds, and not before.
 
 **What follows the MVP is already moving.** The first post-MVP feature landed beside S14 and
 merged with it: ship collision (ADR-015) — contact radii in the class table, braking and
 deflection inside Steering, a fifth tick system (`Separate`) — recorded in that ADR rather
 than as a slice here, because it belongs to no build order's sequence. The universe phase is
 designed (ADR-016) and has its own plan, [Universe-Build-Order.md](Universe-Build-Order.md),
-with no slice started. S15 below stays this document's own tail.
+with no slice started. **S15 below is built as of 2026-08-19** and stays this document's own
+tail; the station phase (ADR-017) has [its own plan](Station-Build-Order.md) and no slice
+started either.
 
 ---
 
@@ -1466,6 +1592,58 @@ voices; RIFF WAV loader; JSON sound bank; X3DAudio listener at camera focus rais
 **Accept:** `NeuronClientTests` listener/emitter math + bank parsing headless; no audio device
 ⇒ client logs, disables audio, runs on; manual check: panning moves the audio frame, zooming
 out attenuates, voice pool never exceeds its cap under a 200-ship stress scene.
+
+**Built ✅ (2026-08-19):** the graph is `AudioDevice`, one pimpl deep, exactly as
+`QuicTransport` keeps msquic — `IXAudio2` + mastering voice + the five submixes, category
+gains from config on the submixes and the master gain on the master, so a settings screen
+writes one number per voice rather than multiplying anything. Four device-free halves sit in
+front of it and carry all the decisions: `SoundBank` (the JSON bank), `WavClip` (a RIFF
+chunk walker, unknown chunks skipped and an overrunning size field refused), `AudioListener`
+(the model below), and `VoicePool` (the allocation policy). That split is the reason 21 of
+these tests exist at all: CI has no sound card, so anything only assertable through XAudio2 is
+never asserted.
+
+*The listener.* ADR-011 §4's model, and the one thing here with something to get wrong: the
+ear at the camera's focus, raised by the zoom, `front` the camera's own plane-forward so a
+ship drawn right sounds right. **Its consequence is bigger than it looks and it is a content
+trap** — the ear is `zoomMetres` above the plane, so at the default 8 km zoom every ship is
+already ~8 km away however tightly the fleet is parked. The first bank shipped a 6 km falloff,
+which reads as generous against a 1.4 km wing radius and is silence on a fresh session. The
+distances are now set against the *camera* (2 km to 24 km), which is what makes zooming out
+recede to nothing rather than being off from the start. `minDistance` is honoured by an
+explicit three-point volume curve; X3DAudio's default curve has nowhere to put it, so a bank
+could otherwise name a full-volume radius and be ignored.
+
+*The pool.* Priority, then distance, and it only steals from something the incoming sound
+actually beats — without that last clause a full pool always yields and a distant hum evicts
+the alert. Two pools, 32 spatial and 16 flat, so a battle can never make the interface go
+quiet. Live on the strip's WORLD row: **41 ships ask and 32 sound**, which is the 200-ship
+acceptance case reproducible at the default zoom.
+
+*Events.* Both bounce paths raise `order.rejected` — the third surface one refusal owes beside
+the ghost and the toast, and on both paths for the same reason the other two are (ADR-005 §4).
+Every ship declares `ship.engine` each frame from `m_scene.entities`, so audio positions are
+the interpolated ones the renderer used and **F10 freezes the fleet's sound with its hulls**.
+`AudioUpdate` is the sixth stage row, budgeted 0.4 ms and measuring 0.08 ms on a 41-ship
+scene.
+
+**Two ADR-011 §8 details are deliberately not built, and neither is needed yet.** Finished
+voices are retired by polling `GetState` on the stage that would have drained the ring, rather
+than by `IXAudio2VoiceCallback` pushing into an SPSC ring — nothing consumes a buffer event in
+the MVP, and the ADR's actual constraint (no game or render state from an audio callback) is
+met by having no callback. XAudio2's own threads therefore do not register as external
+telemetry lanes. Both arrive with streaming music, which is the first thing that needs the
+event.
+
+**Verified:** 499 tests (21 new), `selfTest` still exit 0, the client exits 0 with audio up —
+`2 of 2 cue(s) loaded, 8 output channel(s) at 48000 Hz, 32 3D + 16 2D voices`. **The two WAVs
+are synthesised placeholders** — a hum and a blip — and exist so the graph, the pool and the
+listener can be heard working; they are the first thing a sound designer replaces, and only
+`SoundBank.json` changes when they are.
+
+**Outstanding:** the manual half, which is all of it that matters — panning moving the audio
+frame, zooming out attenuating, and whether the engine bed is pleasant rather than merely
+present. Nobody has heard this yet.
 
 ---
 

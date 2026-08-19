@@ -85,12 +85,21 @@ struct NebulaSettings
 
 struct AudioSettings
 {
+  /// False runs the client silently without ever opening a device -- the same
+  /// state a machine with no speakers reaches on its own (ADR-011).
+  bool enabled = true;
+
   double master = 1.0;
   double world = 1.0;
   double ui = 0.8;
   double music = 0.6;
   double alerts = 1.0;
   double ambience = 0.7;
+
+  /// Concurrent source voices per pool (ADR-011 §3). Content-side tuning: the
+  /// caps are what stop a fleet from becoming a voice each.
+  std::uint32_t voiceCap3D = 32;
+  std::uint32_t voiceCap2D = 16;
 };
 
 struct UiSettings
@@ -121,6 +130,12 @@ struct ContentSettings
   std::string meshDirectory = "GameData/Meshes";
   std::vector<std::string> meshes = {"Interceptor.obj", "Bomber.obj",  "Corvette.obj",   "Frigate.obj",  "Hauler.obj",
                                      "Miner.obj",       "Carrier.obj", "Battleship.obj", "Structure.obj"};
+
+  /// Where the WAVs are and which bank names them (ADR-011 §10-11). The bank
+  /// lists the files; this says which directory they are relative to, the same
+  /// arrangement the meshes have.
+  std::string audioDirectory = "GameData/Audio";
+  std::string soundBank = "GameData/Audio/SoundBank.json";
 };
 
 struct ClientSettings

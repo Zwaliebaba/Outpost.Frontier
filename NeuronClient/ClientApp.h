@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AudioDevice.h"
 #include "ClearColour.h"
 #include "ClientConfig.h"
 #include "ClientConnection.h"
@@ -104,6 +105,21 @@ private:
   void UpdateOrders();
   void CommitOrder(const PuckSample& _sample, double _nowSeconds);
   void ExtractScene();
+
+  /*
+   * The `AudioUpdate` stage (ADR-011 §9): the listener from the camera, an
+   * engine loop declared for every ship the frame drew, and the queued cues
+   * started -- all of it on Main, immediately after Extract, and timed as its
+   * own budget row.
+   *
+   * It reads `m_scene` rather than the snapshot, and that is deliberate: the
+   * positions are the interpolated ones the renderer used, so audio and
+   * visuals never disagree about where a ship is. Cutting the feed with F10
+   * therefore freezes the fleet's sound exactly as it freezes the hulls, which
+   * is ADR-011 §7's "F10 holds for audio too".
+   */
+  void AudioUpdate();
+
   void BuildHud();
 
   /*
@@ -143,6 +159,11 @@ private:
   GpuMeshTable m_meshes;
   GlyphAtlas m_glyphAtlas;
   GpuNebula m_nebula;
+
+  /// The XAudio2 graph (ADR-011). A device that would not open leaves this not
+  /// ready and every call on it a no-op, so nothing downstream branches on
+  /// whether the machine has speakers.
+  AudioDevice m_audio;
   GpuUploadRing m_uploadRing;
   GpuPassList m_passes;
 
@@ -269,6 +290,21 @@ private:
   DebugStripReadout m_stripReadout;
   double m_stripCostMs = 0.0;
   bool m_diagnosticsVisible = false;
+
+  /*
+   * The induced stall, toggled by F10 (`InputMap.h`).
+   *
+   * The one thing a loopback session cannot do on its own is stop, and the
+   * whole staleness half of this client -- the STALE marker on every frozen
+   * hull, the top bar's chip, the strip's SNAP age and drift -- only says
+   * anything when it has. So the feed is cut here rather than in the transport:
+   * the link stays up, the server keeps ticking, and what is being exercised is
+   * exactly the path a lost sender would take.
+   *
+   * It is also the acceptance test for the rule above `m_ui`: with this on, a
+   * readout that keeps talking is a readout holding its last value.
+   */
+  bool m_feedFrozen = false;
 
   GpuPtr<ID3D12CommandAllocator> m_commandAllocators[GpuSwapChain::BUFFER_COUNT];
   GpuPtr<ID3D12GraphicsCommandList> m_commandList;

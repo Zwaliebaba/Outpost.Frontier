@@ -69,12 +69,26 @@ enum class InputAction : std::uint8_t
   SelectAdd,        // Shift: a click adjusts the selection instead of replacing it.
   QueueOrder,       // Shift: an order appends to the queue instead of replacing it.
   CycleParameter,   // F: steps the order parameter the puck will send (S10's formations).
-  ToggleDiagnostics // F1: shows/hides the Tier-1 counters strip (S14). The
-                    // print's rule: no new gesture -- the toggle is a setting,
-                    // plus an F-key where a keyboard exists (debug-hud.png §6).
+  ToggleDiagnostics, // F1: shows/hides the Tier-1 counters strip (S14). The
+                     // print's rule: no new gesture -- the toggle is a setting,
+                     // plus an F-key where a keyboard exists (debug-hud.png §6).
+  ToggleFeedFreeze   // F10: the induced stall S7 owed and S14 needs. Cuts the
+                     // snapshot feed where it stands, so the staleness path --
+                     // the STALE marker, the top bar's chip, the strip's SNAP
+                     // row -- can be seen at all. A healthy loopback session
+                     // never goes stale on its own, which left every one of
+                     // those unjudgeable. Deliberately absent from the HUD: an
+                     // on-screen "feed cut" badge would alter the very picture
+                     // this exists to let someone look at.
 };
 
-inline constexpr std::uint32_t INPUT_ACTION_COUNT = 14;
+inline constexpr std::uint32_t INPUT_ACTION_COUNT = 15;
+
+/// `InputFrame`'s action arrays are sized by the count above, so an action
+/// added without touching it writes past their end rather than failing to
+/// build. This is that build failure.
+static_assert(static_cast<std::uint32_t>(InputAction::ToggleFeedFreeze) + 1u == INPUT_ACTION_COUNT,
+              "INPUT_ACTION_COUNT must count every InputAction");
 
 /// One frame of input, already reduced to logical state. Edges (`pressed`,
 /// `released`) are separate from levels (`down`) because a detent nudge must

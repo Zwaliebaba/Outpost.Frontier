@@ -2,6 +2,21 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
+    <ClCompile Include="AudioDevice.cpp">
+      <Filter>Audio</Filter>
+    </ClCompile>
+    <ClCompile Include="AudioListener.cpp">
+      <Filter>Audio</Filter>
+    </ClCompile>
+    <ClCompile Include="SoundBank.cpp">
+      <Filter>Audio</Filter>
+    </ClCompile>
+    <ClCompile Include="VoicePool.cpp">
+      <Filter>Audio</Filter>
+    </ClCompile>
+    <ClCompile Include="WavClip.cpp">
+      <Filter>Audio</Filter>
+    </ClCompile>
     <ClCompile Include="ClearColour.cpp">
       <Filter>App</Filter>
     </ClCompile>
@@ -92,6 +107,21 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="AudioDevice.h">
+      <Filter>Audio</Filter>
+    </ClInclude>
+    <ClInclude Include="AudioListener.h">
+      <Filter>Audio</Filter>
+    </ClInclude>
+    <ClInclude Include="SoundBank.h">
+      <Filter>Audio</Filter>
+    </ClInclude>
+    <ClInclude Include="VoicePool.h">
+      <Filter>Audio</Filter>
+    </ClInclude>
+    <ClInclude Include="WavClip.h">
+      <Filter>Audio</Filter>
+    </ClInclude>
     <ClInclude Include="ClearColour.h">
       <Filter>App</Filter>
     </ClInclude>
@@ -198,6 +228,9 @@
     <ClInclude Include="DirectXHelper.h" />
   </ItemGroup>
   <ItemGroup>
+    <Filter Include="Audio">
+      <UniqueIdentifier>{2f8b41d6-7c05-4e39-9a1b-6d47e0c85f22}</UniqueIdentifier>
+    </Filter>
     <Filter Include="App">
       <UniqueIdentifier>{6c656858-d46f-4fe8-8cd4-7db269133d8c}</UniqueIdentifier>
     </Filter>

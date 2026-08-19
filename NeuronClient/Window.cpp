@@ -248,6 +248,9 @@ void Window::SetKey(WPARAM _virtualKey, bool _down) noexcept
   case VK_F1:
     actions[count++] = InputAction::ToggleDiagnostics;
     break;
+  case VK_F10:
+    actions[count++] = InputAction::ToggleFeedFreeze;
+    break;
   default:
     return; // Not a camera, selection or order key.
   }
@@ -402,10 +405,21 @@ LRESULT Window::HandleMessage(HWND _window, UINT _message, WPARAM _wParam, LPARA
       return 0;
     }
     SetKey(_wParam, true); // Alt arrives as a system key, not a plain one.
+    // F10 is a system key like Alt, and DefWindowProc answers it by activating
+    // the window menu -- which on a window with no menu still takes the
+    // keyboard until something dismisses it. Handled, so it is not.
+    if (_wParam == VK_F10)
+    {
+      return 0;
+    }
     break;
 
   case WM_SYSKEYUP:
     SetKey(_wParam, false);
+    if (_wParam == VK_F10)
+    {
+      return 0;
+    }
     break;
 
   case WM_KEYDOWN:
