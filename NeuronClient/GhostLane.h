@@ -54,6 +54,7 @@ struct GhostLaneView
   std::uint32_t viewportWidth = 0;
   std::uint32_t viewportHeight = 0;
 
+
   /*
    * The zone world-space content may draw in -- the HUD's `world` rect.
    *
@@ -80,8 +81,70 @@ struct GhostLaneView
 /// colour tables would eventually disagree about what PENDING looks like.
 struct GhostLaneTuning
 {
-  float dashPixels = 10.0f;
-  float gapPixels = 8.0f;
+  /*
+   * One dash-plus-gap cycle, in **screen pixels**, scaled by the HUD's own
+   * `scale` like every other piece of chrome.
+   *
+   * This was authored in world metres first, on the argument that a
+   * screen-space period makes the dashes travel at different *world* speeds as
+   * the camera zooms. That is true and it is not what matters: the lane is a
+   * Ui-pass element drawn in screen space beside the labels it carries, and the
+   * eye judges it against the screen rather than against the ground. In metres
+   * the pattern was 90 px a cycle zoomed right in and about a pixel zoomed
+   * right out -- the same order looking like four different things depending on
+   * the camera. **Owner's call, 2026-08-19: the print's dash is a fixed size,
+   * independent of camera distance.**
+   *
+   * The trade taken knowingly: the dashes now cover more ground per second when
+   * zoomed out. Nobody reads a decorative crawl as a ground speed, and the
+   * alternative was a pattern that only looked right at one zoom.
+   *
+   * 16.8 px at scale 1: a 13.4 px dash and a 3.4 px gap, three times the size
+   * this was first tuned to (owner, 2026-08-19). The enlargement also bought
+   * back a defect the small pattern had: at a 1.1 px gap roughly two fifths of
+   * the lane rendered solid because the break fell below what anti-aliasing
+   * could resolve, so the line only *looked* dashed in places. At 3.4 px every
+   * gap survives.
+   */
+  float dashPeriodPixels = 16.8f;
+
+  /*
+   * How much of the period is dash rather than gap.
+   *
+   * 0.8 is the owner's "the gap should be about a quarter of the dash"
+   * (2026-08-19): four parts mark to one part space. So the lane reads as a
+   * near-continuous line that is *visibly travelling* rather than as a row of
+   * separate ticks -- the gap is there to carry the motion, not to break the
+   * line up.
+   */
+  float dashDutyCycle = 0.8f;
+
+  /*
+   * Seconds for one whole cycle to travel toward the destination -- the
+   * design's `crawl`, linear and looping forever.
+   *
+   * **This is seconds per *cycle*, so it is not the speed** -- the speed is
+   * `dashPeriodPixels / crawlSecondsPerCycle`, and changing the cycle's size
+   * without touching this changes the speed with it. That caught this tuning
+   * out once already, when shrinking the pattern silently slowed the march.
+   *
+   * 3.06 s over a 16.8 px cycle is **5.5 px/s, and at every zoom** -- the
+   * screen-space period above is what makes that a single number rather than a
+   * range.
+   *
+   * That 5.5 px/s has been held across two retunings of the pattern's size, and
+   * holding it is why this number keeps moving: tripling the cycle in 2026-08-19
+   * tripled this with it (1.02 -> 3.06 s), because leaving it alone would have
+   * tripled the speed as a side effect of a change that was only about size.
+   *
+   * **Zero or less turns the crawl off and leaves a static dashed lane**, which
+   * is deliberately the hook a reduce-motion accessibility setting will pull:
+   * the crawl is decorative and must be able to stop, unlike the order-rejection
+   * bounce, which carries information and must not. No such setting exists yet
+   * (2026-08-19); when it does, it sets this to 0.
+   */
+  float crawlSecondsPerCycle = 3.06f;
+
   float thicknessPixels = 2.0f;
 
   /// Below the footprint's ring, where the print puts the two label lines.
@@ -136,11 +199,36 @@ void FormatEta(float _seconds, char* _out, std::size_t _capacity) noexcept;
  * world-space marks, and the Ui pass has one pipeline and no sort, so build
  * order is draw order.
  *
+ * `_entities` is this frame's scene, and it is what makes a lane's tail follow
+ * the fleet: the line is drawn from the ordering ship's *current* position, not
+ * from where it stood when the order was given. The same list picking and the
+ * overlay run over, so the line starts exactly where the hull is drawn.
+ *
  * `_nowSeconds` is the same clock `OrderGhostList::Advance` was given, so a
  * refused ghost's lane retracts and fades in step with the footprint it points
- * at rather than a frame behind it.
+ * at rather than a frame behind it. It is the **render** clock and never the
+ * tick: the crawl below is presentation, and nothing here may reach anything
+ * hashed.
  */
-void BuildGhostLanes(std::span<const OrderGhost> _ghosts, const GhostLaneView& _view, const OverlayTuning& _colours,
-                     const GhostLaneTuning& _tuning, double _nowSeconds, UiDrawList& _outList);
+void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneEntity> _entities,
+                     const GhostLaneView& _view, const OverlayTuning& _colours, const GhostLaneTuning& _tuning,
+                     double _nowSeconds, UiDrawList& _outList);
+
+/*
+ * Where in its cycle the dash pattern is, as 0..1.
+ *
+ * Wrapped here, in doubles, rather than by handing an ever-growing elapsed time
+ * to whatever consumes it. That is the whole reason this is a function: seconds
+ * since start is a fine `double` after an hour and a *terrible* `float` -- at
+ * 3,600 s a float's step is already a quarter of a millisecond, and the phase
+ * built from it quantises into visible jerks. Wrapping first keeps the number
+ * that leaves this function inside [0,1) for ever.
+ *
+ * A period of zero or less is "no crawl" and answers 0, which is what makes
+ * turning the animation off a tuning change rather than a branch at the call
+ * site. Negative times answer a positive phase, because `fmod` keeps the sign
+ * of the dividend and a phase of -0.3 would step the pattern backwards.
+ */
+[[nodiscard]] float DashCrawlPhase(double _nowSeconds, double _periodSeconds) noexcept;
 
 } // namespace Neuron

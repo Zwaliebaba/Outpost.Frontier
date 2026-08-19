@@ -302,6 +302,22 @@ struct OrderProgress
   std::uint8_t memberCount = 0;
 
   /*
+   * Whether the game considers this order over.
+   *
+   * A bool rather than "the engine compares `state` to 2", and that is the seam
+   * rather than fussiness (ADR-014 §2): `state` is a number the game chose and
+   * the engine forwards without ever learning what its values mean, so an
+   * engine that decoded one would be an engine with an opinion about this
+   * game's order model. The *game* knows which of its states is finished, and
+   * says so here.
+   *
+   * The ghost that was drawing the order retires on this. Without it a promise
+   * that has been kept stays on screen for ever, pointing at a destination the
+   * ships already reached.
+   */
+  bool finished = false;
+
+  /*
    * Seconds until this order's current leg completes, or negative when the
    * game will not say (S12).
    *

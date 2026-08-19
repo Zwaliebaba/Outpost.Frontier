@@ -843,7 +843,7 @@ void ClientApp::BuildHud()
   laneView.worldRect = layout.world;
   laneView.cellPixels = cell;
   laneView.scale = layout.scale;
-  BuildGhostLanes(m_ghosts.Ghosts(), laneView, m_overlayTuning, m_laneTuning, nowSeconds, m_ui);
+  BuildGhostLanes(m_ghosts.Ghosts(), m_scene.entities, laneView, m_overlayTuning, m_laneTuning, nowSeconds, m_ui);
 
   /*
    * The drag rectangle S8 deferred here.

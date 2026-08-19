@@ -105,6 +105,52 @@ constexpr std::uint32_t VIEWPORT_HEIGHT = 900;
   return found;
 }
 
+/*
+ * Every dash's position along its own lane, ascending.
+ *
+ * Projected onto the lane's axis rather than measured in x or y, because the
+ * lane runs at whatever angle the camera gives it and a test that assumed
+ * horizontal would pass for the wrong reason. The axis is taken from the first
+ * dash and is safe to share: `EveryDashRunsTheSameWay` pins that they all carry
+ * the same one.
+ */
+[[nodiscard]] std::vector<float> DashOffsets(const UiDrawList& _list)
+{
+  const std::vector<UiQuad> dashes = Segments(_list);
+  std::vector<float> offsets;
+  if (dashes.empty())
+  {
+    return offsets;
+  }
+
+  const float axisX = dashes.front().axisX;
+  const float axisY = dashes.front().axisY;
+  offsets.reserve(dashes.size());
+  for (const UiQuad& dash : dashes)
+  {
+    offsets.push_back(dash.rect.x * axisX + dash.rect.y * axisY);
+  }
+  std::sort(offsets.begin(), offsets.end());
+  return offsets;
+}
+
+/*
+ * Distance between two phases *on the circle* they live on.
+ *
+ * 0.0 and 1.0 are the same point in the cycle, and at exact multiples of the
+ * period floating point genuinely lands on either side of the join -- `1.1` is
+ * not representable, so `fmod(5.5, 1.1)` comes back as very nearly `1.1` rather
+ * than `0.0`. That is not a seam: the dash positions are the set
+ * `{(step + phase) * pitch}`, which is unchanged by adding a whole cycle to the
+ * phase, so the two answers draw the identical pattern. Comparing them as plain
+ * numbers is what would be wrong.
+ */
+[[nodiscard]] float PhaseGap(float _a, float _b) noexcept
+{
+  const float raw = std::fabs(_a - _b);
+  return std::min(raw, 1.0f - raw);
+}
+
 [[nodiscard]] std::vector<std::string> Texts(const UiDrawList& _list)
 {
   std::vector<std::string> found;
@@ -262,12 +308,16 @@ public:
 TEST_CLASS(GhostLaneTests)
 {
 public:
-  TEST_METHOD(APendingLaneIsDashedAndAnUnderWayOneIsSolid)
+  TEST_METHOD(EveryLaneIsDashedAndColourSeparatesPromiseFromFact)
   {
     /*
-     * The whole visual difference between a promise and a fact
-     * (`puck-and-wheel.png` §4). One segment is a solid line; many is a dashed
-     * one, and the count is what separates them.
+     * An under-way lane used to be one solid segment, on the argument that
+     * solid-versus-dashed was the difference between a promise and a fact.
+     * **Owner's call, 2026-08-19: it is not** -- the crawl is what says the
+     * ships are moving, so the state a player watches for most of an order's
+     * life is the one that has to show it. Both are dashed now, and promise
+     * versus fact is carried where it always mostly was: a half-transparent
+     * cyan against an opaque green.
      */
     const GhostLaneView view = MakeView(MakeMapping());
     const OverlayTuning colours;
@@ -275,14 +325,18 @@ public:
 
     const OrderGhost pending[] = {MakeGhost(GhostState::Pending, XMFLOAT2{-4000.0f, 0.0f}, XMFLOAT2{4000.0f, 0.0f})};
     UiDrawList dashedList;
-    BuildGhostLanes(pending, view, colours, tuning, 0.0, dashedList);
+    BuildGhostLanes(pending, {}, view, colours, tuning, 0.0, dashedList);
     const std::vector<UiQuad> dashes = Segments(dashedList);
     Assert::IsTrue(dashes.size() > 4, L"a pending lane is drawn as many dashes");
 
     const OrderGhost underWay[] = {MakeGhost(GhostState::UnderWay, XMFLOAT2{-4000.0f, 0.0f}, XMFLOAT2{4000.0f, 0.0f})};
     UiDrawList solidList;
-    BuildGhostLanes(underWay, view, colours, tuning, 0.0, solidList);
-    Assert::AreEqual<std::size_t>(1, Segments(solidList).size(), L"an accepted lane is one unbroken segment");
+    BuildGhostLanes(underWay, {}, view, colours, tuning, 0.0, solidList);
+    const std::vector<UiQuad> underWayDashes = Segments(solidList);
+    Assert::IsTrue(underWayDashes.size() > 4, L"and so is an accepted one, so its dashes can march");
+
+    Assert::AreNotEqual(dashes.front().colourRgba, underWayDashes.front().colourRgba,
+                        L"the two states must still be told apart, and colour is what does it");
   }
 
   TEST_METHOD(EveryDashPointsAlongTheLane)
@@ -298,7 +352,7 @@ public:
     const OrderGhost ghosts[] = {MakeGhost(GhostState::Pending, XMFLOAT2{-3000.0f, -2000.0f}, XMFLOAT2{3000.0f, 2500.0f})};
 
     UiDrawList list;
-    BuildGhostLanes(ghosts, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
     const std::vector<UiQuad> dashes = Segments(list);
     Assert::IsTrue(dashes.size() > 2);
 
@@ -340,13 +394,13 @@ public:
 
     GhostLaneView wide = MakeView(mapping);
     UiDrawList wideList;
-    BuildGhostLanes(ghosts, wide, OverlayTuning{}, GhostLaneTuning{}, 0.0, wideList);
+    BuildGhostLanes(ghosts, {}, wide, OverlayTuning{}, GhostLaneTuning{}, 0.0, wideList);
 
     // The same lane through a narrower window into the middle of the screen.
     GhostLaneView narrow = MakeView(mapping);
     narrow.worldRect = UiRect{400.0f, 0.0f, 800.0f, static_cast<float>(VIEWPORT_HEIGHT)};
     UiDrawList narrowList;
-    BuildGhostLanes(ghosts, narrow, OverlayTuning{}, GhostLaneTuning{}, 0.0, narrowList);
+    BuildGhostLanes(ghosts, {}, narrow, OverlayTuning{}, GhostLaneTuning{}, 0.0, narrowList);
 
     const std::vector<UiQuad> wideDashes = Segments(wideList);
     const std::vector<UiQuad> narrowDashes = Segments(narrowList);
@@ -362,7 +416,10 @@ public:
      * centre genuinely does depend on where the edge is. Trimming one dash is
      * what a clip *is*; moving all of them would be the bug.
      */
-    const float fullWidth = GhostLaneTuning{}.dashPixels;
+    // A whole dash, in this view's pixels: the period is authored in metres, so
+    // its screen width depends on what a pixel is worth here.
+    const GhostLaneTuning laneTuning;
+    const float fullWidth = laneTuning.dashPeriodPixels * narrow.scale * laneTuning.dashDutyCycle;
     std::size_t compared = 0;
     for (const UiQuad& narrowDash : narrowDashes)
     {
@@ -395,7 +452,7 @@ public:
         MakeGhost(GhostState::Pending, XMFLOAT2{-19000.0f, 19000.0f}, XMFLOAT2{-19000.0f, 18000.0f})};
 
     UiDrawList list;
-    BuildGhostLanes(ghosts, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
     Assert::AreEqual<std::size_t>(0, Segments(list).size());
     Assert::AreEqual<std::size_t>(0, list.Runs().size(), L"and no label either");
   }
@@ -406,7 +463,7 @@ public:
     const OrderGhost ghosts[] = {MakeGhost(GhostState::UnderWay, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{3000.0f, 0.0f})};
 
     UiDrawList list;
-    BuildGhostLanes(ghosts, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
 
     const std::vector<std::string> texts = Texts(list);
     Assert::AreEqual<std::size_t>(2, texts.size());
@@ -446,8 +503,8 @@ public:
 
     UiDrawList nearList;
     UiDrawList farList;
-    BuildGhostLanes(ghosts, nearView, OverlayTuning{}, GhostLaneTuning{}, 0.0, nearList);
-    BuildGhostLanes(ghosts, farView, OverlayTuning{}, GhostLaneTuning{}, 0.0, farList);
+    BuildGhostLanes(ghosts, {}, nearView, OverlayTuning{}, GhostLaneTuning{}, 0.0, nearList);
+    BuildGhostLanes(ghosts, {}, farView, OverlayTuning{}, GhostLaneTuning{}, 0.0, farList);
 
     const std::vector<std::string> nearTexts = Texts(nearList);
     const std::vector<std::string> farTexts = Texts(farList);
@@ -471,7 +528,7 @@ public:
 
     const auto laneLength = [&](double _now) {
       UiDrawList list;
-      BuildGhostLanes(ghosts, view, OverlayTuning{}, GhostLaneTuning{}, _now, list);
+      BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, _now, list);
       const std::vector<UiQuad> dashes = Segments(list);
       if (dashes.empty())
       {
@@ -501,7 +558,7 @@ public:
     const OrderGhost ghosts[] = {MakeChain(GhostState::Pending, XMFLOAT2{-6000.0f, -1000.0f}, waypoints)};
 
     UiDrawList list;
-    BuildGhostLanes(ghosts, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
     const std::vector<UiQuad> dashes = Segments(list);
     Assert::IsTrue(dashes.size() > 6, L"three legs of dashes");
 
@@ -534,7 +591,7 @@ public:
     const OrderGhost chain[] = {MakeChain(GhostState::UnderWay, XMFLOAT2{-5000.0f, 0.0f}, waypoints)};
 
     UiDrawList list;
-    BuildGhostLanes(chain, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(chain, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
     const std::vector<std::string> texts = Texts(list);
 
     // Two waypoint labels, then the name, the detail and the leg count.
@@ -546,7 +603,7 @@ public:
     // A single leg keeps S11c's picture: a name and a detail line, nothing else.
     const OrderGhost single[] = {MakeGhost(GhostState::UnderWay, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{3000.0f, 0.0f})};
     UiDrawList plain;
-    BuildGhostLanes(single, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, plain);
+    BuildGhostLanes(single, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, plain);
     Assert::AreEqual<std::size_t>(2, Texts(plain).size(), L"no waypoint label and no leg count for one leg");
   }
 
@@ -565,7 +622,7 @@ public:
     const OrderGhost ghosts[] = {chain};
 
     UiDrawList list;
-    BuildGhostLanes(ghosts, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
     const std::vector<std::string> texts = Texts(list);
 
     Assert::AreEqual(std::string{"30s"}, texts[0], L"leg one keeps its prediction");
@@ -581,7 +638,7 @@ public:
     const OrderGhost chain[] = {MakeChain(GhostState::UnderWay, XMFLOAT2{0.0f, 0.0f}, waypoints)};
 
     UiDrawList list;
-    BuildGhostLanes(chain, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(chain, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
     const std::vector<std::string> texts = Texts(list);
 
     // 3 km then 3 km again: six, not the three the last leg alone would give.
@@ -605,9 +662,18 @@ public:
     chain.stateSinceSeconds = 100.0;
     const OrderGhost ghosts[] = {chain};
 
+    /*
+     * Crawl off for this one. It measures the chain's *geometry* across two
+     * instants, and a marching dash pattern moves every dash a little between
+     * them — real motion, but noise against the question being asked here.
+     * Turning it off in the tuning is exactly what the knob is for.
+     */
+    GhostLaneTuning still;
+    still.crawlSecondsPerCycle = 0.0f;
+
     const auto firstLegSpan = [&](double _now) {
       UiDrawList list;
-      BuildGhostLanes(ghosts, view, OverlayTuning{}, GhostLaneTuning{}, _now, list);
+      BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, still, _now, list);
       const std::vector<UiQuad> dashes = Segments(list);
       float minX = 1e9f;
       float maxX = -1e9f;
@@ -632,15 +698,367 @@ public:
     const GhostLaneView view = MakeView(MakeMapping());
     UiDrawList list;
 
-    BuildGhostLanes({}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes({}, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
     Assert::AreEqual<std::size_t>(0, list.Quads().size());
 
     GhostLaneView unsized = view;
     unsized.viewportWidth = 0;
     unsized.viewportHeight = 0;
     const OrderGhost ghosts[] = {MakeGhost(GhostState::Pending, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{3000.0f, 0.0f})};
-    BuildGhostLanes(ghosts, unsized, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(ghosts, {}, unsized, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
     Assert::AreEqual<std::size_t>(0, list.Quads().size());
+  }
+};
+
+/*
+ * The crawl: dashes marching toward the destination.
+ *
+ * Two halves, and the split is the point. `DashCrawlPhase` is a pure function
+ * of two doubles and is asserted directly -- wrap continuity is the property
+ * that decides whether the animation seams once a cycle, and it is arithmetic.
+ * The other half is what the phase *does* to the pattern, which is checked
+ * through the built quads because that is the only place direction lives.
+ */
+TEST_CLASS(DashCrawlTests)
+{
+public:
+  TEST_METHOD(ThePhaseWrapsWithoutASeam)
+  {
+    constexpr double PERIOD = 1.1;
+
+    // The property that matters: a whole cycle later is the same point in the
+    // cycle. If this drifts, the pattern jumps once every 1.1 s for ever.
+    //
+    // Compared on the circle, not as numbers -- 5.5 is one of the times where
+    // `fmod` lands just under the period rather than at zero, and calling that a
+    // failure would be the test misunderstanding what a phase is (`PhaseGap`).
+    for (const double t : {0.0, 0.37, 1.09, 5.5, 900.0})
+    {
+      Assert::IsTrue(PhaseGap(DashCrawlPhase(t, PERIOD), DashCrawlPhase(t + PERIOD, PERIOD)) < 1e-5f,
+                     L"one period later is the same phase");
+      Assert::IsTrue(PhaseGap(DashCrawlPhase(t, PERIOD), DashCrawlPhase(t + 10.0 * PERIOD, PERIOD)) < 1e-5f,
+                     L"and ten periods later too");
+    }
+
+    // Approaching the join from below reaches 1 and stepping past it reaches 0 --
+    // the two ends of the same dash.
+    Assert::IsTrue(DashCrawlPhase(PERIOD - 1e-6, PERIOD) > 0.999f, L"just before the wrap the phase is nearly one");
+    Assert::IsTrue(DashCrawlPhase(PERIOD + 1e-6, PERIOD) < 0.001f, L"just after it, nearly zero");
+  }
+
+  TEST_METHOD(ThePatternDoesNotJumpAcrossTheWrap)
+  {
+    /*
+     * The phase test above is arithmetic; this is the claim a person watching a
+     * lane for several minutes would be making. Straddle the join and follow one
+     * dash: if the wrap were a seam it would snap back by a whole pitch here,
+     * once every 1.1 s, for ever.
+     */
+    const GhostLaneView view = MakeView(MakeMapping());
+    const OrderGhost ghosts[] = {MakeGhost(GhostState::Pending, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{6000.0f, 0.0f})};
+    const GhostLaneTuning tuning;
+    const double period = tuning.crawlSecondsPerCycle;
+
+    const auto trackedOffset = [&](double _now) {
+      UiDrawList list;
+      BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, _now, list);
+      const std::vector<float> offsets = DashOffsets(list);
+      Assert::IsTrue(offsets.size() > 2, L"a pending lane dashes");
+      return offsets[offsets.size() / 2];
+    };
+
+    // A thousand cycles in, so this is also the check that a long session does
+    // not accumulate drift.
+    const double justBefore = period * 1000.0 - 1e-4;
+    const float before = trackedOffset(justBefore);
+    const float after = trackedOffset(justBefore + 2e-4);
+
+    const float pitch = tuning.dashPeriodPixels * view.scale;
+    Assert::IsTrue(std::fabs(after - before) < pitch * 0.05f,
+                   L"crossing the wrap must move the pattern by a hair, not by a pitch");
+  }
+
+  TEST_METHOD(ThePhaseStaysInRangeAndAdvancesLinearly)
+  {
+    constexpr double PERIOD = 1.1;
+    Assert::AreEqual(0.0f, DashCrawlPhase(0.0, PERIOD), 1e-6f);
+    Assert::AreEqual(0.25f, DashCrawlPhase(PERIOD * 0.25, PERIOD), 1e-6f);
+    Assert::AreEqual(0.5f, DashCrawlPhase(PERIOD * 0.5, PERIOD), 1e-6f);
+
+    // An hour in, which is where a float elapsed time would already be
+    // quantising the phase into visible steps. Wrapping in doubles first is
+    // what keeps this exact.
+    Assert::AreEqual(0.25f, DashCrawlPhase(3600.0 * PERIOD + PERIOD * 0.25, PERIOD), 1e-5f);
+
+    for (const double t : {0.0, 0.1, 1.0, 12.7, 1e5})
+    {
+      const float phase = DashCrawlPhase(t, PERIOD);
+      Assert::IsTrue(phase >= 0.0f && phase < 1.0f, L"a phase is 0..1");
+    }
+  }
+
+  TEST_METHOD(ANonPositivePeriodIsNoCrawl)
+  {
+    // The hook a reduce-motion setting pulls: turning the animation off is a
+    // tuning value, not a branch at the call site.
+    Assert::AreEqual(0.0f, DashCrawlPhase(7.3, 0.0), 1e-6f);
+    Assert::AreEqual(0.0f, DashCrawlPhase(7.3, -1.0), 1e-6f);
+
+    // And a negative time still answers a positive phase -- `fmod` keeps the
+    // dividend's sign, and a phase of -0.3 would step the pattern backwards.
+    const float phase = DashCrawlPhase(-0.275, 1.1);
+    Assert::IsTrue(phase >= 0.0f && phase < 1.0f);
+    Assert::AreEqual(0.75f, phase, 1e-6f);
+  }
+
+  TEST_METHOD(DashesTravelTowardTheDestination)
+  {
+    /*
+     * The sign, which is the whole feature: get it wrong and a move order reads
+     * as a retreat.
+     *
+     * Measured by projecting dash centres onto the lane's own axis -- the quads
+     * are oriented and every dash on one lane shares that axis, which the suite
+     * above already pins -- and following one dash a quarter-cycle. A quarter is
+     * chosen so the nearest dash at the later time is unambiguously the same
+     * dash rather than its neighbour.
+     */
+    const GhostLaneView view = MakeView(MakeMapping());
+    const OrderGhost ghosts[] = {MakeGhost(GhostState::Pending, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{6000.0f, 0.0f})};
+    const GhostLaneTuning tuning;
+
+    UiDrawList early;
+    UiDrawList later;
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, 0.0, early);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, tuning.crawlSecondsPerCycle * 0.25, later);
+
+    const std::vector<float> before = DashOffsets(early);
+    const std::vector<float> after = DashOffsets(later);
+    Assert::IsTrue(before.size() > 2 && after.size() > 2, L"a pending lane dashes");
+
+    const float tracked = before[before.size() / 2];
+    float nearest = after.front();
+    for (const float offset : after)
+    {
+      if (std::fabs(offset - tracked) < std::fabs(nearest - tracked))
+      {
+        nearest = offset;
+      }
+    }
+    Assert::IsTrue(nearest > tracked, L"a quarter cycle later the dash has moved toward the destination");
+  }
+
+  TEST_METHOD(ThePatternIsTheSameSizeAtEveryCameraDistance)
+  {
+    /*
+     * The dash is a fixed size on screen, whatever the camera is doing.
+     *
+     * This test used to assert the opposite -- a world-space period, four times
+     * the pixels at four times the zoom -- and the opposite was wrong on a real
+     * frame: the same order came out 90 px a cycle zoomed in and about a pixel
+     * zoomed out. The lane is Ui-pass chrome and the eye judges it against the
+     * screen, so the period is pixels now (owner, 2026-08-19).
+     *
+     * Driven through two real cameras a zoom factor of four apart, so this
+     * fails if anything reintroduces a camera term.
+     */
+    const GhostLaneTuning tuning;
+    const OrderGhost ghosts[] = {MakeGhost(GhostState::Pending, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{6000.0f, 0.0f})};
+
+    const auto pitchAtZoom = [&](float _zoomMetres) {
+      IsoCamera camera;
+      camera.SetViewport(VIEWPORT_WIDTH, VIEWPORT_HEIGHT);
+      camera.SetFocus(XMFLOAT2{3000.0f, 0.0f});
+      camera.SetZoomMetres(_zoomMetres);
+
+      UiDrawList list;
+      BuildGhostLanes(ghosts, {}, MakeView(camera.PlaneMappingForNdc()), OverlayTuning{}, tuning, 0.0, list);
+      const std::vector<float> offsets = DashOffsets(list);
+      Assert::IsTrue(offsets.size() > 2, L"a pending lane dashes at every zoom");
+      return offsets[1] - offsets[0];
+    };
+
+    Assert::AreEqual(pitchAtZoom(8000.0f), pitchAtZoom(2000.0f), 0.01f,
+                     L"four times the zoom, the same dash on screen");
+    Assert::AreEqual(tuning.dashPeriodPixels, pitchAtZoom(8000.0f), 0.01f, L"and it is the authored size");
+  }
+
+  TEST_METHOD(TheCrawlHoldsItsAgreedSpeedAcrossRetunings)
+  {
+    /*
+     * The speed is `dashPeriodPixels / crawlSecondsPerCycle`, and this pins the
+     * result rather than the inputs -- deliberately, because the pattern's size
+     * has been retuned three times and every one of those changes the speed
+     * unless the cycle time moves with it. Tripling the cycle without tripling
+     * the time would have tripled the march as a side effect of a change that
+     * was only ever about how big the dashes look.
+     *
+     * **If you meant to change the speed, change the number here too.** This
+     * failing is the question "did you mean to?", not an accusation.
+     */
+    constexpr float AGREED_PIXELS_PER_SECOND = 5.5f;
+
+    const GhostLaneTuning tuning;
+    const GhostLaneView view = MakeView(MakeMapping());
+    const OrderGhost ghosts[] = {MakeGhost(GhostState::UnderWay, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{6000.0f, 0.0f})};
+
+    const double elapsed = tuning.crawlSecondsPerCycle * 0.25;
+    UiDrawList early;
+    UiDrawList later;
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, 0.0, early);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, elapsed, later);
+
+    const std::vector<float> before = DashOffsets(early);
+    const std::vector<float> after = DashOffsets(later);
+    Assert::IsTrue(before.size() > 2 && after.size() > 2, L"the lane dashes");
+
+    // Follow one dash a quarter-cycle: near enough that the closest dash later
+    // is unambiguously the same one.
+    const float tracked = before[before.size() / 2];
+    float nearest = after.front();
+    for (const float offset : after)
+    {
+      if (std::fabs(offset - tracked) < std::fabs(nearest - tracked))
+      {
+        nearest = offset;
+      }
+    }
+
+    const float pixelsPerSecond = (nearest - tracked) / static_cast<float>(elapsed);
+    Assert::AreEqual(AGREED_PIXELS_PER_SECOND, pixelsPerSecond, 0.2f,
+                     L"the dashes must still travel at the agreed speed");
+  }
+
+  TEST_METHOD(TheHudScaleStillSizesTheDash)
+  {
+    // Fixed against the *camera*, not against the HUD: a player who scales the
+    // interface up scales its chrome with it, and the lane is chrome.
+    const GhostLaneTuning tuning;
+    const OrderGhost ghosts[] = {MakeGhost(GhostState::Pending, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{6000.0f, 0.0f})};
+
+    const auto pitchAtScale = [&](float _scale) {
+      GhostLaneView view = MakeView(MakeMapping());
+      view.scale = _scale;
+      UiDrawList list;
+      BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, 0.0, list);
+      const std::vector<float> offsets = DashOffsets(list);
+      Assert::IsTrue(offsets.size() > 2, L"a pending lane dashes");
+      return offsets[1] - offsets[0];
+    };
+
+    Assert::AreEqual(2.0f, pitchAtScale(2.0f) / pitchAtScale(1.0f), 0.02f, L"twice the HUD is twice the dash");
+  }
+
+  TEST_METHOD(ACommittedLaneCrawlsBecauseTheShipsAreMoving)
+  {
+    /*
+     * The state the crawl exists for. An order under way is the one a player
+     * watches for most of its life, and the marching dashes are what say the
+     * ships are actually going somewhere -- so this is the case that must
+     * animate, not the one that must hold still.
+     */
+    const GhostLaneView view = MakeView(MakeMapping());
+    const OrderGhost ghosts[] = {MakeGhost(GhostState::UnderWay, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{6000.0f, 0.0f})};
+    const GhostLaneTuning tuning;
+
+    UiDrawList early;
+    UiDrawList later;
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, 0.0, early);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, tuning.crawlSecondsPerCycle * 0.25, later);
+
+    const std::vector<float> before = DashOffsets(early);
+    const std::vector<float> after = DashOffsets(later);
+    Assert::IsTrue(before.size() > 2 && after.size() > 2, L"an under-way lane dashes");
+
+    const float tracked = before[before.size() / 2];
+    float nearest = after.front();
+    for (const float offset : after)
+    {
+      if (std::fabs(offset - tracked) < std::fabs(nearest - tracked))
+      {
+        nearest = offset;
+      }
+    }
+    Assert::IsTrue(nearest > tracked, L"and its dashes march toward the destination");
+  }
+
+  TEST_METHOD(TheLaneStartsAtTheShipRatherThanWhereItWasOrdered)
+  {
+    /*
+     * The tail follows the fleet. Left anchored to `originMetres` the line pins
+     * itself to a patch of empty space the ships left seconds ago and grows a
+     * tail as they close on the target, instead of shortening.
+     */
+    const GhostLaneView view = MakeView(MakeMapping());
+    OrderGhost ghost = MakeGhost(GhostState::UnderWay, XMFLOAT2{-6000.0f, 0.0f}, XMFLOAT2{6000.0f, 0.0f});
+    ghost.firstEntityId = 7;
+    const OrderGhost ghosts[] = {ghost};
+
+    // The ship has flown most of the way. The lane must have shortened with it.
+    SceneEntity moved;
+    moved.id = 7;
+    moved.planeMetres = XMFLOAT2{4000.0f, 0.0f};
+    const SceneEntity entities[] = {moved};
+
+    const auto laneSpan = [&](std::span<const SceneEntity> _entities) {
+      UiDrawList list;
+      GhostLaneTuning still;
+      still.crawlSecondsPerCycle = 0.0f; // Geometry, not animation.
+      BuildGhostLanes(ghosts, _entities, view, OverlayTuning{}, still, 0.0, list);
+      const std::vector<float> offsets = DashOffsets(list);
+      Assert::IsTrue(offsets.size() > 1, L"the lane draws");
+      return offsets.back() - offsets.front();
+    };
+
+    Assert::IsTrue(laneSpan(entities) < laneSpan({}) * 0.6f,
+                   L"a ship two thirds of the way there leaves a much shorter lane than its origin does");
+  }
+
+  TEST_METHOD(ADespawnedShipFallsBackToTheOrigin)
+  {
+    // A lane starting nowhere is worse than one starting stale, so a ghost whose
+    // ship has died keeps drawing from where the order was given.
+    const GhostLaneView view = MakeView(MakeMapping());
+    OrderGhost ghost = MakeGhost(GhostState::UnderWay, XMFLOAT2{-6000.0f, 0.0f}, XMFLOAT2{6000.0f, 0.0f});
+    ghost.firstEntityId = 7;
+    const OrderGhost ghosts[] = {ghost};
+
+    SceneEntity other;
+    other.id = 99; // Not the ordering ship.
+    other.planeMetres = XMFLOAT2{4000.0f, 0.0f};
+    const SceneEntity entities[] = {other};
+
+    UiDrawList withGhostShip;
+    UiDrawList withoutAnyShip;
+    BuildGhostLanes(ghosts, entities, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, withGhostShip);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, withoutAnyShip);
+
+    const std::vector<float> present = DashOffsets(withGhostShip);
+    const std::vector<float> absent = DashOffsets(withoutAnyShip);
+    Assert::AreEqual(absent.size(), present.size(), L"an unrelated ship changes nothing");
+    Assert::AreEqual(absent.front(), present.front(), 0.001f);
+  }
+
+  TEST_METHOD(CrawlOffLeavesTheLaneStatic)
+  {
+    GhostLaneTuning still;
+    still.crawlSecondsPerCycle = 0.0f;
+
+    const GhostLaneView view = MakeView(MakeMapping());
+    const OrderGhost ghosts[] = {MakeGhost(GhostState::Pending, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{6000.0f, 0.0f})};
+
+    UiDrawList early;
+    UiDrawList later;
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, still, 0.0, early);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, still, 4.7, later);
+
+    const std::vector<float> before = DashOffsets(early);
+    const std::vector<float> after = DashOffsets(later);
+    Assert::AreEqual(before.size(), after.size(), L"the same dashes");
+    for (std::size_t index = 0; index < before.size(); ++index)
+    {
+      Assert::AreEqual(before[index], after[index], 0.001f, L"and in the same places");
+    }
   }
 };
 
