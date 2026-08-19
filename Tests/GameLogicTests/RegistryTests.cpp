@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -72,19 +73,221 @@ namespace
 }
 
 /// Puts a ship on a grid, so the world is not merely its authored occupants.
+/// Through the registry rather than into a borrowed world, because that is the
+/// path that also tells the index where the ship went.
 ShipId AddShip(WorldRegistry& _registry, AnchorId _anchor, float _x, float _y)
 {
-  World* world = _registry.Borrow(_anchor);
-  Assert::IsNotNull(world);
   ShipSpawn spawn;
   spawn.hullClass = HullClass::Interceptor;
   spawn.wing = 1;
   spawn.xMetres = _x;
   spawn.yMetres = _y;
-  return world->Spawn(spawn, _registry.AllocateShipId());
+  return _registry.Spawn(_anchor, spawn);
+}
+
+/// Submits a dock for every ship named, from the grid they are on.
+[[nodiscard]] OrderVerdict SubmitDock(WorldRegistry& _registry, AnchorId _anchor, std::span<const ShipId> _ships)
+{
+  World* world = _registry.Borrow(_anchor);
+  Assert::IsNotNull(world);
+
+  OrderSubmit order;
+  order.orderSeq = 1;
+  order.kind = OrderKind::Dock;
+  order.anchor = _anchor;
+  for (const ShipId ship : _ships)
+  {
+    Assert::IsTrue(order.AddShip(ship));
+  }
+  return world->SubmitOrder(order);
 }
 
 } // namespace
+
+TEST_CLASS(StationRosterTests)
+{
+public:
+  TEST_METHOD(ADockedFleetLeavesTheGridAndArrivesOnTheRosterWithItsIdentityIntact)
+  {
+    /*
+     * ADR-017 §1 and §2 in one scenario: docking removes ships from the world
+     * and puts them on a roster that keeps `(ShipId, class, wing)` and nothing
+     * else. The identity surviving is the load-bearing part -- every log, order
+     * and roster row has to mean the same ship before and after.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+
+    const ShipId first = AddShip(registry, station, 200.0f, 0.0f);
+    const ShipId second = AddShip(registry, station, -200.0f, 100.0f);
+    const std::uint32_t before = registry.Borrow(station)->ShipCount();
+
+    const ShipId fleet[] = {first, second};
+    Assert::IsTrue(SubmitDock(registry, station, fleet).accepted, L"both are well inside the dock radius");
+
+    // Tick one files: ingest takes the ships out of the world, and the record
+    // is on the bus rather than applied.
+    registry.Tick(1);
+    Assert::AreEqual(before - 2, registry.Borrow(station)->ShipCount(), L"the fleet left the grid at ingest");
+    Assert::AreEqual<std::uint32_t>(2, registry.PendingTransferCount());
+    Assert::AreEqual<std::size_t>(0, registry.Roster(station).size(), L"a filed transfer has not happened yet");
+
+    // Tick two applies, between the ticks.
+    registry.Tick(2);
+    Assert::AreEqual<std::uint32_t>(0, registry.PendingTransferCount());
+
+    const std::span<const RosterEntry> roster = registry.Roster(station);
+    Assert::AreEqual<std::size_t>(2, roster.size());
+    Assert::AreEqual<std::uint32_t>(first, roster[0].shipId, L"the same ship, not a new one that looks like it");
+    Assert::AreEqual<std::uint32_t>(second, roster[1].shipId);
+    Assert::IsTrue(roster[0].hullClass == HullClass::Interceptor);
+    Assert::AreEqual<std::uint32_t>(1, roster[0].wing, L"the wing travels with the ship");
+  }
+
+  TEST_METHOD(ADockedShipIsStillSomewhere)
+  {
+    // ADR-017 §7: docked counts as presence. A commander whose last fleet
+    // docked has not vanished from the universe, and the index that answers
+    // "where are my ships" has to keep saying so.
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    const ShipId ship = AddShip(registry, station, 100.0f, 0.0f);
+
+    const ShipId fleet[] = {ship};
+    Assert::IsTrue(SubmitDock(registry, station, fleet).accepted);
+    registry.Tick(1);
+    registry.Tick(2);
+
+    AnchorId where = INVALID_ID;
+    Assert::IsTrue(registry.LocationOf(ship, where), L"a docked ship is not nowhere");
+    Assert::AreEqual<std::uint32_t>(station, where);
+  }
+
+  TEST_METHOD(TheRosterOutlivesTheGridItDockedAt)
+  {
+    /*
+     * The other half of "worlds forget" (ADR-018 D8). A station grid whose last
+     * mobile ship has just docked is empty and unwatched, so it tears down --
+     * and the roster is untouched, because it was never world state. This is
+     * the property that lets 3,356 station grids exist without ticking.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    const ShipId ship = AddShip(registry, station, 100.0f, 0.0f);
+
+    const ShipId fleet[] = {ship};
+    Assert::IsTrue(SubmitDock(registry, station, fleet).accepted);
+    registry.Tick(1);
+    registry.Tick(2);
+
+    Assert::AreEqual<std::size_t>(1, registry.Roster(station).size());
+
+    // Nothing on the grid but its station, and nobody watching: it goes.
+    registry.Tick(3);
+    Assert::IsNull(registry.Peek(station), L"an empty unwatched grid tears down");
+    Assert::AreEqual<std::size_t>(1, registry.Roster(station).size(), L"and the roster does not go with it");
+  }
+
+  TEST_METHOD(TheRosterAndTheBusAreInTheReplayDomain)
+  {
+    /*
+     * ADR-017 §9: a session replay is the per-grid order logs *plus* the
+     * transfer log. If the roster were outside the hash, two runs that
+     * disagreed about where a fleet ended up would still agree they matched.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    const auto run = [&universe, station](std::uint64_t& _afterFiling, std::uint64_t& _afterApply)
+    {
+      WorldRegistry registry;
+      registry.Reset(&universe, Config());
+      const ShipId ship = AddShip(registry, station, 100.0f, 0.0f);
+      const ShipId fleet[] = {ship};
+      Assert::IsTrue(SubmitDock(registry, station, fleet).accepted);
+      registry.Tick(1);
+      _afterFiling = registry.Hash();
+      registry.Tick(2);
+      _afterApply = registry.Hash();
+    };
+
+    std::uint64_t firstFiled = 0;
+    std::uint64_t firstApplied = 0;
+    std::uint64_t secondFiled = 0;
+    std::uint64_t secondApplied = 0;
+    run(firstFiled, firstApplied);
+    run(secondFiled, secondApplied);
+
+    Assert::AreEqual(firstFiled, secondFiled, L"same seed, same session, same in-flight bus");
+    Assert::AreEqual(firstApplied, secondApplied, L"and the same roster");
+    Assert::AreNotEqual(firstFiled, firstApplied, L"a transfer landing is a change to the session");
+  }
+
+  TEST_METHOD(TheBusAppliesInItsTotalOrderRatherThanTheOrderItWasCollectedIn)
+  {
+    /*
+     * ADR-018 D17. Two grids file in the same tick; the registry collects them
+     * in anchor-id order, which is an implementation detail. What the design
+     * fixes is `(applyTick, transferId)`, so this asserts the *ids* come out
+     * ascending -- which is the thing a second host would also agree on.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> stations = StationAnchors(universe, 2);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    const ShipId here = AddShip(registry, stations[0], 100.0f, 0.0f);
+    const ShipId there = AddShip(registry, stations[1], 100.0f, 0.0f);
+
+    const ShipId one[] = {here};
+    const ShipId two[] = {there};
+    Assert::IsTrue(SubmitDock(registry, stations[0], one).accepted);
+    Assert::IsTrue(SubmitDock(registry, stations[1], two).accepted);
+
+    registry.Tick(1);
+    Assert::AreEqual<std::uint32_t>(2, registry.PendingTransferCount());
+    registry.Tick(2);
+
+    // Both landed, each on its own station's roster, and neither on the other's.
+    Assert::AreEqual<std::size_t>(1, registry.Roster(stations[0]).size());
+    Assert::AreEqual<std::size_t>(1, registry.Roster(stations[1]).size());
+    Assert::AreEqual<std::uint32_t>(here, registry.Roster(stations[0])[0].shipId);
+    Assert::AreEqual<std::uint32_t>(there, registry.Roster(stations[1])[0].shipId);
+  }
+
+  TEST_METHOD(ADockFiledThisTickCannotApplyWithinIt)
+  {
+    /*
+     * The rule the whole bus exists for (ADR-017 §9): transfers apply *between*
+     * ticks, so a world's tick can never observe another's mid-flight. If a
+     * record filed during tick N could land during tick N, the order two grids
+     * ran in would start to matter -- which is exactly the property U2's
+     * permuted-tick test protects.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    const ShipId ship = AddShip(registry, station, 100.0f, 0.0f);
+    const ShipId fleet[] = {ship};
+    Assert::IsTrue(SubmitDock(registry, station, fleet).accepted);
+
+    registry.Tick(1);
+    Assert::AreEqual<std::size_t>(0, registry.Roster(station).size(),
+                                  L"filed during tick 1, so it may not have landed during tick 1");
+    Assert::AreEqual<std::uint32_t>(1, registry.PendingTransferCount());
+  }
+};
 
 TEST_CLASS(WorldRegistryTests)
 {
@@ -177,7 +380,7 @@ public:
     const std::uint64_t before = ComputeWorldHash(*registry.Peek(station));
 
     // The visitor leaves; nobody is watching; the world goes.
-    Assert::IsTrue(registry.Borrow(station)->Despawn(visitor));
+    Assert::IsTrue(registry.Despawn(station, visitor));
     registry.Tick(1);
     Assert::AreEqual(0u, registry.LiveWorldCount(), L"an empty, unwatched grid should have been torn down");
     AnchorId gone = INVALID_ID;

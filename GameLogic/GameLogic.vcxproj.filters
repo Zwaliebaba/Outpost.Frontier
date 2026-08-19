@@ -83,6 +83,9 @@
     <ClInclude Include="World.h">
       <Filter>World</Filter>
     </ClInclude>
+    <ClInclude Include="Transfer.h">
+      <Filter>World</Filter>
+    </ClInclude>
     <ClInclude Include="WorldRegistry.h">
       <Filter>World</Filter>
     </ClInclude>

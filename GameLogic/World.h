@@ -2,6 +2,7 @@
 
 #include "Ids.h"
 #include "Orders.h"
+#include "Transfer.h"
 #include "Validate.h"
 #include "ShipClass.h"
 
@@ -163,6 +164,15 @@ struct PendingOrder
 {
   OrderGroup group;
   QueueMode queueMode = QueueMode::Replace;
+
+  /// What the order actually was. A Dock never becomes a group -- ingest
+  /// consumes it into transfer records instead (ADR-017 §2) -- so the kind has
+  /// to survive submission rather than being inferred from a group that will
+  /// not exist.
+  OrderKind kind = OrderKind::Move;
+
+  /// The anchor a Dock named. Meaningless for a Move.
+  AnchorId anchor = INVALID_ID;
 };
 
 /// What a ship looks like at the moment it enters the world.
@@ -271,9 +281,49 @@ public:
    */
   [[nodiscard]] ShipId Spawn(const ShipSpawn& _spawn, ShipId _shipId);
 
+  /*
+   * Takes a ship out of the world **without destroying it** (ADR-017 §9).
+   *
+   * The transfer seam: the ship's id, class and wing come back so the roster --
+   * or, later, the destination grid -- can hold the same ship rather than a new
+   * one that looks like it. `Spawn` is the other half, and it already takes an
+   * id for exactly this reason.
+   *
+   * False when the id is not here, which is a question worth being able to ask.
+   */
+  [[nodiscard]] bool TransferOut(ShipId _shipId, TransferRequest& _outRequest);
+
+  /*
+   * The transfers this world filed and has not handed over yet.
+   *
+   * A world files; the registry stamps and applies. It cannot do both, because
+   * the ordering counter is the host's and a world minting its own would give
+   * two grids the same number in the same tick (ADR-018 D17).
+   */
+  [[nodiscard]] std::span<const TransferRequest> FiledTransfers() const noexcept { return m_filed; }
+  void ClearFiledTransfers() noexcept { m_filed.clear(); }
+
   /// Gives the world up, so another thread may take it (ADR-007 §7). Boot's
   /// Main-to-Sim hand-off is the sanctioned use and, today, the only one.
   void ReleaseOwner() noexcept;
+
+  /*
+   * Which anchor's grid this is, and which of its ships is the station
+   * (ADR-016 §3, ADR-017 §2).
+   *
+   * The registry says this once, on spin-up. The world needs it because `Dock`
+   * names an anchor and the validator has to answer "is that this grid's?" --
+   * and it is an *id*, not a universe coordinate, so this stays on the right
+   * side of ADR-009 §2's line: the tick still knows nothing about where in the
+   * galaxy it is.
+   *
+   * `INVALID_SHIP_ID` for a grid with no station -- a gate, a planet, open
+   * space -- which is what makes every Dock there `UnknownStation`.
+   */
+  void SetAnchor(AnchorId _anchor, ShipId _stationShip) noexcept;
+
+  [[nodiscard]] AnchorId Anchor() const noexcept { return m_anchor; }
+  [[nodiscard]] ShipId StationShip() const noexcept { return m_stationShip; }
 
   /// Removes a ship. Returns false if the id is not present, which is a
   /// question worth being able to ask rather than an error worth asserting.
@@ -411,7 +461,16 @@ public:
   /// The view `ValidateOrder` runs against, built from this world's own tables.
   /// Exposed because the server pre-checks with it and a test asserts parity
   /// against the client's (ADR-005 §4).
-  [[nodiscard]] ValidationView Validation() const noexcept;
+  /*
+   * The view `ValidateOrder` reads, over this world's ships.
+   *
+   * **Non-const, and the span it hands back is borrowed.** A `ShipMark` is
+   * wire-quantised and the world stores metres, so the marks have to be
+   * materialised somewhere; they live in a scratch table here rather than in a
+   * temporary the returned span would outlive. The next call overwrites it,
+   * which is the same borrow-never-hold rule the registry states for worlds.
+   */
+  [[nodiscard]] ValidationView Validation();
 
   /// The RNG's state, for the world hash. Exposed rather than hashed here so
   /// `WorldHash` stays the single place that decides what "the state" means.
@@ -456,6 +515,13 @@ private:
    */
   Neuron::OwnerThread m_owner;
 
+  /// Which anchor's grid this is, and its station if it has one. Set once on
+  /// spin-up and never hashed: they are identity, not state, and a world that
+  /// folded its own address into its hash could not be compared against its
+  /// recreation on another host.
+  AnchorId m_anchor = INVALID_ID;
+  ShipId m_stationShip = INVALID_SHIP_ID;
+
   std::vector<ShipId> m_ids;
   std::vector<std::uint8_t> m_classes;
   std::vector<WingId> m_wings;
@@ -471,6 +537,15 @@ private:
   /// Accepted, waiting for the next tick to ingest. World state, so a replay
   /// reproduces orders that were in flight across a tick boundary.
   std::vector<PendingOrder> m_pending;
+
+  /// Filed this tick, drained by the registry between ticks. World state until
+  /// it is drained -- a replay that lost a filed transfer would lose a dock.
+  std::vector<TransferRequest> m_filed;
+
+  /// Scratch for `Validation()`, not state: the quantised mirror of
+  /// `m_positions` and `m_classes`, rebuilt on demand and hashed by nothing.
+  /// A member so the span it is handed out as has somewhere to live.
+  std::vector<ShipMark> m_validationMarks;
 
   std::uint32_t m_nextOrderId = 1; // Zero means "no order" in the verdict.
   std::uint32_t m_lastOrderSeqProcessed = 0;

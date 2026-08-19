@@ -462,6 +462,14 @@ void World::Reset(std::uint64_t _seed) noexcept
   m_tick = 0;
   m_slotById.clear();
 
+  // Identity goes with the state. A reset world is nobody's grid until the
+  // registry says otherwise, and keeping a stale anchor here would let a Dock
+  // be judged against the grid this world used to be.
+  m_anchor = INVALID_ID;
+  m_stationShip = INVALID_SHIP_ID;
+
+  m_filed.clear();
+
   m_ids.clear();
   m_classes.clear();
   m_wings.clear();
@@ -523,6 +531,30 @@ ShipId World::Spawn(const ShipSpawn& _spawn, ShipId _shipId)
   m_hulls.push_back(255);
   m_shields.push_back(255);
   return shipId;
+}
+
+bool World::TransferOut(ShipId _shipId, TransferRequest& _outRequest)
+{
+  NEURON_ASSERT_OWNER(m_owner);
+
+  std::uint32_t slot = 0;
+  if (!FindSlot(_shipId, slot))
+  {
+    return false;
+  }
+
+  // Read before the removal, because `Despawn` swap-and-pops and the slot it
+  // reads from is about to hold somebody else.
+  _outRequest.shipId = _shipId;
+  _outRequest.hullClass = static_cast<HullClass>(m_classes[slot]);
+  _outRequest.wing = m_wings[slot];
+  return Despawn(_shipId);
+}
+
+void World::SetAnchor(AnchorId _anchor, ShipId _stationShip) noexcept
+{
+  m_anchor = _anchor;
+  m_stationShip = _stationShip;
 }
 
 void World::ReleaseOwner() noexcept

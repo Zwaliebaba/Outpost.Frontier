@@ -46,11 +46,41 @@ namespace
 
 } // namespace
 
-ValidationView World::Validation() const noexcept
+ValidationView World::Validation()
 {
+  m_validationMarks.resize(m_ids.size());
+  for (std::size_t slot = 0; slot < m_ids.size(); ++slot)
+  {
+    m_validationMarks[slot].xCm = Neuron::MetresToCentimetres(m_positions[slot].x);
+    m_validationMarks[slot].yCm = Neuron::MetresToCentimetres(m_positions[slot].y);
+    m_validationMarks[slot].hullClass = static_cast<HullClass>(m_classes[slot]);
+  }
+
   ValidationView view;
   view.shipIds = m_ids;
+  view.shipMarks = m_validationMarks;
   view.queuedLegs = 0; // Per-group, and resolved in SubmitOrder where the group is known.
+
+  /*
+   * The station, if this grid has one (ADR-017 §2).
+   *
+   * Its position comes out of the same table every other ship's does rather
+   * than being assumed to be the grid centre. It *is* the centre today -- the
+   * anchor's origin is the structure's universe position -- but "the station
+   * is at (0,0)" is a fact about how the bake places things, and a validator
+   * that hard-coded it would be judging distance against an assumption instead
+   * of against the world.
+   */
+  if (m_stationShip != INVALID_SHIP_ID)
+  {
+    std::uint32_t slot = 0;
+    if (FindSlot(m_stationShip, slot))
+    {
+      view.stationAnchor = m_anchor;
+      view.stationXCm = Neuron::MetresToCentimetres(m_positions[slot].x);
+      view.stationYCm = Neuron::MetresToCentimetres(m_positions[slot].y);
+    }
+  }
   return view;
 }
 
@@ -115,7 +145,7 @@ OrderVerdict World::SubmitOrder(const OrderSubmit& _order)
   group.legStartTick = m_tick;
   group.legDeadlineTick = 0; // Sized by ApplyLeg, which is where the stations exist.
 
-  m_pending.push_back(PendingOrder{group, _order.queueMode});
+  m_pending.push_back(PendingOrder{group, _order.queueMode, _order.kind, _order.anchor});
   if (!append)
   {
     ++m_nextOrderId;
@@ -137,6 +167,32 @@ void World::IngestOrders()
   {
     OrderGroup& submitted = pending.group;
     m_lastOrderSeqProcessed = std::max(m_lastOrderSeqProcessed, submitted.clientOrderSeq);
+
+    /*
+     * A dock never enters the group table (ADR-017 §2). It is not a movement
+     * plan with a destination -- it is the fleet leaving the world, all at
+     * once, which is what "together, one moment" means. So ingest consumes it
+     * into transfer records and the ships are gone by the time this tick's
+     * steering runs.
+     *
+     * Out of their groups first, and that falls out of `TransferOut` calling
+     * `Despawn`: a group holding a docked id would keep solving a station for
+     * a ship that is no longer anywhere.
+     */
+    if (pending.kind == OrderKind::Dock)
+    {
+      for (std::uint16_t index = 0; index < submitted.memberCount; ++index)
+      {
+        TransferRequest request;
+        request.kind = TransferKind::Dock;
+        request.anchor = pending.anchor;
+        if (TransferOut(submitted.members[index], request))
+        {
+          m_filed.push_back(request);
+        }
+      }
+      continue;
+    }
 
     const bool append = pending.queueMode == QueueMode::Append;
     if (append)

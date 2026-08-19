@@ -55,6 +55,9 @@ void WorldRegistry::Reset(const UniverseDef* _universe, const RegistryConfig& _c
   m_shardTick = 0;
   m_live.clear();
   m_locationByShip.clear();
+  m_bus.clear();
+  m_rosters.clear();
+  m_nextTransferCounter = 1;
 
   /*
    * The dynamic id space is this host's to issue from (ADR-019 §5c): two hosts
@@ -123,6 +126,7 @@ WorldRegistry::LiveWorld& WorldRegistry::SpinUp(const Anchor& _anchor)
    * universe position -- the grid is anchored on it.
    */
   HullClass hull = HullClass::Structure;
+  ShipId stationShip = INVALID_SHIP_ID;
   if (AuthoredHull(_anchor.kind, hull))
   {
     for (std::uint16_t index = 0; index < _anchor.occupantCount; ++index)
@@ -136,14 +140,22 @@ WorldRegistry::LiveWorld& WorldRegistry::SpinUp(const Anchor& _anchor)
       if (entry.world->Spawn(spawn, id) != INVALID_SHIP_ID)
       {
         ++entry.authoredCount;
-        if (id >= m_locationByShip.size())
+        if (_anchor.kind == AnchorKind::Station && stationShip == INVALID_SHIP_ID)
         {
-          m_locationByShip.resize(static_cast<std::size_t>(id) + 1, INVALID_ID);
+          stationShip = id; // The first occupant is the structure itself.
         }
-        m_locationByShip[id] = _anchor.id;
+        RecordLocation(id, _anchor.id);
       }
     }
   }
+
+  /*
+   * The grid's own identity (ADR-017 §2). A `Dock` names an anchor and the
+   * validator has to answer "is that this grid's?", which it can only do if the
+   * world knows which anchor it is. An id, not a coordinate -- the tick still
+   * has no idea where in the galaxy it is.
+   */
+  entry.world->SetAnchor(_anchor.id, stationShip);
 
   const auto at = std::lower_bound(m_live.begin(), m_live.end(), _anchor.id,
                                    [](const LiveWorld& _entry, AnchorId _id) { return _entry.anchor < _id; });
@@ -187,9 +199,134 @@ void WorldRegistry::RemoveViewer(AnchorId _anchor)
   }
 }
 
+void WorldRegistry::RecordLocation(ShipId _shipId, AnchorId _anchor)
+{
+  if (_shipId >= m_locationByShip.size())
+  {
+    m_locationByShip.resize(static_cast<std::size_t>(_shipId) + 1, INVALID_ID);
+  }
+  m_locationByShip[_shipId] = _anchor;
+}
+
+ShipId WorldRegistry::Spawn(AnchorId _anchor, const ShipSpawn& _spawn)
+{
+  World* world = Borrow(_anchor);
+  if (world == nullptr)
+  {
+    return INVALID_SHIP_ID;
+  }
+  const ShipId id = world->Spawn(_spawn, AllocateShipId());
+  if (id != INVALID_SHIP_ID)
+  {
+    RecordLocation(id, _anchor);
+  }
+  return id;
+}
+
+bool WorldRegistry::Despawn(AnchorId _anchor, ShipId _shipId)
+{
+  LiveWorld* entry = Find(_anchor);
+  if (entry == nullptr || !entry->world->Despawn(_shipId))
+  {
+    return false;
+  }
+  if (_shipId < m_locationByShip.size())
+  {
+    m_locationByShip[_shipId] = INVALID_ID;
+  }
+  return true;
+}
+
+WorldRegistry::StationRoster& WorldRegistry::RosterFor(AnchorId _anchor)
+{
+  const auto at = std::lower_bound(m_rosters.begin(), m_rosters.end(), _anchor,
+                                   [](const StationRoster& _entry, AnchorId _id) { return _entry.anchor < _id; });
+  if (at != m_rosters.end() && at->anchor == _anchor)
+  {
+    return *at;
+  }
+  StationRoster created;
+  created.anchor = _anchor;
+  return *m_rosters.insert(at, std::move(created));
+}
+
+std::span<const RosterEntry> WorldRegistry::Roster(AnchorId _anchor) const noexcept
+{
+  const auto at = std::lower_bound(m_rosters.begin(), m_rosters.end(), _anchor,
+                                   [](const StationRoster& _entry, AnchorId _id) { return _entry.anchor < _id; });
+  if (at == m_rosters.end() || at->anchor != _anchor)
+  {
+    return {};
+  }
+  return at->docked;
+}
+
+void WorldRegistry::ApplyDueTransfers()
+{
+  /*
+   * Between ticks, in `(applyTick, transferId)` order (ADR-018 D17).
+   *
+   * Sorted rather than assumed sorted: records are filed by several worlds in
+   * one tick and the order they were *collected* in is the registry's
+   * iteration order, which is an implementation detail nothing may depend on.
+   * The total order is a contract, so it is imposed here, once.
+   */
+  if (m_bus.empty())
+  {
+    return;
+  }
+  std::sort(m_bus.begin(), m_bus.end());
+
+  std::size_t applied = 0;
+  for (const TransferRecord& record : m_bus)
+  {
+    if (record.applyTick > m_shardTick)
+    {
+      break; // Sorted, so everything after this is also in the future.
+    }
+    ++applied;
+
+    if (record.what.kind == TransferKind::Dock)
+    {
+      // The roster keeps the id (ADR-017 §1): the ship that undocks is the
+      // ship that docked, and every log and order that named it still does.
+      RosterFor(record.what.anchor)
+        .docked.push_back(RosterEntry{record.what.shipId, record.what.hullClass, record.what.wing});
+
+      // Docked counts as presence (ADR-017 §7), so the index keeps pointing at
+      // the station rather than forgetting where the ship went.
+      RecordLocation(record.what.shipId, record.what.anchor);
+    }
+  }
+  m_bus.erase(m_bus.begin(), m_bus.begin() + static_cast<std::ptrdiff_t>(applied));
+}
+
+void WorldRegistry::CollectFiledTransfers()
+{
+  for (LiveWorld& entry : m_live)
+  {
+    for (const TransferRequest& request : entry.world->FiledTransfers())
+    {
+      TransferRecord record;
+      record.id = TransferId{m_config.hostId, m_nextTransferCounter++};
+
+      // Filed during this tick, applied before the next one -- which is what
+      // makes "no world ever reads another mid-tick" true rather than hoped.
+      record.applyTick = m_shardTick + 1;
+      record.what = request;
+      m_bus.push_back(record);
+    }
+    entry.world->ClearFiledTransfers();
+  }
+}
+
 void WorldRegistry::Tick(std::uint32_t _shardTick)
 {
   m_shardTick = _shardTick;
+
+  // Between ticks, before any world runs: a transfer filed last tick lands now,
+  // and no world's tick can observe another's mid-flight (ADR-017 §9).
+  ApplyDueTransfers();
 
   /*
    * Every live world, with the same number, sharing nothing.
@@ -205,6 +342,10 @@ void WorldRegistry::Tick(std::uint32_t _shardTick)
   {
     entry.world->Tick(m_shardTick);
   }
+
+  // What this tick filed, stamped and queued. After the worlds have run, so a
+  // record filed during a tick cannot apply within it.
+  CollectFiledTransfers();
 
   TearDownIdle();
 }
@@ -229,11 +370,33 @@ void WorldRegistry::TearDownIdle()
                                 {
                                   return false;
                                 }
-                                for (const ShipId id : _entry.world->Ids())
+                                /*
+                                 * The index forgets this grid entirely, not
+                                 * just the ships still standing on it.
+                                 *
+                                 * A ship despawned through the borrowed world
+                                 * rather than through `Despawn` leaves an entry
+                                 * behind, and a stale "it is over there" is
+                                 * worse than no answer: the roster, the order
+                                 * routing and the summaries all believe it. So
+                                 * teardown sweeps by anchor -- **except the
+                                 * ships docked here**, which are not on the
+                                 * grid and do not leave with it (ADR-017 §1).
+                                 */
+                                const std::span<const RosterEntry> docked = Roster(_entry.anchor);
+                                for (std::size_t index = 0; index < m_locationByShip.size(); ++index)
                                 {
-                                  if (id < m_locationByShip.size())
+                                  if (m_locationByShip[index] != _entry.anchor)
                                   {
-                                    m_locationByShip[id] = INVALID_ID;
+                                    continue;
+                                  }
+                                  const auto id = static_cast<ShipId>(index);
+                                  const bool onTheRoster =
+                                    std::any_of(docked.begin(), docked.end(),
+                                                [id](const RosterEntry& _row) { return _row.shipId == id; });
+                                  if (!onTheRoster)
+                                  {
+                                    m_locationByShip[index] = INVALID_ID;
                                   }
                                 }
                                 return true;
@@ -289,6 +452,35 @@ std::uint64_t WorldRegistry::Hash() const
     }
     hash = Neuron::HashValue(entry.anchor, hash);
     hash = Neuron::HashValue(ComputeWorldHash(*entry.world), hash);
+  }
+
+  /*
+   * The rosters and the bus (ADR-017 §9, ADR-018 D17).
+   *
+   * They are in the replay domain because they are durable state that outlives
+   * the worlds that produced it: a station grid can tear down with a full
+   * roster, and a replay that reproduced the grids but not the roster would
+   * agree about an empty universe. In anchor order and then filing order,
+   * because both are the orders everything else iterates them in.
+   */
+  for (const StationRoster& roster : m_rosters)
+  {
+    hash = Neuron::HashValue(roster.anchor, hash);
+    for (const RosterEntry& docked : roster.docked)
+    {
+      hash = Neuron::HashValue(docked.shipId, hash);
+      hash = Neuron::HashValue(static_cast<std::uint8_t>(docked.hullClass), hash);
+      hash = Neuron::HashValue(docked.wing, hash);
+    }
+  }
+  for (const TransferRecord& record : m_bus)
+  {
+    hash = Neuron::HashValue(record.applyTick, hash);
+    hash = Neuron::HashValue(record.id.host, hash);
+    hash = Neuron::HashValue(record.id.counter, hash);
+    hash = Neuron::HashValue(static_cast<std::uint8_t>(record.what.kind), hash);
+    hash = Neuron::HashValue(record.what.anchor, hash);
+    hash = Neuron::HashValue(record.what.shipId, hash);
   }
   return hash;
 }

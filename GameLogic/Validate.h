@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Orders.h"
+#include "ShipClass.h"
 
 #include <cstdint>
 #include <span>
@@ -36,20 +37,69 @@ namespace Game
 {
 
 /*
+ * What a check needs to know about a ship beyond its id.
+ *
+ * Quantised centimetres, like everything else validation consumes (ADR-005 §4):
+ * the client's arrive that way off the wire and the server quantises its own
+ * before validating, so the two cannot disagree on float noise at the edge of a
+ * radius.
+ */
+struct ShipMark
+{
+  std::int32_t xCm = 0;
+  std::int32_t yCm = 0;
+  HullClass hullClass = HullClass::Structure;
+};
+
+/*
  * The half of the world validation needs, from either side of the wire.
  *
- * Ids only, sorted or not. Positions are not here because nothing validation
- * decides depends on where a ship *is* -- only on whether it exists and where
- * it is being sent. When ownership arrives (multiplayer, post-MVP) this is
- * where the owning player id joins it.
+ * Ids always, sorted or not; positions and classes only when the caller has
+ * them, because for four slices nothing validation decided depended on where a
+ * ship *was* -- only on whether it existed and where it was being sent. Dock is
+ * the first check that needs more, and it says so by needing `shipMarks`. When
+ * ownership arrives (multiplayer, post-MVP) this is where the owning player id
+ * joins it.
  */
 struct ValidationView
 {
   std::span<const ShipId> shipIds;
 
+  /*
+   * Parallel to `shipIds`, and **empty unless the caller has it**: where each
+   * ship is and what it is.
+   *
+   * Move needs neither -- nothing it decides depends on where a ship *is*, only
+   * on whether it exists and where it is being sent -- which is why the view
+   * went four slices without them. Dock needs both: it is judged on distance
+   * from a structure, against a radius derived from the fleet's own solved
+   * footprint (ADR-018 D7). Optional rather than required so a caller that has
+   * only ids can still validate the orders that only need ids, and so this
+   * addition cannot silently invalidate a view built before it existed.
+   *
+   * One span of a small record rather than two parallel spans of primitives:
+   * two could be given different lengths, and there would be no way to notice.
+   */
+  std::span<const ShipMark> shipMarks;
+
   /// How many legs the group these ships belong to already holds. Zero for a
   /// replace, and what makes `QueueFull` checkable without the group table.
   std::uint32_t queuedLegs = 0;
+
+  /*
+   * The station on this grid, if there is one (ADR-017 §2).
+   *
+   * A grid is anchored on one thing, so there is at most one station to dock
+   * at, and `UnknownStation` is what a Dock naming any other anchor gets.
+   * `INVALID_ID` means the grid has no station -- open space, a gate, a
+   * planet -- and every Dock there is refused for the same reason.
+   */
+  AnchorId stationAnchor = INVALID_ID;
+
+  /// Where that station is, in the wire's centimetres, in the grid's local
+  /// frame. Meaningless when `stationAnchor` is `INVALID_ID`.
+  std::int32_t stationXCm = 0;
+  std::int32_t stationYCm = 0;
 };
 
 /// The verdict, in GameLogic's own terms. `Neuron::OrderVerdict` carries the
@@ -93,6 +143,28 @@ inline constexpr std::int32_t PLAY_AREA_HALF_EXTENT_CM = 20000 * 100;
  * compatibility event rather than a table edit.
  */
 inline constexpr std::int64_t DOCK_RADIUS_METRES = 5000;
+
+/*
+ * The radius the fleet actually has to be inside (ADR-018 D7).
+ *
+ * `max(DOCK_RADIUS_METRES, footprint + margin)`, where the footprint is the
+ * extent of the order's own **solved** formation -- the same `SolveFormation`
+ * and `FormationExtentMetres` both halves already share, so parity holds by
+ * construction rather than by two implementations being kept in step. Exposed
+ * rather than hidden inside `ValidateOrder` because the client draws this
+ * circle: a perimeter the player is told to reach has to be the perimeter the
+ * server judges.
+ *
+ * The margin is **one largest-class formation spacing**, which is the same unit
+ * the parking scan pads its berths by. It buys the fleet the right to sit one
+ * ship-spacing off-centre from the structure rather than dead on it, and it
+ * scales with the fleet for the same reason the footprint does: a Battleship
+ * line and a flight of interceptors do not mean the same thing by "close".
+ *
+ * Returns the base radius for a solve that places nothing, so an order with no
+ * ships is judged against the flat number rather than against zero.
+ */
+[[nodiscard]] float DockRadiusMetres(const ValidationView& _view, const OrderSubmit& _order) noexcept;
 
 [[nodiscard]] OrderVerdict ValidateOrder(const ValidationView& _view, const OrderSubmit& _order) noexcept;
 

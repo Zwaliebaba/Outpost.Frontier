@@ -28,11 +28,11 @@ namespace Game
 /*
  * What kind of command this is.
  *
- * Move is the only one with content. The other three are **reserved** in
- * exactly the sense `HullClass`'s Fighter and Cruiser are (ADR-009 §6):
- * nameable, numbered, and never submittable. `ValidateOrder` refuses anything
- * but Move with `UnknownKind`, so a reserved kind that somehow reached the wire
- * bounces with a reason rather than being acted on.
+ * Move and Dock have content. The rest are **reserved** in exactly the sense
+ * `HullClass`'s Fighter and Cruiser are (ADR-009 §6): nameable, numbered, and
+ * never submittable. `ValidateOrder` refuses them with `UnknownKind`, so a
+ * reserved kind that somehow reached the wire bounces with a reason rather than
+ * being acted on.
  *
  * They are here because the command row draws them (`tactical-hud.png`) and the
  * command wheel will (`puck-and-wheel.png` §3, eight sectors with the illegal
@@ -40,21 +40,29 @@ namespace Game
  * engine may not name it -- so the name is here, beside the value it belongs
  * to, rather than as a string in a client that is meant to serve a second game.
  *
+ * **`Warp = 4` is reserved and `Dock = 5` is real**, which is the opposite of
+ * the order they were designed in (ADR-017 §2). The station phase landed before
+ * in-system warp, and ADR-016 had already published warp's number; renumbering
+ * it to close the gap would have made a written-down wire value a lie for the
+ * sake of tidiness. So warp keeps 4 until U3a fills it in.
+ *
  * Numbered contiguously from zero and never renumbered: the value crosses the
  * wire in `OrderSubmit`.
  */
 enum class OrderKind : std::uint8_t
 {
   Move = 0,
-  Attack = 1,   // Reserved: no validation, no simulation.
-  Stance = 2,   // Reserved.
-  Abilities = 3 // Reserved.
+  Attack = 1,    // Reserved: no validation, no simulation.
+  Stance = 2,    // Reserved.
+  Abilities = 3, // Reserved.
+  Warp = 4,      // Reserved until U3a (ADR-016 §5 published the number first).
+  Dock = 5
 };
 
 /// All of them, in the order a command surface should offer them -- the print's
 /// own left-to-right. An array for the same reason `FORMATION_IDS` is one.
-inline constexpr OrderKind ORDER_KIND_IDS[] = {OrderKind::Move, OrderKind::Attack, OrderKind::Stance,
-                                               OrderKind::Abilities};
+inline constexpr OrderKind ORDER_KIND_IDS[] = {OrderKind::Move,      OrderKind::Attack, OrderKind::Stance,
+                                               OrderKind::Abilities, OrderKind::Warp,   OrderKind::Dock};
 
 /// Replace the queue or append to it (ADR-004 §7).
 enum class QueueMode : std::uint8_t
@@ -128,7 +136,22 @@ enum class OrderReason : std::uint16_t
   OutOfBounds = 5,
   InvalidFormation = 6,
   TooManyShips = 7,
-  UnknownKind = 8
+  UnknownKind = 8,
+
+  /*
+   * The station phase's five (ADR-017 §8). `CombatEngaged` is **reserved**:
+   * numbered and named now, returned by nothing, because the reconnect print
+   * already promises a combat flag that refuses docking and a reason enum that
+   * renumbered when combat arrived would renumber the wire.
+   *
+   * U3a's warp reasons append *after* these -- the cost of the station phase
+   * landing first, written down so the numbering surprises nobody.
+   */
+  UnknownStation = 9,
+  NotAtStation = 10,
+  NotDocked = 11,
+  InvalidQueueMode = 12,
+  CombatEngaged = 13 // Reserved: nothing returns this until combat exists.
 };
 
 /// Human text for a reason, for logs and for the toast the client raises. Never
@@ -187,6 +210,19 @@ struct OrderSubmit
   ShipId shipIds[MAX_SHIPS_PER_ORDER] = {};
 
   OrderLeg target;
+
+  /*
+   * The place this order names, when it names one rather than pointing at the
+   * plane: the station for `Dock`, and the destination for `Warp` when U3a
+   * fills it in. `INVALID_ID` for a Move, which points at `target` instead.
+   *
+   * An anchor id rather than a station id, because ADR-016 §3 made the anchor
+   * the thing a command can address -- a warp order carries one number and
+   * nothing else -- and a Dock that named a `StationId` would need the system
+   * to disambiguate it. One field for both verbs, so the client's "act on that
+   * structure" gesture fills the same slot whichever verb it resolves to.
+   */
+  AnchorId anchor = INVALID_ID;
 
   /// Appends an id, or reports the order is full. Returning false rather than
   /// dropping keeps a truncated selection from reading as the whole one.

@@ -48,12 +48,13 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "OrderStateRecord{u32 serverOrderId,u32 clientOrderSeq,u16 etaSeconds,u8 state,u8 legIndex,u8 legCount,"
     "u8 memberCount}"
     "OrderSubmit{u32 orderSeq,u8 kind,u8 formation,u8 queueMode,u16 shipCount,u16 shipIds[shipCount],"
-    "i32 targetXCm,i32 targetYCm,u16 targetFacingTurns16}"
-    "meaning{typeId=HullClass,groupId=WingId,gaugeA=hull255,gaugeB=shield255,state=OrderState,etaSeconds=s|65535=none}"
+    "i32 targetXCm,i32 targetYCm,u16 targetFacingTurns16,u16 anchor}"
+    "meaning{typeId=HullClass,groupId=WingId,gaugeA=hull255,gaugeB=shield255,state=OrderState,etaSeconds=s|65535=none,"
+    "anchor=AnchorId|0=none}"
     "quantisation{position=cm,velocity=cm/s,heading=turns/65536}"
     "hull{11 classes,Fighter+Cruiser reserved}"
     "caps{shipsPerOrder=64,ordersPerSnapshot=16}"
-    "enums{OrderKind:Move=0,Attack=1,Stance=2,Abilities=3;FormationId:Line=0,Wedge=1,Claw=2;"
+    "enums{OrderKind:Move=0,Attack=1,Stance=2,Abilities=3,Warp=4,Dock=5;FormationId:Line=0,Wedge=1,Claw=2;"
     "QueueMode:Replace=0,Append=1;"
     "OrderState:Underway=0,Arriving=1,Done=2}";
 

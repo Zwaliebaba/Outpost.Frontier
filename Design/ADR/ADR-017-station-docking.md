@@ -18,6 +18,10 @@ ships**); ADR-016 §4's transfer bus (it arrives with **this** phase — dock an
 its first records, and U3a inherits it for warp).
 **Delivery plan:** [Station-Build-Order.md](../Station-Build-Order.md) (T1–T3, milestones
 H0/H1), interleaved into the universe phase after U2.
+**Built so far (2026-08-19, T1's docking half):** §2's `Dock` order and its
+footprint-derived radius, §1's roster, and §9's transfer bus with its
+`(applyTick, transferId)` order. §3-§6 -- undock, the parking ring, the protection window
+and the hangar screen -- are the rest of T1 and T3.
 
 ## Context
 

@@ -27,10 +27,13 @@
 namespace Game
 {
 
-/// Bytes one order occupies. Fixed part plus two per ship.
+/// Bytes one order occupies. Fixed part plus two per ship. The trailing two are
+/// the anchor a Dock names (ADR-017 §2) -- written for every kind rather than
+/// only for the ones that use it, because a variable-shape record would make
+/// the decode bound depend on a byte the payload chose.
 [[nodiscard]] constexpr std::size_t OrderSubmitBytes(std::size_t _shipCount) noexcept
 {
-  return 4 + 1 + 1 + 1 + 2 + _shipCount * 2 + 4 + 4 + 2;
+  return 4 + 1 + 1 + 1 + 2 + _shipCount * 2 + 4 + 4 + 2 + 2;
 }
 
 /// The largest an order can be: the per-order ship cap, which is what makes the

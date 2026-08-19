@@ -1,6 +1,6 @@
 # Station Build Order — the Docking Phase
 
-**Status:** Session output 2026-08-19 · **no slice started.** The design it delivers is
+**Status:** Session output 2026-08-19 · **T1 in progress — its docking half is built.** The design it delivers is
 [ADR-017](ADR/ADR-017-station-docking.md); where this document and that one disagree, the
 ADR wins on *what* and this one on *when*.
 
@@ -19,8 +19,8 @@ and its roster goes through the per-client sender (A13); T3 is gated on the
 UI-architecture ADR (A19, deliverable D7 in the universe order).
 
 The rules are the MVP build order's, unchanged: each slice independently testable, lands
-green, sized at "a few days" or less, later slices assume earlier ones. Landed slices will
-carry a **Built** line — none exists yet. Test placement follows the Dependency Map: sim
+green, sized at "a few days" or less, later slices assume earlier ones. Landed slices
+carry a **Built** line. Test placement follows the Dependency Map: sim
 truth in `GameLogicTests`, wire in `NeuronCoreTests`/`NeuronServerTests`, screens in
 `NeuronClientTests`, the loopback loop in `selfTest`.
 
@@ -61,6 +61,46 @@ grid; protection stamped, expiring, and broken by a player order but not by the 
 order; a full-ring scenario holding at the undock point with no contact pair; the
 validation-parity matrix over every new reason; repair-by-construction asserted (dock a
 damaged ship — when gauges exist to damage — undock full).
+
+**Built (T1, the docking half, 2026-08-19).** The vocabulary and the crossing, which are
+what every remaining piece of this slice stands on.
+
+`OrderKind` grew `Warp = 4` (reserved — ADR-016 published the number before this phase
+landed, and renumbering it to close the gap would have made a written-down wire value a lie)
+and `Dock = 5`. `OrderReason` grew 9–13, `CombatEngaged` inert as designed.
+`OrderSubmit` carries an `AnchorId` — one field for both verbs, so the client's "act on that
+structure" gesture fills the same slot whichever verb it resolves to — and it is on the wire,
+with the schema text bumped for both.
+
+`ValidateOrder` decides a Dock: Replace-only, the station has to be this grid's, and every
+member has to be inside `DockRadiusMetres` — `max(DOCK_RADIUS_METRES, footprint + margin)`
+over the order's **own solved formation** (ADR-018 D7), exposed as a function because the
+client draws the circle the server judges against. The check order is ADR-017 §8's, pinned by
+a test that breaks each rule *and every rule after it*. `ValidationView` grew optional
+`shipMarks` (quantised position + class) and the grid's station: optional so a caller with
+only ids can still validate the orders that only need ids, and refused rather than waved
+through when a Dock is asked of a view that cannot answer where a ship is.
+
+`GameLogic/Transfer.h` is the transfer bus, arriving with this phase as ADR-017 §9 says
+rather than with warp. A world files requests during its tick (`World::TransferOut` removes
+a ship preserving its id, class and wing — the seam undock and warp both inherit); the
+registry stamps `(hostId, counter)` because the counter is the host's; records apply
+**between** ticks in `(applyTick, transferId)` order (ADR-018 D17), which is what makes "no
+world reads another mid-tick" true rather than hoped. Station rosters live at the universe
+layer beside the bus, and both fold into `WorldRegistry::Hash` — a station grid tears down
+with a full roster and the roster is untouched, which is the other half of "worlds forget".
+
+Two gaps the tests found rather than review. Spawning into a *borrowed* world left the ship
+out of the ship→location index, so "where are my ships" could not answer for the starting
+fleet; `WorldRegistry::Spawn`/`Despawn` now exist beside `Borrow` and are the path. And a
+despawn that bypassed them leaked a stale index entry past the grid's teardown, so teardown
+sweeps the index by anchor — skipping the ships docked there, which do not leave with the
+grid.
+
+**Still owed by T1:** undock and the station commands (`Undock`, `AssignWing`) over a
+`RosterView`; the parking ring and its deterministic berth scan; the 15-second protection
+window and `systemIssued`; the event-record emissions (ADR-018 A17); and the double-run
+scenario that mixes all of them.
 
 ### T2 — The wire and the tactical surfaces 🏁 H0
 One clustered schema bump (ADR-017 §8, **widened by ADR-018 into the identity cluster**):

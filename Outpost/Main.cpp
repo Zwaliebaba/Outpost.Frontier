@@ -362,13 +362,12 @@ void UniverseSimulation::SpawnStartingFleet()
    * is no longer spawned here -- it is the start anchor's *authored occupant*,
    * so the registry put it there on spin-up with the id the bake derived, which
    * is what makes a torn-down and recreated grid come back identical. And every
-   * ship takes an id from the registry's allocator (ADR-018 D6a) rather than
-   * one the world minted, because under the universe runtime a ship keeps its
-   * id across grids and a per-world counter would collide on the first
-   * transfer.
+   * ship is spawned *through the registry* rather than into a borrowed world,
+   * because the registry is what allocates the id (ADR-018 D6a -- a ship keeps
+   * its id across grids, and a per-world counter would collide on the first
+   * transfer) and what records where the ship went, and a spawn that did one
+   * without the other would leave the fleet out of "where are my ships".
    */
-  Game::World& world = ServedWorld();
-
   std::uint32_t wing = 0;
   for (const FleetWing& entry : STARTING_FLEET)
   {
@@ -391,7 +390,7 @@ void UniverseSimulation::SpawnStartingFleet()
       spawn.xMetres = std::cos(wingAngle) * WING_RADIUS_METRES - std::sin(wingAngle) * offset;
       spawn.yMetres = std::sin(wingAngle) * WING_RADIUS_METRES + std::cos(wingAngle) * offset;
 
-      const Game::ShipId id = world.Spawn(spawn, m_registry.AllocateShipId());
+      const Game::ShipId id = m_registry.Spawn(m_startAnchor, spawn);
       if (id != Game::INVALID_SHIP_ID)
       {
         m_patrolShips.push_back(id);
