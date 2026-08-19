@@ -134,7 +134,7 @@ bool OrderEveryoneInward(Game::World& _world, const std::vector<Game::ShipId>& _
   return true;
 }
 
-TickSoakRung MeasureRung(std::uint32_t _shipCount, bool& _populationReached)
+TickSoakRung MeasureRung(std::uint32_t _shipCount, bool& _outPopulationReached)
 {
   TickSoakRung rung;
   rung.shipCount = _shipCount;
@@ -143,7 +143,7 @@ TickSoakRung MeasureRung(std::uint32_t _shipCount, bool& _populationReached)
   world.Reset(0x50A4u);
 
   const std::vector<Game::ShipId> ships = SpawnLattice(world, _shipCount);
-  _populationReached = ships.size() == _shipCount && world.ShipCount() == _shipCount && OrderEveryoneInward(world, ships);
+  _outPopulationReached = ships.size() == _shipCount && world.ShipCount() == _shipCount && OrderEveryoneInward(world, ships);
 
   std::uint32_t tick = 0;
   for (; tick < WARMUP_TICKS; ++tick)

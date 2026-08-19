@@ -89,9 +89,11 @@ moves between the trees without a rename pass. Three things it changed in these 
   (`UX-/NET-/CPP-/UI-/SIM-`), a decision list sequenced against the build orders, and the
   fourteen questions the owner answered the same day — **the answers are normative as
   [ADR-018](ADR/ADR-018-scaling-baseline.md)**; the review stays the evidence record.
-  **Everything the register asks for that is not gated behind an unstarted slice is now
-  delivered** — A1–A4, A19, A23, A24 and A26; the rest lands with U1, U2, T1, T2, U3b, U3c
-  and U5, which is where the register put it.
+  **Everything the register asks for that is due now is delivered** — A1–A4, A19, A23, A24
+  and A26. The rest is gated, and the gates are the register's own: A5–A18, A20, A21 and A25
+  land with U1, U2, T1, T2, U3b, U3c and U5; the interest/delta ADR (A14) is drafted during
+  the station phase; the remote-play ADR (A22) blocks the first remote deployment, its
+  parameters already fixed by D10.
 
 ## Implementation state (2026-08-19)
 
