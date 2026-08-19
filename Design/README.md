@@ -76,6 +76,10 @@ moves between the trees without a rename pass. Three things it changed in these 
   (dock/undock audio). No slice started.
 - [Risk-Register.md](Risk-Register.md) — R1–R14 with designed-in mitigations + standing spikes.
   R6 and R14 are marked realised, with what actually happened.
+- [Scaling-Readiness-Review.md](Scaling-Readiness-Review.md) — five-lens review of the MVP
+  and this corpus for scaling readiness (2026-08-19, **advisory**): consolidated findings
+  (`UX-/NET-/CPP-/UI-/SIM-`), a decision list sequenced against the build orders, and open
+  questions for the owner. Nothing in it is normative until an ADR adopts it.
 
 ## Implementation state (2026-08-19)
 
