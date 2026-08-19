@@ -198,9 +198,16 @@ are up to ~1e12 metres apart and squaring that overflows `int64`, while `double`
 integers exactly to 9e15. What it must never become is `float`, which stops counting metres
 exactly at about sixteen million of them.
 
-**Still owed by U3a:** `etaSeconds` on the order record tracking transit to zero — a fleet in
-transit is in no world, so the number belongs to U3b's fleet summaries rather than to a grid's
-order records.
+**Also built with U3a:** ADR-019 §4b's `TRANSFER_FLOOR_TICKS` (20 ticks, one second), which
+that ADR names as a constraint U3a and U4 must respect when they set their timing tables. It
+is not a game-feel number — it is the slack a cross-host transfer needs to be delivered in,
+and there is one host, which is exactly when a timing table gets tuned under a floor without
+anybody noticing. A test asks the nearest pair of anchors in a system, which is the case that
+would breach it.
+
+**Still owed by U3a:** nothing. `etaSeconds` during transit landed with U3b's summaries
+below, which is where it belongs: a fleet mid-crossing is in no world, so no grid's order
+records can carry it.
 
 ### U3b — Warp on the wire and on screen
 Per-grid snapshots (grid identity in the header — the smear guard), the view request,
@@ -222,6 +229,30 @@ rules render (D16: presence lost under a pinned camera → the map; every fleet 
 the map); warp events emit into the **per-commander event record** (A17) and the alerts
 taxonomy gains its universe rows with the toast **action payload** (A18); summaries and
 view rights key on `PlayerId` (D5, minted in T2's cluster).
+
+**Built (U3b's sim half, 2026-08-19).** `GameLogic/FleetSummary.h/.cpp` and
+`WorldRegistry::Summaries()` — the summary family ADR-016 §6 named, with `StationRoster` as
+its first resident and this as its second.
+
+One row per (place, state) over the three places a ship can be: standing on a grid, docked at
+a station, crossing to somewhere. A fleet is emergent, so a row is a *count grouped by place*
+rather than a record of an entity — there is no fleet id, and nothing to keep in step with the
+snapshot. Ordered by anchor and then state, so two runs of one script produce the same bytes
+and a client can diff two messages without sorting.
+
+The `InTransit` row carries the anchor a fleet is **going to** and the ETA no grid could give.
+That is the number U3a owed: a fleet mid-crossing is in no world at all, so the estimate is a
+fact about the bus rather than about a grid's order records.
+
+Two things the summary deliberately does *not* say. It does not report what a fleet is doing
+on its grid — that is the snapshot's business, and a summary that tried would be a second
+source of truth. And a station standing on its own grid is not a fleet: authored occupants are
+subtracted, or every station in the universe would read as a parked one-ship fleet.
+
+**Still owed by U3b:** everything on screen — view subscription, the grid-switch notice,
+auto-follow, roster location blocks, warp ghosts, the settle over the interpolation refill —
+and the per-client `SnapshotSender` those and T2's roster privacy both need. That half is
+renderer and session work rather than simulation work.
 
 ### U3c — The second-commander gate *(ADR-018 A25, new)*
 Two real clients against one shard: distinct `PlayerId`s, each commanding its own fleets on

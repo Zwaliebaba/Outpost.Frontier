@@ -479,13 +479,17 @@ std::uint32_t WorldRegistry::TransitTicks(AnchorId _from, const TransferRequest&
   if (slowest <= 0.0f)
   {
     // Nothing here can warp -- a fleet of structures, which validation should
-    // never have let through. One tick rather than a division by zero.
-    return 1;
+    // never have let through. The floor rather than a division by zero.
+    return TRANSFER_FLOOR_TICKS;
   }
 
   const double seconds = static_cast<double>(WARP_BASE_SECONDS) + metres / static_cast<double>(slowest);
   const double ticks = seconds / static_cast<double>(World::TICK_SECONDS);
-  return std::max<std::uint32_t>(1, static_cast<std::uint32_t>(ticks));
+
+  // The floor is ADR-019 §4b's, and it is a constraint on this table rather
+  // than a clamp on a mistake: a transit shorter than it leaves a second host
+  // no slack to receive the record in.
+  return std::max<std::uint32_t>(TRANSFER_FLOOR_TICKS, static_cast<std::uint32_t>(ticks));
 }
 
 void WorldRegistry::ApplyTransit(const TransferRequest& _request)
@@ -840,6 +844,70 @@ std::vector<AnchorId> WorldRegistry::LiveAnchors() const
     anchors.push_back(entry.anchor);
   }
   return anchors;
+}
+
+std::vector<FleetSummary> WorldRegistry::Summaries() const
+{
+  std::vector<FleetSummary> rows;
+
+  /*
+   * Grids first, then rosters, then the bus -- the three places a ship can be
+   * (ADR-016 §4, ADR-017 §1), asked in that order so the result is sorted by
+   * anchor within each state and the merge below only has to sort the states.
+   */
+  for (const LiveWorld& entry : m_live)
+  {
+    /*
+     * The authored occupants are *not* the commander's ships. A station stands
+     * on its own grid and would otherwise show up as a one-ship fleet parked at
+     * every station in the universe -- which is the same reason `TearDownIdle`
+     * does not count them as ships either.
+     */
+    const std::uint32_t count = entry.world->ShipCount() - entry.authoredCount;
+    if (count > 0)
+    {
+      rows.push_back(FleetSummary{entry.anchor, FleetState::OnGrid, static_cast<std::uint16_t>(count),
+                                  FLEET_ETA_NONE});
+    }
+  }
+
+  for (const StationRoster& roster : m_rosters)
+  {
+    if (!roster.docked.empty())
+    {
+      rows.push_back(FleetSummary{roster.anchor, FleetState::Docked,
+                                  static_cast<std::uint16_t>(roster.docked.size()), FLEET_ETA_NONE});
+    }
+  }
+
+  for (const TransferRecord& record : m_bus)
+  {
+    if (record.what.kind != TransferKind::Transit)
+    {
+      // A dock or an undock applies on the next tick. Reporting it as a fleet
+      // "in transit for 0 seconds" would put a row on screen that is gone
+      // before it is read.
+      continue;
+    }
+
+    // Rounded up, so a fleet one tick out reads as "1s" rather than "arrived".
+    const std::uint32_t ticks = record.applyTick > m_shardTick ? record.applyTick - m_shardTick : 0;
+    const auto seconds = static_cast<std::uint32_t>(
+      (static_cast<double>(ticks) * static_cast<double>(World::TICK_SECONDS)) + 0.999);
+    rows.push_back(FleetSummary{record.what.anchor, FleetState::InTransit, record.what.memberCount,
+                                static_cast<std::uint16_t>(std::min<std::uint32_t>(seconds, FLEET_ETA_NONE - 1))});
+  }
+
+  std::sort(rows.begin(), rows.end(),
+            [](const FleetSummary& _a, const FleetSummary& _b)
+            {
+              if (_a.anchor != _b.anchor)
+              {
+                return _a.anchor < _b.anchor;
+              }
+              return static_cast<std::uint8_t>(_a.state) < static_cast<std::uint8_t>(_b.state);
+            });
+  return rows;
 }
 
 std::uint64_t WorldRegistry::Hash() const

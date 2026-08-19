@@ -6,6 +6,7 @@
 #include "UniverseGen.h"
 #include "World.h"
 #include "WorldHash.h"
+#include "FleetSummary.h"
 #include "StationMessages.h"
 #include "WorldRegistry.h"
 
@@ -16,6 +17,7 @@
 #include <cstdint>
 #include <functional>
 #include <span>
+#include <string_view>
 #include <vector>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -893,6 +895,41 @@ public:
     }
   }
 
+  TEST_METHOD(NoCrossingIsShorterThanTheFloorASecondHostWouldNeed)
+  {
+    /*
+     * ADR-019 §4b. A transit's apply tick is seconds in the future and the
+     * destination host has until then to receive the record -- which turns
+     * latency into slack instead of a race, but only if the slack is
+     * guaranteed. There is one host, so nothing needs this yet, and that is
+     * exactly when a timing table gets tuned under a floor without anybody
+     * noticing.
+     *
+     * The nearest pair of anchors in a system is the case that would breach it,
+     * so that is the case this asks about.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+
+    ShipSpawn spawn;
+    spawn.hullClass = HullClass::Interceptor; // The shortest spool and the fastest crossing.
+    spawn.wing = 1;
+    spawn.xMetres = 300.0f;
+    const ShipId ship = registry.Spawn(anchors[0], spawn);
+    const ShipId fleet[] = {ship};
+    Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], fleet).accepted);
+
+    const std::uint32_t left = TickUntil(registry, tick, 2000, [&] { return !OnGrid(registry, anchors[0], ship); });
+    const std::uint32_t arrived = TickUntil(registry, tick, 60000, [&] { return OnGrid(registry, anchors[1], ship); });
+
+    Assert::IsTrue(arrived - left >= TRANSFER_FLOOR_TICKS,
+                   L"a crossing shorter than the floor leaves a second host no time to receive it");
+  }
+
   TEST_METHOD(ConcurrentWarpsInBothDirectionsReproduceBitForBit)
   {
     /*
@@ -937,6 +974,166 @@ public:
     for (std::size_t index = 0; index < first.size(); ++index)
     {
       Assert::AreEqual(first[index], second[index], L"two runs of one script disagreed mid-crossing");
+    }
+  }
+};
+
+TEST_CLASS(FleetSummaryTests)
+{
+public:
+  TEST_METHOD(ASummaryAnswersWhereEverythingIsWithoutLookingAtAnyOfIt)
+  {
+    /*
+     * ADR-016 §6. A fleet is emergent -- your ships sharing a location -- so
+     * this is a count grouped by place rather than a record of an entity, and
+     * that is why there is nothing to keep in step with the snapshot.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+
+    (void)AddShip(registry, anchors[0], 100.0f, 0.0f);
+    (void)AddShip(registry, anchors[0], -100.0f, 0.0f);
+
+    const std::vector<FleetSummary> onGrid = registry.Summaries();
+    const auto here = std::find_if(onGrid.begin(), onGrid.end(),
+                                   [&](const FleetSummary& _row) { return _row.anchor == anchors[0]; });
+    Assert::IsTrue(here != onGrid.end(), L"two ships on a grid should be one row");
+    Assert::IsTrue(here->state == FleetState::OnGrid);
+    Assert::AreEqual<std::uint32_t>(2, here->shipCount);
+    Assert::AreEqual<std::uint32_t>(FLEET_ETA_NONE, here->etaSeconds);
+
+    // A station standing on its own grid is not a fleet.
+    const ShipId visitor = AddShip(registry, station, 200.0f, 0.0f);
+    const ShipId docking[] = {visitor};
+    DockAndLand(registry, station, docking, tick);
+
+    /*
+     * By anchor *and* state, because one station anchor can legitimately carry
+     * both rows -- ships standing on its grid and ships inside it. The first
+     * version of this test looked up by anchor alone and found whichever came
+     * first, which is a test that passes for the wrong reason.
+     */
+    const std::vector<FleetSummary> docked = registry.Summaries();
+    const auto row = std::find_if(docked.begin(), docked.end(), [&](const FleetSummary& _r)
+                                  { return _r.anchor == station && _r.state == FleetState::Docked; });
+    Assert::IsTrue(row != docked.end(), L"the docked ship should be a row of its own");
+    Assert::AreEqual<std::uint32_t>(1, row->shipCount, L"the station itself must not read as a docked fleet");
+  }
+
+  TEST_METHOD(AFleetInTransitCarriesTheEtaNoGridCould)
+  {
+    /*
+     * The number U3a owed and could not give: a fleet mid-crossing is in no
+     * world, so no grid's order records can carry its ETA. The summary can,
+     * because it is a fact about the *bus*.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+
+    const ShipId ship = AddShip(registry, anchors[0], 300.0f, 0.0f);
+    const ShipId fleet[] = {ship};
+    Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], fleet).accepted);
+    TickUntil(registry, tick, 2000, [&] { return !OnGrid(registry, anchors[0], ship); });
+
+    const std::vector<FleetSummary> crossing = registry.Summaries();
+    const auto row = std::find_if(crossing.begin(), crossing.end(),
+                                  [](const FleetSummary& _r) { return _r.state == FleetState::InTransit; });
+    Assert::IsTrue(row != crossing.end(), L"a fleet in transit still has to be reportable");
+    Assert::AreEqual<std::uint32_t>(anchors[1], row->anchor,
+                                    L"where it is going, because where it is is nowhere");
+    Assert::AreEqual<std::uint32_t>(1, row->shipCount);
+    Assert::IsTrue(row->etaSeconds != FLEET_ETA_NONE && row->etaSeconds > 0, L"an ETA of none is not an ETA");
+
+    // And it counts down rather than standing still.
+    const std::uint16_t first = row->etaSeconds;
+    for (std::uint32_t step = 0; step < 200; ++step)
+    {
+      registry.Tick(++tick);
+    }
+    const std::vector<FleetSummary> later = registry.Summaries();
+    const auto again = std::find_if(later.begin(), later.end(),
+                                    [](const FleetSummary& _r) { return _r.state == FleetState::InTransit; });
+    if (again != later.end())
+    {
+      Assert::IsTrue(again->etaSeconds < first, L"the estimate never moved");
+    }
+  }
+
+  TEST_METHOD(TheSameShardProducesTheSameSummaryMessageTwice)
+  {
+    // Ordered by anchor and then state, so a client can diff two of them
+    // without sorting and two runs of one script produce the same bytes.
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+
+    const auto run = [&universe, &anchors]()
+    {
+      WorldRegistry registry;
+      registry.Reset(&universe, Config());
+      std::uint32_t tick = 0;
+      (void)AddShip(registry, anchors[1], 50.0f, 0.0f);
+      const ShipId ship = AddShip(registry, anchors[0], 300.0f, 0.0f);
+      const ShipId fleet[] = {ship};
+      Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], fleet).accepted);
+      TickUntil(registry, tick, 2000, [&] { return !OnGrid(registry, anchors[0], ship); });
+
+      std::uint8_t buffer[2048];
+      Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
+      const std::vector<FleetSummary> rows = registry.Summaries();
+      Assert::IsTrue(WriteFleetSummaries(rows, writer));
+      return std::vector<std::uint8_t>{buffer, buffer + writer.BytesWritten()};
+    };
+
+    const std::vector<std::uint8_t> first = run();
+    const std::vector<std::uint8_t> second = run();
+    Assert::IsTrue(first == second, L"two runs of one script produced different summaries");
+    Assert::IsTrue(first.size() > FleetSummariesBytes(0), L"the message is empty, so it proves nothing");
+  }
+
+  TEST_METHOD(TheSummaryMessageSurvivesTheTripAndRefusesAHostileCount)
+  {
+    const FleetSummary rows[] = {FleetSummary{7, FleetState::OnGrid, 12, FLEET_ETA_NONE},
+                                 FleetSummary{7, FleetState::Docked, 3, FLEET_ETA_NONE},
+                                 FleetSummary{9, FleetState::InTransit, 41, 87}};
+
+    std::uint8_t buffer[256];
+    Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
+    Assert::IsTrue(WriteFleetSummaries(rows, writer));
+    Assert::AreEqual(FleetSummariesBytes(3), writer.BytesWritten());
+
+    Neuron::ByteReader reader{std::span<const std::uint8_t>{buffer, writer.BytesWritten()}};
+    std::vector<FleetSummary> received;
+    Assert::IsTrue(ReadFleetSummaries(reader, received));
+    Assert::AreEqual<std::size_t>(3, received.size());
+    Assert::AreEqual<std::uint32_t>(9, received[2].anchor);
+    Assert::IsTrue(received[2].state == FleetState::InTransit);
+    Assert::AreEqual<std::uint32_t>(41, received[2].shipCount);
+    Assert::AreEqual<std::uint32_t>(87, received[2].etaSeconds);
+
+    // A count past the cap is refused before a single row is read.
+    std::uint8_t hostile[8];
+    Neuron::ByteWriter bad{std::span<std::uint8_t>{hostile}};
+    bad.WriteUInt16(65535);
+    Neuron::ByteReader badReader{std::span<const std::uint8_t>{hostile, bad.BytesWritten()}};
+    Assert::IsFalse(ReadFleetSummaries(badReader, received));
+  }
+
+  TEST_METHOD(EveryStateIsNamed)
+  {
+    // A roster block with no word on it is a block the player cannot read.
+    for (const FleetState state : {FleetState::OnGrid, FleetState::Docked, FleetState::InTransit})
+    {
+      Assert::IsNotNull(FleetStateName(state));
+      Assert::IsTrue(std::string_view{FleetStateName(state)}.size() > 0);
     }
   }
 };

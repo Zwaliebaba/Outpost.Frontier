@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EventRecord.h"
+#include "FleetSummary.h"
 #include "Ids.h"
 #include "Station.h"
 #include "Transfer.h"
@@ -109,6 +110,23 @@ public:
    * commanders -- the emissions already carry everything that split needs.
    */
   [[nodiscard]] const EventRecord& Events() const noexcept { return m_events; }
+
+  /*
+   * Where the commander's ships are, without looking at any of them
+   * (ADR-016 §6).
+   *
+   * One row per (place, state): ships standing on a grid, ships docked at a
+   * station, and ships crossing to somewhere -- the last carrying the ETA no
+   * grid can, because a fleet in transit is in no world at all.
+   *
+   * Ordered by anchor and then by state, so two runs of one script produce the
+   * same message and a client can diff two of them without sorting.
+   *
+   * Everything today, because there is one commander. When there are more this
+   * takes a `PlayerId` and filters (ADR-018 D5) -- the shape does not change,
+   * only what it counts.
+   */
+  [[nodiscard]] std::vector<FleetSummary> Summaries() const;
 
   /// How many records are filed and not yet applied. The bus is world state --
   /// it folds into the hash -- so this is how a test asks whether a tick
@@ -225,7 +243,8 @@ private:
   void ApplyTransit(const TransferRequest& _request);
 
   /// How long a crossing between two anchors takes, in ticks (U3a): a base
-  /// plus the universe distance over the slowest member's warp speed.
+  /// plus the universe distance over the slowest member's warp speed, never
+  /// below `TRANSFER_FLOOR_TICKS` (ADR-019 §4b).
   [[nodiscard]] std::uint32_t TransitTicks(AnchorId _from, const TransferRequest& _request) const;
 
   /// Which anchors a grid may warp to (ADR-016 §5). Same system, itself

@@ -138,6 +138,25 @@ struct TransferRequest
  */
 inline constexpr float WARP_BASE_SECONDS = 5.0f;
 
+/*
+ * The shortest a *transit* may be, in ticks (ADR-019 §4b).
+ *
+ * Not a game-feel number: it is the slack a cross-host transfer needs. A
+ * transit's `applyTick` is seconds in the future, and the destination host has
+ * until then to receive the record -- which turns latency into slack instead of
+ * a race, but only if the slack is guaranteed rather than assumed. One second
+ * bounds worst-case host skew plus inter-host RTT with room to spare.
+ *
+ * It applies to crossings that take time -- warp today, the gate jump in U4 --
+ * and not to a dock or an undock, which are not journeys: ADR-017 §2's "the
+ * whole fleet, one moment" is a crossing between a world and the universe layer
+ * on one host, with no other host to be raced by.
+ *
+ * There is one host, so nothing needs this yet, and that is exactly when a
+ * timing table can be tuned under a floor without anybody noticing.
+ */
+inline constexpr std::uint32_t TRANSFER_FLOOR_TICKS = 20;
+
 /// A filed request, stamped. The registry stamps -- the counter is the host's,
 /// not a world's, and a world minting its own would give two grids the same
 /// number in the same tick.

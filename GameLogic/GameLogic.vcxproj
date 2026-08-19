@@ -22,6 +22,7 @@
     <ClCompile Include="ReplicatedView.cpp" />
     <ClCompile Include="Eta.cpp" />
     <ClCompile Include="EventRecord.cpp" />
+    <ClCompile Include="FleetSummary.cpp" />
     <ClCompile Include="Formation.cpp" />
     <ClCompile Include="OrderMessages.cpp" />
     <ClCompile Include="Orders.cpp" />
@@ -45,6 +46,7 @@
     <ClInclude Include="SchemaHash.h" />
     <ClInclude Include="Eta.h" />
     <ClInclude Include="EventRecord.h" />
+    <ClInclude Include="FleetSummary.h" />
     <ClInclude Include="Formation.h" />
     <ClInclude Include="OrderMessages.h" />
     <ClInclude Include="Orders.h" />
