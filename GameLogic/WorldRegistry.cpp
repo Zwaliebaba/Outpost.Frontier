@@ -2,10 +2,12 @@
 
 #include "WorldRegistry.h"
 
+#include "Formation.h"
 #include "ShipClass.h"
 #include "UniverseGen.h"
 #include "WorldHash.h"
 
+#include "EntityRecord.h"
 #include "Hash.h"
 
 #include <algorithm>
@@ -223,6 +225,95 @@ ShipId WorldRegistry::Spawn(AnchorId _anchor, const ShipSpawn& _spawn)
   return id;
 }
 
+OrderVerdict WorldRegistry::SubmitStationCommand(const StationCommand& _command)
+{
+  RosterView view;
+  view.station = INVALID_ID;
+  if (m_universe != nullptr)
+  {
+    const Anchor* anchor = m_universe->FindAnchor(_command.station);
+    if (anchor != nullptr && anchor->kind == AnchorKind::Station)
+    {
+      // A station exists whether or not anything is docked at it. The roster is
+      // a fact about ships, not a property the station has to be given, so an
+      // empty one is still *this* station's -- and the command is refused
+      // `NotDocked` rather than `UnknownStation`, which is the honest answer.
+      view.station = _command.station;
+      view.docked = Roster(_command.station);
+    }
+  }
+
+  const OrderVerdict verdict = ValidateStationCommand(view, _command);
+  if (!verdict.accepted)
+  {
+    return verdict;
+  }
+
+  StationRoster& roster = RosterFor(_command.station);
+
+  if (_command.verb == StationVerb::AssignWing)
+  {
+    /*
+     * Nothing crosses, so nothing is filed. A wing is a number a ship carries
+     * (ADR-017 §6) -- there is no wing table to create, no entity to name, and
+     * disbanding a wing is reassigning its last member. Applied on the spot for
+     * the same reason a dock is not: the bus exists to keep one grid from
+     * reading another mid-tick, and this reads no grid at all.
+     */
+    for (std::uint16_t index = 0; index < _command.shipCount; ++index)
+    {
+      const ShipId shipId = _command.shipIds[index];
+      for (RosterEntry& row : roster.docked)
+      {
+        if (row.shipId == shipId)
+        {
+          row.wing = _command.wing;
+          break;
+        }
+      }
+    }
+    return verdict;
+  }
+
+  /*
+   * Undock. The ships leave the roster **now** and arrive on the grid when the
+   * record applies, which is exactly the shape a dock has in reverse: leave the
+   * source at filing, arrive at the destination at the apply point. It is also
+   * what makes a second undock naming the same ship in the same tick impossible
+   * rather than merely unlikely -- the row is already gone.
+   */
+  TransferRequest request;
+  request.kind = TransferKind::Undock;
+  request.anchor = _command.station;
+  request.formation = _command.formation;
+
+  for (std::uint16_t index = 0; index < _command.shipCount; ++index)
+  {
+    const ShipId shipId = _command.shipIds[index];
+    const auto row = std::find_if(roster.docked.begin(), roster.docked.end(),
+                                  [shipId](const RosterEntry& _row) { return _row.shipId == shipId; });
+    if (row == roster.docked.end())
+    {
+      continue; // Validation already refused this case; belt and braces.
+    }
+    if (!request.AddMember(TransferMember{row->shipId, row->hullClass, row->wing}))
+    {
+      break;
+    }
+    roster.docked.erase(row);
+  }
+
+  if (request.memberCount > 0)
+  {
+    TransferRecord record;
+    record.id = TransferId{m_config.hostId, m_nextTransferCounter++};
+    record.applyTick = m_shardTick + 1;
+    record.what = request;
+    m_bus.push_back(record);
+  }
+  return verdict;
+}
+
 bool WorldRegistry::Despawn(AnchorId _anchor, ShipId _shipId)
 {
   LiveWorld* entry = Find(_anchor);
@@ -288,17 +379,122 @@ void WorldRegistry::ApplyDueTransfers()
 
     if (record.what.kind == TransferKind::Dock)
     {
-      // The roster keeps the id (ADR-017 §1): the ship that undocks is the
-      // ship that docked, and every log and order that named it still does.
-      RosterFor(record.what.anchor)
-        .docked.push_back(RosterEntry{record.what.shipId, record.what.hullClass, record.what.wing});
+      StationRoster& roster = RosterFor(record.what.anchor);
+      for (std::uint16_t index = 0; index < record.what.memberCount; ++index)
+      {
+        const TransferMember& member = record.what.members[index];
 
-      // Docked counts as presence (ADR-017 §7), so the index keeps pointing at
-      // the station rather than forgetting where the ship went.
-      RecordLocation(record.what.shipId, record.what.anchor);
+        // The roster keeps the id (ADR-017 §1): the ship that undocks is the
+        // ship that docked, and every log and order that named it still does.
+        roster.docked.push_back(RosterEntry{member.shipId, member.hullClass, member.wing});
+
+        // Docked counts as presence (ADR-017 §7), so the index keeps pointing
+        // at the station rather than forgetting where the ship went.
+        RecordLocation(member.shipId, record.what.anchor);
+      }
+    }
+    else if (record.what.kind == TransferKind::Undock)
+    {
+      ApplyUndock(record.what);
     }
   }
   m_bus.erase(m_bus.begin(), m_bus.begin() + static_cast<std::ptrdiff_t>(applied));
+}
+
+void WorldRegistry::ApplyUndock(const TransferRequest& _request)
+{
+  const Anchor* anchor = m_universe == nullptr ? nullptr : m_universe->FindAnchor(_request.anchor);
+  if (anchor == nullptr)
+  {
+    return;
+  }
+
+  /*
+   * Spawning into a world with no live grid spins one up (ADR-016 §4). An
+   * undock *is* ships arriving -- the same door warp will use, opened from the
+   * inside.
+   */
+  World* world = Borrow(_request.anchor);
+  if (world == nullptr)
+  {
+    return;
+  }
+
+  // The authored undock point and facing (ADR-017 §3): ~800 m off the
+  // structure, facing outward, clear of its contact radius. Authored rather
+  // than computed, so two fleets undocking the same tick differ only by
+  // ADR-015's separation.
+  const DirectX::XMFLOAT2 undockPoint{Neuron::CentimetresToMetres(static_cast<std::int32_t>(anchor->undockPoint.x)),
+                                      Neuron::CentimetresToMetres(static_cast<std::int32_t>(anchor->undockPoint.y))};
+  const float facing = Neuron::HeadingToRadians(anchor->undockFacingTurns16);
+
+  /*
+   * Solved together, because they left together. The lookup reads the record
+   * rather than the world -- the ships are not in the world yet, which is the
+   * whole reason the crossing carries their classes.
+   */
+  struct MemberLookup
+  {
+    const TransferRequest* request = nullptr;
+
+    [[nodiscard]] static HullClass Of(ShipId _shipId, void* _context) noexcept
+    {
+      const auto* lookup = static_cast<const MemberLookup*>(_context);
+      for (std::uint16_t index = 0; index < lookup->request->memberCount; ++index)
+      {
+        if (lookup->request->members[index].shipId == _shipId)
+        {
+          return lookup->request->members[index].hullClass;
+        }
+      }
+      return HullClass::Interceptor;
+    }
+  };
+
+  ShipId ids[MAX_SHIPS_PER_ORDER];
+  for (std::uint16_t index = 0; index < _request.memberCount; ++index)
+  {
+    ids[index] = _request.members[index].shipId;
+  }
+
+  FormationStation stations[MAX_SHIPS_PER_ORDER];
+  MemberLookup lookup{&_request};
+  const std::uint32_t placed =
+    SolveFormation(_request.formation, std::span<const ShipId>{ids, _request.memberCount}, &MemberLookup::Of, &lookup,
+                   undockPoint, facing, std::span<FormationStation>{stations});
+
+  // Fifteen seconds, stamped at arrival (ADR-017 §5). Computed from the tick
+  // length rather than written as a tick count, so the window stays fifteen
+  // seconds if the tick rate ever moves (ADR-002 §1).
+  const auto protectionTicks =
+    static_cast<std::uint32_t>(static_cast<float>(UNDOCK_PROTECTION_SECONDS) / World::TICK_SECONDS);
+
+  for (std::uint32_t index = 0; index < placed; ++index)
+  {
+    const TransferMember& member = _request.members[index];
+    ShipSpawn spawn;
+    spawn.hullClass = member.hullClass;
+    spawn.wing = member.wing;
+    spawn.xMetres = stations[index].positionMetres.x;
+    spawn.yMetres = stations[index].positionMetres.y;
+    spawn.headingRadians = facing;
+    spawn.protectedUntilTick = m_shardTick + protectionTicks;
+
+    // Undocking spawns it **full**, and that is not a repair step: the roster
+    // held no gauges to be damaged (ADR-017 §1).
+    if (world->Spawn(spawn, member.shipId) != INVALID_SHIP_ID)
+    {
+      RecordLocation(member.shipId, _request.anchor);
+    }
+  }
+
+  /*
+   * The parking order is **not filed yet** (ADR-017 §4), and the fleet holding
+   * at the undock point is a legal outcome rather than a gap: the ring's own
+   * rule says all 24 candidates refused means hold here, protection still
+   * ticking, separation keeping it honest -- undocking is never refused for
+   * clutter. What T1's next slice adds is the scan that usually finds a berth.
+   */
 }
 
 void WorldRegistry::CollectFiledTransfers()
@@ -480,7 +676,13 @@ std::uint64_t WorldRegistry::Hash() const
     hash = Neuron::HashValue(record.id.counter, hash);
     hash = Neuron::HashValue(static_cast<std::uint8_t>(record.what.kind), hash);
     hash = Neuron::HashValue(record.what.anchor, hash);
-    hash = Neuron::HashValue(record.what.shipId, hash);
+    hash = Neuron::HashValue(static_cast<std::uint8_t>(record.what.formation), hash);
+    for (std::uint16_t index = 0; index < record.what.memberCount; ++index)
+    {
+      hash = Neuron::HashValue(record.what.members[index].shipId, hash);
+      hash = Neuron::HashValue(static_cast<std::uint8_t>(record.what.members[index].hullClass), hash);
+      hash = Neuron::HashValue(record.what.members[index].wing, hash);
+    }
   }
   return hash;
 }

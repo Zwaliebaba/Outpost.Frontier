@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Ids.h"
+#include "Orders.h"
 #include "ShipClass.h"
 
 #include <cstdint>
@@ -74,25 +75,57 @@ enum class TransferKind : std::uint8_t
 };
 
 /*
- * What a world hands over, and what comes back.
+ * One ship in a crossing.
  *
- * The ship's identity survives the crossing intact -- that is the whole point
- * of the roster keeping ids (ADR-017 §1): every log, order and roster row means
- * the same ship before and after. Class and wing travel with it because the
- * roster holds exactly those three things and nothing else; a docked ship has
- * no position to carry and no gauges to repair, which *is* the repair rule.
+ * Its identity survives intact -- that is the whole point of the roster keeping
+ * ids (ADR-017 §1): every log, order and roster row means the same ship before
+ * and after. Class and wing travel with it because the roster holds exactly
+ * those three things and nothing else; a docked ship has no position to carry
+ * and no gauges to repair, which *is* the repair rule.
+ */
+struct TransferMember
+{
+  ShipId shipId = INVALID_SHIP_ID;
+  HullClass hullClass = HullClass::Interceptor;
+  WingId wing = INVALID_WING_ID;
+};
+
+/*
+ * What a world hands over, and what comes back: **a fleet, not a ship**.
+ *
+ * "A fleet docks together and instantly"; a fleet undocks together and arrives
+ * in formation. If a crossing were one record per ship, "together" would be a
+ * property of how the records happened to be ordered rather than a fact about
+ * the record -- and the arrival solve, which needs every member at once to
+ * place any of them, would have nothing to solve over.
  */
 struct TransferRequest
 {
   TransferKind kind = TransferKind::Dock;
 
-  /// The anchor the ship is crossing to: the station it docks at, and later the
-  /// destination it warps to.
+  /// The anchor the fleet is crossing to: the station it docks at, the station
+  /// it undocks from, and later the destination it warps to.
   AnchorId anchor = INVALID_ID;
 
-  ShipId shipId = INVALID_SHIP_ID;
-  HullClass hullClass = HullClass::Interceptor;
-  WingId wing = INVALID_WING_ID;
+  /// How it arranges itself on arrival. Meaningless for a dock -- the roster
+  /// has no shape.
+  FormationId formation = FormationId::Line;
+
+  std::uint16_t memberCount = 0;
+  TransferMember members[MAX_SHIPS_PER_ORDER] = {};
+
+  /// Appends, or reports the crossing is full. Returning false rather than
+  /// dropping keeps half a fleet from reading as the whole one.
+  [[nodiscard]] bool AddMember(const TransferMember& _member) noexcept
+  {
+    if (memberCount >= MAX_SHIPS_PER_ORDER)
+    {
+      return false;
+    }
+    members[memberCount] = _member;
+    ++memberCount;
+    return true;
+  }
 };
 
 /// A filed request, stamped. The registry stamps -- the counter is the host's,

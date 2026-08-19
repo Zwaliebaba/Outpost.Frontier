@@ -8,7 +8,10 @@
 #include "WorldHash.h"
 #include "WorldRegistry.h"
 
+#include "EntityRecord.h"
+
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -102,7 +105,335 @@ ShipId AddShip(WorldRegistry& _registry, AnchorId _anchor, float _x, float _y)
   return world->SubmitOrder(order);
 }
 
+/// Docks a fleet and lets the bus land it, so a test that is about *undocking*
+/// does not spend a screen getting there.
+void DockAndLand(WorldRegistry& _registry, AnchorId _anchor, std::span<const ShipId> _ships, std::uint32_t& _tick)
+{
+  Assert::IsTrue(SubmitDock(_registry, _anchor, _ships).accepted);
+  _registry.Tick(++_tick);
+  _registry.Tick(++_tick);
+  Assert::AreEqual(_ships.size(), _registry.Roster(_anchor).size());
+}
+
+[[nodiscard]] StationCommand Undock(AnchorId _station, std::span<const ShipId> _ships,
+                                    FormationId _formation = FormationId::Line)
+{
+  StationCommand command;
+  command.orderSeq = 1;
+  command.verb = StationVerb::Undock;
+  command.station = _station;
+  command.formation = _formation;
+  for (const ShipId ship : _ships)
+  {
+    Assert::IsTrue(command.AddShip(ship));
+  }
+  return command;
+}
+
 } // namespace
+
+TEST_CLASS(StationCommandTests)
+{
+public:
+  TEST_METHOD(AnUndockPutsTheFleetBackOnTheGridAtTheAuthoredPoint)
+  {
+    /*
+     * ADR-017 §3. The selection *is* the fleet -- there is no fleet entity to
+     * create -- and it arrives by formation solve at the anchor's authored
+     * undock point and facing, which is the warp-arrival pattern run from a
+     * new door.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+    const Anchor* anchor = universe.FindAnchor(station);
+    Assert::IsNotNull(anchor);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+    const ShipId first = AddShip(registry, station, 200.0f, 0.0f);
+    const ShipId second = AddShip(registry, station, -200.0f, 0.0f);
+    const ShipId fleet[] = {first, second};
+    DockAndLand(registry, station, fleet, tick);
+
+    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::AreEqual<std::size_t>(0, registry.Roster(station).size(), L"they left the roster when the record was filed");
+
+    registry.Tick(++tick);
+
+    const World* world = registry.Peek(station);
+    Assert::IsNotNull(world);
+
+    // Both are back, with their own ids, near the authored undock point.
+    const float undockX = Neuron::CentimetresToMetres(static_cast<std::int32_t>(anchor->undockPoint.x));
+    const float undockY = Neuron::CentimetresToMetres(static_cast<std::int32_t>(anchor->undockPoint.y));
+    std::uint32_t found = 0;
+    for (std::size_t slot = 0; slot < world->Ids().size(); ++slot)
+    {
+      const ShipId id = world->Ids()[slot];
+      if (id != first && id != second)
+      {
+        continue;
+      }
+      ++found;
+      const float dx = world->Positions()[slot].x - undockX;
+      const float dy = world->Positions()[slot].y - undockY;
+      Assert::IsTrue(std::sqrt(dx * dx + dy * dy) < 1000.0f, L"a two-ship formation solves close to its anchor");
+      Assert::AreEqual<std::uint32_t>(255, world->Hulls()[slot], L"the roster held no damage, so nothing came back hurt");
+      Assert::AreEqual<std::uint32_t>(255, world->Shields()[slot]);
+    }
+    Assert::AreEqual<std::uint32_t>(2, found, L"the same two ships, by id");
+  }
+
+  TEST_METHOD(AnUndockedShipIsProtectedForFifteenSecondsAndThenIsNot)
+  {
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+    const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
+    const ShipId fleet[] = {ship};
+    DockAndLand(registry, station, fleet, tick);
+
+    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    registry.Tick(++tick);
+
+    const std::uint32_t arrival = tick;
+    const auto window = static_cast<std::uint32_t>(static_cast<float>(UNDOCK_PROTECTION_SECONDS) / World::TICK_SECONDS);
+
+    const World* world = registry.Peek(station);
+    Assert::IsTrue(world->IsProtected(ship, arrival), L"protected from its first tick, not its second");
+    Assert::IsTrue(world->IsProtected(ship, arrival + window - 1));
+    Assert::IsFalse(world->IsProtected(ship, arrival + window), L"and fifteen seconds later it is not");
+  }
+
+  TEST_METHOD(ThePlayersOwnCommandEndsProtectionAndASystemOrderDoesNot)
+  {
+    /*
+     * ADR-017 §5, and the reason `systemIssued` exists at all: the parking
+     * order arrives in the same tick the fleet does, so if *any* order ended
+     * protection the fleet would never have any.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+    const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
+    const ShipId fleet[] = {ship};
+    DockAndLand(registry, station, fleet, tick);
+    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    registry.Tick(++tick);
+
+    World* world = registry.Borrow(station);
+    Assert::IsTrue(world->IsProtected(ship, tick));
+
+    OrderSubmit move;
+    move.orderSeq = 2;
+    Assert::IsTrue(move.AddShip(ship));
+    move.target.xCm = Neuron::MetresToCentimetres(1500.0f);
+
+    // The system's own order leaves it alone.
+    Assert::IsTrue(world->SubmitSystemOrder(move).accepted);
+    registry.Tick(++tick);
+    Assert::IsTrue(world->IsProtected(ship, tick), L"the order that parks the fleet must not disarm it");
+
+    // The player's ends it, on ingest.
+    move.orderSeq = 3;
+    Assert::IsTrue(world->SubmitOrder(move).accepted);
+    registry.Tick(++tick);
+    Assert::IsFalse(world->IsProtected(ship, tick), L"you cannot shoot from under the station's skirts");
+  }
+
+  TEST_METHOD(UndockingSomethingThatIsNotOnThisRosterIsRefused)
+  {
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> stations = StationAnchors(universe, 2);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+    const ShipId ship = AddShip(registry, stations[0], 200.0f, 0.0f);
+    const ShipId fleet[] = {ship};
+    DockAndLand(registry, stations[0], fleet, tick);
+
+    const OrderVerdict elsewhere = registry.SubmitStationCommand(Undock(stations[1], fleet));
+    Assert::IsFalse(elsewhere.accepted);
+    Assert::IsTrue(elsewhere.reason == OrderReason::NotDocked, L"the station is real; the ship is not on it");
+
+    const ShipId stranger[] = {static_cast<ShipId>(4242)};
+    const OrderVerdict unknown = registry.SubmitStationCommand(Undock(stations[0], stranger));
+    Assert::IsFalse(unknown.accepted);
+    Assert::IsTrue(unknown.reason == OrderReason::NotDocked);
+  }
+
+  TEST_METHOD(TheSameShipCannotUndockTwiceInOneTick)
+  {
+    // The row leaves the roster at *filing*, which is what makes the second
+    // command a refusal rather than a race.
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+    const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
+    const ShipId fleet[] = {ship};
+    DockAndLand(registry, station, fleet, tick);
+
+    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    const OrderVerdict again = registry.SubmitStationCommand(Undock(station, fleet));
+    Assert::IsFalse(again.accepted);
+    Assert::IsTrue(again.reason == OrderReason::NotDocked);
+  }
+
+  TEST_METHOD(AssignWingRewritesTheRowAndNothingCrosses)
+  {
+    /*
+     * ADR-017 §6: a wing exists iff a ship carries its number. Nothing is
+     * created, nothing is destroyed, and nothing crosses the bus -- so it
+     * applies on the spot rather than between ticks.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+    const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
+    const ShipId fleet[] = {ship};
+    DockAndLand(registry, station, fleet, tick);
+    Assert::AreEqual<std::uint32_t>(1, registry.Roster(station)[0].wing);
+
+    StationCommand assign;
+    assign.orderSeq = 9;
+    assign.verb = StationVerb::AssignWing;
+    assign.station = station;
+    assign.wing = 7;
+    Assert::IsTrue(assign.AddShip(ship));
+
+    Assert::IsTrue(registry.SubmitStationCommand(assign).accepted);
+    Assert::AreEqual<std::uint32_t>(0, registry.PendingTransferCount(), L"a wing is a number, not a place");
+    Assert::AreEqual<std::uint32_t>(7, registry.Roster(station)[0].wing);
+
+    // And it travels with the ship: undocking spawns it into wing 7.
+    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    registry.Tick(++tick);
+    const World* world = registry.Peek(station);
+    for (std::size_t slot = 0; slot < world->Ids().size(); ++slot)
+    {
+      if (world->Ids()[slot] == ship)
+      {
+        Assert::AreEqual<std::uint32_t>(7, world->Wings()[slot], L"the wing the hangar assigned is the wing it flies in");
+      }
+    }
+  }
+
+  TEST_METHOD(TheCommandCheckOrderIsTheContract)
+  {
+    // Same promise the order side makes, for the same reason: a command that
+    // breaks two rules has to name the same one on both machines.
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+    const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
+    const ShipId fleet[] = {ship};
+    DockAndLand(registry, station, fleet, tick);
+
+    StationCommand empty = Undock(station, {});
+    empty.formation = static_cast<FormationId>(200);
+    empty.station = 9999;
+    Assert::IsTrue(registry.SubmitStationCommand(empty).reason == OrderReason::EmptySelection);
+
+    StationCommand badFormation = Undock(station, fleet);
+    badFormation.formation = static_cast<FormationId>(200);
+    badFormation.station = 9999;
+    Assert::IsTrue(registry.SubmitStationCommand(badFormation).reason == OrderReason::InvalidFormation);
+
+    StationCommand nowhere = Undock(9999, fleet);
+    Assert::IsTrue(registry.SubmitStationCommand(nowhere).reason == OrderReason::UnknownStation);
+
+    // And only then does the roster get to answer.
+    const ShipId stranger[] = {static_cast<ShipId>(4242)};
+    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, stranger)).reason == OrderReason::NotDocked);
+  }
+
+  TEST_METHOD(AnUndockIntoATornDownGridSpinsOneUp)
+  {
+    // ADR-016 §4: spawning into a world with no live grid spins one up. An
+    // undock is ships arriving, and the door does not care which side it was
+    // opened from.
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+    const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
+    const ShipId fleet[] = {ship};
+    DockAndLand(registry, station, fleet, tick);
+
+    registry.Tick(++tick); // Nothing left on the grid, nobody watching: it goes.
+    Assert::IsNull(registry.Peek(station));
+
+    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    registry.Tick(++tick);
+    Assert::IsNotNull(registry.Peek(station), L"the fleet had somewhere to arrive");
+  }
+
+  TEST_METHOD(AMixedDockUndockScenarioReproducesItselfBitForBit)
+  {
+    /*
+     * T1's acceptance, and the reason the roster and the bus are in the hash: a
+     * session replay is the per-grid order logs *plus* the transfer log. Two
+     * runs of the same script have to agree about where every ship ended up,
+     * which wing it is in, and what is still in flight.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> stations = StationAnchors(universe, 2);
+
+    const auto run = [&universe, &stations]()
+    {
+      WorldRegistry registry;
+      registry.Reset(&universe, Config());
+      std::uint32_t tick = 0;
+
+      const ShipId a = AddShip(registry, stations[0], 200.0f, 0.0f);
+      const ShipId b = AddShip(registry, stations[0], -200.0f, 300.0f);
+      const ShipId c = AddShip(registry, stations[1], 150.0f, -150.0f);
+
+      const ShipId here[] = {a, b};
+      const ShipId there[] = {c};
+      Assert::IsTrue(SubmitDock(registry, stations[0], here).accepted);
+      Assert::IsTrue(SubmitDock(registry, stations[1], there).accepted);
+      registry.Tick(++tick);
+      registry.Tick(++tick);
+
+      StationCommand assign;
+      assign.orderSeq = 4;
+      assign.verb = StationVerb::AssignWing;
+      assign.station = stations[0];
+      assign.wing = 3;
+      Assert::IsTrue(assign.AddShip(b));
+      Assert::IsTrue(registry.SubmitStationCommand(assign).accepted);
+
+      const ShipId back[] = {a, b};
+      Assert::IsTrue(registry.SubmitStationCommand(Undock(stations[0], back, FormationId::Wedge)).accepted);
+      registry.Tick(++tick);
+      registry.Tick(++tick);
+      registry.Tick(++tick);
+      return registry.Hash();
+    };
+
+    Assert::AreEqual(run(), run(), L"the same script has to produce the same universe");
+  }
+};
 
 TEST_CLASS(StationRosterTests)
 {
@@ -132,7 +463,8 @@ public:
     // is on the bus rather than applied.
     registry.Tick(1);
     Assert::AreEqual(before - 2, registry.Borrow(station)->ShipCount(), L"the fleet left the grid at ingest");
-    Assert::AreEqual<std::uint32_t>(2, registry.PendingTransferCount());
+    Assert::AreEqual<std::uint32_t>(1, registry.PendingTransferCount(),
+                                    L"one record for the fleet, because a fleet docks together");
     Assert::AreEqual<std::size_t>(0, registry.Roster(station).size(), L"a filed transfer has not happened yet");
 
     // Tick two applies, between the ticks.

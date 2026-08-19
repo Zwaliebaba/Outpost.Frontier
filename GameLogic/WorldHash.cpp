@@ -56,6 +56,7 @@ std::uint64_t ComputeWorldHash(const World& _world) noexcept
   const std::span<const Guidance> guidances = _world.Guidances();
   const std::span<const std::uint8_t> hulls = _world.Hulls();
   const std::span<const std::uint8_t> shields = _world.Shields();
+  const std::span<const std::uint32_t> protectedUntil = _world.ProtectedUntil();
 
   for (std::size_t slot = 0; slot < ids.size(); ++slot)
   {
@@ -77,6 +78,12 @@ std::uint64_t ComputeWorldHash(const World& _world) noexcept
 
     hash = Neuron::HashValue(hulls[slot], hash);
     hash = Neuron::HashValue(shields[slot], hash);
+
+    // Undock protection (ADR-017 §5). Simulation state, not presentation: it
+    // decides what a future combat model may do to this ship, and two worlds
+    // that disagree about who is protected have already diverged about the
+    // fight that follows.
+    hash = Neuron::HashValue(protectedUntil[slot], hash);
   }
 
   /*

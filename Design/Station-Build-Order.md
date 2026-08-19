@@ -97,10 +97,32 @@ despawn that bypassed them leaked a stale index entry past the grid's teardown, 
 sweeps the index by anchor — skipping the ships docked there, which do not leave with the
 grid.
 
-**Still owed by T1:** undock and the station commands (`Undock`, `AssignWing`) over a
-`RosterView`; the parking ring and its deterministic berth scan; the 15-second protection
-window and `systemIssued`; the event-record emissions (ADR-018 A17); and the double-run
-scenario that mixes all of them.
+**Built (T1, the undock half, 2026-08-19).** `GameLogic/Station.h/.cpp` is the roster and
+the commands over it. `RosterView` + `ValidateStationCommand` is the shared pure function
+both halves call — no `World` in the header, which is what makes the client able to call it
+— with its own check-order contract (`EmptySelection` → `TooManyShips` → `InvalidFormation`
+→ `UnknownStation` → `NotDocked`) held by the same kind of test the order side has.
+
+An accepted `Undock` files a transfer and the fleet **leaves the roster at filing**, which
+is a dock run backwards: leave the source when the record is written, arrive at the
+destination when it applies. That also makes a second undock naming the same ship in the
+same tick a refusal rather than a race. At the apply point the fleet is solved together at
+the anchor's **authored undock point and facing**, spawned with its own ids, classes and
+wings, and stamped `protectedUntilTick` — fifteen seconds computed from `World::TICK_SECONDS`
+rather than written as a tick count, so the window stays fifteen seconds if the tick rate
+moves. A transfer record now carries a **fleet** rather than a ship, because "together, one
+moment" should be a fact about the record and not about how the records happened to be
+ordered — and because the arrival solve needs every member at once to place any of them.
+
+`AssignWing` applies on the spot and files nothing: a wing is a number a ship carries, so
+nothing crosses. `OrderGroup` gained `systemIssued`, and ingesting a *player's* order clears
+protection on the ships it names while a system order does not — without that distinction
+the parking order would disarm the fleet it parks.
+
+**Still owed by T1:** the parking ring and its deterministic berth scan (until it lands, an
+undocked fleet holds at the undock point — which is the ring's own all-24-refused fallback,
+so the behaviour is legal rather than missing); the event-record emissions (ADR-018 A17);
+and repair-by-construction asserted against real gauges, which needs gauges.
 
 ### T2 — The wire and the tactical surfaces 🏁 H0
 One clustered schema bump (ADR-017 §8, **widened by ADR-018 into the identity cluster**):

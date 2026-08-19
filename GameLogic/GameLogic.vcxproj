@@ -26,6 +26,7 @@
     <ClCompile Include="Orders.cpp" />
     <ClCompile Include="Validate.cpp" />
     <ClCompile Include="ShipClass.cpp" />
+    <ClCompile Include="Station.cpp" />
     <ClCompile Include="Snapshot.cpp" />
     <ClCompile Include="Universe.cpp" />
     <ClCompile Include="UniverseGen.cpp" />
@@ -46,6 +47,7 @@
     <ClInclude Include="Orders.h" />
     <ClInclude Include="Validate.h" />
     <ClInclude Include="ShipClass.h" />
+    <ClInclude Include="Station.h" />
     <ClInclude Include="Snapshot.h" />
     <ClInclude Include="Transfer.h" />
     <ClInclude Include="Universe.h" />

@@ -84,7 +84,17 @@ ValidationView World::Validation()
   return view;
 }
 
+OrderVerdict World::SubmitSystemOrder(const OrderSubmit& _order)
+{
+  return Submit(_order, true);
+}
+
 OrderVerdict World::SubmitOrder(const OrderSubmit& _order)
+{
+  return Submit(_order, false);
+}
+
+OrderVerdict World::Submit(const OrderSubmit& _order, bool _systemIssued)
 {
   NEURON_ASSERT_OWNER(m_owner);
 
@@ -127,6 +137,7 @@ OrderVerdict World::SubmitOrder(const OrderSubmit& _order)
    * one is validated, so at submit the Append can only see the group the
    * Replace is about to destroy. Resolving early would append to a corpse.
    */
+  group.systemIssued = _systemIssued;
   group.serverOrderId = append ? 0 : m_nextOrderId;
   group.clientOrderSeq = _order.orderSeq;
   group.formation = _order.formation;
@@ -181,17 +192,43 @@ void World::IngestOrders()
      */
     if (pending.kind == OrderKind::Dock)
     {
+      TransferRequest request;
+      request.kind = TransferKind::Dock;
+      request.anchor = pending.anchor;
       for (std::uint16_t index = 0; index < submitted.memberCount; ++index)
       {
-        TransferRequest request;
-        request.kind = TransferKind::Dock;
-        request.anchor = pending.anchor;
-        if (TransferOut(submitted.members[index], request))
+        TransferMember member;
+        if (TransferOut(submitted.members[index], member) && !request.AddMember(member))
         {
-          m_filed.push_back(request);
+          break; // The order cap and the crossing cap are the same number.
         }
       }
+      if (request.memberCount > 0)
+      {
+        m_filed.push_back(request);
+      }
       continue;
+    }
+
+    /*
+     * A player's own command ends undock protection (ADR-017 §5).
+     *
+     * On *ingest* rather than on submit, so the rule is the same one tick that
+     * everything else in the order pipeline happens on. The parking order does
+     * not count -- that is exactly what `systemIssued` is for, and without the
+     * distinction a fleet would lose its fifteen seconds to the order that
+     * parks it.
+     */
+    if (!submitted.systemIssued)
+    {
+      for (std::uint16_t index = 0; index < submitted.memberCount; ++index)
+      {
+        std::uint32_t slot = 0;
+        if (FindSlot(submitted.members[index], slot))
+        {
+          m_protectedUntil[slot] = 0;
+        }
+      }
     }
 
     const bool append = pending.queueMode == QueueMode::Append;

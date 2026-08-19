@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Ids.h"
+#include "Station.h"
 #include "Transfer.h"
 #include "Universe.h"
 #include "World.h"
@@ -28,19 +29,6 @@
 
 namespace Game
 {
-
-/*
- * One docked ship (ADR-017 §1). Three fields and no gauges, which *is* the
- * repair rule: a docked ship has nothing to be damaged, so undocking spawns it
- * full. When repair costs time or money, this record grows and that clause is
- * the named hook.
- */
-struct RosterEntry
-{
-  ShipId shipId = INVALID_SHIP_ID;
-  HullClass hullClass = HullClass::Interceptor;
-  WingId wing = INVALID_WING_ID;
-};
 
 struct RegistryConfig
 {
@@ -152,6 +140,17 @@ public:
    */
   [[nodiscard]] ShipId Spawn(AnchorId _anchor, const ShipSpawn& _spawn);
 
+  /*
+   * Undock or reassign a wing (ADR-017 §3, §6).
+   *
+   * The station half of order submission, and it goes through the same shared
+   * validator both machines run. An accepted `Undock` files a transfer, so the
+   * fleet arrives between ticks like everything else that crosses; an accepted
+   * `AssignWing` writes the roster row on the spot, because nothing crosses --
+   * a wing is a number a ship carries, not a place it is.
+   */
+  [[nodiscard]] OrderVerdict SubmitStationCommand(const StationCommand& _command);
+
   /// Takes a ship off a grid and out of the index. The counterpart of `Spawn`,
   /// and the path a caller should take for the same reason: `World::Despawn`
   /// knows nothing about the index, so a ship removed through it would still
@@ -210,6 +209,7 @@ private:
   };
 
   [[nodiscard]] StationRoster& RosterFor(AnchorId _anchor);
+  void ApplyUndock(const TransferRequest& _request);
 
   /// Writes the index, growing it as ids climb. The one place the projection is
   /// written, so it cannot drift into being a second source of truth.

@@ -479,6 +479,7 @@ void World::Reset(std::uint64_t _seed) noexcept
   m_guidances.clear();
   m_hulls.clear();
   m_shields.clear();
+  m_protectedUntil.clear();
 
   m_groups.clear();
   m_pending.clear();
@@ -530,10 +531,25 @@ ShipId World::Spawn(const ShipSpawn& _spawn, ShipId _shipId)
 
   m_hulls.push_back(255);
   m_shields.push_back(255);
+
+  // Undocking spawns a ship full *and* protected, and both are the roster's
+  // doing: it holds no gauges, so there is nothing to come back damaged
+  // (ADR-017 §1), and it stamps the window on the way out (§5).
+  m_protectedUntil.push_back(_spawn.protectedUntilTick);
   return shipId;
 }
 
-bool World::TransferOut(ShipId _shipId, TransferRequest& _outRequest)
+bool World::IsProtected(ShipId _shipId, std::uint32_t _tick) const noexcept
+{
+  std::uint32_t slot = 0;
+  if (!FindSlot(_shipId, slot))
+  {
+    return false;
+  }
+  return _tick < m_protectedUntil[slot];
+}
+
+bool World::TransferOut(ShipId _shipId, TransferMember& _outMember)
 {
   NEURON_ASSERT_OWNER(m_owner);
 
@@ -545,9 +561,9 @@ bool World::TransferOut(ShipId _shipId, TransferRequest& _outRequest)
 
   // Read before the removal, because `Despawn` swap-and-pops and the slot it
   // reads from is about to hold somebody else.
-  _outRequest.shipId = _shipId;
-  _outRequest.hullClass = static_cast<HullClass>(m_classes[slot]);
-  _outRequest.wing = m_wings[slot];
+  _outMember.shipId = _shipId;
+  _outMember.hullClass = static_cast<HullClass>(m_classes[slot]);
+  _outMember.wing = m_wings[slot];
   return Despawn(_shipId);
 }
 
@@ -598,6 +614,7 @@ bool World::Despawn(ShipId _shipId)
     m_guidances[slot] = m_guidances[last];
     m_hulls[slot] = m_hulls[last];
     m_shields[slot] = m_shields[last];
+    m_protectedUntil[slot] = m_protectedUntil[last];
   }
 
   m_slotById[_shipId] = INVALID_SHIP_ID;
@@ -610,6 +627,7 @@ bool World::Despawn(ShipId _shipId)
   m_guidances.pop_back();
   m_hulls.pop_back();
   m_shields.pop_back();
+  m_protectedUntil.pop_back();
   return true;
 }
 

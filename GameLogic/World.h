@@ -116,6 +116,17 @@ struct OrderGroup
   std::uint16_t memberCount = 0;
   ShipId members[MAX_SHIPS_PER_ORDER] = {};
 
+  /*
+   * Issued by the world to itself rather than by a player (ADR-017 §4).
+   *
+   * Exactly one flag, and it earns its place twice: the parking order is a real
+   * group, so the ETA, the drawn lane, the straggler deadline and player
+   * override all come free -- and ingesting a *player's* order is what ends
+   * undock protection, which a system order must not do or the fleet would lose
+   * its fifteen seconds to the very order that parks it.
+   */
+  bool systemIssued = false;
+
   std::uint8_t legCount = 0;
   std::uint8_t legIndex = 0;
   OrderGroupLeg legs[MAX_ORDER_LEGS] = {};
@@ -183,6 +194,12 @@ struct ShipSpawn
   float xMetres = 0.0f;
   float yMetres = 0.0f;
   float headingRadians = 0.0f;
+
+  /// Undock protection (ADR-017 §5): the tick this ship stops being protected,
+  /// or zero for "never was". A spawn parameter rather than a later call
+  /// because a ship that is protected from its first tick and a ship that
+  /// becomes protected on its second are different things on the wire.
+  std::uint32_t protectedUntilTick = 0;
 };
 
 class World
@@ -291,7 +308,7 @@ public:
    *
    * False when the id is not here, which is a question worth being able to ask.
    */
-  [[nodiscard]] bool TransferOut(ShipId _shipId, TransferRequest& _outRequest);
+  [[nodiscard]] bool TransferOut(ShipId _shipId, TransferMember& _outMember);
 
   /*
    * The transfers this world filed and has not handed over yet.
@@ -324,6 +341,21 @@ public:
 
   [[nodiscard]] AnchorId Anchor() const noexcept { return m_anchor; }
   [[nodiscard]] ShipId StationShip() const noexcept { return m_stationShip; }
+
+  /*
+   * A move the world issues to itself (ADR-017 §4).
+   *
+   * The same path a player's order takes -- validated, queued, ingested,
+   * solved -- with one difference: it does not end undock protection. The
+   * parking order arrives in the same tick the fleet does, and a fleet that
+   * lost its protection to the order that parks it would have none at all.
+   */
+  [[nodiscard]] OrderVerdict SubmitSystemOrder(const OrderSubmit& _order);
+
+  /// Is this ship still under undock protection at `_tick` (ADR-017 §5)? False
+  /// for an unknown ship, which is the same answer as an unprotected one --
+  /// the question is about immunity, not existence.
+  [[nodiscard]] bool IsProtected(ShipId _shipId, std::uint32_t _tick) const noexcept;
 
   /// Removes a ship. Returns false if the id is not present, which is a
   /// question worth being able to ask rather than an error worth asserting.
@@ -427,6 +459,7 @@ public:
   [[nodiscard]] std::span<const Guidance> Guidances() const noexcept { return m_guidances; }
   [[nodiscard]] std::span<const std::uint8_t> Hulls() const noexcept { return m_hulls; }
   [[nodiscard]] std::span<const std::uint8_t> Shields() const noexcept { return m_shields; }
+  [[nodiscard]] std::span<const std::uint32_t> ProtectedUntil() const noexcept { return m_protectedUntil; }
 
   /// The accepted orders, and what they are doing. Read by `WriteSnapshot` for
   /// the order-state records that promote a client's ghost (ADR-004 §6).
@@ -491,6 +524,12 @@ private:
   /// guidance. The one place a group touches a ship.
   void ApplyLeg(OrderGroup& _group);
 
+  /// Both `SubmitOrder` and `SubmitSystemOrder`, which differ by one flag and
+  /// must not differ by anything else -- a system order that took a shortcut
+  /// through validation would be the one order the parity contract does not
+  /// cover.
+  [[nodiscard]] OrderVerdict Submit(const OrderSubmit& _order, bool _systemIssued);
+
   /// The group this ship currently belongs to, or null. A ship is in at most
   /// one group -- `ForgetShipInGroups` on ingest is what makes that true -- so
   /// there is exactly one answer. The pointer is invalidated by anything that
@@ -531,6 +570,12 @@ private:
   std::vector<Guidance> m_guidances;
   std::vector<std::uint8_t> m_hulls;
   std::vector<std::uint8_t> m_shields;
+
+  /// Undock protection, per slot (ADR-017 §5). Zero means unprotected, which is
+  /// every ship that did not arrive out of a station. Hashed like every other
+  /// per-ship field: it is simulation state, and a replay that disagreed about
+  /// who was protected would disagree about the fight that follows.
+  std::vector<std::uint32_t> m_protectedUntil;
 
   std::vector<OrderGroup> m_groups;
 

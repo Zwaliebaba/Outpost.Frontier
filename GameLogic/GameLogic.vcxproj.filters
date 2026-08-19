@@ -20,6 +20,9 @@
     <ClCompile Include="ShipClass.cpp">
       <Filter>World</Filter>
     </ClCompile>
+    <ClCompile Include="Station.cpp">
+      <Filter>Orders</Filter>
+    </ClCompile>
     <ClCompile Include="ReplicatedView.cpp">
       <Filter>Wire</Filter>
     </ClCompile>
@@ -85,6 +88,9 @@
     </ClInclude>
     <ClInclude Include="Transfer.h">
       <Filter>World</Filter>
+    </ClInclude>
+    <ClInclude Include="Station.h">
+      <Filter>Orders</Filter>
     </ClInclude>
     <ClInclude Include="WorldRegistry.h">
       <Filter>World</Filter>
