@@ -1,6 +1,10 @@
 # ADR-016 — Procedural Universe, Anchors, and Warp
 
-**Status:** Accepted · 2026-08-19 (owner design session)
+**Status:** Accepted · 2026-08-19 (owner design session) · amended by
+[ADR-017](ADR-017-station-docking.md) (2026-08-19): station anchors gain an undock point
+and facing (§3); the transfer bus lands with the station phase, before U3a (§4);
+`StationRoster` becomes the summary family's first resident (§6); presence includes docked
+ships (§7)
 **Depends on:** ADR-001 (plane, grids), ADR-002 (tick), ADR-004 (wire), ADR-005 (orders,
 determinism), ADR-009 (universe model), ADR-012 (JSON), ADR-014 (seam), ADR-015 (contact)
 **Supersedes:** the corpus scale figure F13 (~300 systems across ~6 regions → **2,500 across
