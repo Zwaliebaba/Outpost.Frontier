@@ -36,6 +36,11 @@ ADR-003 §1/§3 (descriptors, and validation that is off only against loopback),
 "no architectural work remains" now names what the first remote deployment owes) and
 ADR-012 §3.
 
+**A numbering note.** The interest/delta and remote-play deliverables were written as ADR-021
+and ADR-022 and **renumbered to 022 and 023** when they met ship make-way, which had taken 021
+on main. Nothing about them changed; if an outside link points at ADR-021 expecting interest
+and delta, this is why.
+
 ## Decisions at a glance
 
 | ADR | Question | Decision (one line) |
