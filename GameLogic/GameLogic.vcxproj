@@ -34,6 +34,7 @@
     <ClCompile Include="Universe.cpp" />
     <ClCompile Include="UniverseGen.cpp" />
     <ClCompile Include="UniverseParse.cpp" />
+    <ClCompile Include="UniverseRoute.cpp" />
     <ClCompile Include="World.cpp" />
     <ClCompile Include="WorldRegistry.cpp" />
     <ClCompile Include="WorldOrders.cpp" />
@@ -59,6 +60,7 @@
     <ClInclude Include="Universe.h" />
     <ClInclude Include="UniverseGen.h" />
     <ClInclude Include="UniverseParse.h" />
+    <ClInclude Include="UniverseRoute.h" />
     <ClInclude Include="World.h" />
     <ClInclude Include="WorldRegistry.h" />
     <ClInclude Include="WorldHash.h" />

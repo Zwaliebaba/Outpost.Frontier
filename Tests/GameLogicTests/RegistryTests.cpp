@@ -7,6 +7,7 @@
 #include "World.h"
 #include "WorldHash.h"
 #include "FleetSummary.h"
+#include "Formation.h"
 #include "StationMessages.h"
 #include "WorldRegistry.h"
 
@@ -928,6 +929,83 @@ public:
 
     Assert::IsTrue(arrived - left >= TRANSFER_FLOOR_TICKS,
                    L"a crossing shorter than the floor leaves a second host no time to receive it");
+  }
+
+  TEST_METHOD(EveryShipArrivesOnTheStationSolvedForItsOwnId)
+  {
+    /*
+     * `SolveFormation` assigns stations by **ascending ship id** (Formation.h
+     * says so, and the client's footprint preview relies on it), which is not
+     * the order a transfer record happens to list its members in. Pairing the
+     * two by index would put each ship on somebody else's station: a fleet that
+     * arrives in the right shape with the wrong ships in it -- and no "did it
+     * land near the anchor" or "is anything in contact" test would notice,
+     * because both survive a permutation.
+     *
+     * So this asks the only question that catches it: solve the same formation
+     * independently and check each ship is where *its own* station is.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+    const Anchor* destination = universe.FindAnchor(anchors[1]);
+    Assert::IsNotNull(destination);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+
+    // Descending ids in the order the order names them, so index-pairing and
+    // id-pairing cannot agree by accident.
+    std::vector<ShipId> spawned;
+    for (std::uint32_t index = 0; index < 5; ++index)
+    {
+      ShipSpawn spawn;
+      spawn.hullClass = HullClass::Corvette;
+      spawn.wing = 1;
+      spawn.xMetres = 150.0f * static_cast<float>(index);
+      spawned.push_back(registry.Spawn(anchors[0], spawn));
+    }
+    std::vector<ShipId> reversed{spawned.rbegin(), spawned.rend()};
+    Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], reversed).accepted);
+    TickUntil(registry, tick, 60000, [&] { return OnGrid(registry, anchors[1], spawned[0]); });
+
+    const World* world = registry.Peek(anchors[1]);
+    Assert::IsNotNull(world);
+
+    // The same solve, run here.
+    struct Lookup
+    {
+      static HullClass Of(ShipId, void*) noexcept { return HullClass::Corvette; }
+    };
+    FormationStation expected[MAX_SHIPS_PER_ORDER];
+    const DirectX::XMFLOAT2 arrival{
+      Neuron::CentimetresToMetres(static_cast<std::int32_t>(destination->warpInPoint.x)),
+      Neuron::CentimetresToMetres(static_cast<std::int32_t>(destination->warpInPoint.y))};
+    const std::uint32_t placed =
+      SolveFormation(FormationId::Line, std::span<const ShipId>{reversed}, &Lookup::Of, nullptr, arrival,
+                     Neuron::HeadingToRadians(destination->warpInFacingTurns16),
+                     std::span<FormationStation>{expected});
+    Assert::AreEqual<std::uint32_t>(5, placed);
+
+    for (std::uint32_t index = 0; index < placed; ++index)
+    {
+      std::uint32_t slot = 0;
+      bool present = false;
+      for (std::size_t candidate = 0; candidate < world->Ids().size(); ++candidate)
+      {
+        if (world->Ids()[candidate] == expected[index].shipId)
+        {
+          slot = static_cast<std::uint32_t>(candidate);
+          present = true;
+          break;
+        }
+      }
+      Assert::IsTrue(present, L"a ship in the order never arrived");
+
+      const float dx = world->Positions()[slot].x - expected[index].positionMetres.x;
+      const float dy = world->Positions()[slot].y - expected[index].positionMetres.y;
+      Assert::IsTrue(std::sqrt(dx * dx + dy * dy) < 1.0f, L"a ship landed on another ship's station");
+    }
   }
 
   TEST_METHOD(ConcurrentWarpsInBothDirectionsReproduceBitForBit)

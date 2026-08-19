@@ -4,6 +4,7 @@
 #include "ShipClass.h"
 #include "Universe.h"
 #include "UniverseGen.h"
+#include "UniverseRoute.h"
 #include "UniverseParse.h"
 #include "Validate.h"
 
@@ -83,6 +84,123 @@ constexpr std::int32_t SHIFT_UNIVERSE = 30;
 }
 
 } // namespace
+
+TEST_CLASS(UniverseRouteTests)
+{
+public:
+  TEST_METHOD(ARouteToWhereYouAreIsOneSystemAndNoJumps)
+  {
+    const UniverseDef universe = Bake(SmallConfig());
+    const SystemId here = universe.systems.front().id;
+
+    const Route route = SolveRoute(universe, here, here);
+    Assert::AreEqual<std::size_t>(1, route.systems.size());
+    Assert::AreEqual<std::size_t>(0, route.Jumps());
+    Assert::AreEqual<std::uint32_t>(here, route.systems.front());
+  }
+
+  TEST_METHOD(EverySystemReachesEveryOtherBecauseTheBakeConnectedThem)
+  {
+    /*
+     * U1's connectivity invariant, asked from the other side. The bake promises
+     * a connected gate graph; this asks the planner, which is what a SET
+     * DESTINATION actually runs, and would catch a graph that is connected only
+     * in the direction the generator happened to walk it.
+     */
+    const UniverseDef universe = Bake(SmallConfig());
+    const SystemId from = universe.systems.front().id;
+
+    for (const SolarSystem& system : universe.systems)
+    {
+      const Route route = SolveRoute(universe, from, system.id);
+      Assert::IsFalse(route.systems.empty(), L"a system nothing reaches");
+      Assert::AreEqual<std::uint32_t>(from, route.systems.front());
+      Assert::AreEqual<std::uint32_t>(system.id, route.systems.back());
+    }
+  }
+
+  TEST_METHOD(EveryStepOfARouteIsAGateThatExists)
+  {
+    // A plan the fleet cannot fly is worse than no plan: it is a line on the
+    // map that ends somewhere nobody can get to.
+    const UniverseDef universe = Bake(SmallConfig());
+    const SystemId from = universe.systems.front().id;
+    const SystemId to = universe.systems.back().id;
+
+    const Route route = SolveRoute(universe, from, to);
+    Assert::IsTrue(route.Jumps() > 0, L"the two ends of the table should not be neighbours");
+
+    for (std::size_t step = 0; step + 1 < route.systems.size(); ++step)
+    {
+      const SolarSystem* system = universe.FindSystem(route.systems[step]);
+      Assert::IsNotNull(system);
+      const SystemId next = route.systems[step + 1];
+      const bool linked = std::any_of(system->gates.begin(), system->gates.end(),
+                                      [next](const Gate& _gate) { return _gate.toSystem == next; });
+      Assert::IsTrue(linked, L"the route stepped between two systems with no gate between them");
+    }
+  }
+
+  TEST_METHOD(TheSameQuestionGivesTheSameRouteTwice)
+  {
+    /*
+     * Two equally short routes must be *the same* route on the server and the
+     * client, or the line drawn on the map is not the line the fleet flies.
+     * That is what the tie-break on system id buys, and it is a promise worth a
+     * test because a gate table walked in its own order would look right until
+     * two clients disagreed.
+     */
+    const UniverseDef universe = Bake(SmallConfig());
+    const SystemId from = universe.systems.front().id;
+    const SystemId to = universe.systems.back().id;
+
+    const Route first = SolveRoute(universe, from, to);
+    const Route second = SolveRoute(universe, from, to);
+    Assert::IsTrue(first.systems == second.systems);
+  }
+
+  TEST_METHOD(ARouteToNowhereIsEmptyRatherThanWrong)
+  {
+    const UniverseDef universe = Bake(SmallConfig());
+    const SystemId from = universe.systems.front().id;
+
+    Assert::IsTrue(SolveRoute(universe, from, 60000).systems.empty());
+    Assert::IsTrue(SolveRoute(universe, 60000, from).systems.empty());
+  }
+
+  TEST_METHOD(SearchFindsSystemsByNameAndCase)
+  {
+    const UniverseDef universe = Bake(SmallConfig());
+    const std::string& name = universe.systems.front().name;
+    Assert::IsFalse(name.empty());
+
+    const std::vector<SystemId> exact = FindSystems(universe, name);
+    Assert::IsFalse(exact.empty());
+    Assert::IsTrue(std::find(exact.begin(), exact.end(), universe.systems.front().id) != exact.end());
+
+    // Case-folded, because a player typing into a search box is not typing a
+    // content identifier.
+    std::string shouted = name;
+    for (char& letter : shouted)
+    {
+      letter = letter >= 'a' && letter <= 'z' ? static_cast<char>(letter - 'a' + 'A') : letter;
+    }
+    Assert::IsTrue(FindSystems(universe, shouted) == exact, L"case changed the answer");
+
+    // An empty box is not a search for everything.
+    Assert::IsTrue(FindSystems(universe, "").empty());
+  }
+
+  TEST_METHOD(SearchIsCappedAndOrderedSoOneLetterCannotFloodTheScreen)
+  {
+    const UniverseDef universe = Bake(SmallConfig());
+
+    // The bake names systems `ROOT-N`, so a single letter matches everything.
+    const std::vector<SystemId> flood = FindSystems(universe, "-", 5);
+    Assert::AreEqual<std::size_t>(5, flood.size());
+    Assert::IsTrue(std::is_sorted(flood.begin(), flood.end()), L"the same query has to give the same list");
+  }
+};
 
 TEST_CLASS(UniverseGenTests)
 {

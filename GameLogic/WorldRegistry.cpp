@@ -49,6 +49,20 @@ namespace
   return false;
 }
 
+/// The member a solved station belongs to. A linear scan over at most 64 ids,
+/// which is the same shape `SolveFormation`'s own class lookup takes.
+[[nodiscard]] const TransferMember* FindMember(const TransferRequest& _request, ShipId _shipId) noexcept
+{
+  for (std::uint16_t index = 0; index < _request.memberCount; ++index)
+  {
+    if (_request.members[index].shipId == _shipId)
+    {
+      return &_request.members[index];
+    }
+  }
+  return nullptr;
+}
+
 } // namespace
 
 void WorldRegistry::Reset(const UniverseDef* _universe, const RegistryConfig& _config)
@@ -542,18 +556,25 @@ void WorldRegistry::ApplyTransit(const TransferRequest& _request)
     SolveFormation(_request.formation, std::span<const ShipId>{ids, _request.memberCount}, &MemberLookup::Of, &lookup,
                    arrival, facing, std::span<FormationStation>{stations});
 
+  // By id rather than by index, for the reason spelled out in `ApplyUndock`:
+  // the solve orders its stations by ascending ship id and the record does not.
   for (std::uint32_t index = 0; index < placed; ++index)
   {
-    const TransferMember& member = _request.members[index];
+    const TransferMember* member = FindMember(_request, stations[index].shipId);
+    if (member == nullptr)
+    {
+      continue;
+    }
+
     ShipSpawn spawn;
-    spawn.hullClass = member.hullClass;
-    spawn.wing = member.wing;
+    spawn.hullClass = member->hullClass;
+    spawn.wing = member->wing;
     spawn.xMetres = stations[index].positionMetres.x;
     spawn.yMetres = stations[index].positionMetres.y;
     spawn.headingRadians = facing;
-    if (world->Spawn(spawn, member.shipId) != INVALID_SHIP_ID)
+    if (world->Spawn(spawn, member->shipId) != INVALID_SHIP_ID)
     {
-      RecordLocation(member.shipId, _request.anchor);
+      RecordLocation(member->shipId, _request.anchor);
     }
   }
 
@@ -631,12 +652,27 @@ void WorldRegistry::ApplyUndock(const TransferRequest& _request)
   ShipId parked[MAX_SHIPS_PER_ORDER];
   std::uint16_t parkedCount = 0;
 
+  /*
+   * Paired by **id**, not by index.
+   *
+   * `SolveFormation` assigns stations in ascending `ShipId` order (Formation.h
+   * says so, and the client's preview relies on it), which is not the order the
+   * record happens to list its members in. Walking both by index would put each
+   * ship on somebody else's station -- a fleet that arrives in the right shape
+   * with the wrong ships in it, which no "did it land near the anchor" test
+   * would ever notice.
+   */
   for (std::uint32_t index = 0; index < placed; ++index)
   {
-    const TransferMember& member = _request.members[index];
+    const TransferMember* member = FindMember(_request, stations[index].shipId);
+    if (member == nullptr)
+    {
+      continue;
+    }
+
     ShipSpawn spawn;
-    spawn.hullClass = member.hullClass;
-    spawn.wing = member.wing;
+    spawn.hullClass = member->hullClass;
+    spawn.wing = member->wing;
     spawn.xMetres = stations[index].positionMetres.x;
     spawn.yMetres = stations[index].positionMetres.y;
     spawn.headingRadians = facing;
@@ -644,10 +680,10 @@ void WorldRegistry::ApplyUndock(const TransferRequest& _request)
 
     // Undocking spawns it **full**, and that is not a repair step: the roster
     // held no gauges to be damaged (ADR-017 §1).
-    if (world->Spawn(spawn, member.shipId) != INVALID_SHIP_ID)
+    if (world->Spawn(spawn, member->shipId) != INVALID_SHIP_ID)
     {
-      RecordLocation(member.shipId, _request.anchor);
-      parked[parkedCount++] = member.shipId;
+      RecordLocation(member->shipId, _request.anchor);
+      parked[parkedCount++] = member->shipId;
     }
   }
 

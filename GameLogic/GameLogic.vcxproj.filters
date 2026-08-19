@@ -59,6 +59,9 @@
     <ClCompile Include="UniverseParse.cpp">
       <Filter>Universe</Filter>
     </ClCompile>
+    <ClCompile Include="UniverseRoute.cpp">
+      <Filter>Universe</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -123,6 +126,9 @@
       <Filter>Universe</Filter>
     </ClInclude>
     <ClInclude Include="UniverseParse.h">
+      <Filter>Universe</Filter>
+    </ClInclude>
+    <ClInclude Include="UniverseRoute.h">
       <Filter>Universe</Filter>
     </ClInclude>
   </ItemGroup>
