@@ -91,7 +91,9 @@ std::vector<Game::ShipId> SpawnLattice(Game::World& _world, std::uint32_t _shipC
     spawn.wing = static_cast<Game::WingId>(1 + index / Game::MAX_SHIPS_PER_ORDER);
     spawn.xMetres = origin + static_cast<float>(index % side) * LATTICE_SPACING_METRES;
     spawn.yMetres = origin + static_cast<float>(index / side) * LATTICE_SPACING_METRES;
-    const Game::ShipId id = _world.Spawn(spawn);
+    // Sequential from zero: the soak is one world and owns its whole population,
+    // so it is its own allocator (ADR-018 D6a moved that job off `World`).
+    const Game::ShipId id = _world.Spawn(spawn, static_cast<Game::ShipId>(index));
     if (id != Game::INVALID_SHIP_ID)
     {
       ships.push_back(id);

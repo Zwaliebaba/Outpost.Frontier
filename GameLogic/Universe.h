@@ -273,6 +273,10 @@ struct UniverseDef
   /// The grid anchor a session starts at: the start station's position
   /// (ADR-009 §9). Invalid system id when the start cannot be resolved.
   [[nodiscard]] GridAnchor StartAnchor() const noexcept;
+
+  /// The same place, as the id the registry and any warp order name it by.
+  /// `INVALID_ID` for content that predates the anchor table.
+  [[nodiscard]] AnchorId StartAnchorId() const noexcept;
 };
 
 /*

@@ -1,6 +1,6 @@
 # Universe Build Order — Post-MVP Phase One
 
-**Status:** Session output 2026-08-19 · **no slice started.** The design it delivers is
+**Status:** Session output 2026-08-19 · **U1 and U2 built.** The design it delivers is
 [ADR-016](ADR/ADR-016-procedural-universe-and-warp.md); where this document and that one
 disagree, the ADR wins on *what* and this one on *when*.
 
@@ -33,8 +33,8 @@ property sheets and held by CI rather than by prose.
 
 The rules are the MVP build order's, unchanged: each slice is independently testable, lands
 green (`Tests/` + `selfTest` where applicable), is sized at "a few days" or less, and later
-slices assume earlier ones. Landed slices will carry a **Built** line naming what is in the
-tree and what is still owed — none exists yet, and this sentence is the reminder to add them.
+slices assume earlier ones. Landed slices carry a **Built** line naming what is in the
+tree and what is still owed.
 Test placement follows the Dependency Map: bake and warp logic prove themselves in
 `GameLogicTests`, wire changes in `NeuronCoreTests`/`NeuronServerTests`, map and view math in
 `NeuronClientTests`, and anything needing the real loopback in `selfTest`.
@@ -74,6 +74,25 @@ from its anchor** (D6a), is a bake output the invariants suite checks for unique
 anchor record carries what the **deterministic per-order arrival offset** rule needs (D18)
 so contention never forces an anchor-schema migration.
 
+**Built (U1, 2026-08-19).** `GameLogic/UniverseGen.h/.cpp` generates and writes; bake mode
+lives in `Outpost/UniverseBake.h/.cpp` and is selected from config; `Universe.h` grew the
+`Anchor` and `Constellation` records and `UniverseParse.cpp` reads them back.
+`GameData/Universe/Frontier.json` **is the committed universe**: 50 regions, 250
+constellations, 2,500 systems, 12,453 planets, 3,356 stations, 6,000 gates and **18,618
+anchors** in ~14.2 MB, `universeHash db10606904062335`. Parse + hash of that file measured in
+**Release: 167 ms** — against ADR-018 D11's ~1 s ceiling, so **no per-region content split is
+owed** (Debug is ~10× that, which is the same ratio A4's soak found and the reason the number
+is quoted from Release). `Tests/GameLogicTests/UniverseGenTests.cpp` holds the invariants,
+including the round-trip against the *committed* file rather than a freshly generated one.
+Two bugs are worth remembering because neither was visible by eye: a `Member(key, "star")`
+call binding to the `bool` overload and writing `true` into every celestial (caught only by
+the round-trip, and fixed by giving `JsonWriter` a `const char*` overload), and int64
+overflow squaring universe-plane deltas — 1.2e16² does not fit — which made "nearest" mean
+"furthest" **and was then reintroduced in the test written to check the property it broke**.
+`DistanceSquared` now takes an explicit shift and the scales are named constants.
+**Still owed:** `Ids.h`'s scale comment is corrected, but the deterministic per-order arrival
+offset (D18) has only the anchor fields reserved for it — the rule itself is U3a's.
+
 ### U2 — Anchors and the world registry
 **Gate (ADR-018): both cleared — A1 is delivered
 ([ADR-019](ADR/ADR-019-shard-topology.md)) and A4's soak is measured** (a capped grid costs
@@ -107,6 +126,27 @@ viewer-held worlds (D8); the **world-isolation invariant** stated in the registr
 (worlds share no mutable state during `Tick`; the bus and extract are the only crossings)
 with a **permuted-world-tick-order bit-identity test** holding it (D1a); ADR-007 §7's
 owner-assert built and armed on every world.
+
+**Built (U2, 2026-08-19).** `GameLogic/WorldRegistry.h/.cpp` is the runtime: worlds keyed by
+`AnchorId`, borrowed and never held, spun up with their anchor's authored occupants at the
+bake-derived ids, torn down when the last ship leaves and nobody is watching, ticked with one
+shard number in anchor-id order. `NeuronCore/OwnerThread.h/.cpp` is ADR-007 §7's owner-assert,
+armed on `World::Tick`/`Spawn`/`Despawn`/`SubmitOrder`. `World::Spawn` now takes an injected
+id (D6a) and `World` no longer mints one. `Outpost/Main.cpp`'s `UniverseSimulation` hosts the
+registry and borrows the served grid on every use; the exe no longer spawns stations, because
+the start anchor's station is its *authored occupant*.
+`Tests/GameLogicTests/RegistryTests.cpp` holds the nine invariants, including A7's empty-world
+quiescence, D8's viewer-held exclusion from the hash, and D1a's permuted-tick-order bit
+identity. The CI determinism guard was **split rather than extended**: `UniversePos` stays
+banned everywhere outside the universe files, and only the *content* name `UniverseDef` gains
+the registry as an exception — it looks an anchor up and does no math on a position.
+One thing the id-space arithmetic caught before it shipped: giving every anchor a 64-id block
+put the highest authored id at 1.19M, far past the u16 window D6 keeps. Blocks now go only to
+anchors that author something (3,356 of 18,618) and are 8 wide, so the highest authored id is
+26,848 against a dynamic base of 32,768.
+**Still owed:** the viewer hold exists and is exercised by the tests, but nothing calls
+`AddViewer`/`RemoveViewer` for a *player's* view until U3b; `HostForAnchor` returns 0 and
+`TransferId` has no bus behind it until T1.
 
 ### U3a — In-system warp (sim)
 `OrderKind::Warp` (appended; schema bump) with an anchor-reference payload; validation shared

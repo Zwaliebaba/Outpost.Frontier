@@ -116,7 +116,7 @@ struct ReplayResult
     spawn.wing = 1;
     spawn.xMetres = -2000.0f + 800.0f * static_cast<float>(index);
     spawn.yMetres = -1500.0f;
-    ships[index] = world.Spawn(spawn);
+    ships[index] = world.Spawn(spawn, static_cast<Game::ShipId>(index));
   }
 
   ReplayResult result;
@@ -209,7 +209,7 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation)
       spawn.wing = 1;
       spawn.xMetres = 100.5f * static_cast<float>(index + 1);
       spawn.yMetres = -77.25f * static_cast<float>(index + 1);
-      (void)world.Spawn(spawn);
+      (void)world.Spawn(spawn, static_cast<Game::ShipId>(index));
     }
     world.Tick(1);
 

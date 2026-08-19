@@ -47,13 +47,28 @@ namespace GameLogicTests
 namespace
 {
 
+/*
+ * The id the world would have minted before ADR-018 D6a moved allocation to the
+ * registry: sequential from zero, per world.
+ *
+ * Sequential rather than "lowest free" on purpose -- the world used to mint
+ * monotonically, and reusing a despawned id would quietly change what a test
+ * about identity is testing. Per world rather than globally for a sharper
+ * reason: the replay suites run a scenario twice and compare hashes, and a
+ * counter that kept climbing between runs would make every one of them fail.
+ */
+[[nodiscard]] ShipId NextShipId(const World& _world) noexcept
+{
+  return static_cast<ShipId>(_world.ShipCount());
+}
+
 [[nodiscard]] ShipId SpawnAt(World& _world, HullClass _class, float _x = 0.0f, float _y = 0.0f)
 {
   ShipSpawn spawn;
   spawn.hullClass = _class;
   spawn.xMetres = _x;
   spawn.yMetres = _y;
-  return _world.Spawn(spawn);
+  return _world.Spawn(spawn, NextShipId(_world));
 }
 
 [[nodiscard]] OrderSubmit Order(std::initializer_list<ShipId> _ships, float _xMetres, float _yMetres, float _facing = 0.0f)
@@ -1628,7 +1643,7 @@ public:
         spawn.xMetres = 0.0f;
         spawn.yMetres = 0.0f;
         spawn.headingRadians = 0.0f; // Already pointing at +x, which is where it is sent.
-        const ShipId ship = world.Spawn(spawn);
+        const ShipId ship = world.Spawn(spawn, NextShipId(world));
 
         OrderSubmit move;
         move.orderSeq = 1;
@@ -1684,7 +1699,7 @@ public:
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Battleship;
     spawn.headingRadians = XM_PI; // Pointing at -x; the target is at +x.
-    const ShipId ship = world.Spawn(spawn);
+    const ShipId ship = world.Spawn(spawn, NextShipId(world));
 
     const float distance = 900.0f;
     OrderSubmit move;
@@ -1790,7 +1805,7 @@ public:
         ShipSpawn spawn;
         spawn.hullClass = hull;
         spawn.headingRadians = 0.0f; // Straight run: already pointing at the target.
-        const ShipId ship = world.Spawn(spawn);
+        const ShipId ship = world.Spawn(spawn, NextShipId(world));
 
         OrderSubmit move;
         move.orderSeq = 1;
@@ -1945,7 +1960,7 @@ public:
     world.Reset(8);
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Corvette;
-    const ShipId ship = world.Spawn(spawn);
+    const ShipId ship = world.Spawn(spawn, NextShipId(world));
 
     OrderSubmit move;
     move.orderSeq = 1;
@@ -1975,7 +1990,7 @@ public:
     world.Reset(12);
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Battleship;
-    const ShipId ship = world.Spawn(spawn);
+    const ShipId ship = world.Spawn(spawn, NextShipId(world));
 
     OrderSubmit move;
     move.orderSeq = 5;
@@ -2096,7 +2111,7 @@ public:
     world.Reset(4);
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Corvette;
-    const ShipId ship = world.Spawn(spawn);
+    const ShipId ship = world.Spawn(spawn, NextShipId(world));
 
     for (const OrderKind kind : ORDER_KIND_IDS)
     {

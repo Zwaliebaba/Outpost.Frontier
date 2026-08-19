@@ -56,6 +56,8 @@ ValidationView World::Validation() const noexcept
 
 OrderVerdict World::SubmitOrder(const OrderSubmit& _order)
 {
+  NEURON_ASSERT_OWNER(m_owner);
+
   // Appending needs to know which group it would append to, and that is the
   // group the *first* named ship already belongs to. One group per order means
   // a selection spanning two groups cannot append to both, so the answer is the

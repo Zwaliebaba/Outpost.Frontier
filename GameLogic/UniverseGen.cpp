@@ -569,6 +569,7 @@ bool GenerateUniverse(const UniverseGenConfig& _config, UniverseDef& _outUnivers
   // no station gets a bare anchor; every gate gets one inside its own jump
   // radius so route hops chain without a crawl.
   AnchorId nextAnchorId = 1;
+  std::uint32_t nextOccupantIdBase = AUTHORED_SHIP_ID_BASE;
   for (SolarSystem& system : _outUniverse.systems)
   {
     std::vector<bool> planetHasStation(system.celestials.size(), false);
@@ -611,8 +612,9 @@ bool GenerateUniverse(const UniverseGenConfig& _config, UniverseDef& _outUnivers
       anchor.undockPoint = LocalOffsetCm{static_cast<std::int32_t>(undock.x), static_cast<std::int32_t>(undock.y)};
       anchor.undockFacingTurns16 = static_cast<std::uint16_t>(bearing * (65536u / ANGLE_STEPS));
 
-      anchor.occupantIdBase = static_cast<std::uint32_t>(anchor.id) * ANCHOR_ID_BLOCK;
       anchor.occupantCount = 1; // The structure itself.
+      anchor.occupantIdBase = nextOccupantIdBase;
+      nextOccupantIdBase += ANCHOR_ID_BLOCK;
       system.anchors.push_back(anchor);
     }
 
@@ -633,7 +635,7 @@ bool GenerateUniverse(const UniverseGenConfig& _config, UniverseDef& _outUnivers
       anchor.warpInPoint = LocalOffsetCm{static_cast<std::int32_t>(warpIn.x), static_cast<std::int32_t>(warpIn.y)};
       anchor.warpInFacingTurns16 = static_cast<std::uint16_t>(((bearing + ANGLE_STEPS / 2) % ANGLE_STEPS) * (65536u / ANGLE_STEPS));
       anchor.arrivalSpreadRadiusCm = static_cast<std::int32_t>(MetresToCm(ARRIVAL_SPREAD_RADIUS_METRES));
-      anchor.occupantIdBase = static_cast<std::uint32_t>(anchor.id) * ANCHOR_ID_BLOCK;
+      anchor.occupantIdBase = 0; // Authors nothing, so it holds no block.
       anchor.occupantCount = 0;
       system.anchors.push_back(anchor);
     }
@@ -651,8 +653,11 @@ bool GenerateUniverse(const UniverseGenConfig& _config, UniverseDef& _outUnivers
       anchor.warpInPoint = LocalOffsetCm{static_cast<std::int32_t>(warpIn.x), static_cast<std::int32_t>(warpIn.y)};
       anchor.warpInFacingTurns16 = static_cast<std::uint16_t>(((bearing + ANGLE_STEPS / 2) % ANGLE_STEPS) * (65536u / ANGLE_STEPS));
       anchor.arrivalSpreadRadiusCm = static_cast<std::int32_t>(MetresToCm(ARRIVAL_SPREAD_RADIUS_METRES));
-      anchor.occupantIdBase = static_cast<std::uint32_t>(anchor.id) * ANCHOR_ID_BLOCK;
-      anchor.occupantCount = 0; // The gate entity is U4's; its id block is reserved now.
+      // The gate entity is U4's. It takes its block then, in bake order, which
+      // costs a re-bake U4 is already doing ("the bake's gate anchors get their
+      // gate entity") and keeps the u16 window clear until it does.
+      anchor.occupantIdBase = 0;
+      anchor.occupantCount = 0;
       system.anchors.push_back(anchor);
     }
   }

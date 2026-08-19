@@ -450,9 +450,12 @@ struct TrafficSteer
 
 void World::Reset(std::uint64_t _seed) noexcept
 {
+  // Reset is where a world is established, so it is where its owner is: the
+  // thread that seeds a world is the thread that ticks it (ADR-007 §5).
+  m_owner.Claim();
+
   m_tick = 0;
   m_slotById.clear();
-  m_nextShipId = 0;
 
   m_ids.clear();
   m_classes.clear();
@@ -472,19 +475,28 @@ void World::Reset(std::uint64_t _seed) noexcept
   m_random.Seed(_seed);
 }
 
-ShipId World::Spawn(const ShipSpawn& _spawn)
+ShipId World::Spawn(const ShipSpawn& _spawn, ShipId _shipId)
 {
+  NEURON_ASSERT_OWNER(m_owner);
+
   if (!HullClassHasContent(_spawn.hullClass))
   {
     return INVALID_SHIP_ID; // Fighter and Cruiser are ids, not ships.
   }
-  if (m_nextShipId >= INVALID_SHIP_ID)
+  if (_shipId == INVALID_SHIP_ID)
   {
-    return INVALID_SHIP_ID; // 65k ships in one session is not a real scenario.
+    return INVALID_SHIP_ID; // The allocator ran out, or nobody asked it.
   }
 
-  const ShipId shipId = m_nextShipId++;
-  m_slotById.resize(static_cast<std::size_t>(shipId) + 1, INVALID_SHIP_ID);
+  const ShipId shipId = _shipId;
+  if (shipId < m_slotById.size() && m_slotById[shipId] != INVALID_SHIP_ID)
+  {
+    // Refused rather than asserted: the caller owns the id space, so a
+    // collision is a question about the allocator, and returning the invalid id
+    // is how every other refusal here answers.
+    return INVALID_SHIP_ID;
+  }
+  m_slotById.resize(std::max(m_slotById.size(), static_cast<std::size_t>(shipId) + 1), INVALID_SHIP_ID);
   m_slotById[shipId] = static_cast<ShipId>(m_ids.size());
 
   m_ids.push_back(shipId);
@@ -510,6 +522,8 @@ ShipId World::Spawn(const ShipSpawn& _spawn)
 
 bool World::Despawn(ShipId _shipId)
 {
+  NEURON_ASSERT_OWNER(m_owner);
+
   std::uint32_t slot = 0;
   if (!FindSlot(_shipId, slot))
   {
@@ -574,6 +588,8 @@ float World::SpeedAt(std::uint32_t _slot) const noexcept
 
 void World::Tick(std::uint32_t _tick)
 {
+  NEURON_ASSERT_OWNER(m_owner);
+
   m_tick = _tick;
 
   IngestOrders();

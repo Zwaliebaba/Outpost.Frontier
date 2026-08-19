@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="..\packages\Microsoft.Windows.CppWinRT.3.0.260715.1\build\native\Microsoft.Windows.CppWinRT.props" Condition="Exists('..\packages\Microsoft.Windows.CppWinRT.3.0.260715.1\build\native\Microsoft.Windows.CppWinRT.props')" />
   <ItemGroup Label="ProjectConfigurations">
@@ -31,6 +31,7 @@
     <ClCompile Include="UniverseGen.cpp" />
     <ClCompile Include="UniverseParse.cpp" />
     <ClCompile Include="World.cpp" />
+    <ClCompile Include="WorldRegistry.cpp" />
     <ClCompile Include="WorldOrders.cpp" />
     <ClCompile Include="WorldHash.cpp" />
   </ItemGroup>
@@ -50,6 +51,7 @@
     <ClInclude Include="UniverseGen.h" />
     <ClInclude Include="UniverseParse.h" />
     <ClInclude Include="World.h" />
+    <ClInclude Include="WorldRegistry.h" />
     <ClInclude Include="WorldHash.h" />
   </ItemGroup>
   <ItemGroup>

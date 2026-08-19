@@ -29,6 +29,7 @@
     <ClCompile Include="TaskPool.cpp" />
     <ClCompile Include="Telemetry.cpp" />
     <ClCompile Include="Clock.cpp" />
+    <ClCompile Include="OwnerThread.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Debug.h" />
@@ -53,6 +54,7 @@
     <ClInclude Include="TaskPool.h" />
     <ClInclude Include="Telemetry.h" />
     <ClInclude Include="Clock.h" />
+    <ClInclude Include="OwnerThread.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>

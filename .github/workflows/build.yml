@@ -335,15 +335,30 @@ jobs:
           # GameLogic file is per-tick code unless its job *is* the universe, so
           # a file added by U1 or T1 is guarded the day it lands instead of on
           # the day someone remembers to extend a list here.
-          $universeOwned = @('Universe.h', 'Universe.cpp', 'UniverseParse.h', 'UniverseParse.cpp', 'UniverseGen.h', 'UniverseGen.cpp')
-          $perTick = Get-ChildItem -Path GameLogic -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -notin $universeOwned -and $_.Name -ne 'pch.h' -and $_.Name -ne 'pch.cpp' }
-          Write-Host "guarding $($perTick.Count) per-tick GameLogic files against universe coordinates"
-          foreach ($file in $perTick)
+          #
+          # Two names, two exclusions, because they are two different rules.
+          # `UniversePos` is the *coordinate*, and nothing outside the universe
+          # files may touch one -- that is the arithmetic ADR-009 §2 is about,
+          # and it has no exceptions. `UniverseDef` is the *content*, and one
+          # file outside the universe legitimately reads it: the registry, whose
+          # whole job is turning anchors into worlds (U2). It looks an anchor up
+          # and never does math on a position, which is why it appears in the
+          # second list and not the first.
+          $posOwned = @('Universe.h', 'Universe.cpp', 'UniverseParse.h', 'UniverseParse.cpp', 'UniverseGen.h', 'UniverseGen.cpp')
+          $defOwned = $posOwned + @('WorldRegistry.h', 'WorldRegistry.cpp')
+          $guarded = Get-ChildItem -Path GameLogic -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne 'pch.h' -and $_.Name -ne 'pch.cpp' }
+          Write-Host "guarding $($guarded.Count) GameLogic files against universe coordinates"
+          foreach ($file in $guarded)
           {
-            if ((Get-Content $file.FullName -Raw) -match '\b(UniversePos|UniverseDef)\b')
+            $text = Get-Content $file.FullName -Raw
+            if ($file.Name -notin $posOwned -and $text -match '\bUniversePos\b')
             {
               $bad += "$($file.Name): universe coordinates in per-tick simulation code"
+            }
+            if ($file.Name -notin $defOwned -and $text -match '\bUniverseDef\b')
+            {
+              $bad += "$($file.Name): the universe definition in per-tick simulation code"
             }
           }
 

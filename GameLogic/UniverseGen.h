@@ -110,15 +110,31 @@ inline constexpr std::int64_t STATION_UNDOCK_STANDOFF_METRES = 800;
 inline constexpr std::int64_t ARRIVAL_SPREAD_RADIUS_METRES = 1'200;
 
 /*
- * Ship ids per anchor (ADR-018 D6a/A5).
+ * Ship ids for authored occupants (ADR-018 D6a/A5).
  *
- * Every anchor owns a block of the id space, so an authored occupant's id is a
- * function of where it stands rather than of when it spawned -- which is what
- * makes spin-up, teardown and recreate reproduce ids bit-exactly. 64 is far
- * more than any anchor's authored population and keeps the arithmetic a shift
- * away from readable.
+ * An anchor that authors occupants owns a block of the id space, so an
+ * occupant's id is a function of where it stands rather than of when it
+ * spawned -- which is what makes spin-up, teardown and recreate reproduce it
+ * bit-exactly, and what stops two worlds ever colliding.
+ *
+ * **Blocks go only to anchors that author something, and the arithmetic is why.**
+ * `ShipId` is u16 until the delta cluster widens it (D6), and the committed
+ * universe has ~18,600 anchors: a block for every one of them would put
+ * authored ids past 65,535 before a single ship had been built. Only station
+ * anchors author anything today (~3,350 of them), and gates will when U4 gives
+ * them an entity, so blocks are handed out in bake order to the anchors that
+ * need them. That fits the u16 era with room and needs no re-bake when the
+ * widening lands -- the field is already u32, because a baked id is not a wire
+ * value.
  */
-inline constexpr std::uint32_t ANCHOR_ID_BLOCK = 64;
+inline constexpr std::uint32_t ANCHOR_ID_BLOCK = 8;
+
+/// Authored ids start here; dynamic ids start at `DYNAMIC_SHIP_ID_BASE`. The
+/// two spaces are partitioned rather than interleaved so that "is this ship
+/// content or is it something a commander built?" is answerable from the id
+/// alone, which the registry's assert relies on.
+inline constexpr std::uint32_t AUTHORED_SHIP_ID_BASE = 1;
+inline constexpr std::uint32_t DYNAMIC_SHIP_ID_BASE = 32768;
 
 /*
  * Generates the universe. Returns false only for a config that cannot be

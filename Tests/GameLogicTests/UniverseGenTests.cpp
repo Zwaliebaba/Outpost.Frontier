@@ -277,7 +277,16 @@ public:
       for (const Anchor& anchor : system.anchors)
       {
         Assert::IsTrue(anchorIds.insert(anchor.id).second, L"two anchors share an id, and a warp order carries only an id");
-        Assert::IsTrue(idBlocks.insert(anchor.occupantIdBase).second, L"two anchors share an occupant id block (ADR-018 D6a)");
+        if (anchor.occupantCount > 0)
+        {
+          // Only anchors that author something hold a block, so only they can
+          // collide -- and their ids must fit the u16 window `ShipId` keeps
+          // until the delta cluster widens it (ADR-018 D6).
+          Assert::IsTrue(idBlocks.insert(anchor.occupantIdBase).second, L"two anchors share an occupant id block (ADR-018 D6a)");
+          Assert::IsTrue(anchor.occupantIdBase >= AUTHORED_SHIP_ID_BASE, L"an authored id block starts below the authored space");
+          Assert::IsTrue(anchor.occupantIdBase + anchor.occupantCount < DYNAMIC_SHIP_ID_BASE,
+                         L"authored ids have run into the dynamic id space (ADR-018 D6a)");
+        }
         Assert::AreEqual(static_cast<std::uint16_t>(system.id), static_cast<std::uint16_t>(anchor.system));
 
         // Inside the grid, or the formation solve centres on somewhere the

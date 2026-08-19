@@ -5,6 +5,7 @@
 #include "Validate.h"
 #include "ShipClass.h"
 
+#include "OwnerThread.h"
 #include "Random.h"
 
 #include <DirectXMath.h>
@@ -256,9 +257,19 @@ public:
   /// same build, same seed, same orders, same state.
   void Reset(std::uint64_t _seed) noexcept;
 
-  /// Adds a ship and returns its id, or `INVALID_SHIP_ID` if the class has no
-  /// content. Reserved classes are nameable and never spawnable (ADR-009 §6).
-  [[nodiscard]] ShipId Spawn(const ShipSpawn& _spawn);
+  /*
+   * Adds a ship **with the id it is given** (ADR-018 D6a), and returns it --
+   * or `INVALID_SHIP_ID` if the class has no content (reserved classes are
+   * nameable and never spawnable, ADR-009 §6) or the id is already in use.
+   *
+   * The world does not mint ids and must not: under the universe runtime a ship
+   * keeps its id across grids, so an id space owned per-world would collide on
+   * the first transfer -- which is exactly what it did, from zero, in every
+   * world at once. Allocation belongs to the registry, and an authored
+   * occupant's id is derived from its anchor so that spin-up, teardown and
+   * recreate reproduce it bit-exactly.
+   */
+  [[nodiscard]] ShipId Spawn(const ShipSpawn& _spawn, ShipId _shipId);
 
   /// Removes a ship. Returns false if the id is not present, which is a
   /// question worth being able to ask rather than an error worth asserting.
@@ -434,7 +445,12 @@ private:
   /// rather than a map: it is O(1), it has no iteration order to get wrong, and
   /// a pointer-keyed container is exactly what ADR-005 §5 forbids.
   std::vector<ShipId> m_slotById;
-  ShipId m_nextShipId = 0;
+  /*
+   * Single-writer enforcement (ADR-007 §7), debug-only and never hashed: an
+   * owner id that reached the world hash would make a replay depend on which
+   * thread ran it.
+   */
+  Neuron::OwnerThread m_owner;
 
   std::vector<ShipId> m_ids;
   std::vector<std::uint8_t> m_classes;

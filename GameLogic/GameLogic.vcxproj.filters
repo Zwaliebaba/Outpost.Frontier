@@ -29,6 +29,9 @@
     <ClCompile Include="World.cpp">
       <Filter>World</Filter>
     </ClCompile>
+    <ClCompile Include="WorldRegistry.cpp">
+      <Filter>World</Filter>
+    </ClCompile>
     <ClCompile Include="WorldOrders.cpp">
       <Filter>Orders</Filter>
     </ClCompile>
@@ -78,6 +81,9 @@
       <Filter>Wire</Filter>
     </ClInclude>
     <ClInclude Include="World.h">
+      <Filter>World</Filter>
+    </ClInclude>
+    <ClInclude Include="WorldRegistry.h">
       <Filter>World</Filter>
     </ClInclude>
     <ClInclude Include="WorldHash.h">
