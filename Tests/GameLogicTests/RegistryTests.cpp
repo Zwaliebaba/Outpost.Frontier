@@ -387,6 +387,210 @@ public:
     Assert::IsNotNull(registry.Peek(station), L"the fleet had somewhere to arrive");
   }
 
+  TEST_METHOD(AnUndockedFleetParksItselfOffTheDoorway)
+  {
+    /*
+     * ADR-017 §4. The moment undocked ships exist the world files a
+     * system-issued move to a berth on the parking ring -- a real order group,
+     * so the ETA, the drawn lane, the straggler deadline and player override
+     * all come free.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+    const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
+    const ShipId fleet[] = {ship};
+    DockAndLand(registry, station, fleet, tick);
+
+    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    registry.Tick(++tick);
+
+    const World* world = registry.Peek(station);
+    Assert::IsNotNull(world);
+
+    const OrderGroup* parking = nullptr;
+    for (const OrderGroup& group : world->Groups())
+    {
+      if (group.systemIssued)
+      {
+        parking = &group;
+      }
+    }
+    Assert::IsNotNull(parking, L"nothing parked the fleet");
+    Assert::AreEqual<std::uint32_t>(1, parking->memberCount);
+    Assert::AreEqual<std::uint32_t>(ship, parking->members[0]);
+
+    const DirectX::XMFLOAT2& berth = parking->legs[parking->legCount - 1].anchorMetres;
+    const float distance = std::sqrt(berth.x * berth.x + berth.y * berth.y);
+    const bool onARing = std::abs(distance - PARKING_RING_METRES[0]) < 1.0f ||
+                         std::abs(distance - PARKING_RING_METRES[1]) < 1.0f;
+    Assert::IsTrue(onARing, L"a berth is a point on one of the two rings, not somewhere convenient");
+
+    // Both rings are inside the dock radius, so a parked fleet re-docks without
+    // moving first -- which is the reason those two numbers were chosen.
+    Assert::IsTrue(distance < static_cast<float>(DOCK_RADIUS_METRES));
+  }
+
+  TEST_METHOD(TwoFleetsUndockingTheSameTickParkInDifferentPlaces)
+  {
+    /*
+     * The clause the whole berth design turns on (ADR-017 §4): a candidate is
+     * refused when another group's **final-leg anchor** already sits inside its
+     * bounding circle. That is what lets two same-tick undocks pick different
+     * berths with *no reserved-berth state to store or hash* -- a berth is
+     * taken exactly when live positions or live intentions say so.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+    const ShipId first = AddShip(registry, station, 200.0f, 0.0f);
+    const ShipId second = AddShip(registry, station, -200.0f, 0.0f);
+    const ShipId both[] = {first, second};
+    DockAndLand(registry, station, both, tick);
+
+    const ShipId one[] = {first};
+    const ShipId two[] = {second};
+    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, one)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, two)).accepted);
+    registry.Tick(++tick);
+
+    const World* world = registry.Peek(station);
+    Assert::IsNotNull(world);
+
+    DirectX::XMFLOAT2 berths[2]{};
+    std::uint32_t found = 0;
+    for (const OrderGroup& group : world->Groups())
+    {
+      if (group.systemIssued && found < 2)
+      {
+        berths[found++] = group.legs[group.legCount - 1].anchorMetres;
+      }
+    }
+    Assert::AreEqual<std::uint32_t>(2, found, L"both fleets should have been parked");
+
+    const float dx = berths[0].x - berths[1].x;
+    const float dy = berths[0].y - berths[1].y;
+    Assert::IsTrue(std::sqrt(dx * dx + dy * dy) > 1.0f, L"two fleets were sent to the same berth");
+  }
+
+  TEST_METHOD(AFullRingHoldsAtTheUndockPointRatherThanRefusing)
+  {
+    /*
+     * ADR-017 §4's last sentence, and it is a design position rather than an
+     * edge case: **undocking is never refused for clutter**. When all 24
+     * candidates are taken the fleet holds at the undock point, protection
+     * still ticking, separation keeping it honest.
+     *
+     * The ring is filled by parking a hull on every candidate -- the same 24
+     * points the scan visits, computed here from §4's own description. If the
+     * two ever disagree this test fails, which is the point of restating it.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+    const Anchor* anchor = universe.FindAnchor(station);
+    Assert::IsNotNull(anchor);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+    const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
+    const ShipId fleet[] = {ship};
+    DockAndLand(registry, station, fleet, tick);
+
+    const float undockX = Neuron::CentimetresToMetres(static_cast<std::int32_t>(anchor->undockPoint.x));
+    const float undockY = Neuron::CentimetresToMetres(static_cast<std::int32_t>(anchor->undockPoint.y));
+    const float baseBearing = std::atan2(undockY, undockX);
+    constexpr float BEARING_STEP = DirectX::XM_2PI / static_cast<float>(PARKING_BEARINGS);
+
+    for (const float ring : PARKING_RING_METRES)
+    {
+      for (std::uint32_t step = 0; step < PARKING_BEARINGS; ++step)
+      {
+        const std::uint32_t stepsOut = (step + 1) / 2;
+        const float side = (step % 2 == 0) ? 1.0f : -1.0f;
+        const float bearing = baseBearing + static_cast<float>(stepsOut) * side * BEARING_STEP;
+        (void)AddShip(registry, station, std::cos(bearing) * ring, std::sin(bearing) * ring);
+      }
+    }
+
+    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    registry.Tick(++tick);
+
+    const World* world = registry.Peek(station);
+    Assert::IsNotNull(world);
+    for (const OrderGroup& group : world->Groups())
+    {
+      Assert::IsFalse(group.systemIssued, L"a full ring means hold here, not park anyway");
+    }
+
+    // And it is still there, protected, rather than refused out of existence.
+    Assert::IsTrue(world->IsProtected(ship, tick));
+    bool present = false;
+    for (const ShipId id : world->Ids())
+    {
+      present = present || id == ship;
+    }
+    Assert::IsTrue(present, L"undocking is never refused for clutter");
+  }
+
+  TEST_METHOD(TheEventRecordSaysWhatHappenedWithoutBeingPartOfIt)
+  {
+    /*
+     * ADR-018 D19. One producer behind four designed surfaces -- the toast
+     * backlog and its UNREAD count, REVIEW LOSSES, the reconnect away-log, and
+     * the strategic feed -- built now, with one consumer, because four
+     * consumers of four producers would be four bugs about the same ten events.
+     *
+     * And it is **outside** the hash, which is the other half of the design: an
+     * event describes something the simulation already did, so folding the
+     * description in as well would make a replay depend on how talkative the
+     * build was.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+    const ShipId first = AddShip(registry, station, 200.0f, 0.0f);
+    const ShipId second = AddShip(registry, station, -200.0f, 0.0f);
+    const ShipId fleet[] = {first, second};
+    DockAndLand(registry, station, fleet, tick);
+
+    Assert::AreEqual<std::size_t>(1, registry.Events().Entries().size(), L"one line per fleet, not one per hull");
+    Assert::IsTrue(registry.Events().Entries()[0].kind == EventKind::Docked);
+    Assert::AreEqual<std::uint32_t>(station, registry.Events().Entries()[0].anchor);
+    Assert::AreEqual<std::uint32_t>(2, registry.Events().Entries()[0].count);
+
+    StationCommand assign;
+    assign.orderSeq = 5;
+    assign.verb = StationVerb::AssignWing;
+    assign.station = station;
+    assign.wing = 4;
+    Assert::IsTrue(assign.AddShip(first));
+    Assert::IsTrue(registry.SubmitStationCommand(assign).accepted);
+
+    const std::uint64_t before = registry.Hash();
+    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    registry.Tick(++tick);
+
+    const std::span<const EventEntry> entries = registry.Events().Entries();
+    Assert::AreEqual<std::size_t>(3, entries.size());
+    Assert::IsTrue(entries[1].kind == EventKind::WingAssigned);
+    Assert::IsTrue(entries[2].kind == EventKind::Undocked);
+    Assert::AreEqual<std::uint32_t>(2, entries[2].count);
+    Assert::AreEqual<std::uint32_t>(0, registry.Events().Dropped());
+
+    // The events are not what changed the hash -- the ships and the roster are.
+    Assert::AreNotEqual(before, registry.Hash());
+  }
+
   TEST_METHOD(AMixedDockUndockScenarioReproducesItselfBitForBit)
   {
     /*

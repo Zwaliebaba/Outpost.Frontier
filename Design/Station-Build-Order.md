@@ -119,10 +119,32 @@ nothing crosses. `OrderGroup` gained `systemIssued`, and ingesting a *player's* 
 protection on the ships it names while a system order does not — without that distinction
 the parking order would disarm the fleet it parks.
 
-**Still owed by T1:** the parking ring and its deterministic berth scan (until it lands, an
-undocked fleet holds at the undock point — which is the ring's own all-24-refused fallback,
-so the behaviour is legal rather than missing); the event-record emissions (ADR-018 A17);
-and repair-by-construction asserted against real gauges, which needs gauges.
+**Built (T1, the parking ring and the event record, 2026-08-19).** `World::FindBerth`
+scans §4's 24 candidates — two rings, twelve bearings, fanning out from the undock bearing,
+inner ring before outer — and the first **free** one wins. Free means the fleet's *solved*
+formation there clears every hull on the grid by ADR-015's own clearance factor, and lands
+inside no other group's final-leg intention. That second clause is what makes two same-tick
+undocks pick different berths with no reserved-berth state to store or hash.
+
+The suite found the hole in that immediately: two fleets undocking on the same tick both
+arrive **before any ingest runs**, so the first one's parking order was still *pending* and
+therefore invisible to the second, and both were sent to the same berth. The scan reads the
+pending queue as well now — a pending order is a live intention by every definition that
+matters: it has been accepted, it is world state, and it becomes a group on the next tick.
+
+All 24 taken means the fleet holds at the undock point, and that is a design position rather
+than an edge case: undocking is never refused for clutter. A test fills the ring and asserts
+exactly that — no parking order, the fleet still there, still protected.
+
+`GameLogic/EventRecord.h/.cpp` is ADR-018 D19's producer, emitting on dock, undock, wing
+assignment and berth hold. Three numbers and no text — a string here could not be
+translated and the client already knows how to name a station — and `count` is what makes
+"eight ships docked at Vesta-3" one line instead of eight. It is **outside the registry
+hash**: an event describes something the simulation already did, and folding the description
+in as well would make a replay depend on how talkative the build was.
+
+**Still owed by T1:** repair-by-construction asserted against real gauges, which needs
+gauges to exist first. Everything else in ADR-017's sim half is built.
 
 ### T2 — The wire and the tactical surfaces 🏁 H0
 One clustered schema bump (ADR-017 §8, **widened by ADR-018 into the identity cluster**):

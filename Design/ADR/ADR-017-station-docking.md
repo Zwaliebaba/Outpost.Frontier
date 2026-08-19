@@ -21,9 +21,9 @@ H0/H1), interleaved into the universe phase after U2.
 **Built so far (2026-08-19, T1's sim half):** §1's roster, §2's `Dock` order and its
 footprint-derived radius, §3's `Undock` and §6's `AssignWing` as shared-validated station
 commands, §5's protection window and its player-command break, and §9's transfer bus with
-its `(applyTick, transferId)` order. **Not yet built:** §4's parking ring -- an undocked
-fleet holds at the undock point, which is §4's own all-24-refused outcome -- and §6's hangar
-screen, which is T3's.
+its `(applyTick, transferId)` order, and §4's parking ring with its deterministic berth
+scan. **Not yet built:** §6's hangar screen, which is T3's, and the wire half of §8, which is
+T2's.
 
 ## Context
 

@@ -2,6 +2,7 @@
 
 #include "Ids.h"
 #include "Orders.h"
+#include "Station.h"
 #include "Transfer.h"
 #include "Validate.h"
 #include "ShipClass.h"
@@ -351,6 +352,28 @@ public:
    * lost its protection to the order that parks it would have none at all.
    */
   [[nodiscard]] OrderVerdict SubmitSystemOrder(const OrderSubmit& _order);
+
+  /*
+   * Where a just-undocked fleet should park itself (ADR-017 §4).
+   *
+   * Scans the parking ring's 24 candidates in the fixed order §4 states and
+   * returns the first **free** one -- free meaning the fleet's *solved*
+   * formation there clears every hull on the grid by the avoidance model's own
+   * clearance, and lands inside no other group's final-leg intention.
+   *
+   * That second clause is what makes two fleets undocking on the same tick pick
+   * different berths **with no reserved-berth state to store or hash**: a berth
+   * is taken exactly when live positions or live intentions say so. It is also
+   * why this reads the group table rather than a reservation list.
+   *
+   * False means all 24 are taken, which is **not** a refusal: the fleet holds
+   * at the undock point with its protection still ticking and separation
+   * keeping it honest. Undocking is never refused for clutter.
+   */
+  [[nodiscard]] bool FindBerth(std::span<const ShipId> _ships, FormationId _formation,
+                               const DirectX::XMFLOAT2& _stationCentreMetres,
+                               const DirectX::XMFLOAT2& _undockPointMetres, DirectX::XMFLOAT2& _outBerthMetres,
+                               float& _outFacingRadians) const;
 
   /// Is this ship still under undock protection at `_tick` (ADR-017 §5)? False
   /// for an unknown ship, which is the same answer as an unprotected one --

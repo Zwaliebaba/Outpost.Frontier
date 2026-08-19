@@ -44,7 +44,174 @@ namespace
   return XMScalarModAngle(_radians);
 }
 
+/// `SolveFormation`'s class lookup, over a world's own tables. A linear scan
+/// rather than the slot table, because the berth scan asks about the ships in
+/// an *order* and those are ids, not slots.
+struct WorldClassLookup
+{
+  const World* world = nullptr;
+
+  [[nodiscard]] static HullClass Of(ShipId _shipId, void* _context) noexcept
+  {
+    const auto* lookup = static_cast<const WorldClassLookup*>(_context);
+    const std::span<const ShipId> ids = lookup->world->Ids();
+    for (std::size_t slot = 0; slot < ids.size(); ++slot)
+    {
+      if (ids[slot] == _shipId)
+      {
+        return static_cast<HullClass>(lookup->world->Classes()[slot]);
+      }
+    }
+    return HullClass::Interceptor;
+  }
+};
+
 } // namespace
+
+bool World::FindBerth(std::span<const ShipId> _ships, FormationId _formation,
+                      const XMFLOAT2& _stationCentreMetres, const XMFLOAT2& _undockPointMetres,
+                      XMFLOAT2& _outBerthMetres, float& _outFacingRadians) const
+{
+  if (_ships.empty() || _ships.size() > MAX_SHIPS_PER_ORDER)
+  {
+    return false;
+  }
+
+  // The bearing the fleet is already pointing along. Candidates fan out from
+  // here rather than from an arbitrary zero, so the nearest free berth is
+  // usually the first one tried and the fleet rarely crosses its own doorway.
+  const float baseBearing =
+    std::atan2(_undockPointMetres.y - _stationCentreMetres.y, _undockPointMetres.x - _stationCentreMetres.x);
+
+  WorldClassLookup lookup{this};
+  FormationStation stations[MAX_SHIPS_PER_ORDER];
+
+  // One largest-class spacing, the unit the dock radius pads by too.
+  float largestSpacing = 0.0f;
+  for (const ShipId shipId : _ships)
+  {
+    largestSpacing = std::max(largestSpacing, ShipClass(WorldClassLookup::Of(shipId, &lookup)).formationSpacingMetres);
+  }
+
+  constexpr float BEARING_STEP = DirectX::XM_2PI / static_cast<float>(PARKING_BEARINGS);
+
+  for (const float ring : PARKING_RING_METRES)
+  {
+    for (std::uint32_t step = 0; step < PARKING_BEARINGS; ++step)
+    {
+      /*
+       * 0, +1, -1, +2, -2, ... -- outward from the undock bearing, alternating.
+       * Written as arithmetic on the step index rather than as a table, because
+       * a table is a thing that can disagree with the sentence describing it.
+       */
+      const std::uint32_t stepsOut = (step + 1) / 2;             // 0, 1, 1, 2, 2, 3, 3 ...
+      const float side = (step % 2 == 0) ? 1.0f : -1.0f;          // ... and which way each is.
+      const float bearing = baseBearing + static_cast<float>(stepsOut) * side * BEARING_STEP;
+
+      const XMFLOAT2 candidate{_stationCentreMetres.x + std::cos(bearing) * ring,
+                               _stationCentreMetres.y + std::sin(bearing) * ring};
+
+      // Facing the outward radial, so parked fleets face away from the station
+      // rather than at it -- a fleet pointing inward reads as one about to dock.
+      const float facing = bearing;
+
+      const std::uint32_t placed = SolveFormation(_formation, _ships, &WorldClassLookup::Of, &lookup, candidate, facing,
+                                                  std::span<FormationStation>{stations});
+      if (placed == 0)
+      {
+        continue;
+      }
+
+      // Clear of every hull on the grid, by the avoidance model's own clearance
+      // rather than by a second number that could drift from it (ADR-015).
+      bool free = true;
+      for (std::uint32_t index = 0; index < placed && free; ++index)
+      {
+        const float solvedRadius = ShipClass(WorldClassLookup::Of(stations[index].shipId, &lookup)).collisionRadiusMetres;
+        for (std::size_t slot = 0; slot < m_ids.size(); ++slot)
+        {
+          // The fleet being parked is standing at the undock point; it must not
+          // count itself as the reason it cannot leave.
+          if (std::find(_ships.begin(), _ships.end(), m_ids[slot]) != _ships.end())
+          {
+            continue;
+          }
+          const float clearance =
+            AVOID_CLEARANCE_FACTOR * (solvedRadius + ShipClass(static_cast<HullClass>(m_classes[slot])).collisionRadiusMetres);
+          const float dx = stations[index].positionMetres.x - m_positions[slot].x;
+          const float dy = stations[index].positionMetres.y - m_positions[slot].y;
+          if (dx * dx + dy * dy < clearance * clearance)
+          {
+            free = false;
+            break;
+          }
+        }
+      }
+      if (!free)
+      {
+        continue;
+      }
+
+      /*
+       * And clear of every other group's *intention*. This is the clause that
+       * makes two same-tick undocks pick different berths with nothing reserved
+       * and nothing stored: the first fleet's parking order is a group with a
+       * final-leg anchor, and the second fleet sees it.
+       */
+      const float bounding =
+        FormationExtentMetres(std::span<const FormationStation>{stations, placed}, candidate) + largestSpacing;
+      const auto conflicts = [&candidate, bounding](const OrderGroup& _group) noexcept
+      {
+        if (_group.legCount == 0)
+        {
+          return false;
+        }
+        const XMFLOAT2& intent = _group.legs[_group.legCount - 1].anchorMetres;
+        const float dx = intent.x - candidate.x;
+        const float dy = intent.y - candidate.y;
+        return dx * dx + dy * dy < bounding * bounding;
+      };
+
+      for (const OrderGroup& group : m_groups)
+      {
+        if (conflicts(group))
+        {
+          free = false;
+          break;
+        }
+      }
+
+      /*
+       * **And the orders that have not been ingested yet.**
+       *
+       * Two fleets undocking on the same tick both arrive before any ingest
+       * runs, so the first one's parking order is still pending when the second
+       * one scans -- and without this it is invisible, and both are sent to the
+       * same berth. The suite found exactly that. A pending order is a live
+       * intention by every definition that matters here: it has been accepted,
+       * it is world state, and it becomes a group on the very next tick.
+       */
+      for (const PendingOrder& pending : m_pending)
+      {
+        if (conflicts(pending.group))
+        {
+          free = false;
+          break;
+        }
+      }
+      if (!free)
+      {
+        continue;
+      }
+
+      _outBerthMetres = candidate;
+      _outFacingRadians = facing;
+      return true;
+    }
+  }
+
+  return false;
+}
 
 ValidationView World::Validation()
 {

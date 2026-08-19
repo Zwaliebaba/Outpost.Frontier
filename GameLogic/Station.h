@@ -151,4 +151,24 @@ struct StationCommand
  */
 inline constexpr std::uint32_t UNDOCK_PROTECTION_SECONDS = 15;
 
+/*
+ * The parking ring (ADR-017 §4).
+ *
+ * Undocked ships get out of the doorway by themselves, to a **berth**: a
+ * candidate anchor on a ring around the station. Two rings, both *inside* the
+ * dock radius, so a parked fleet can re-dock without moving first.
+ *
+ * **Bearings, not arcs.** A fixed arc lies about a capital line whose footprint
+ * is kilometres wide: the arc says "this much room" and the fleet needs three
+ * times it. A bearing says only *which way*, and how much room that direction
+ * has is answered by solving the formation there and looking.
+ */
+inline constexpr float PARKING_RING_METRES[] = {2500.0f, 4000.0f};
+
+/// Twelve per ring, so 24 candidates in all. Scanned from the bearing of the
+/// undock point outward, alternating left and right, inner ring before outer --
+/// a fixed order, because "which berth" has to be a function of the world and
+/// not of the order two fleets happened to arrive in.
+inline constexpr std::uint32_t PARKING_BEARINGS = 12;
+
 } // namespace Game

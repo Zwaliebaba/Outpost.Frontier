@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EventRecord.h"
 #include "Ids.h"
 #include "Station.h"
 #include "Transfer.h"
@@ -98,6 +99,16 @@ public:
    * and invalidated by the next dock or undock.
    */
   [[nodiscard]] std::span<const RosterEntry> Roster(AnchorId _anchor) const noexcept;
+
+  /*
+   * What happened, in order (ADR-018 D19).
+   *
+   * Read-only from outside, because the producers are all in here: a surface
+   * that could write to the log could describe something that never occurred.
+   * One record per session today and one per commander when there are
+   * commanders -- the emissions already carry everything that split needs.
+   */
+  [[nodiscard]] const EventRecord& Events() const noexcept { return m_events; }
 
   /// How many records are filed and not yet applied. The bus is world state --
   /// it folds into the hash -- so this is how a test asks whether a tick
@@ -247,6 +258,11 @@ private:
    */
   std::vector<TransferRecord> m_bus;
   std::vector<StationRoster> m_rosters;
+
+  /// Beside them, and unlike them **not** in the hash: an event describes
+  /// something the simulation already did, and folding the description in as
+  /// well would make a replay depend on how talkative the build was.
+  EventRecord m_events;
 
   /// Stamped at filing, monotonic per host (ADR-018 D17). Never reset except by
   /// `Reset`, so no two records of one session share an id.

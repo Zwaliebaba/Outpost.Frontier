@@ -59,6 +59,7 @@ void WorldRegistry::Reset(const UniverseDef* _universe, const RegistryConfig& _c
   m_locationByShip.clear();
   m_bus.clear();
   m_rosters.clear();
+  m_events.Clear();
   m_nextTransferCounter = 1;
 
   /*
@@ -272,6 +273,7 @@ OrderVerdict WorldRegistry::SubmitStationCommand(const StationCommand& _command)
         }
       }
     }
+    m_events.Emit(m_shardTick, EventKind::WingAssigned, _command.station, _command.shipCount);
     return verdict;
   }
 
@@ -392,6 +394,7 @@ void WorldRegistry::ApplyDueTransfers()
         // at the station rather than forgetting where the ship went.
         RecordLocation(member.shipId, record.what.anchor);
       }
+      m_events.Emit(m_shardTick, EventKind::Docked, record.what.anchor, record.what.memberCount);
     }
     else if (record.what.kind == TransferKind::Undock)
     {
@@ -469,6 +472,9 @@ void WorldRegistry::ApplyUndock(const TransferRequest& _request)
   const auto protectionTicks =
     static_cast<std::uint32_t>(static_cast<float>(UNDOCK_PROTECTION_SECONDS) / World::TICK_SECONDS);
 
+  ShipId parked[MAX_SHIPS_PER_ORDER];
+  std::uint16_t parkedCount = 0;
+
   for (std::uint32_t index = 0; index < placed; ++index)
   {
     const TransferMember& member = _request.members[index];
@@ -485,16 +491,55 @@ void WorldRegistry::ApplyUndock(const TransferRequest& _request)
     if (world->Spawn(spawn, member.shipId) != INVALID_SHIP_ID)
     {
       RecordLocation(member.shipId, _request.anchor);
+      parked[parkedCount++] = member.shipId;
     }
   }
 
   /*
-   * The parking order is **not filed yet** (ADR-017 §4), and the fleet holding
-   * at the undock point is a legal outcome rather than a gap: the ring's own
-   * rule says all 24 candidates refused means hold here, protection still
-   * ticking, separation keeping it honest -- undocking is never refused for
-   * clutter. What T1's next slice adds is the scan that usually finds a berth.
+   * And the parking order (ADR-017 §4), issued the moment the ships exist.
+   *
+   * A **real order group**, so the ETA, the drawn lane, the straggler deadline
+   * and player override all come free rather than being reimplemented for one
+   * case. `SubmitSystemOrder` rather than `SubmitOrder` for the one difference
+   * that matters: it must not end the protection it was issued alongside.
+   *
+   * All 24 candidates taken means the fleet holds where it is -- not a refusal,
+   * and not an error. Undocking is never refused for clutter; the player can
+   * replace the parking order at any time, because it is just an order.
    */
+  m_events.Emit(m_shardTick, EventKind::Undocked, _request.anchor, static_cast<std::uint16_t>(parkedCount));
+
+  if (parkedCount == 0)
+  {
+    return;
+  }
+
+  // The station is the ring's centre, and it is where the anchor is: the grid
+  // is anchored on the structure, so the local origin is the structure.
+  const DirectX::XMFLOAT2 centre{0.0f, 0.0f};
+  DirectX::XMFLOAT2 berth{};
+  float berthFacing = 0.0f;
+  if (!world->FindBerth(std::span<const ShipId>{parked, parkedCount}, _request.formation, centre, undockPoint, berth,
+                        berthFacing))
+  {
+    // Worth telling the player precisely because nothing was refused: the fleet
+    // is fine, it is simply still standing in the doorway (ADR-017 §4).
+    m_events.Emit(m_shardTick, EventKind::BerthHeld, _request.anchor, static_cast<std::uint16_t>(parkedCount));
+    return;
+  }
+
+  OrderSubmit parking;
+  parking.kind = OrderKind::Move;
+  parking.formation = _request.formation;
+  parking.queueMode = QueueMode::Replace;
+  for (std::uint16_t index = 0; index < parkedCount; ++index)
+  {
+    (void)parking.AddShip(parked[index]);
+  }
+  parking.target.xCm = Neuron::MetresToCentimetres(berth.x);
+  parking.target.yCm = Neuron::MetresToCentimetres(berth.y);
+  parking.target.facingTurns16 = Neuron::RadiansToHeading(berthFacing);
+  (void)world->SubmitSystemOrder(parking);
 }
 
 void WorldRegistry::CollectFiledTransfers()
