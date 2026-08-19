@@ -132,14 +132,14 @@ public:
 
     // A universe coordinate has no range to check beyond its own type: the whole
     // int64 plane is legal ground (ADR-009 §1).
-    constexpr std::int64_t lowest = std::numeric_limits<std::int64_t>::min();
-    constexpr std::int64_t highest = std::numeric_limits<std::int64_t>::max();
+    constexpr std::int64_t LOWEST = std::numeric_limits<std::int64_t>::min();
+    constexpr std::int64_t HIGHEST = std::numeric_limits<std::int64_t>::max();
 
     const std::string path = _path + ".position";
     std::int64_t x = 0;
     std::int64_t y = 0;
-    const bool readX = ReadInt64(position, "x", path, lowest, highest, x);
-    const bool readY = ReadInt64(position, "y", path, lowest, highest, y);
+    const bool readX = ReadInt64(position, "x", path, LOWEST, HIGHEST, x);
+    const bool readY = ReadInt64(position, "y", path, LOWEST, HIGHEST, y);
     if (!readX || !readY)
     {
       return false;

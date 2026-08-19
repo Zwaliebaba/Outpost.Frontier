@@ -89,6 +89,9 @@ moves between the trees without a rename pass. Three things it changed in these 
   (`UX-/NET-/CPP-/UI-/SIM-`), a decision list sequenced against the build orders, and the
   fourteen questions the owner answered the same day — **the answers are normative as
   [ADR-018](ADR/ADR-018-scaling-baseline.md)**; the review stays the evidence record.
+  **Everything the register asks for that is not gated behind an unstarted slice is now
+  delivered** — A1–A4, A19, A23, A24 and A26; the rest lands with U1, U2, T1, T2, U3b, U3c
+  and U5, which is where the register put it.
 
 ## Implementation state (2026-08-19)
 
@@ -182,12 +185,15 @@ ring, depth buffer and atlas upload afterwards. S5's own GPU checks — the visu
 against `tactical-hud.png`, frame time at 41 instances, and a debug-layer-clean run of the new
 passes — are still open and listed under S5 in the build order.
 
-**Continuous integration:** `.github/workflows/build.yml` builds Debug|x64 (Release is
-deliberately not built — see the note at the top of that file), restores NuGet per project,
-checks header names against the CRT (R14), builds the four libraries, builds `Outpost.exe`
-once an entry point exists, builds and runs the tests, and surfaces failing tests and
-deduplicated warnings in the job summary. It is the only compiler this work has: every defect
-listed in R14 and the S4 notes was found by pushing and reading the log.
+**Continuous integration:** `.github/workflows/build.yml` builds **Debug|x64 and Release|x64**
+(the Release leg arrived with ADR-018 D11; the Debug leg does not gate the run while R22 is
+open, so a green tick currently certifies Release only — the note at the top of that file says
+why), restores NuGet per project, runs **seven source guards** before compiling anything,
+builds the four libraries, builds `Outpost.exe` once an entry point exists, builds and runs the
+tests, runs the self test, and surfaces failing tests, deduplicated warnings, the two
+configurations' replay hashes and **R10's tick-soak table** in the job summary. It is the only
+compiler this work has: every defect listed in R14 and the S4 notes was found by pushing and
+reading the log.
 
 ## Repo observations for the owner
 

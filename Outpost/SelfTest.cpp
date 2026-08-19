@@ -2,6 +2,8 @@
 
 #include "SelfTest.h"
 
+#include "TickSoak.h"
+
 #include "ClientConnection.h"
 
 #include "ServerConfig.h"
@@ -266,6 +268,39 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation)
     NEURON_LOG_INFO("self test: replay hash %016llx (checkpoint %016llx)", static_cast<unsigned long long>(first.finalHash),
                     static_cast<unsigned long long>(first.checkpointHash));
   }
+
+  /*
+   * R10's tick-budget soak (ADR-018 A4, D1c). Last of the device-free checks
+   * because it is by far the slowest, and here rather than in a test suite for
+   * the reason D11 gives: the perf numbers that mean anything are Release ones,
+   * and this is the binary CI runs in Release.
+   *
+   * Two checks, and only one of them is about time. The population check is
+   * unconditional: a rung that quietly measured a smaller world than the one it
+   * printed would be worse than having no instrument at all.
+   *
+   * The timing check is deliberately *not* the acceptance number. D1c's
+   * question -- does a capped grid fit inside 50 ms, and how many of them fit a
+   * core -- is answered by reading the logged figures against the machine they
+   * were taken on, which is a judgement a person makes; asserting the budget
+   * itself here would turn every loaded runner into a red build and teach
+   * everyone to ignore the one number this exists to produce. So what is
+   * asserted is a tripwire at twice the budget, which no machine reaches by
+   * being busy and which an O(n^3) pass or a lost early-out clears immediately.
+   * It runs in Release only, per D11: an unoptimised tick at the cap costs
+   * several times what the acceptance figure means, so gating it would measure
+   * the compiler.
+   */
+  {
+    const TickSoakResult soak = RunTickSoak();
+    _checks.Record("the soak reaches every population it claims to measure", soak.populationsReached);
+#ifdef NDEBUG
+    _checks.Record("the capped grid stays inside the tick-cost tripwire",
+                   soak.cappedGridMeanMs > 0.0 && soak.cappedGridMeanMs < TICK_COST_TRIPWIRE_MS);
+#else
+    NEURON_LOG_INFO("self test: the soak's tripwire is not armed here -- ADR-018 D11 scopes tick cost to Release");
+#endif
+  }
 }
 
 /// Services the client until the predicate holds or the deadline passes. The
@@ -289,14 +324,14 @@ template <typename Predicate> bool PumpUntil(Neuron::ClientConnection& _client, 
 
 int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
 {
-  NEURON_LOG_INFO("self test: starting (schema, wire round-trips, replay determinism, then the QUIC loopback loop)");
+  NEURON_LOG_INFO("self test: starting (schema, wire round-trips, replay determinism, the tick soak, then the QUIC loopback loop)");
 
   Checklist checks;
 
   // The S14 aggregate's device-free half runs first: schema self-check, wire
-  // round-trips and the replay-determinism run need no socket, so a transport
-  // failure cannot mask them -- and on a GPU-less CI runner they are most of
-  // what this gate proves.
+  // round-trips, the replay-determinism run and R10's tick soak need no socket,
+  // so a transport failure cannot mask them -- and on a GPU-less CI runner they
+  // are most of what this gate proves.
   RunLocalChecks(checks, _simulation);
 
   // Port 0 whatever the config says: a self test must not fail because the

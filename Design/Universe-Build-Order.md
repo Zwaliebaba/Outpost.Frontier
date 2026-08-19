@@ -18,10 +18,16 @@ are done: **A2** (CI is a Debug/Release matrix and spike 2 is a standing job), *
 shader build is dxc/SM 6.x in both configurations), **A1**
 ([ADR-019](ADR/ADR-019-shard-topology.md)), and **A4** — the soak, measured: a grid at the
 1,024 cap ticks in **10.6 ms mean / 21.9 ms worst, 21 % of the budget**, so the tick has ~5×
-headroom at the cap and **no broadphase is owed before U2**. Two things A4 still owes: the
-authoritative MSVC Release figure (A2's leg now produces it) and an in-repo soak so the
-number is re-taken rather than remembered — the natural home is U2's own suite, where the
-question becomes M grids rather than one.
+headroom at the cap and **no broadphase is owed before U2**. **A4's in-repo soak landed the
+same day** (`Outpost/TickSoak.h/.cpp`): the self test runs the 41 / 256 / 512 / 1,024 ladder
+in the shipping binary on every push, CI tables it per configuration, and the capped-grid
+figure D1c wants — how many grids fit one core — is printed beside it. So the number is now
+re-taken rather than remembered, and the one thing A4 still owes is the authoritative MSVC
+**Release** figure, which the first run of A2's leg produces on its own. **U2 inherits the
+instrument, not the chore:** the ladder measures one grid, and the question U2 makes
+interesting is M grids — extending it is a line in the soak rather than a new harness.
+**A24 also landed**, so the build invariants the determinism story cites are stated in two
+property sheets and held by CI rather than by prose.
 
 The rules are the MVP build order's, unchanged: each slice is independently testable, lands
 green (`Tests/` + `selfTest` where applicable), is sized at "a few days" or less, and later

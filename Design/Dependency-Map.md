@@ -133,7 +133,9 @@ Allowed deps: NeuronServer, NeuronClient, GameLogic (and transitively the rest).
 universe definition, then hand the bytes to GameLogic's pure parser — file IO stays here so
 GameLogic stays OS-free, ADR-009 §7), `ReplicatedWorldView.h/.cpp` (the `Neuron::WorldView`
 implementation), boot/shutdown ordering (ADR-008), `SelfTest.h/.cpp` (the `selfTest` driver:
-server up, handshake, heartbeat, exit code), `ShaderTable.h/.cpp` (the compiled shaders, from
+server up, handshake, heartbeat, exit code), `TickSoak.h/.cpp` (R10's tick-budget soak, run by
+the self test so the number is re-taken in Release on every push — ADR-018 A4/D1c),
+`ShaderTable.h/.cpp` (the compiled shaders, from
 `Outpost/Shaders` via `dxc` (SM 6.7, both configs — ADR-018 D12) into
 `Outpost/CompiledShaders` — the engine builds pipeline states
 and the game says which shaders go in them, ADR-013 §1a). **Nothing else.** Nothing depends on

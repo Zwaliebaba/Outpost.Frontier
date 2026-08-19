@@ -78,7 +78,13 @@ constexpr float WEDGE_DIAGONAL = 0.70710678f;
     {
       return Offsets{0.0f, 0.0f};
     }
-    const auto rank = static_cast<float>((_index + 1u) / 2u);
+    // Integer division on purpose: two ships share each rank, so indices
+    // 1,2 fall back one spacing, 3,4 fall back two, and so on. Split out of
+    // the float expression it feeds because a truncating division inside one
+    // is indistinguishable, to a reader or to clang-tidy, from a division
+    // somebody meant to be exact.
+    const std::uint32_t rankIndex = (_index + 1u) / 2u;
+    const auto rank = static_cast<float>(rankIndex);
     const float side = (_index % 2u) == 1u ? -1.0f : 1.0f;
     const float step = rank * _spacing * WEDGE_DIAGONAL;
     return Offsets{side * step, -step};
