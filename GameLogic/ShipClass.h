@@ -47,8 +47,8 @@ enum class HullClass : std::uint8_t
 inline constexpr std::uint8_t HULL_CLASS_COUNT = 11;
 
 /*
- * What the simulation needs to move one of these, and what the client needs to
- * point at one.
+ * What the simulation needs to move one of these and keep two of them apart
+ * (ADR-015), and what the client needs to point at and draw one.
  *
  * Every rate is per second and every distance is metres, because the tick is an
  * implementation detail of `Integrate` and a table written in per-tick units
@@ -75,9 +75,17 @@ struct ShipClassInfo
   /// a group. The formation solve reads it (S10); nothing else should.
   float formationSpacingMetres = 0.0f;
 
-  /// Cosmetic hover height above the plane (ADR-001 §2), in metres. Presentation
-  /// only, like `pickRadiusMetres`: nothing in `Tick` may read it, it is never
-  /// replicated, and the selection ring stays on the plane beneath the hull.
+  /// The hull's footprint on the plane: two ships are in contact when their
+  /// centres are closer than the sum of these (ADR-015). Smaller than the pick
+  /// radius -- picking is forgiving on purpose, contact must not be -- and at
+  /// most a quarter of the formation spacing, so ships parked on adjacent
+  /// stations are never in contact. A test holds both bounds.
+  float collisionRadiusMetres = 0.0f;
+
+  /// Cosmetic hover height above the plane (ADR-001 §2, S14), in metres.
+  /// Presentation only, like `pickRadiusMetres`: nothing in `Tick` may read it,
+  /// it is never replicated, and the selection ring -- and since ADR-015 the
+  /// contact test too -- stays on the plane beneath the hull.
   float hoverMetres = 0.0f;
 
   /// False for the two reserved ids. A class with no content can still be named

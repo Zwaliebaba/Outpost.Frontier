@@ -7,8 +7,10 @@
 #include "EntityRecord.h"
 #include "WorldHash.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -61,6 +63,35 @@ constexpr float PI = 3.14159265358979323846f;
   spawn.hullClass = _hullClass;
   spawn.headingRadians = _headingRadians;
   return _world.Spawn(spawn);
+}
+
+/// One ship of a class, where the contact scenarios need it.
+[[nodiscard]] ShipId SpawnShipAt(World& _world, HullClass _hullClass, float _x, float _y, float _headingRadians = 0.0f)
+{
+  ShipSpawn spawn;
+  spawn.hullClass = _hullClass;
+  spawn.xMetres = _x;
+  spawn.yMetres = _y;
+  spawn.headingRadians = _headingRadians;
+  return _world.Spawn(spawn);
+}
+
+/// Centre distance between two ships, by slot lookup.
+[[nodiscard]] float CentreDistance(const World& _world, ShipId _a, ShipId _b)
+{
+  std::uint32_t slotA = 0;
+  std::uint32_t slotB = 0;
+  (void)_world.FindSlot(_a, slotA);
+  (void)_world.FindSlot(_b, slotB);
+  const XMFLOAT2& positionA = _world.Positions()[slotA];
+  const XMFLOAT2& positionB = _world.Positions()[slotB];
+  return std::hypot(positionB.x - positionA.x, positionB.y - positionA.y);
+}
+
+/// The combined contact radius of two classes: closer than this is overlap.
+[[nodiscard]] float ContactBetween(HullClass _a, HullClass _b)
+{
+  return ShipClass(_a).collisionRadiusMetres + ShipClass(_b).collisionRadiusMetres;
 }
 
 /*
@@ -443,6 +474,7 @@ public:
     Assert::IsTrue(interceptor.turnRateRadiansPerSec > battleship.turnRateRadiansPerSec);
     Assert::IsTrue(interceptor.accelMetresPerSecSq > battleship.accelMetresPerSecSq);
     Assert::IsTrue(battleship.formationSpacingMetres > interceptor.formationSpacingMetres);
+    Assert::IsTrue(battleship.collisionRadiusMetres > interceptor.collisionRadiusMetres);
 
     for (const HullClass hullClass : PLAYABLE)
     {
@@ -452,6 +484,353 @@ public:
       Assert::IsTrue(info.turnRateRadiansPerSec > 0.0f);
       Assert::IsTrue(info.pickRadiusMetres > 0.0f);
       Assert::IsTrue(info.formationSpacingMetres > 0.0f);
+
+      /*
+       * The contact radius holds two bounds (ADR-015 §1). Below the pick
+       * radius, because picking is forgiving on purpose and contact must not
+       * be. At most a quarter of the formation spacing, because stations one
+       * spacing apart must park hulls with clear water between them -- and a
+       * Wedge's arms put neighbours 2*sqrt(2) radii off each other's course,
+       * which is also why the avoidance clearance stays under sqrt(2): a wider
+       * margin would have a formation in cruise avoiding itself.
+       */
+      Assert::IsTrue(info.collisionRadiusMetres > 0.0f);
+      Assert::IsTrue(info.collisionRadiusMetres < info.pickRadiusMetres, L"contact must be tighter than picking");
+      Assert::IsTrue(4.0f * info.collisionRadiusMetres <= info.formationSpacingMetres + 1e-3f,
+                     L"stations one spacing apart would park hulls in contact");
+    }
+    Assert::IsTrue(World::AVOID_CLEARANCE_FACTOR < 1.41421f, L"formation neighbours would sit inside the avoidance corridor");
+
+    const ShipClassInfo& structure = ShipClass(HullClass::Structure);
+    Assert::IsTrue(structure.collisionRadiusMetres > 0.0f, L"a station with no footprint is a station ships fly through");
+    Assert::IsTrue(structure.collisionRadiusMetres < structure.pickRadiusMetres);
+  }
+};
+
+/*
+ * The contact model (ADR-015): ships no longer fly through each other. Three
+ * mechanisms are under test -- braking against the nearest hull in the flown
+ * path, deflection around traffic in the wanted course, and the positional
+ * separation that resolves whatever those two could not avoid -- but the
+ * assertions are about the *property* the three add up to: two hulls never
+ * occupy the same place, and everything that could arrive before still does.
+ *
+ * A slack of half a metre rides on the contact assertions. Separation resolves
+ * within a tick anything avoidance-sized, but the instant a crossing is
+ * detected the pair can sit fractionally inside contact before the same tick's
+ * resolution runs; the slack is for that fraction, not for real overlap.
+ */
+TEST_CLASS(ShipContactTests)
+{
+public:
+  static constexpr float CONTACT_SLACK_METRES = 0.5f;
+
+  TEST_METHOD(TwoShipsCrossingHeadOnPassClearAndBothArrive)
+  {
+    // The user-visible defect this feature exists to fix: two ships ordered to
+    // swap places used to fly through each other at combined cruise speed.
+    World world;
+    world.Reset(11);
+    const ShipId east = SpawnShipAt(world, HullClass::Interceptor, -2000.0f, 0.0f, 0.0f);
+    const ShipId west = SpawnShipAt(world, HullClass::Interceptor, 2000.0f, 0.0f, PI);
+    const ShipId eastOnly[] = {east};
+    const ShipId westOnly[] = {west};
+
+    const float contact = ContactBetween(HullClass::Interceptor, HullClass::Interceptor);
+    float closest = std::numeric_limits<float>::max();
+    for (std::uint32_t tick = 1; tick <= 1200; ++tick)
+    {
+      if (tick == 1)
+      {
+        Assert::IsTrue(world.SubmitOrder(MoveTo(eastOnly, 1, 2000.0f, 0.0f)).accepted);
+        Assert::IsTrue(world.SubmitOrder(MoveTo(westOnly, 1, -2000.0f, 0.0f)).accepted);
+      }
+      world.Tick(tick);
+      closest = std::min(closest, CentreDistance(world, east, west));
+    }
+
+    Assert::IsTrue(closest >= contact - CONTACT_SLACK_METRES, L"the two ships interpenetrated while crossing");
+    Assert::IsTrue(closest < 4000.0f, L"the ships never actually met, so the test proved nothing");
+
+    std::uint32_t slot = 0;
+    Assert::IsTrue(world.FindSlot(east, slot));
+    Assert::IsTrue(DistanceTo(world.Positions()[slot], 2000.0f, 0.0f) <= World::ARRIVAL_TOLERANCE_METRES,
+                   L"avoidance cost the eastbound ship its arrival");
+    Assert::IsTrue(world.FindSlot(west, slot));
+    Assert::IsTrue(DistanceTo(world.Positions()[slot], -2000.0f, 0.0f) <= World::ARRIVAL_TOLERANCE_METRES,
+                   L"avoidance cost the westbound ship its arrival");
+  }
+
+  TEST_METHOD(AShipFliesAroundAParkedHullAndStillArrives)
+  {
+    World world;
+    world.Reset(11);
+    const ShipId mover = SpawnShipAt(world, HullClass::Interceptor, 0.0f, 0.0f);
+    const ShipId parked = SpawnShipAt(world, HullClass::Frigate, 1500.0f, 0.0f, PI / 2.0f);
+    const ShipId moverOnly[] = {mover};
+
+    const float contact = ContactBetween(HullClass::Interceptor, HullClass::Frigate);
+    float closest = std::numeric_limits<float>::max();
+    for (std::uint32_t tick = 1; tick <= 1200; ++tick)
+    {
+      if (tick == 1)
+      {
+        Assert::IsTrue(world.SubmitOrder(MoveTo(moverOnly, 1, 3000.0f, 0.0f)).accepted);
+      }
+      world.Tick(tick);
+      closest = std::min(closest, CentreDistance(world, mover, parked));
+    }
+
+    Assert::IsTrue(closest >= contact - CONTACT_SLACK_METRES, L"the mover passed through the parked hull");
+
+    std::uint32_t slot = 0;
+    Assert::IsTrue(world.FindSlot(mover, slot));
+    Assert::IsTrue(DistanceTo(world.Positions()[slot], 3000.0f, 0.0f) <= World::ARRIVAL_TOLERANCE_METRES,
+                   L"the detour never reached the target");
+
+    // The parked ship was never touched, so it must not have moved -- avoidance
+    // routes around it rather than shouldering it aside.
+    Assert::IsTrue(world.FindSlot(parked, slot));
+    Assert::AreEqual(1500.0f, world.Positions()[slot].x, 1e-3f, L"the parked hull was shoved");
+    Assert::AreEqual(0.0f, world.Positions()[slot].y, 1e-3f, L"the parked hull was shoved");
+  }
+
+  TEST_METHOD(AStationIsTerrainThatNothingCanBulldoze)
+  {
+    // A Battleship ordered straight across a Structure: heaviest mover against
+    // the one hull that is terrain. The station takes none of the correction,
+    // ever -- a fleet cannot relocate a station by parking in it.
+    World world;
+    world.Reset(11);
+    const ShipId station = SpawnShipAt(world, HullClass::Structure, 0.0f, 0.0f);
+    const ShipId mover = SpawnShipAt(world, HullClass::Battleship, -3000.0f, 0.0f);
+    const ShipId moverOnly[] = {mover};
+
+    const float contact = ContactBetween(HullClass::Battleship, HullClass::Structure);
+    float closest = std::numeric_limits<float>::max();
+    for (std::uint32_t tick = 1; tick <= 2400; ++tick)
+    {
+      if (tick == 1)
+      {
+        Assert::IsTrue(world.SubmitOrder(MoveTo(moverOnly, 1, 3000.0f, 0.0f)).accepted);
+      }
+      world.Tick(tick);
+      closest = std::min(closest, CentreDistance(world, mover, station));
+
+      std::uint32_t stationSlot = 0;
+      Assert::IsTrue(world.FindSlot(station, stationSlot));
+      Assert::AreEqual(0.0f, world.Positions()[stationSlot].x, 1e-6f, L"the station moved");
+      Assert::AreEqual(0.0f, world.Positions()[stationSlot].y, 1e-6f, L"the station moved");
+    }
+
+    Assert::IsTrue(closest >= contact - CONTACT_SLACK_METRES, L"the Battleship drove through the station");
+
+    std::uint32_t slot = 0;
+    Assert::IsTrue(world.FindSlot(mover, slot));
+    Assert::IsTrue(DistanceTo(world.Positions()[slot], 3000.0f, 0.0f) <= World::ARRIVAL_TOLERANCE_METRES,
+                   L"the Battleship never got around the station");
+  }
+
+  TEST_METHOD(OverlappedSpawnsPushApartAndSettleClear)
+  {
+    // Overlap can be authored, not only flown into. Two holding ships stacked
+    // on one point must part -- without either of them ever *moving* in the
+    // envelope sense, because separation is positional and leaves speed alone.
+    World world;
+    world.Reset(11);
+    const ShipId a = SpawnShipAt(world, HullClass::Corvette, 0.0f, 0.0f);
+    const ShipId b = SpawnShipAt(world, HullClass::Corvette, 0.0f, 0.0f);
+
+    for (std::uint32_t tick = 1; tick <= 40; ++tick)
+    {
+      world.Tick(tick);
+    }
+
+    const float contact = ContactBetween(HullClass::Corvette, HullClass::Corvette);
+    Assert::IsTrue(CentreDistance(world, a, b) >= contact - 0.1f, L"stacked spawns stayed inside each other");
+    Assert::AreEqual(0.0f, world.SpeedAt(0), 1e-4f, L"separation invented velocity");
+    Assert::AreEqual(0.0f, world.SpeedAt(1), 1e-4f, L"separation invented velocity");
+  }
+
+  TEST_METHOD(AnOccupiedDestinationEndsParkedAdjacentNotInside)
+  {
+    /*
+     * The one arrival the contact model deliberately costs: a target with a
+     * hull already parked on it cannot be reached, so the ship brakes to a stop
+     * against the blocker and the leg ends by its own deadline (ADR-005 §2) --
+     * the same designed outcome as any other member that cannot arrive. What
+     * the model owes here is narrower and testable: no overlap at any point,
+     * a stop adjacent to the blocker, and an order that ends rather than wedges.
+     */
+    World world;
+    world.Reset(11);
+    const ShipId parked = SpawnShipAt(world, HullClass::Corvette, 2000.0f, 0.0f);
+    const ShipId mover = SpawnShipAt(world, HullClass::Corvette, 0.0f, 0.0f);
+    const ShipId moverOnly[] = {mover};
+
+    const float contact = ContactBetween(HullClass::Corvette, HullClass::Corvette);
+    float closest = std::numeric_limits<float>::max();
+    for (std::uint32_t tick = 1; tick <= 2000; ++tick)
+    {
+      if (tick == 1)
+      {
+        Assert::IsTrue(world.SubmitOrder(MoveTo(moverOnly, 1, 2000.0f, 0.0f)).accepted);
+      }
+      world.Tick(tick);
+      closest = std::min(closest, CentreDistance(world, mover, parked));
+    }
+
+    Assert::IsTrue(closest >= contact - CONTACT_SLACK_METRES, L"the mover pushed into the hull on its target");
+
+    const float finalGap = CentreDistance(world, mover, parked);
+    Assert::IsTrue(finalGap <= contact + 2.0f * World::ARRIVAL_TOLERANCE_METRES + CONTACT_SLACK_METRES,
+                   L"the mover gave up somewhere short of adjacent");
+    std::uint32_t slot = 0;
+    Assert::IsTrue(world.FindSlot(mover, slot));
+    Assert::IsTrue(world.SpeedAt(slot) < 1.0f, L"the mover is still pushing against an unreachable target");
+    Assert::AreEqual<std::size_t>(1, world.Groups().size());
+    Assert::IsTrue(world.Groups()[0].state == OrderState::Done, L"a blocked leg must end by deadline, not wedge");
+  }
+
+  TEST_METHOD(AFormationStillArrivesOnEveryStationWithContactOn)
+  {
+    // The property that let the MVP skip avoidance -- stations never overlap --
+    // is now the property that lets avoidance coexist with formations: the
+    // shuffle to stations crosses paths, but the parked result is contact-free
+    // by construction, so every member can still genuinely arrive.
+    World world;
+    world.Reset(11);
+    ShipId ships[5] = {};
+    for (int index = 0; index < 5; ++index)
+    {
+      ships[index] = SpawnShipAt(world, HullClass::Interceptor, static_cast<float>(index) * 50.0f - 100.0f, 0.0f);
+    }
+
+    for (std::uint32_t tick = 1; tick <= 700; ++tick)
+    {
+      if (tick == 1)
+      {
+        Assert::IsTrue(world.SubmitOrder(MoveTo(ships, 5, 0.0f, 3000.0f, PI / 2.0f)).accepted);
+      }
+      world.Tick(tick);
+    }
+
+    Assert::AreEqual<std::size_t>(1, world.Groups().size());
+    Assert::IsTrue(world.Groups()[0].state == OrderState::Done, L"the formation never finished its move");
+    const float contact = ContactBetween(HullClass::Interceptor, HullClass::Interceptor);
+    for (std::uint32_t slot = 0; slot < world.ShipCount(); ++slot)
+    {
+      const Guidance& guidance = world.Guidances()[slot];
+      Assert::IsTrue(DistanceTo(world.Positions()[slot], guidance.targetXMetres, guidance.targetYMetres) <=
+                         World::ARRIVAL_TOLERANCE_METRES,
+                     L"a member ended somewhere other than its own station");
+      for (std::uint32_t other = slot + 1; other < world.ShipCount(); ++other)
+      {
+        Assert::IsTrue(DistanceTo(world.Positions()[slot], world.Positions()[other].x, world.Positions()[other].y) >=
+                           contact - CONTACT_SLACK_METRES,
+                       L"two members parked in contact");
+      }
+    }
+  }
+
+  TEST_METHOD(AConvergingCrowdSettlesClearAndReplaysExactly)
+  {
+    /*
+     * Eight ships, eight *independent* orders, one destination: the case the
+     * formation solve cannot protect, and the most contact resolution work a
+     * player can create with one click per wing. Two properties: the crowd
+     * settles without overlap, and -- because separation is the newest and
+     * busiest arithmetic in the tick -- the whole scramble replays bit-exactly.
+     */
+    const auto run = [](std::uint64_t _seed) -> std::uint64_t
+    {
+      World world;
+      world.Reset(_seed);
+      ShipId ships[8] = {};
+      for (int index = 0; index < 8; ++index)
+      {
+        const float angle = static_cast<float>(index) * (2.0f * PI / 8.0f);
+        ships[index] = SpawnShipAt(world, HullClass::Interceptor, std::cos(angle) * 1500.0f, std::sin(angle) * 1500.0f,
+                                   angle + PI);
+      }
+      for (std::uint32_t tick = 1; tick <= 1500; ++tick)
+      {
+        if (tick == 1)
+        {
+          for (const ShipId ship : ships)
+          {
+            const ShipId one[] = {ship};
+            Assert::IsTrue(world.SubmitOrder(MoveTo(one, 1, 0.0f, 0.0f)).accepted);
+          }
+        }
+        world.Tick(tick);
+      }
+
+      const float contact = ContactBetween(HullClass::Interceptor, HullClass::Interceptor);
+      for (std::uint32_t slot = 0; slot < world.ShipCount(); ++slot)
+      {
+        Assert::IsTrue(world.SpeedAt(slot) < 1.0f, L"the crowd never settled");
+        for (std::uint32_t other = slot + 1; other < world.ShipCount(); ++other)
+        {
+          Assert::IsTrue(DistanceTo(world.Positions()[slot], world.Positions()[other].x, world.Positions()[other].y) >=
+                             contact - CONTACT_SLACK_METRES,
+                         L"the crowd settled overlapping");
+        }
+      }
+      return ComputeWorldHash(world);
+    };
+
+    Assert::AreEqual(run(0xc0117), run(0xc0117), L"contact resolution diverged between identical runs");
+  }
+
+  TEST_METHOD(ContactNeverBreaksTheMovementEnvelope)
+  {
+    // Separation moves positions, never velocities -- so even mid-scramble, no
+    // hull may break its class's speed, turn or acceleration limits. This is
+    // the multi-ship twin of NoHullEverExceedsItsOwnLimits, which only ever
+    // flew one ship and so could not see contact at all.
+    World world;
+    world.Reset(11);
+    const ShipId ships[4] = {SpawnShipAt(world, HullClass::Interceptor, -1500.0f, 3.0f),
+                             SpawnShipAt(world, HullClass::Interceptor, 1500.0f, -3.0f, PI),
+                             SpawnShipAt(world, HullClass::Frigate, 0.0f, -1200.0f, PI / 2.0f),
+                             SpawnShipAt(world, HullClass::Corvette, 0.0f, 0.0f)};
+
+    std::vector<float> previousHeadings(world.Headings().begin(), world.Headings().end());
+    std::vector<float> previousSpeeds;
+    for (std::uint32_t slot = 0; slot < world.ShipCount(); ++slot)
+    {
+      previousSpeeds.push_back(world.SpeedAt(slot));
+    }
+
+    for (std::uint32_t tick = 1; tick <= 1000; ++tick)
+    {
+      if (tick == 1)
+      {
+        const ShipId a[] = {ships[0]};
+        const ShipId b[] = {ships[1]};
+        const ShipId c[] = {ships[2]};
+        Assert::IsTrue(world.SubmitOrder(MoveTo(a, 1, 1500.0f, 3.0f)).accepted);
+        Assert::IsTrue(world.SubmitOrder(MoveTo(b, 1, -1500.0f, -3.0f)).accepted);
+        Assert::IsTrue(world.SubmitOrder(MoveTo(c, 1, 0.0f, 1200.0f, PI / 2.0f)).accepted);
+      }
+      world.Tick(tick);
+
+      for (std::uint32_t slot = 0; slot < world.ShipCount(); ++slot)
+      {
+        HullClass hullClass = HullClass::Interceptor;
+        Assert::IsTrue(TryShipClass(world.Classes()[slot], hullClass));
+        const ShipClassInfo& info = ShipClass(hullClass);
+        const float speed = world.SpeedAt(slot);
+        Assert::IsTrue(speed <= info.maxSpeedMetresPerSec + 1e-3f, L"contact broke a hull's top speed");
+        Assert::IsTrue(std::fabs(WrappedDelta(previousHeadings[slot], world.Headings()[slot])) <=
+                           info.turnRateRadiansPerSec * World::TICK_SECONDS + 1e-4f,
+                       L"contact broke a hull's turn rate");
+        Assert::IsTrue(std::fabs(speed - previousSpeeds[slot]) <= info.accelMetresPerSecSq * World::TICK_SECONDS + 1e-3f,
+                       L"contact broke a hull's acceleration");
+        previousHeadings[slot] = world.Headings()[slot];
+        previousSpeeds[slot] = speed;
+      }
     }
   }
 };

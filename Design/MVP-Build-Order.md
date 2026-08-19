@@ -1445,6 +1445,13 @@ manual pass is not polish, it is the only instrument that covers a whole categor
 Its price is known — the first frame anyone looked at found three defects every unit test had
 passed over.
 
+**What follows the MVP is already moving.** The first post-MVP feature landed beside S14 and
+merged with it: ship collision (ADR-015) — contact radii in the class table, braking and
+deflection inside Steering, a fifth tick system (`Separate`) — recorded in that ADR rather
+than as a slice here, because it belongs to no build order's sequence. The universe phase is
+designed (ADR-016) and has its own plan, [Universe-Build-Order.md](Universe-Build-Order.md),
+with no slice started. S15 below stays this document's own tail.
+
 ---
 
 ### S15 — Audio thin slice *(post-MVP-core; must not displace S1–S14)*
