@@ -783,8 +783,13 @@ public:
     {
       FormationStation east[4] = {};
       FormationStation north[4] = {};
-      SolveFormation(formation, ids, &ClassLookup::Of, &table, XMFLOAT2{0.0f, 0.0f}, 0.0f, east);
-      SolveFormation(formation, ids, &ClassLookup::Of, &table, XMFLOAT2{0.0f, 0.0f}, quarter, north);
+      // Asserted rather than discarded: the count is what says the solve placed
+      // everybody, and comparing two arrangements that are short the same ship
+      // would agree about a rotation neither of them performed.
+      Assert::AreEqual<std::uint32_t>(
+        4, SolveFormation(formation, ids, &ClassLookup::Of, &table, XMFLOAT2{0.0f, 0.0f}, 0.0f, east));
+      Assert::AreEqual<std::uint32_t>(
+        4, SolveFormation(formation, ids, &ClassLookup::Of, &table, XMFLOAT2{0.0f, 0.0f}, quarter, north));
 
       for (std::uint32_t index = 0; index < 4; ++index)
       {
