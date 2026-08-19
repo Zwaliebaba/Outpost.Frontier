@@ -57,9 +57,24 @@ namespace
   return universe;
 }
 
-/// Squared distance with the deltas shifted down first -- the universe plane is
-/// wider than int64 can square. Mirrors what the generator does, for the same
-/// reason it does it.
+/*
+ * Squared distance with the deltas shifted down first -- the universe plane is
+ * wider than int64 can square. Mirrors what the generator does, for the same
+ * reason it does it.
+ *
+ * **The shift is chosen by the widest pair the comparison can reach, not by
+ * the pair you have in mind.** This is worth saying because getting it wrong
+ * does not throw or assert: 1.7e18 metres shifted by 24 and squared is 1e22,
+ * which wraps, and a wrapped comparison reports that a system on one side of
+ * the universe is nearer a constellation on the other than its own. That is
+ * exactly what a first version of `ConstellationsCluster` reported, and the
+ * bake it accused was correct.
+ *
+ * Any comparison that ranges over *all* constellations is universe-scale, even
+ * though the answer is always a local one.
+ */
+constexpr std::int32_t SHIFT_UNIVERSE = 30;
+
 [[nodiscard]] std::int64_t DistanceSquared(const UniversePos& _a, const UniversePos& _b, std::int32_t _shift)
 {
   const std::int64_t dx = (_a.x - _b.x) >> _shift;
@@ -192,14 +207,14 @@ public:
     for (const SolarSystem& system : universe.systems)
     {
       ++members[system.constellation];
-      const std::int64_t own = DistanceSquared(system.centre, centre[system.constellation], 24);
+      const std::int64_t own = DistanceSquared(system.centre, centre[system.constellation], SHIFT_UNIVERSE);
       for (const Constellation& other : universe.constellations)
       {
         if (other.id == system.constellation)
         {
           continue;
         }
-        Assert::IsTrue(own < DistanceSquared(system.centre, other.centre, 24),
+        Assert::IsTrue(own < DistanceSquared(system.centre, other.centre, SHIFT_UNIVERSE),
                        L"a system sits nearer another constellation's centre than its own");
       }
     }
