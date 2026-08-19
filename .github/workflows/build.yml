@@ -20,6 +20,15 @@ on:
     branches: ['**']
   workflow_dispatch:
 
+# One run per branch. Added after four runs of the same branch sat in progress
+# simultaneously -- each holding a Windows runner on the hung Debug test step
+# (R22) -- and starved the run that was carrying the instrument meant to
+# diagnose it. Superseding is right regardless of the hang: a push makes the
+# run below it uninteresting, and the queue is shared.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: ${{ matrix.configuration }}|x64
