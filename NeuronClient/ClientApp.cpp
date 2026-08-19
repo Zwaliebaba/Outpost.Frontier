@@ -184,8 +184,9 @@ void ClientApp::CreateFrameResources()
 
 bool ClientApp::CreateContent()
 {
-  // Zero asks for hardware_concurrency - 1. A single-core machine gets no
-  // workers at all, which is supported: TaskPool::Wait runs the work inline.
+  // Zero asks for hardware_concurrency - 1, capped at the telemetry lane
+  // budget. A single-core machine gets no workers at all, which is supported:
+  // TaskPool::Wait runs the work inline.
   if (!m_taskPool.Start(0))
   {
     NEURON_LOG_ERROR("the boot task pool would not start");

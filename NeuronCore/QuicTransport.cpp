@@ -835,27 +835,54 @@ void QuicTransport::Poll()
     return;
   }
 
-  const std::lock_guard<std::mutex> hold(impl.m_lock);
-
   // The RTT the HUD shows is msquic's own smoothed estimate, refreshed at the
   // poll cadence; loss on the reliable channel surfaces as controlResends,
   // exactly as the UDP implementation reported its stop-and-wait resends.
-  for (auto& [id, connection] : impl.m_connections)
+  //
+  // GetParam on a connection handle is one of the blocking calls the locking
+  // rules above name: msquic queues the request to the connection's worker and
+  // waits for it. Holding m_lock across it deadlocks against any callback
+  // waiting for that same lock on that same worker -- so the handles are
+  // copied out, asked outside the lock, and the answers written back.
+  std::vector<std::pair<ConnectionId, HQUIC>> polled;
   {
-    if (connection->state != ConnectionState::Connected || connection->connection == nullptr)
+    const std::lock_guard<std::mutex> hold(impl.m_lock);
+    polled.reserve(impl.m_connections.size());
+    for (auto& [id, connection] : impl.m_connections)
     {
-      continue;
-    }
-    QUIC_STATISTICS_V2 statistics{};
-    std::uint32_t size = sizeof(statistics);
-    if (QUIC_SUCCEEDED(impl.m_api->GetParam(connection->connection, QUIC_PARAM_CONN_STATISTICS_V2, &size, &statistics)))
-    {
-      connection->stats.roundTripMs = static_cast<double>(statistics.Rtt) / 1000.0;
-      connection->stats.minRoundTripMs = static_cast<double>(statistics.MinRtt) / 1000.0;
-      connection->stats.controlResends = statistics.SendSuspectedLostPackets;
+      if (connection->state == ConnectionState::Connected && connection->connection != nullptr)
+      {
+        polled.emplace_back(id, connection->connection);
+      }
     }
   }
 
+  // Safe outside the lock: ConnectionClose only ever runs on this thread
+  // (Teardown and the Connect failure path), so a handle collected above
+  // cannot be closed underneath this loop.
+  for (const auto& [id, handle] : polled)
+  {
+    QUIC_STATISTICS_V2 statistics{};
+    std::uint32_t size = sizeof(statistics);
+    if (!QUIC_SUCCEEDED(impl.m_api->GetParam(handle, QUIC_PARAM_CONN_STATISTICS_V2, &size, &statistics)))
+    {
+      continue;
+    }
+
+    const std::lock_guard<std::mutex> hold(impl.m_lock);
+    // Re-found rather than remembered: a callback may have erased the record
+    // while the lock was down.
+    Impl::Connection* connection = impl.Find(id);
+    if (connection == nullptr)
+    {
+      continue;
+    }
+    connection->stats.roundTripMs = static_cast<double>(statistics.Rtt) / 1000.0;
+    connection->stats.minRoundTripMs = static_cast<double>(statistics.MinRtt) / 1000.0;
+    connection->stats.controlResends = statistics.SendSuspectedLostPackets;
+  }
+
+  const std::lock_guard<std::mutex> hold(impl.m_lock);
   while (!impl.m_arrived.empty())
   {
     impl.m_events.push_back(std::move(impl.m_arrived.front()));
@@ -910,6 +937,10 @@ bool QuicTransport::Send(ConnectionId _connection, TransportChannel _channel, st
       return false;
     }
     SendBuffer* send = MakeSendBuffer(_payload, true);
+    // Read before the send, never after: SEND_COMPLETE may run inline and it
+    // deletes the buffer, so `send` can already be freed when StreamSend
+    // returns.
+    const std::uint64_t sentBytes = send->buffer.Length;
     // Non-blocking, and SEND_COMPLETE may run inline -- it takes no lock.
     const QUIC_STATUS status = impl.m_api->StreamSend(connection->stream, &send->buffer, 1, QUIC_SEND_FLAG_NONE, send);
     if (QUIC_FAILED(status))
@@ -917,7 +948,7 @@ bool QuicTransport::Send(ConnectionId _connection, TransportChannel _channel, st
       delete send;
       return false;
     }
-    connection->stats.bytesSent += send->buffer.Length;
+    connection->stats.bytesSent += sentBytes;
     return true;
   }
 
@@ -929,6 +960,8 @@ bool QuicTransport::Send(ConnectionId _connection, TransportChannel _channel, st
     return true;
   }
   SendBuffer* send = MakeSendBuffer(_payload, false);
+  // As above: DATAGRAM_SEND_STATE_CHANGED can free this inline.
+  const std::uint64_t sentBytes = send->buffer.Length;
   const QUIC_STATUS status = impl.m_api->DatagramSend(connection->connection, &send->buffer, 1, QUIC_SEND_FLAG_NONE, send);
   if (QUIC_FAILED(status))
   {
@@ -937,7 +970,7 @@ bool QuicTransport::Send(ConnectionId _connection, TransportChannel _channel, st
     return true;
   }
   ++connection->stats.datagramsSent;
-  connection->stats.bytesSent += send->buffer.Length;
+  connection->stats.bytesSent += sentBytes;
   return true;
 }
 

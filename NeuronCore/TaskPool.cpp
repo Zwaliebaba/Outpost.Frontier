@@ -5,17 +5,49 @@
 #include "Log.h"
 #include "Telemetry.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <exception>
 
 namespace Neuron
 {
+namespace
+{
+
+/*
+ * Lanes the pool leaves alone, for the roles that are not workers.
+ *
+ * Every worker registers its own numbered telemetry lane, because two threads
+ * sharing one would break the ring's single-producer contract (Telemetry.h).
+ * That makes the lane table a real ceiling on the pool, and the engine's own
+ * roles -- "Main" in the client, "Sim" in the server host -- claim theirs
+ * first. Four is those two and a spare each.
+ */
+constexpr std::uint32_t RESERVED_LANES = 4;
+
+/// The most workers the default sizing will ask for. Derived from the lane
+/// table so it cannot drift away from it.
+constexpr std::uint32_t MAX_DEFAULT_WORKERS = Telemetry::MAX_LANES - RESERVED_LANES;
+
+} // namespace
 
 TaskPool::~TaskPool()
 {
   Stop();
 }
 
+/*
+ * Workers for a default-sized pool.
+ *
+ * One per core less the caller's, capped at the lane budget. Without the cap a
+ * large machine asks for more lanes than exist and the surplus workers are
+ * refused one error line each at every startup -- threads that run tasks but
+ * cannot be measured, which is the silent-partial-measurement the registry
+ * exists to refuse.
+ *
+ * The cap costs nothing that is being used: this pool is the boot bake pool,
+ * and its widest batch is the nine OBJ files.
+ */
 std::uint32_t TaskPool::DefaultWorkerCount() noexcept
 {
   const unsigned hardware = std::thread::hardware_concurrency();
@@ -23,7 +55,8 @@ std::uint32_t TaskPool::DefaultWorkerCount() noexcept
   {
     return 0; // One core: the submitting thread is the pool.
   }
-  return static_cast<std::uint32_t>(hardware - 1); // Leave the caller its core.
+  const auto leaveOneForTheCaller = static_cast<std::uint32_t>(hardware - 1);
+  return std::min(leaveOneForTheCaller, MAX_DEFAULT_WORKERS);
 }
 
 bool TaskPool::Start(std::uint32_t _workerCount)

@@ -70,10 +70,15 @@ public:
   TaskPool(const TaskPool&) = delete;
   TaskPool& operator=(const TaskPool&) = delete;
 
-  /// Starts _workerCount threads. Zero asks for hardware_concurrency - 1, so
-  /// the calling thread is not counted twice; the result may still be zero on a
+  /// Starts _workerCount threads. Zero asks for hardware_concurrency - 1
+  /// capped at the telemetry lane budget (see DefaultWorkerCount), so the
+  /// calling thread is not counted twice; the result may still be zero on a
   /// single-core machine, which is a supported configuration -- Submit still
   /// queues and Wait still runs the work inline.
+  ///
+  /// An explicit count is taken as given. Asking for more workers than there
+  /// are free lanes is legal and costs the surplus workers their measurements,
+  /// which the registry says so about, loudly, once each.
   [[nodiscard]] bool Start(std::uint32_t _workerCount = 0);
 
   /// Finishes what is queued, then joins. Safe to call more than once.
@@ -98,7 +103,9 @@ public:
   /// Tasks completed since Start. A counter, not a gauge.
   [[nodiscard]] std::uint64_t CompletedCount() const noexcept { return m_completed.load(std::memory_order_relaxed); }
 
-  /// How many threads to start when Start is asked for zero.
+  /// How many threads to start when Start is asked for zero: one per core less
+  /// the caller's, capped so the pool cannot claim more telemetry lanes than
+  /// the registry has left for it.
   [[nodiscard]] static std::uint32_t DefaultWorkerCount() noexcept;
 
 private:

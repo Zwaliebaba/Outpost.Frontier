@@ -420,6 +420,22 @@ public:
     }
     Assert::IsTrue(Telemetry::LaneCount() <= Telemetry::MAX_LANES, L"restarting the pool leaked lanes");
   }
+
+  TEST_METHOD(ADefaultPoolLeavesLanesForTheNamedRoles)
+  {
+    /*
+     * The default sizing must fit the lane budget with room to spare.
+     *
+     * It used to be hardware_concurrency - 1 flat, so a twenty-core machine
+     * asked for nineteen lanes against a cap of sixteen: five workers refused,
+     * five error lines at every single startup, and five threads baking content
+     * that no measurement could see. The machine this runs on decides whether
+     * that reproduces, which is exactly why the bound is asserted rather than
+     * left to whoever next opens the log on a big box.
+     */
+    Assert::IsTrue(TaskPool::DefaultWorkerCount() + 2u <= Telemetry::MAX_LANES,
+                   L"a default pool must leave lanes for 'Main' and 'Sim'");
+  }
 };
 
 TEST_CLASS(CpuSupportTests)
