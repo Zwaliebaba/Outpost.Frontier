@@ -389,57 +389,42 @@ jobs:
             Select-Object -ExpandProperty FullName
           if (-not $dlls) { throw 'no test assemblies were produced' }
 
-          # One invocation per assembly, not one for all four. Handing vstest
-          # every DLL at once means a suite that hangs takes the other three's
-          # results with it -- which is exactly what R22's Debug hang has been
-          # doing: the run ends with no per-suite verdict and nothing named.
-          # Per-assembly, the table below says which suite never came back and
-          # the others still report, which is the difference between "Debug is
-          # broken" and "NeuronServerTests is broken".
+          $dlls | ForEach-Object { Write-Host "testing $_" }
+
+          # Captured as well as echoed: a failing assertion is the whole reason
+          # this step exists, and it must not be something you have to scroll a
+          # 1500-line log to find.
+          # Blame with hang detection, because the job timeout is the wrong
+          # instrument: it kills the runner and takes the evidence with it.
+          # `TestTimeout` makes *vstest* give up on a test that has produced
+          # nothing for five minutes, dump the hung process and name the test in
+          # Sequence.xml -- so a hang becomes a normal red build with a culprit.
+          # Five minutes is far above any honest Debug test here: the whole
+          # Release suite finishes in seventeen seconds.
           #
-          # Blame with hang detection is the instrument rather than the job
-          # timeout, which kills the runner and takes the evidence with it:
-          # vstest gives up on a test idle for five minutes, dumps it, and names
-          # it in Sequence.xml. Five minutes is generous against a Release suite
-          # that finishes in eighteen seconds -- if an honest Debug test ever
-          # approaches it, raise the number rather than delete the test.
-          $results = @()
-          $anyFailed = $false
-          foreach ($dll in $dlls)
-          {
-            $name = [System.IO.Path]::GetFileNameWithoutExtension($dll)
-            Write-Host "--- $name ---"
-            $started = Get-Date
-            & $vstest $dll /Platform:x64 /Blame:"CollectHangDump;TestTimeout=300000" `
-              /Logger:console`;verbosity=normal 2>&1 |
-              Tee-Object -FilePath "test-$name.log"
-            $code = $LASTEXITCODE
-            $seconds = [int]((Get-Date) - $started).TotalSeconds
-            if ($code -eq 0) { $status = 'passed' } else { $status = "FAILED (exit $code)"; $anyFailed = $true }
-            Write-Host "$name : $status after $seconds s"
-            $results += [pscustomobject]@{ Suite = $name; Status = $status; Seconds = $seconds }
-          }
+          # Disabling Windows Error Reporting (step above) was the first attempt
+          # and did not stop the hang, which is itself a finding: the Debug hang
+          # is not an assertion reaching WER but something that waits -- a
+          # deadlock or a socket that never returns, visible only at Debug
+          # timing. This is the instrument that will say which.
+          & $vstest $dlls /Platform:x64 /Blame:"CollectHangDump;TestTimeout=300000" `
+            /Logger:console`;verbosity=normal 2>&1 |
+            Tee-Object -FilePath test.log
+          $failed = $LASTEXITCODE -ne 0
 
-          # One combined log so the artifact keeps its existing shape.
-          Get-ChildItem test-*.log | ForEach-Object { Get-Content $_.FullName } | Out-File -Encoding utf8 test.log
-
-          $table = @('| suite | result | seconds |', '|---|---|---|')
-          foreach ($r in $results) { $table += "| $($r.Suite) | $($r.Status) | $($r.Seconds) |" }
-          $table | ForEach-Object { Write-Host $_ }
-          (@("## Tests (${{ matrix.configuration }})") + $table) | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
-
-          if ($anyFailed)
+          if ($failed)
           {
             # A backtick-fenced here-string would be unreadable in PowerShell
             # (a fence needs six backticks inside a double-quoted string), so
             # the summary is assembled as lines and the fences are literals.
-            $detail = Select-String -Path test.log -Pattern 'Failed\s+[A-Za-z]|Error Message|Assert failed|Stack Trace|Blame|hang' -Context 0,3 |
+            $detail = Select-String -Path test.log -Pattern 'Failed\s+[A-Za-z]|Error Message|Assert failed|Stack Trace' -Context 0,3 |
               Select-Object -First 40 | ForEach-Object { $_.Line.Trim(); $_.Context.PostContext | ForEach-Object { '    ' + $_.Trim() } }
+            $totals = Select-String -Path test.log -Pattern '^(Failed|Passed)!' | ForEach-Object { $_.Line.Trim() }
 
             Write-Host '--- failing tests ---'
             $detail | ForEach-Object { Write-Host $_ }
 
-            $lines = @('```') + $detail + @('```')
+            $lines = @('## Tests failed (${{ matrix.configuration }})', '```') + $totals + @('') + $detail + @('```')
             $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
             throw 'tests failed'
           }
@@ -560,7 +545,6 @@ jobs:
           path: |
             build.log
             test.log
-            test-*.log
             selftest.log
             TestResults/**
           if-no-files-found: ignore
