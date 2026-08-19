@@ -32,6 +32,12 @@ jobs:
     # mystery. Pin this the first time that log says something new.
     runs-on: windows-latest
 
+    # A hang must cost 45 minutes, not the 6-hour default. Added when the Debug
+    # leg was found stuck in `Run tests` for over 100 minutes on a docs-only
+    # commit -- a pre-existing hang the Release leg exposed by contrast, since
+    # Release runs the same four suites in seconds (see the WER step below).
+    timeout-minutes: 45
+
     strategy:
       # Both legs always run: a Release failure is information about Release,
       # and it must not hide whether Debug is green.
@@ -62,6 +68,23 @@ jobs:
           if ($dxc) { $lines += "- dxc: $($dxc.FullName)" } else { $lines += '- dxc: not found on PATH roots' }
           $lines | ForEach-Object { Write-Host $_ }
           (@("## Toolchain (${{ matrix.configuration }})") + $lines) | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      # `ASSERT`/`DEBUG_ASSERT` end in `__debugbreak()` (NeuronCore/Debug.h:41,
+      # 48), and `DEBUG_ASSERT` is `__noop` in Release (:62). So an assertion
+      # that fires under test is a Debug-only event, and on a runner with no
+      # debugger the breakpoint exception reaches Windows Error Reporting, whose
+      # default behaviour is to sit there -- which is a hung job rather than a
+      # failed one, and indistinguishable from a slow one. Turning the UI off
+      # and disabling the queue makes the process die instead, so vstest reports
+      # a crashed test and `/Blame` below names it.
+      - name: Make a Debug assertion fail the job instead of hanging it
+        shell: pwsh
+        run: |
+          $wer = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting'
+          New-Item -Path $wer -Force | Out-Null
+          Set-ItemProperty -Path $wer -Name DontShowUI -Value 1 -Type DWord
+          Set-ItemProperty -Path $wer -Name Disabled -Value 1 -Type DWord
+          Write-Host 'Windows Error Reporting UI disabled for this runner'
 
       # msquic and C++/WinRT arrive as NuGet packages. These are
       # packages.config projects, not PackageReference, so this is
@@ -362,7 +385,10 @@ jobs:
           # Captured as well as echoed: a failing assertion is the whole reason
           # this step exists, and it must not be something you have to scroll a
           # 1500-line log to find.
-          & $vstest $dlls /Platform:x64 /Logger:console`;verbosity=normal 2>&1 |
+          # /Blame writes a Sequence.xml naming the test that was executing when
+          # the host died or hung, which is the one fact a hang otherwise
+          # destroys. Cheap, and it costs nothing on a green run.
+          & $vstest $dlls /Platform:x64 /Blame /Logger:console`;verbosity=normal 2>&1 |
             Tee-Object -FilePath test.log
           $failed = $LASTEXITCODE -ne 0
 
@@ -500,6 +526,7 @@ jobs:
             build.log
             test.log
             selftest.log
+            TestResults/**
           if-no-files-found: ignore
 
   # Standing spike 2: "confirm hashes *differ* across configs is acceptable and
