@@ -107,7 +107,7 @@ bool WriteStationRoster(AnchorId _station, std::span<const RosterEntry> _docked,
   return _writer.Ok();
 }
 
-bool ReadStationRoster(Neuron::ByteReader& _reader, AnchorId& _outStation, std::vector<RosterEntry>& _outDocked) noexcept
+bool ReadStationRoster(Neuron::ByteReader& _reader, AnchorId& _outStation, std::vector<RosterEntry>& _outDocked)
 {
   _outDocked.clear();
 

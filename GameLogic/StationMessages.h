@@ -27,6 +27,13 @@
  * schema break later. Four bytes now costs 128 bytes on a full 64-ship command
  * and buys never having to do it.
  *
+ * **One function here is not `noexcept`, and it is the one that allocates.**
+ * `ReadStationRoster` fills a caller-owned `std::vector`, so it can throw
+ * `bad_alloc`; declaring it `noexcept` would turn that into `std::terminate`
+ * on the path that reads the wire. The CI clang-tidy step found it -- the
+ * second time it has caught a `noexcept` an allocation could not keep, and the
+ * second time only the Windows toolchain saw it.
+ *
  * Decoding is where a hostile payload stops, and the rule is the order family's:
  * a count past the cap is refused **before** the loop, and a value the game
  * merely does not recognise is passed through for *validation* to refuse with a
@@ -71,7 +78,17 @@ inline constexpr std::size_t MAX_STATION_COMMAND_BYTES = StationCommandBytes(MAX
 [[nodiscard]] bool WriteStationRoster(AnchorId _station, std::span<const RosterEntry> _docked,
                                       Neuron::ByteWriter& _writer) noexcept;
 
+/*
+ * Reads one back. **Not `noexcept`, unlike every other function here**, and the
+ * difference is the `std::vector` it fills: it allocates, so it can throw, and
+ * a `noexcept` over an allocation is `std::terminate` on `bad_alloc` rather
+ * than a promise.
+ *
+ * The vector is the caller's because a roster is unbounded by design (ADR-017
+ * has no hangar capacity) even though one *message* is capped, so there is no
+ * fixed array to read into the way the command has one.
+ */
 [[nodiscard]] bool ReadStationRoster(Neuron::ByteReader& _reader, AnchorId& _outStation,
-                                     std::vector<RosterEntry>& _outDocked) noexcept;
+                                     std::vector<RosterEntry>& _outDocked);
 
 } // namespace Game
