@@ -160,6 +160,9 @@ void ClientConnection::HandleMessage(const TransportEvent& _event)
     m_worldId = welcome.worldId;
     m_anchorX = welcome.anchorX;
     m_anchorY = welcome.anchorY;
+    m_worldName = welcome.worldName;
+    m_worldDetail = welcome.worldDetail;
+    m_worldBadge = welcome.worldBadge;
     m_state = ClientLinkState::Joined;
     m_lastStatsCounter = Clock::Counter(); // The first NET line is due a full interval after joining.
     NEURON_LOG_INFO("joined as client %u (server at tick %u, %u Hz)", m_clientId, m_serverTick, static_cast<unsigned>(m_serverTickRate));

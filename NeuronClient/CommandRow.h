@@ -15,12 +15,18 @@
  * are called comes from the game through `WorldView::OrderKinds`, and what
  * pressing one does is the caller's business.
  *
- * **The parameter button is not a command.** `FORMATION` sits in the row beside
- * the verbs and is a different kind of thing -- the name of what the selected
- * command varies by; the chosen value itself is stated by the context bar's
- * summary line. The print gives it a dropdown caret for exactly that reason.
- * It is placed immediately after the command it belongs to, so the pair reads
- * as one control.
+ * **The parameter button is not a command.** `FORMATION` sits in the row and is
+ * a different kind of thing -- the name of what the selected command varies by;
+ * the chosen value itself is stated by the context bar's summary line. The
+ * print gives it a dropdown caret for exactly that reason.
+ *
+ * **Where it goes is the print's order:** the immediate verbs stay contiguous
+ * at the head of the row, and the parameter chip is deferred past any
+ * parameterless commands so it opens the picker cluster -- `MOVE ATTACK |
+ * FORMATION STANCE ABILITIES`, not `MOVE FORMATION ATTACK ...`. Muscle memory
+ * forms early, and ATTACK is second on the print. A parameter whose own
+ * command already sits in the picker cluster still lands right beside it,
+ * because the next command along has a parameter name too.
  *
  * **Device-free, and that is what makes the row clickable at all.** A button is
  * a rect and a decision; putting both here means the hit test and the drawing
@@ -66,6 +72,19 @@ struct CommandButton
   /// The command the puck is currently set to. Exactly one command button is
   /// this, and the parameter button never is.
   bool active = false;
+
+  /*
+   * Pressing this opens a picker rather than arming the puck, and the drawing
+   * pass hangs the print's `▾` caret on it -- without the caret, nothing
+   * distinguishes an immediate verb from one that opens a mode.
+   *
+   * True for every parameter button, and for a command that has a named
+   * parameter but no content: such a command cannot execute, so the only thing
+   * selecting it can ever do is put its picker on the row. An *available*
+   * command with a parameter (MOVE) stays uncarreted -- its picker is the
+   * separate parameter chip, and the verb itself is immediate.
+   */
+  bool opensPicker = false;
 };
 
 /// Sizes at scale 1.0, read off the print.

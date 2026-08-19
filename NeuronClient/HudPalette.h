@@ -97,16 +97,21 @@ struct HudPalette
  *
  * Three bands rather than a gradient, because the strip is a reading and not a
  * picture: healthy is the chrome's own green, worn is the caution amber, and
- * low is the hostile red -- the same three the world-space bars will adopt when
- * the overlay migrates. The thresholds are 70% and 40% of 255.
+ * low is the hostile red. The thresholds are 70% and 40% of 255, and they are
+ * named so the world-space bars (`BuildOverlayMarks`) band on the same numbers
+ * -- a wing's roster strip and its ships' bars must not disagree about where
+ * worn begins.
  */
+inline constexpr std::uint8_t HULL_GAUGE_WORN_BELOW = 179;
+inline constexpr std::uint8_t HULL_GAUGE_LOW_BELOW = 102;
+
 [[nodiscard]] constexpr std::uint32_t HullGaugeFill(const HudPalette& _palette, std::uint8_t _gauge) noexcept
 {
-  if (_gauge >= 179)
+  if (_gauge >= HULL_GAUGE_WORN_BELOW)
   {
     return _palette.phosphor;
   }
-  return _gauge >= 102 ? _palette.caution : _palette.hostile;
+  return _gauge >= HULL_GAUGE_LOW_BELOW ? _palette.caution : _palette.hostile;
 }
 
 } // namespace Neuron

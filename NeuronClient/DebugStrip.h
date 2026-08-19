@@ -70,6 +70,11 @@ struct DebugStripReadout
   std::uint64_t controlResends = 0;
   std::uint64_t datagramsDropped = 0;
 
+  /// The server's tick as last heard -- the shared clock (ADR-002 §1). Debug
+  /// telemetry, not player information, which is why it lives here and not on
+  /// the release top bar (`tactical-hud.png` keeps the top bar for the player).
+  std::uint32_t serverTick = 0;
+
   // The snapshot clock (ADR-002 §4).
   bool hasEstimate = false;
   bool stale = false;

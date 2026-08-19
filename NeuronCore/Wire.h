@@ -110,6 +110,18 @@ struct Welcome
   std::uint16_t worldId = 0;
   std::int64_t anchorX = 0;
   std::int64_t anchorY = 0;
+
+  /*
+   * The world's display strings, from the simulation's `WorldMeta` and carried
+   * exactly as unread as `worldId` is: a name for the world, a secondary line,
+   * and a short status badge. The HUD's top bar draws them verbatim
+   * (`tactical-hud.png`'s `VESTA-3 / FRONTIER 0.4 / SEC 0.4`), and the words
+   * are the game's -- the engine ships them the way it ships `playerName`,
+   * which is why they are plain strings rather than anything with structure.
+   */
+  std::string worldName;
+  std::string worldDetail;
+  std::string worldBadge;
 };
 
 struct UpdateRequired
@@ -189,7 +201,8 @@ void Write(ByteWriter& _writer, const Goodbye& _message) noexcept;
  */
 inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,u64 schemaHash,u64 contentHash,str playerName}"
                                                      "Welcome{u32 clientId,u32 tick,u16 tickRate,u64 schemaHash,u64 contentHash,"
-                                                     "u16 worldId,i64 anchorX,i64 anchorY}"
+                                                     "u16 worldId,i64 anchorX,i64 anchorY,"
+                                                     "str worldName,str worldDetail,str worldBadge}"
                                                      "UpdateRequired{u64 serverSchemaHash,u64 serverContentHash}"
                                                      "Refuse{u16 reason}"
                                                      "Ping{u64 clientSendMicroseconds}"

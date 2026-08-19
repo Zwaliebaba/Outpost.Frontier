@@ -96,6 +96,19 @@ namespace
   return found == sampled.end() ? Game::HullClass::Interceptor : static_cast<Game::HullClass>(found->classId);
 }
 
+/// ASCII uppercase into a fixed buffer, always terminated. The names it is fed
+/// are the game's own English words, so no locale question arises.
+void UpperCaseInto(const char* _text, char* _out, std::size_t _capacity) noexcept
+{
+  std::size_t i = 0;
+  for (; _text[i] != '\0' && i + 1 < _capacity; ++i)
+  {
+    const char c = _text[i];
+    _out[i] = (c >= 'a' && c <= 'z') ? static_cast<char>(c - ('a' - 'A')) : c;
+  }
+  _out[i] = '\0';
+}
+
 [[nodiscard]] OrderVerdict ToSeam(const Game::OrderVerdict& _verdict, std::uint32_t _orderSeq) noexcept
 {
   OrderVerdict verdict;
@@ -331,8 +344,17 @@ void ReplicatedWorldView::SolvePreview(const OrderIntent& _intent, OrderPreview&
   }
   _outPreview.etaSeconds = Game::GroupTravelSeconds(std::span<const Game::TravelLeg>{legs, legCount});
 
-  std::snprintf(_outPreview.label, sizeof(_outPreview.label), "%s - %s", Game::OrderKindName(order.kind),
-                Game::FormationName(order.formation));
+  /*
+   * `MOVE ▸ CLAW` -- uppercase, token-separated, the print's own spelling
+   * (`tactical-hud.png`'s order label). Uppercased here rather than by the
+   * drawing pass because the label is the game's sentence: the engine copies
+   * the bytes and must not re-spell words it is not allowed to know.
+   */
+  char kindUpper[16] = {};
+  char formationUpper[16] = {};
+  UpperCaseInto(Game::OrderKindName(order.kind), kindUpper, sizeof(kindUpper));
+  UpperCaseInto(Game::FormationName(order.formation), formationUpper, sizeof(formationUpper));
+  std::snprintf(_outPreview.label, sizeof(_outPreview.label), "%s \xE2\x96\xB8 %s", kindUpper, formationUpper);
 }
 
 bool ReplicatedWorldView::EncodeOrder(const OrderIntent& _intent, ByteWriter& _writer)
@@ -359,27 +381,51 @@ OrderDefaults ReplicatedWorldView::DefaultOrder() const
 
 std::uint32_t ReplicatedWorldView::OrderOptions(std::uint16_t _kind, std::span<OrderOption> _outOptions) const
 {
-  // Move's parameter is a formation. No other kind exists yet, and a kind that
-  // took no parameter would answer zero here rather than be special-cased at
-  // the client -- which is what makes "an empty answer is legitimate" a real
-  // path rather than a line in a comment.
-  if (_kind != static_cast<std::uint16_t>(Game::OrderKind::Move))
+  // Move's parameter is a formation. A kind that takes no parameter answers
+  // zero here rather than being special-cased at the client -- which is what
+  // makes "an empty answer is legitimate" a real path rather than a line in a
+  // comment.
+  if (_kind == static_cast<std::uint16_t>(Game::OrderKind::Move))
   {
-    return 0;
+    std::uint32_t count = 0;
+    for (const Game::FormationId formation : Game::FORMATION_IDS)
+    {
+      if (count >= _outOptions.size())
+      {
+        break;
+      }
+      _outOptions[count].parameter = static_cast<std::uint16_t>(formation);
+      _outOptions[count].name = Game::FormationName(formation);
+      ++count;
+    }
+    return count;
   }
 
-  std::uint32_t count = 0;
-  for (const Game::FormationId formation : Game::FORMATION_IDS)
+  /*
+   * Stance's parameter is a posture. The kind itself is reserved -- nothing
+   * validates or simulates it, and `OrderKindHasContent` keeps its verb greyed
+   * -- but the context bar's `STANCE <value>` readout has to name the standing
+   * posture and may not invent the words (ADR-014 §2b). What the client holds
+   * is a chosen value for a future order, exactly the standing `FORMATION
+   * LINE` already is before a Move is sent.
+   */
+  if (_kind == static_cast<std::uint16_t>(Game::OrderKind::Stance))
   {
-    if (count >= _outOptions.size())
+    std::uint32_t count = 0;
+    for (const Game::StanceId stance : Game::STANCE_IDS)
     {
-      break;
+      if (count >= _outOptions.size())
+      {
+        break;
+      }
+      _outOptions[count].parameter = static_cast<std::uint16_t>(stance);
+      _outOptions[count].name = Game::StanceName(stance);
+      ++count;
     }
-    _outOptions[count].parameter = static_cast<std::uint16_t>(formation);
-    _outOptions[count].name = Game::FormationName(formation);
-    ++count;
+    return count;
   }
-  return count;
+
+  return 0;
 }
 
 std::uint32_t ReplicatedWorldView::OrderKinds(std::span<OrderKindOption> _outKinds) const

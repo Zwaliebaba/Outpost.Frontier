@@ -213,8 +213,11 @@ UiRect BuildDebugStrip(const DebugStripReadout& _readout, const DebugStripStyle&
   // never measured.
   if (_readout.joined)
   {
-    std::snprintf(buffer, sizeof(buffer), "LINK    rtt %5.1f ms   min %5.2f   resend %llu   drop %llu", _readout.rttMs,
-                  _readout.minRttMs, static_cast<unsigned long long>(_readout.controlResends),
+    // The tick leads the row: it moved here from the release top bar, which is
+    // for the player -- the shared clock is a debugging fact about the link.
+    std::snprintf(buffer, sizeof(buffer), "LINK    tick %u   rtt %5.1f ms   min %5.2f   resend %llu   drop %llu",
+                  _readout.serverTick, _readout.rttMs, _readout.minRttMs,
+                  static_cast<unsigned long long>(_readout.controlResends),
                   static_cast<unsigned long long>(_readout.datagramsDropped));
     _ui.AddText(textX, rowY, _style.smallSizeIndex, _palette.phosphorBody, buffer);
   }

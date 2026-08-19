@@ -125,6 +125,22 @@ struct UiTextRun
   /// grows and a view into it would dangle the moment another run was added.
   std::uint32_t textOffset = 0;
   std::uint32_t textLength = 0;
+
+  /*
+   * How many quads were already in the list when this run was added -- the
+   * one thing that makes **build order the draw order** across both kinds.
+   *
+   * Quads and runs live in two arrays, so without this a pass can only emit
+   * all of one then all of the other, and a panel added after a line of text
+   * silently fails to cover it. That is invisible for a HUD that is a border
+   * around a view and wrong the moment anything floats: the menu list drew its
+   * ground over the ability rack and the rack's *labels* came through it.
+   *
+   * A cursor rather than a per-instance sort key, because the two arrays are
+   * each already in order -- the merge is one walk, and the pass still issues
+   * one draw over one stream.
+   */
+  std::uint32_t quadsBefore = 0;
 };
 
 /*

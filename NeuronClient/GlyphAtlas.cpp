@@ -44,8 +44,15 @@ constexpr char32_t BOX_AND_MARKER_GLYPHS[] = {
     0x2591, 0x2592, 0x2593,
     0x2190, 0x2191, 0x2192, 0x2193,                 // arrows
     0x25b2, 0x25bc, 0x25c0, 0x25b6,                 // solid triangles
+    0x25b8, 0x25be,                                 // small triangles: the ▸ token separator
+                                                    // and the ▾ picker caret
     0x25cf, 0x25cb, 0x25a0, 0x25a1,                 // discs and squares
-    0x00b0, 0x00b1, 0x00d7, 0x2022,                 // degree, plus-minus, times, bullet
+    0x25a3, 0x25a5, 0x25c8,                         // the summary's ▣, the menu's ▥ and the
+                                                    // location's ◈ (tactical-hud.png top bar)
+    0x00b0, 0x00b1, 0x00d7, 0x2022, 0x00b7,         // degree, plus-minus, times, bullet, and
+                                                    // the · the order label separates with
+    0x2316, 0x26a0, 0x238c,                         // the ⌖ ship-count glyph, the ⚠ alert
+                                                    // triangle and the ⎌ undo chip
     0x231b, 0x23f3};                                // hourglasses, for the pending chip --
                                                     // listed so a face that has one shows it;
                                                     // a face without bakes .notdef and the
@@ -216,7 +223,8 @@ std::wstring ToWide(const std::string& _utf8)
 }
 
 void BakeOneSize(IDWriteFactory* _factory, IDWriteFontFace* _face, const DWRITE_FONT_METRICS& _fontMetrics,
-                 const std::vector<char32_t>& _codepoints, float _sizePixels, BakedSize& _outBaked)
+                 IDWriteFontFace* _symbolFace, const std::vector<char32_t>& _codepoints, float _sizePixels,
+                 BakedSize& _outBaked)
 {
   NEURON_SPAN("GlyphBake");
 
@@ -249,11 +257,13 @@ void BakeOneSize(IDWriteFactory* _factory, IDWriteFontFace* _face, const DWRITE_
   }
 
   _outBaked.glyphs.reserve(_codepoints.size());
+  std::vector<std::size_t> missing;
   for (std::size_t i = 0; i < _codepoints.size(); ++i)
   {
     if (glyphIndices[i] == 0)
     {
-      continue; // .notdef -- the face has no glyph for this codepoint.
+      missing.push_back(i); // .notdef -- the face may still borrow one below.
+      continue;
     }
 
     BakedGlyph glyph;
@@ -268,6 +278,39 @@ void BakeOneSize(IDWriteFactory* _factory, IDWriteFontFace* _face, const DWRITE_
     {
       _outBaked.metrics.cellWidthPixels = glyph.advancePixels;
     }
+    _outBaked.glyphs.push_back(std::move(glyph));
+  }
+
+  /*
+   * The marker glyphs the main face does not carry, borrowed from the symbol
+   * face -- Consolas has no ⌖, ⎌ or ⚠, and the prints draw all three. The
+   * borrowed bitmap is **forced onto the monospace cell**: the pen advances by
+   * a glyph's own advance, and a proportional symbol advance in the middle of
+   * a run would break the grid every layout multiplication assumes. Centred in
+   * the cell for the same reason, so a wide symbol overhangs both sides evenly
+   * rather than shouldering into the next column.
+   */
+  if (_symbolFace == nullptr || missing.empty() || _outBaked.metrics.cellWidthPixels <= 0.0f)
+  {
+    return; // No face, nothing missing, or a face with no 'M' to size a cell by.
+  }
+  for (const std::size_t i : missing)
+  {
+    const auto asUint32 = static_cast<UINT32>(_codepoints[i]);
+    UINT16 symbolIndex = 0;
+    if (FAILED(_symbolFace->GetGlyphIndices(&asUint32, 1, &symbolIndex)) || symbolIndex == 0)
+    {
+      continue; // Missing everywhere: the caller substitutes, as it always did.
+    }
+
+    BakedGlyph glyph;
+    glyph.codepoint = _codepoints[i];
+    if (!RasteriseGlyph(_factory, _symbolFace, symbolIndex, _sizePixels, glyph))
+    {
+      continue;
+    }
+    glyph.advancePixels = _outBaked.metrics.cellWidthPixels;
+    glyph.bearingX = static_cast<std::int32_t>((_outBaked.metrics.cellWidthPixels - static_cast<float>(glyph.width)) * 0.5f);
     _outBaked.glyphs.push_back(std::move(glyph));
   }
 }
@@ -333,14 +376,32 @@ bool GlyphAtlas::Create(GpuDevice& _device, const Desc& _desc, TaskPool& _taskPo
 
   const std::vector<char32_t> codepoints = BuildCodepointSet();
 
+  /*
+   * The symbol fallback, for marker glyphs the text face lacks. Segoe UI
+   * Symbol ships with Windows and carries the whole marker set; asked for
+   * directly rather than through `CreateFontFace`, whose candidate list would
+   * quietly hand back the same text face that was missing the glyph. Null is
+   * fine -- the bake then degrades exactly as it did before the fallback
+   * existed.
+   */
+  std::string symbolUsed;
+  GpuPtr<IDWriteFontFace> symbolFace = CreateFontFace(factory.get(), "Segoe UI Symbol", symbolUsed);
+  if (symbolFace && symbolUsed != "Segoe UI Symbol")
+  {
+    symbolFace = nullptr; // A text face is not a symbol fallback.
+  }
+
   // One task per size. Each writes only its own slot, and packing happens after
   // the wait, so the atlas layout does not depend on the thread schedule.
   std::vector<BakedSize> baked(_desc.sizesPixels.size());
   WaitGroup group;
   for (std::size_t i = 0; i < _desc.sizesPixels.size(); ++i)
   {
-    _taskPool.Submit([&, i]() { BakeOneSize(factory.get(), face.get(), fontMetrics, codepoints, _desc.sizesPixels[i], baked[i]); },
-                     &group);
+    _taskPool.Submit(
+        [&, i]() {
+          BakeOneSize(factory.get(), face.get(), fontMetrics, symbolFace.get(), codepoints, _desc.sizesPixels[i], baked[i]);
+        },
+        &group);
   }
   _taskPool.Wait(group);
 

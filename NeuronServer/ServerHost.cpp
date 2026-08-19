@@ -200,6 +200,11 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     welcome.worldId = world.worldId;
     welcome.anchorX = world.anchorX;
     welcome.anchorY = world.anchorY;
+    // The display strings ride along unread, like the id and the anchor: what
+    // the world is called is the simulation's to say and the HUD's to draw.
+    welcome.worldName = world.worldName;
+    welcome.worldDetail = world.worldDetail;
+    welcome.worldBadge = world.worldBadge;
 
     WriteWireType(writer, WireType::Welcome);
     Write(writer, welcome);

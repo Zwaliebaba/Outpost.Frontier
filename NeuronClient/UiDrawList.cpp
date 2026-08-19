@@ -145,6 +145,9 @@ void UiDrawList::AddText(float _x, float _y, std::uint8_t _sizeIndex, std::uint3
   run.sizeIndex = _sizeIndex;
   run.textOffset = static_cast<std::uint32_t>(m_text.size());
   run.textLength = static_cast<std::uint32_t>(_text.size());
+  // Where this run sits in the list's build order, so the pass can interleave
+  // the two arrays and a later panel really does cover earlier text.
+  run.quadsBefore = static_cast<std::uint32_t>(m_quads.size());
 
   m_text.append(_text);
   m_runs.push_back(run);

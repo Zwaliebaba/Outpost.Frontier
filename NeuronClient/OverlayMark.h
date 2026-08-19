@@ -110,8 +110,10 @@ struct OverlayTuning
   /// rather than *on* it.
   float ringPadMetres = 8.0f;
 
-  float barHalfWidthPixels = 18.0f;
-  float barHalfHeightPixels = 2.0f;
+  /// The print's world-space bars: 24 px wide, 2 px hull over 2 px shield
+  /// (`tactical-hud.png`), so half-sizes of 12 and 1.
+  float barHalfWidthPixels = 12.0f;
+  float barHalfHeightPixels = 1.0f;
 
   /// The hull bar's height above the ship, and the shield bar's above that.
   float barOffsetUpPixels = 24.0f;
@@ -165,14 +167,32 @@ struct OverlayTuning
    * a swapped colour needs exactly the same frame to notice. The green hull bar
    * survived only because 0x50e050 is a palindrome in bytes.
    */
-  std::uint32_t ringColourRgba = 0xffffc864u;      // Selection: the sheet's cyan, (100, 200, 255).
+  /*
+   * The selection ring is the **own-fleet phosphor**, not the allied cyan it
+   * shipped as: allied cyan is reserved for allied assets and shield fills
+   * (icon sheet §7), and a player reading colour fast would parse their own
+   * selection as someone else's ship. The defaults below are stand-ins for a
+   * caller with no palette; `ClientApp::Initialise` overwrites every ghost and
+   * selection colour here from the resolved `HudPalette`, so the ring, the
+   * drag box and the roster's selected chip are one colour from one table.
+   */
+  std::uint32_t ringColourRgba = 0xff3eff7cu;      // Selection: the own-fleet phosphor.
   std::uint32_t staleRingColourRgba = 0xff4080ffu; // A frozen ship's ring, dimmer and warmer: (255, 128, 64).
-  std::uint32_t hullColourRgba = 0xff50e050u;      // Green, (80, 224, 80).
-  std::uint32_t shieldColourRgba = 0xff40c0e0u;    // Amber, (224, 192, 64).
 
-  std::uint32_t ghostPendingColourRgba = 0xa0ffc864u;  // The selection cyan, half-transparent: a promise.
-  std::uint32_t ghostUnderWayColourRgba = 0xff50e050u; // The hull green, opaque: the world agreed.
-  std::uint32_t ghostRejectedColourRgba = 0xff4860ffu; // (255, 96, 72). Refused, and on its way back.
+  /*
+   * The bars band exactly as the roster strips do -- healthy, worn, low at
+   * `HULL_GAUGE_WORN_BELOW`/`HULL_GAUGE_LOW_BELOW` -- so a wing's row and its
+   * ships' bars cannot disagree about what worn means. Shield is always the
+   * allied cyan, the same fill the roster draws.
+   */
+  std::uint32_t hullColourRgba = 0xff3eff7cu;     // Healthy: the phosphor.
+  std::uint32_t hullWornColourRgba = 0xff00b0ffu; // Worn: the caution amber.
+  std::uint32_t hullLowColourRgba = 0xff4a5affu;  // Low: the hostile red.
+  std::uint32_t shieldColourRgba = 0xffffe14du;   // The allied cyan shield fill.
+
+  std::uint32_t ghostPendingColourRgba = 0xa03eff7cu;  // The selection phosphor, translucent: a promise.
+  std::uint32_t ghostUnderWayColourRgba = 0xff3eff7cu; // The same phosphor, opaque: the world agreed.
+  std::uint32_t ghostRejectedColourRgba = 0xff4a5affu; // The hostile red. Refused, and on its way back.
 };
 
 /*

@@ -34,9 +34,16 @@ constexpr std::uint32_t SHADER_VISIBLE_DESCRIPTORS = 16;
 /// text streams that join them, so the first busy frame does not discover a cap.
 constexpr std::uint32_t UPLOAD_BYTES_PER_FRAME = 256 * 1024;
 
-/// The HUD's three sizes before the UI scale multiplier (ADR-006 §9). The
-/// middle one is the chrome band the prints are set in -- 15, not 16.
-constexpr float BASE_FONT_SIZES_PIXELS[] = {13.0f, 15.0f, 22.0f};
+/// The HUD's sizes before the UI scale multiplier (ADR-006 §9). The second is
+/// the chrome band the prints are set in -- 15, not 16. The trailing micro
+/// size is for secondary lines under world marks (the order label's
+/// `2.1 KM · ETA 19S`), appended rather than inserted so the three indices the
+/// tuning already names keep meaning what they meant.
+constexpr float BASE_FONT_SIZES_PIXELS[] = {13.0f, 15.0f, 22.0f, 11.0f};
+
+/// The top bar's menu chip, spelled as UTF-8 bytes like every marker glyph in
+/// this file: U+25A5 and the word.
+constexpr const char* MENU_CHIP_LABEL = "\xE2\x96\xA5 MENU";
 
 /*
  * Emissive strength per canonical material (ADR-006 §6).
@@ -52,8 +59,10 @@ constexpr float MATERIAL_EMISSIVE[MESH_MATERIAL_COUNT] = {0.0f, 0.0f, 0.0f, 1.6f
 /// value: the game supplies mixed-case names and the print sets the chrome in
 /// capitals. ASCII only -- a byte outside a-z passes through untouched, so a
 /// marker glyph in a name would survive rather than be mangled.
-void UpperCaseInto(const char* _text, char (&_out)[32])
+template <std::size_t N>
+void UpperCaseInto(const char* _text, char (&_out)[N])
 {
+  static_assert(N > 0, "somewhere to put the terminator");
   std::size_t i = 0;
   for (; _text[i] != '\0' && i + 1 < sizeof(_out); ++i)
   {
@@ -81,27 +90,58 @@ bool ClientApp::Initialise(const ClientConfig& _config, const PipelineShaders& _
   // string rather than a migration.
   m_palette = ResolveHudPalette(_config.uiPalette);
 
+  /*
+   * The world-space marks take their colours from the same table. The
+   * selection ring is the **own-fleet phosphor**, matching the roster's
+   * selected chip -- allied cyan is reserved for allied assets and shield
+   * fills, and a player reading colour fast would parse a cyan ring as someone
+   * else's ship. The ghost states keep their meaning through alpha and the
+   * hostile red, but the hues are the palette's, so a colour-vision palette
+   * swap recolours the world overlays with the chrome.
+   */
+  m_overlayTuning.ringColourRgba = m_palette.phosphor;
+  m_overlayTuning.hullColourRgba = m_palette.phosphor;
+  m_overlayTuning.hullWornColourRgba = m_palette.caution;
+  m_overlayTuning.hullLowColourRgba = m_palette.hostile;
+  m_overlayTuning.shieldColourRgba = m_palette.allied;
+  m_overlayTuning.ghostPendingColourRgba = WithAlpha(m_palette.phosphor, 0xa0);
+  m_overlayTuning.ghostUnderWayColourRgba = m_palette.phosphor;
+  m_overlayTuning.ghostRejectedColourRgba = m_palette.hostile;
+
   // What the puck's orders are, from the side that knows. Once, at boot: there
   // is one command until the wheel exists, and asking every frame would be
   // asking a question whose answer is compiled in.
   m_orderDefaults = _worldView.DefaultOrder();
   m_selectedKind = m_orderDefaults.kind;
-  m_orderOptionCount = _worldView.OrderOptions(m_orderDefaults.kind, m_orderOptions);
 
   // The command row's buttons. Asked once: a game's command list does not
   // change while a session runs, and asking every frame would imply it could.
   m_orderKindCount = _worldView.OrderKinds(m_orderKinds);
 
-  // Start on the game's own default rather than on the list's first entry.
-  // They are the same today, and "the default is whatever happens to be first"
-  // is the kind of agreement that holds until someone reorders a menu.
-  for (std::uint32_t index = 0; index < m_orderOptionCount; ++index)
+  /*
+   * Every kind's parameter list, once. Per kind rather than for the selected
+   * one, because the context bar states each standing parameter whether or not
+   * its verb is selected. Each kind starts on the game's own default rather
+   * than on its list's first entry -- they are the same today, and "the default
+   * is whatever happens to be first" is the kind of agreement that holds until
+   * someone reorders a menu.
+   */
+  for (std::uint32_t slot = 0; slot < m_orderKindCount; ++slot)
   {
-    if (m_orderOptions[index].parameter == m_orderDefaults.parameter)
+    m_kindOptionCounts[slot] = _worldView.OrderOptions(m_orderKinds[slot].kind, m_kindOptions[slot]);
+    m_kindDefaultIndex[slot] = 0;
+    if (m_orderKinds[slot].kind == m_orderDefaults.kind)
     {
-      m_orderOptionIndex = index;
-      break;
+      for (std::uint32_t index = 0; index < m_kindOptionCounts[slot]; ++index)
+      {
+        if (m_kindOptions[slot][index].parameter == m_orderDefaults.parameter)
+        {
+          m_kindDefaultIndex[slot] = index;
+          break;
+        }
+      }
     }
+    m_kindOptionIndex[slot] = m_kindDefaultIndex[slot];
   }
 
   WindowDesc windowDesc;
@@ -365,6 +405,18 @@ void ClientApp::UpdateCamera(float _deltaSeconds)
   ApplyCameraIntent(m_camera, intent);
 }
 
+std::uint32_t ClientApp::KindSlot(std::uint16_t _kind) const noexcept
+{
+  for (std::uint32_t slot = 0; slot < m_orderKindCount; ++slot)
+  {
+    if (m_orderKinds[slot].kind == _kind)
+    {
+      return slot;
+    }
+  }
+  return m_orderKindCount;
+}
+
 /*
  * Click, shift-click and box-select (ADR-006 §11).
  *
@@ -400,19 +452,82 @@ void ClientApp::UpdateHud()
     NEURON_LOG_INFO("feed %s (F10)", m_feedFrozen ? "cut -- the world will go stale" : "restored");
   }
 
+  const std::uint32_t selectedSlot = KindSlot(m_selectedKind);
+  const std::span<const OrderOption> selectedOptions =
+      selectedSlot < m_orderKindCount
+          ? std::span<const OrderOption>{m_kindOptions[selectedSlot], m_kindOptionCounts[selectedSlot]}
+          : std::span<const OrderOption>{};
   m_commandButtonCount =
       BuildCommandRow(std::span<const OrderKindOption>{m_orderKinds, m_orderKindCount}, m_selectedKind,
-                      std::span<const OrderOption>{m_orderOptions, m_orderOptionCount}, m_orderOptionIndex,
+                      selectedOptions, selectedSlot < m_orderKindCount ? m_kindOptionIndex[selectedSlot] : 0,
                       m_uiLayout.commandRow, m_uiLayout.scale, m_commandTuning, m_commandButtons);
 
+  /*
+   * The `▥ MENU` chip and, when open, its list -- laid out here so the rect a
+   * click is tested against is the rect the draw uses, the same single-answer
+   * rule `m_uiLayout` exists for. The chip hangs off the top bar's right edge;
+   * the list drops under it, over the world, which is why the world's input
+   * yields to it below.
+   */
+  {
+    const float scale = m_uiLayout.scale;
+    const float cell = 8.0f * scale;
+    const float pad = m_uiTuning.padding * scale;
+    const float chipWidth = static_cast<float>(TextCellCount(MENU_CHIP_LABEL)) * cell + 2.0f * cell;
+    m_menuButtonRect = UiRect{m_uiLayout.topBar.Right() - pad - chipWidth, m_uiLayout.topBar.y + pad * 0.5f, chipWidth,
+                              m_uiLayout.topBar.height - pad};
+
+    const float itemWidth = m_commandTuning.buttonWidth * scale;
+    const float itemHeight = 34.0f * scale;
+    float itemY = m_uiLayout.topBar.Bottom() + pad * 0.5f;
+    for (std::uint32_t item = 0; item < MENU_ITEM_COUNT; ++item)
+    {
+      m_menuItemRects[item] = UiRect{m_uiLayout.topBar.Right() - pad - itemWidth, itemY, itemWidth, itemHeight};
+      itemY += itemHeight;
+    }
+  }
+
+  m_uiConsumedPress = false;
   if (!m_input.windowFocused || !m_input.Pressed(InputButton::Left))
   {
     return;
   }
 
+  const auto cursorX = static_cast<float>(m_input.cursorX);
+  const auto cursorY = static_cast<float>(m_input.cursorY);
+
+  /*
+   * The menu takes the press before the command row and, through
+   * `m_uiConsumedPress`, before the world: while the list is open every left
+   * press belongs to it -- an item acts, anywhere else closes -- because a
+   * press that both closed the menu and box-selected the fleet under it would
+   * be two answers to one gesture.
+   */
+  if (m_menuOpen)
+  {
+    m_uiConsumedPress = true;
+    m_menuOpen = false; // Whatever was pressed, the list has had its answer.
+    if (m_menuItemRects[MENU_SETTINGS].Contains(cursorX, cursorY))
+    {
+      m_menuOpen = true; // Dead until the settings sheet lands; the list stays.
+    }
+    else if (m_menuItemRects[MENU_EXIT].Contains(cursorX, cursorY))
+    {
+      // The window's own close path, so EXIT and the title bar's X are one
+      // shutdown rather than two.
+      PostMessageW(m_window.Handle(), WM_CLOSE, 0, 0);
+    }
+    return; // RESUME, the chip, or anywhere else: closed, and nothing more.
+  }
+  if (m_menuButtonRect.Contains(cursorX, cursorY))
+  {
+    m_menuOpen = true;
+    m_uiConsumedPress = true;
+    return;
+  }
+
   const CommandButton* pressed =
-      HitCommandRow(std::span<const CommandButton>{m_commandButtons, m_commandButtonCount},
-                    static_cast<float>(m_input.cursorX), static_cast<float>(m_input.cursorY));
+      HitCommandRow(std::span<const CommandButton>{m_commandButtons, m_commandButtonCount}, cursorX, cursorY);
   if (pressed == nullptr)
   {
     return;
@@ -421,24 +536,18 @@ void ClientApp::UpdateHud()
   switch (pressed->action)
   {
   case CommandAction::SelectKind:
-    // Only the kind changes. The options and the chosen index belong to it, so
-    // both are re-asked -- a formation index left over from another command
-    // would index a list that is not the one it came from.
-    if (pressed->payload != m_selectedKind)
-    {
-      m_selectedKind = pressed->payload;
-      m_orderOptionCount = m_worldView->OrderOptions(m_selectedKind, m_orderOptions);
-      m_orderOptionIndex = 0;
-    }
+    // Only the kind changes. Each kind keeps its own chosen parameter, so
+    // coming back to MOVE finds the formation where the player left it.
+    m_selectedKind = pressed->payload;
     break;
 
   case CommandAction::CycleParameter:
     // The same step the `F` binding makes, through the same index, because a
     // button and a key that did the same thing by two routes would drift.
-    if (m_orderOptionCount > 0)
+    if (const std::uint32_t slot = KindSlot(pressed->payload); slot < m_orderKindCount && m_kindOptionCounts[slot] > 0)
     {
-      m_orderOptionIndex = (m_orderOptionIndex + 1) % m_orderOptionCount;
-      NEURON_LOG_INFO("%s: %s", pressed->label, m_orderOptions[m_orderOptionIndex].name);
+      m_kindOptionIndex[slot] = (m_kindOptionIndex[slot] + 1) % m_kindOptionCounts[slot];
+      NEURON_LOG_INFO("%s: %s", pressed->label, m_kindOptions[slot][m_kindOptionIndex[slot]].name);
     }
     break;
   }
@@ -470,7 +579,10 @@ void ClientApp::UpdateSelection()
    */
   if (m_input.Pressed(InputButton::Left))
   {
-    if (m_uiLayout.world.Contains(cursorX, cursorY))
+    // The menu's presses never reach the world: the open list floats over the
+    // world zone, so without this a press on RESUME would also start a box
+    // selection across the fleet underneath it.
+    if (m_uiLayout.world.Contains(cursorX, cursorY) && !m_menuOpen && !m_uiConsumedPress)
     {
       m_selection.BeginDrag(cursorX, cursorY, m_input.Down(InputAction::SelectAdd));
     }
@@ -544,14 +656,24 @@ void ClientApp::UpdateOrders()
     return;
   }
 
-  if (m_input.Pressed(InputAction::CycleParameter) && m_orderOptionCount > 0)
+  if (m_menuOpen)
+  {
+    // The menu is the surface being used; a right-drag under it would issue an
+    // order the player could not see themselves giving.
+    m_puck.Cancel();
+    return;
+  }
+
+  const std::uint32_t selectedSlot = KindSlot(m_selectedKind);
+  if (m_input.Pressed(InputAction::CycleParameter) && selectedSlot < m_orderKindCount &&
+      m_kindOptionCounts[selectedSlot] > 0)
   {
     // Stepped between gestures, not during one: the puck sampled its queue
     // modifier at the press for the same reason, and an order that changed
     // formation halfway through the drag would be an order the footprint had
     // already lied about.
-    m_orderOptionIndex = (m_orderOptionIndex + 1) % m_orderOptionCount;
-    NEURON_LOG_INFO("formation: %s", m_orderOptions[m_orderOptionIndex].name);
+    m_kindOptionIndex[selectedSlot] = (m_kindOptionIndex[selectedSlot] + 1) % m_kindOptionCounts[selectedSlot];
+    NEURON_LOG_INFO("parameter: %s", m_kindOptions[selectedSlot][m_kindOptionIndex[selectedSlot]].name);
   }
 
   const auto cursorX = static_cast<float>(m_input.cursorX);
@@ -590,14 +712,16 @@ void ClientApp::CommitOrder(const PuckSample& _sample, double _nowSeconds)
 {
   const std::uint32_t orderSeq = m_nextOrderSeq++;
 
-  // The game's kind, and whichever of the game's parameters is selected. Both
-  // are numbers this client copies and never reads. The kind is the command row's
-  // now rather than the default's -- the default is only where it started.
+  // The game's kind, and whichever of the game's parameters that kind has
+  // chosen. Both are numbers this client copies and never reads. The kind is
+  // the command row's now rather than the default's -- the default is only
+  // where it started.
   OrderDefaults chosen = m_orderDefaults;
   chosen.kind = m_selectedKind;
-  if (m_orderOptionIndex < m_orderOptionCount)
+  if (const std::uint32_t slot = KindSlot(m_selectedKind);
+      slot < m_orderKindCount && m_kindOptionIndex[slot] < m_kindOptionCounts[slot])
   {
-    chosen.parameter = m_orderOptions[m_orderOptionIndex].parameter;
+    chosen.parameter = m_kindOptions[slot][m_kindOptionIndex[slot]].parameter;
   }
   const OrderIntent intent = MakeOrderIntent(_sample, chosen, m_selection.Ids(), orderSeq);
 
@@ -871,86 +995,119 @@ void ClientApp::BuildHud()
     m_ui.AddBorder(box, 1.0f, m_overlayTuning.ringColourRgba);
   }
 
+  // The roster's rows come first because the top bar's ship count is their
+  // sum. The rows are the game's answer, not a grouping this file performs: it
+  // has `EntityRecord::groupId` and could aggregate in four lines, and doing
+  // so would be deciding that groups are named and how their health combines
+  // (ADR-014 §2c).
+  m_rosterRowCount = m_worldView->BuildRoster(m_selection.Ids(), m_rosterRows);
+
   /*
    * --- the top status row -------------------------------------------------
    *
    * Everything on it is a replicated field, a link statistic or local UI
    * state, which is the whole acceptance criterion: kill the feed and these
    * go stale -- drawn in `neutral` at reduced alpha -- rather than holding
-   * their last value or inventing one. The print's location and security
-   * readouts are not here because nothing replicates them yet; a slot with no
-   * source stays empty rather than lying.
+   * their last value or inventing one. The prime slot is the player's
+   * *location*, not the product: the session strings arrive in `Welcome` and
+   * are drawn verbatim, because what a world is called is the game's to say.
    */
   m_ui.AddQuad(layout.topBar, m_palette.panel);
   m_ui.AddQuad(UiRect{0.0f, layout.topBar.Bottom() - 1.0f, layout.topBar.width, 1.0f}, m_palette.borderStrong);
 
   const bool joined = m_connection.State() == ClientLinkState::Joined;
   const float textY = layout.topBar.y + (layout.topBar.height - bodyPx) * 0.5f;
+  const float chipY = layout.topBar.y + (layout.topBar.height - smallPx) * 0.5f;
   const std::uint32_t staleColour = AtHalfAlpha(m_palette.neutral);
 
   char buffer[96] = {};
+  char upper[48] = {};
 
-  // Left to right: session name, then the shared clock, "|"-separated. The
-  // tick is the only clock both sides agree on (ADR-002 §1), which is what
-  // makes it a readout rather than a decoration.
+  // Left to right: `◈ VESTA-3 ▸ FRONTIER 0.4` -- the system hot, the region
+  // and version-of-space a step back. The glyphs are spelled as UTF-8 bytes
+  // for the same reason the atlas's bake table is spelled as codepoints: these
+  // files carry no byte-order mark. U+25C8 marks the location, U+25B8 is the
+  // token separator.
   float pen = pad;
-  const char* sessionName = m_config.playerName.empty() ? "OUTPOST FRONTIER" : m_config.playerName.c_str();
-  m_ui.AddText(pen, textY, m_uiTuning.bodySizeIndex, m_palette.phosphorHot, sessionName);
-  pen += static_cast<float>(TextCellCount(sessionName)) * cell + cell;
-
-  m_ui.AddText(pen, textY, m_uiTuning.bodySizeIndex, m_palette.phosphorGhost, "|");
-  pen += 2.0f * cell;
-
-  if (joined)
+  if (joined && !m_connection.WorldName().empty())
   {
-    std::snprintf(buffer, sizeof(buffer), "TICK %u", m_connection.ServerTick());
-    m_ui.AddText(pen, textY, m_uiTuning.bodySizeIndex, m_palette.neutral, buffer);
+    UpperCaseInto(m_connection.WorldName().c_str(), upper);
+    std::snprintf(buffer, sizeof(buffer), "\xE2\x97\x88 %s", upper);
+    m_ui.AddText(pen, textY, m_uiTuning.bodySizeIndex, m_palette.phosphorHot, buffer);
+    pen += static_cast<float>(TextCellCount(buffer)) * cell + cell;
+
+    m_ui.AddText(pen, textY, m_uiTuning.bodySizeIndex, m_palette.phosphorGhost, "\xE2\x96\xB8");
+    pen += 2.0f * cell;
+
+    UpperCaseInto(m_connection.WorldDetail().c_str(), upper);
+    m_ui.AddText(pen, textY, m_uiTuning.bodySizeIndex, m_palette.phosphorDim, upper);
+    pen += static_cast<float>(TextCellCount(upper)) * cell + cell;
   }
   else
   {
     m_ui.AddText(pen, textY, m_uiTuning.bodySizeIndex, staleColour, "NO SESSION");
+    pen += static_cast<float>(TextCellCount("NO SESSION")) * cell + cell;
   }
 
-  // Right to left: the link, then the alert and pending chips. Each chip is a
-  // glyph and a count -- the glyph carries the meaning and the colour repeats
-  // it, because colour is never the only signal (icon sheet §3).
-  if (joined)
-  {
-    std::snprintf(buffer, sizeof(buffer), "NET %.0f ms", m_connection.RoundTripMs());
-  }
-  else
-  {
-    std::snprintf(buffer, sizeof(buffer), "NET --");
-  }
-  float right = layout.topBar.Right() - pad - static_cast<float>(TextCellCount(buffer)) * cell;
-  m_ui.AddText(right, textY, m_uiTuning.bodySizeIndex, joined ? m_palette.phosphorDim : staleColour, buffer);
-
-  std::size_t alertCount = 0;
-  for (const Toast& toast : m_toasts.Visible())
-  {
-    alertCount += toast.priority <= ToastPriority::Urgent ? 1 : 0;
-  }
-  const float chipY = layout.topBar.y + (layout.topBar.height - smallPx) * 0.5f;
-  // The glyphs are spelled as UTF-8 bytes for the same reason the atlas's
-  // bake table is spelled as codepoints: these files carry no byte-order
-  // mark, and a non-ASCII literal would be read in the compiler's current
-  // code page. U+25B2 is the alert triangle, U+23F3 the pending hourglass.
+  // The alerts chip, still left-cluster: caution amber, U+26A0, and only when
+  // undismissed alerts exist -- an alert counter that read `0 ALERTS` all
+  // session would train the eye to skip the slot that matters.
+  const std::size_t alertCount = m_toasts.Visible().size();
   if (alertCount > 0)
   {
-    std::snprintf(buffer, sizeof(buffer), "\xE2\x96\xB2 %zu", alertCount);
-    right -= (static_cast<float>(TextCellCount(buffer)) + 2.0f) * cell;
-    m_ui.AddText(right, chipY, m_uiTuning.smallSizeIndex, m_palette.hostile, buffer);
+    std::snprintf(buffer, sizeof(buffer), "\xE2\x9A\xA0 %zu ALERT%s", alertCount, alertCount == 1 ? "" : "S");
+    pen += cell;
+    m_ui.AddText(pen, chipY, m_uiTuning.smallSizeIndex, m_palette.caution, buffer);
   }
-  if (!m_ghosts.Empty())
+
+  /*
+   * Right to left: `⌖ 41 SHIPS | SEC 0.4 | NET ▂▄▆ | ▥ MENU`, the print's own
+   * order. The menu chip is the anchor -- its rect was resolved in `UpdateHud`
+   * because it takes a click -- and everything else pens leftward from it,
+   * "|"-separated in the ghost step.
+   */
+  m_ui.AddBorder(m_menuButtonRect, 1.0f * layout.scale, m_palette.border);
   {
-    std::snprintf(buffer, sizeof(buffer), "\xE2\x8F\xB3 %zu", m_ghosts.Count());
-    right -= (static_cast<float>(TextCellCount(buffer)) + 2.0f) * cell;
-    m_ui.AddText(right, chipY, m_uiTuning.smallSizeIndex, m_palette.caution, buffer);
+    const float menuTextWidth = static_cast<float>(TextCellCount(MENU_CHIP_LABEL)) * cell;
+    m_ui.AddText(m_menuButtonRect.x + (m_menuButtonRect.width - menuTextWidth) * 0.5f, textY,
+                 m_uiTuning.bodySizeIndex, m_menuOpen ? m_palette.phosphorHot : m_palette.phosphor, MENU_CHIP_LABEL);
+  }
+
+  float right = m_menuButtonRect.x - cell;
+  const auto rightSeparator = [&] {
+    right -= cell;
+    m_ui.AddText(right, textY, m_uiTuning.bodySizeIndex, m_palette.phosphorGhost, "|");
+    right -= cell;
+  };
+
+  /*
+   * NET as three signal bars bucketed from the round trip -- under 60 ms all
+   * three, under 120 two, else one -- drawn as 3/5/7 px quads sharing a
+   * baseline. The raw millisecond figure is debug telemetry and lives on the
+   * strip's LINK row; the top bar answers "is the link good", not "how good".
+   */
+  rightSeparator();
+  {
+    const float barWidth = 3.0f * layout.scale;
+    const float barGap = 2.0f * layout.scale;
+    const float baseline = textY + bodyPx;
+    const int lit = !joined ? 0 : (m_connection.RoundTripMs() < 60.0 ? 3 : (m_connection.RoundTripMs() < 120.0 ? 2 : 1));
+
+    right -= 3.0f * barWidth + 2.0f * barGap;
+    for (int bar = 0; bar < 3; ++bar)
+    {
+      const float barHeight = (3.0f + 2.0f * static_cast<float>(bar)) * layout.scale;
+      const float barX = right + static_cast<float>(bar) * (barWidth + barGap);
+      m_ui.AddQuad(UiRect{barX, baseline - barHeight, barWidth, barHeight},
+                   bar < lit ? m_palette.phosphor : m_palette.phosphorDead);
+    }
+    right -= (static_cast<float>(TextCellCount("NET")) + 1.0f) * cell;
+    m_ui.AddText(right, textY, m_uiTuning.bodySizeIndex, joined ? m_palette.phosphorDim : staleColour, "NET");
   }
 
   // The feed-level STALE readout (S14): the whole world on screen is frozen
   // past the extrapolation cap (ADR-002 §4). The per-ship markers say which
-  // ships; this says it is the *feed*, in the place the eye checks the link.
+  // ships; this says it is the *feed*, beside the link readout the eye checks.
   if (joined && m_snapshots.Stale(nowSeconds))
   {
     const char* staleText = "STALE";
@@ -958,14 +1115,33 @@ void ClientApp::BuildHud()
     m_ui.AddText(right, chipY, m_uiTuning.smallSizeIndex, m_palette.caution, staleText);
   }
 
-  // --- the fleet roster ---------------------------------------------------
-  //
-  // The rows are the game's answer, not a grouping this file performs: it has
-  // `EntityRecord::groupId` and could aggregate in four lines, and doing so
-  // would be deciding that groups are named and how their health combines
-  // (ADR-014 §2c).
-  m_rosterRowCount = m_worldView->BuildRoster(m_selection.Ids(), m_rosterRows);
+  // The zone badge -- `SEC 0.4` -- verbatim from the session strings. The
+  // engine does not know what SEC means, and must not (ADR-020's leak test);
+  // it shows the badge the game sent or nothing.
+  if (joined && !m_connection.WorldBadge().empty())
+  {
+    rightSeparator();
+    UpperCaseInto(m_connection.WorldBadge().c_str(), upper);
+    right -= static_cast<float>(TextCellCount(upper)) * cell;
+    m_ui.AddText(right, textY, m_uiTuning.bodySizeIndex, m_palette.phosphorDim, upper);
+  }
 
+  // `⌖ N SHIPS` -- the player's fleet in the zone, summed from the roster the
+  // game just built so the two cannot disagree. `1 SHIP`, never `1 SHIPS`.
+  if (joined)
+  {
+    std::uint32_t ownedShips = 0;
+    for (std::uint32_t index = 0; index < m_rosterRowCount; ++index)
+    {
+      ownedShips += m_rosterRows[index].shipCount;
+    }
+    rightSeparator();
+    std::snprintf(buffer, sizeof(buffer), "\xE2\x8C\x96 %u SHIP%s", ownedShips, ownedShips == 1 ? "" : "S");
+    right -= static_cast<float>(TextCellCount(buffer)) * cell;
+    m_ui.AddText(right, textY, m_uiTuning.bodySizeIndex, m_palette.phosphor, buffer);
+  }
+
+  // --- the fleet roster ---------------------------------------------------
   m_ui.AddQuad(layout.roster, m_palette.panel);
   m_ui.AddQuad(UiRect{layout.roster.Right() - 1.0f, layout.roster.y, 1.0f, layout.roster.height},
                m_palette.borderStrong);
@@ -1107,12 +1283,11 @@ void ClientApp::BuildHud()
   /*
    * --- the context bar ----------------------------------------------------
    *
-   * The selection summary: `N SHIPS SELECTED | WING | FORMATION VALUE`, with
-   * ghost separators. It reads off the selection and the roster the game just
-   * built, so it cannot claim a wing the roster does not list -- and the
-   * formation value lives here rather than as a second line on the command
-   * row's button, so the verb stays one word and the summary carries the
-   * state.
+   * The selection summary, in the print's spelling: `▣ 1 SHIP : MARROW ▸
+   * STANCE AGGRESSIVE ▸ FORMATION LINE`, with the pending-orders chip
+   * right-aligned. It reads off the selection, the roster the game just built,
+   * and each command's standing parameter -- so it cannot claim a wing the
+   * roster does not list or a value no order would carry.
    */
   m_ui.AddQuad(layout.contextBar, m_palette.panel);
   m_ui.AddQuad(UiRect{0.0f, layout.contextBar.y, layout.contextBar.width, 1.0f}, m_palette.borderStrong);
@@ -1145,28 +1320,71 @@ void ClientApp::BuildHud()
       wingName = "MIXED";
     }
 
+    // `▣ 1 SHIP`, never `1 SHIPS` -- it is one branch, and the print insists.
     float contextPen = pad;
-    std::snprintf(buffer, sizeof(buffer), "%zu SHIPS SELECTED", selectedCount);
+    std::snprintf(buffer, sizeof(buffer), "\xE2\x96\xA3 %zu SHIP%s", selectedCount, selectedCount == 1 ? "" : "S");
     m_ui.AddText(contextPen, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphorHot, buffer);
     contextPen += static_cast<float>(TextCellCount(buffer)) * cell + cell;
 
-    m_ui.AddText(contextPen, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphorGhost, "|");
+    m_ui.AddText(contextPen, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphorGhost, ":");
     contextPen += 2.0f * cell;
 
-    char upper[32] = {};
     UpperCaseInto(wingName, upper);
     m_ui.AddText(contextPen, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphor, upper);
     contextPen += static_cast<float>(TextCellCount(upper)) * cell + cell;
 
-    if (m_orderOptionIndex < m_orderOptionCount && m_orderOptions[m_orderOptionIndex].name != nullptr)
+    /*
+     * Every standing parameter, `▸`-separated: the label dim, the value bright
+     * -- and **caution amber when it is anything but the kind's default**, so
+     * a fleet left on an aggressive posture announces itself. The selected
+     * command's parameter reads last, beside the verbs that will send it; the
+     * others state postures that stand regardless of what the puck is armed
+     * with, which is the print's `STANCE AGGRESSIVE ▸ FORMATION LINE` order.
+     */
+    const std::uint32_t currentSlot = KindSlot(m_selectedKind);
+    for (std::uint32_t pass = 0; pass < 2; ++pass)
     {
-      m_ui.AddText(contextPen, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphorGhost, "|");
-      contextPen += 2.0f * cell;
+      for (std::uint32_t slot = 0; slot < m_orderKindCount; ++slot)
+      {
+        const bool isSelected = slot == currentSlot;
+        if ((pass == 0) == isSelected)
+        {
+          continue; // Non-selected readouts first, the selected one last.
+        }
+        if (m_kindOptionCounts[slot] == 0 || m_orderKinds[slot].parameterName == nullptr ||
+            m_kindOptionIndex[slot] >= m_kindOptionCounts[slot])
+        {
+          continue;
+        }
 
-      UpperCaseInto(m_orderOptions[m_orderOptionIndex].name, upper);
-      std::snprintf(buffer, sizeof(buffer), "FORMATION %s", upper);
-      m_ui.AddText(contextPen, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphor, buffer);
+        m_ui.AddText(contextPen, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphorGhost, "\xE2\x96\xB8");
+        contextPen += 2.0f * cell;
+
+        UpperCaseInto(m_orderKinds[slot].parameterName, upper);
+        m_ui.AddText(contextPen, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphorDim, upper);
+        contextPen += static_cast<float>(TextCellCount(upper)) * cell + cell;
+
+        UpperCaseInto(m_kindOptions[slot][m_kindOptionIndex[slot]].name, upper);
+        const std::uint32_t valueColour =
+            m_kindOptionIndex[slot] != m_kindDefaultIndex[slot] ? m_palette.caution : m_palette.phosphor;
+        m_ui.AddText(contextPen, contextY, m_uiTuning.bodySizeIndex, valueColour, upper);
+        contextPen += static_cast<float>(TextCellCount(upper)) * cell + cell;
+      }
     }
+  }
+
+  /*
+   * The pending-orders chip, right-aligned and hidden at zero: F10's
+   * optimistic window made visible. `⏳ 1 ORDER PENDING` counts orders sent
+   * and not yet answered -- the caution amber, because a promise the
+   * authority has not confirmed is exactly what that colour means here.
+   */
+  if (const std::size_t pendingOrders = m_ghosts.PendingCount(); pendingOrders > 0)
+  {
+    std::snprintf(buffer, sizeof(buffer), "\xE2\x8F\xB3 %zu ORDER%s PENDING", pendingOrders,
+                  pendingOrders == 1 ? "" : "S");
+    const float chipLeft = layout.contextBar.Right() - pad - static_cast<float>(TextCellCount(buffer)) * cell;
+    m_ui.AddText(chipLeft, contextY, m_uiTuning.bodySizeIndex, m_palette.caution, buffer);
   }
 
   // --- the command row ----------------------------------------------------
@@ -1203,33 +1421,65 @@ void ClientApp::BuildHud()
     m_ui.AddBorder(button.rect, 1.0f * layout.scale, edge);
 
     // One line per verb, UPPERCASE, centred -- the parameter's current value
-    // is the context bar's to say, so the button stays a single word. Measured
-    // the same way every other centred label on this HUD is: cells times the
-    // cell, because the face is fixed-pitch.
-    char upper[32] = {};
+    // is the context bar's to say, so the button stays a single word. A verb
+    // that opens a picker carries the print's `▾` caret, because without it
+    // nothing distinguishes an immediate verb from one that opens a mode.
+    // Measured the same way every other centred label on this HUD is: cells
+    // times the cell, because the face is fixed-pitch.
     UpperCaseInto(button.label, upper);
-    const auto labelWidth = static_cast<float>(TextCellCount(upper)) * cell;
+    char verbLabel[56] = {};
+    if (button.opensPicker)
+    {
+      std::snprintf(verbLabel, sizeof(verbLabel), "%s \xE2\x96\xBE", upper);
+    }
+    else
+    {
+      std::snprintf(verbLabel, sizeof(verbLabel), "%s", upper);
+    }
+    const auto labelWidth = static_cast<float>(TextCellCount(verbLabel)) * cell;
     const float labelY = button.rect.y + (button.rect.height - bodyPx) * 0.5f;
     m_ui.AddText(button.rect.x + (button.rect.width - labelWidth) * 0.5f, labelY, m_commandTuning.labelSizeIndex, text,
-                 upper);
+                 verbLabel);
   }
 
   /*
-   * The queue chip, right-aligned in the row: `caution` text and frame, no
-   * fill. It names the append gesture (`InputAction::QueueOrder` held at the
-   * puck's press) rather than being a button of its own, which is why it is
-   * not in `m_commandButtons` and takes no click -- and it yields entirely on
-   * a window narrow enough that the verbs reach it.
+   * The far-right chips: `+ QUEUE`, then the undo chip `⎌` at the row's edge.
+   * Both yield entirely on a window narrow enough that the verbs reach them.
+   *
+   * The queue chip names the append gesture (`InputAction::QueueOrder` held at
+   * the puck's press) rather than being a button of its own, which is why it
+   * is not in `m_commandButtons` and takes no click.
+   *
+   * The undo chip is the print's revoke affordance for the last
+   * unacknowledged order -- the optimistic window again. **Stubbed disabled**:
+   * no order-cancel path exists on the wire yet, and a chip that looked
+   * pressable while pressing it could revoke nothing would be worse than one
+   * that is visibly not for pressing. The zone is drawn now, per the print, so
+   * the wire feature lands in a slot the player already knows.
    */
   {
-    const char* queueLabel = "+ QUEUE";
     const bool hasButtons = m_commandButtonCount > 0;
+    const float chipTop = hasButtons ? m_commandButtons[0].rect.y : layout.commandRow.y + pad;
+    const float chipHeightPx = hasButtons ? m_commandButtons[0].rect.height : m_commandTuning.buttonHeight * layout.scale;
+    const float gap = m_commandTuning.buttonGap * layout.scale;
+
+    // 48x48 at 1.0x -- the U2 touch floor, the same square the verbs clamp to.
+    const UiRect undoRect{layout.commandRow.Right() - m_commandTuning.paddingX * layout.scale - chipHeightPx, chipTop,
+                          chipHeightPx, chipHeightPx};
+    if (undoRect.x > lastButtonRight + gap)
+    {
+      m_ui.AddBorder(undoRect, 1.0f * layout.scale, AtHalfAlpha(m_palette.border));
+      const char* undoGlyph = "\xE2\x8E\x8C"; // U+238C.
+      const float glyphWidth = static_cast<float>(TextCellCount(undoGlyph)) * cell;
+      m_ui.AddText(undoRect.x + (undoRect.width - glyphWidth) * 0.5f, undoRect.y + (undoRect.height - bodyPx) * 0.5f,
+                   m_uiTuning.bodySizeIndex, m_palette.phosphorDead, undoGlyph);
+    }
+
+    const char* queueLabel = "+ QUEUE";
     const float chipWidth =
         static_cast<float>(TextCellCount(queueLabel)) * cell + 2.0f * m_commandTuning.paddingX * layout.scale;
-    const UiRect chipRect{layout.commandRow.Right() - m_commandTuning.paddingX * layout.scale - chipWidth,
-                          hasButtons ? m_commandButtons[0].rect.y : layout.commandRow.y + pad, chipWidth,
-                          hasButtons ? m_commandButtons[0].rect.height : m_commandTuning.buttonHeight * layout.scale};
-    if (chipRect.x > lastButtonRight + m_commandTuning.buttonGap * layout.scale)
+    const UiRect chipRect{undoRect.x - gap - chipWidth, chipTop, chipWidth, chipHeightPx};
+    if (chipRect.x > lastButtonRight + gap)
     {
       m_ui.AddBorder(chipRect, 1.0f * layout.scale, m_palette.caution);
       const float labelWidth = static_cast<float>(TextCellCount(queueLabel)) * cell;
@@ -1294,6 +1544,40 @@ void ClientApp::BuildHud()
                  m_palette.phosphorBody, toast.detail);
   }
 
+  /*
+   * --- the menu list ------------------------------------------------------
+   *
+   * The `▥ MENU` chip's stub: RESUME · SETTINGS · EXIT, from the same rects
+   * `UpdateHud` hit-tests. Drawn after everything else so the list covers
+   * whatever it floats over -- build order is draw order in this pass.
+   * SETTINGS is dead until 07h's sheet lands; a menu entry that exists and is
+   * visibly not ready beats one that appears later in a spot the player never
+   * learned.
+   */
+  if (m_menuOpen)
+  {
+    const UiRect menuPanel = UiRect::FromCorners(m_menuItemRects[0].x - pad * 0.5f, m_menuItemRects[0].y - pad * 0.5f,
+                                                 m_menuItemRects[MENU_ITEM_COUNT - 1].Right() + pad * 0.5f,
+                                                 m_menuItemRects[MENU_ITEM_COUNT - 1].Bottom() + pad * 0.5f);
+    // Opaque, unlike every other panel on this HUD. The 12% that reads through
+    // a panel is what keeps the chrome a border on a *view*; this list floats
+    // over the ability rack, and a menu you can read the panel behind is a menu
+    // with two sets of words in the same pixels.
+    m_ui.AddQuad(menuPanel, WithAlpha(m_palette.panel, 0xFF));
+    m_ui.AddBorder(menuPanel, 1.0f * layout.scale, m_palette.borderStrong);
+
+    const char* menuLabels[MENU_ITEM_COUNT] = {"RESUME", "SETTINGS", "EXIT"};
+    for (std::uint32_t item = 0; item < MENU_ITEM_COUNT; ++item)
+    {
+      const bool dead = item == MENU_SETTINGS;
+      const UiRect& itemRect = m_menuItemRects[item];
+      m_ui.AddBorder(itemRect, 1.0f * layout.scale, dead ? AtHalfAlpha(m_palette.border) : m_palette.border);
+      const float itemWidth = static_cast<float>(TextCellCount(menuLabels[item])) * cell;
+      m_ui.AddText(itemRect.x + (itemRect.width - itemWidth) * 0.5f, itemRect.y + (itemRect.height - bodyPx) * 0.5f,
+                   m_uiTuning.bodySizeIndex, dead ? m_palette.phosphorDead : m_palette.phosphor, menuLabels[item]);
+    }
+  }
+
   // --- the Tier-1 diagnostics strip (S14) ---------------------------------
   //
   // Collection always, drawing behind the toggle: the drain is what keeps the
@@ -1348,6 +1632,9 @@ void ClientApp::CollectDiagnostics(double _nowSeconds)
     m_stripReadout.minRttMs = stats.minRoundTripMs;
     m_stripReadout.controlResends = stats.controlResends;
     m_stripReadout.datagramsDropped = stats.datagramsDropped;
+    // The shared clock, moved here from the release top bar: debug telemetry,
+    // not player information.
+    m_stripReadout.serverTick = m_connection.ServerTick();
   }
 
   m_stripReadout.hasEstimate = m_snapshots.HasEstimate();

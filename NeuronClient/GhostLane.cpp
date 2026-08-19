@@ -91,15 +91,17 @@ void FormatLaneDetail(float _distanceMetres, float _etaSeconds, char* _out, std:
 
   // Kilometres past a kilometre, metres below it. The print's own switch, and
   // the reason it is a switch rather than always-km is that a station-keeping
-  // nudge reads as `0.0 km`, which is a distance nobody ordered.
+  // nudge reads as `0.0 KM`, which is a distance nobody ordered. Uppercase and
+  // ·-separated because the label is HUD chrome and the print sets all of it
+  // in the monospace caps the rest of the chrome speaks.
   char distance[24] = {};
   if (_distanceMetres >= 1000.0f)
   {
-    std::snprintf(distance, sizeof(distance), "%.1f km", static_cast<double>(_distanceMetres) / 1000.0);
+    std::snprintf(distance, sizeof(distance), "%.1f KM", static_cast<double>(_distanceMetres) / 1000.0);
   }
   else
   {
-    std::snprintf(distance, sizeof(distance), "%.0f m", static_cast<double>(_distanceMetres));
+    std::snprintf(distance, sizeof(distance), "%.0f M", static_cast<double>(_distanceMetres));
   }
 
   char eta[24] = {};
@@ -111,7 +113,9 @@ void FormatLaneDetail(float _distanceMetres, float _etaSeconds, char* _out, std:
     std::snprintf(_out, _capacity, "%s", distance);
     return;
   }
-  std::snprintf(_out, _capacity, "%s - ETA %s", distance, eta);
+  // U+00B7, as UTF-8 bytes for the reason every marker glyph in this codebase
+  // is: these files carry no byte-order mark.
+  std::snprintf(_out, _capacity, "%s \xC2\xB7 ETA %s", distance, eta);
 }
 
 void FormatEta(float _seconds, char* _out, std::size_t _capacity) noexcept
@@ -134,11 +138,11 @@ void FormatEta(float _seconds, char* _out, std::size_t _capacity) noexcept
   const std::uint32_t seconds = totalSeconds % 60u;
   if (minutes > 0u)
   {
-    std::snprintf(_out, _capacity, "%um %02us", minutes, seconds);
+    std::snprintf(_out, _capacity, "%uM %02uS", minutes, seconds);
   }
   else
   {
-    std::snprintf(_out, _capacity, "%us", seconds);
+    std::snprintf(_out, _capacity, "%uS", seconds);
   }
 }
 
@@ -375,7 +379,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
         continue;
       }
       const auto width = static_cast<float>(std::strlen(waypoint)) * _view.cellPixels;
-      _outLabels.AddText(to.x - width * 0.5f, to.y + _tuning.labelGapPixels * scale, _tuning.labelSizeIndex,
+      _outLabels.AddText(to.x - width * 0.5f, to.y + _tuning.labelGapPixels * scale, _tuning.detailSizeIndex,
                        FadeRgba(colour, 0.75f), waypoint);
     }
 
@@ -402,7 +406,9 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
 
     if (ghost.preview.label[0] != '\0')
     {
-      const auto width = static_cast<float>(std::strlen(ghost.preview.label)) * _view.cellPixels;
+      // Cells, not bytes: the label carries a UTF-8 token separator, and
+      // `strlen` would over-measure it by two columns.
+      const auto width = static_cast<float>(TextCellCount(ghost.preview.label)) * _view.cellPixels;
       _outLabels.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, colour, ghost.preview.label);
       line += lineHeight;
     }
@@ -434,11 +440,11 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
     FormatLaneDetail(journeyMetres, lastEta, detail, sizeof(detail));
     if (detail[0] != '\0')
     {
-      const auto width = static_cast<float>(std::strlen(detail)) * _view.cellPixels;
-      // Dimmer than the name above it: the print draws the command in the
-      // ghost's own colour and its numbers a step back, so the eye reads what
-      // the order *is* before how far it goes.
-      _outLabels.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, FadeRgba(colour, 0.65f), detail);
+      const auto width = static_cast<float>(TextCellCount(detail)) * _view.cellPixels;
+      // Dimmer and a size smaller than the name above it: the print draws the
+      // command in the ghost's own colour and its numbers a step back, so the
+      // eye reads what the order *is* before how far it goes.
+      _outLabels.AddText(end.x - width * 0.5f, line, _tuning.detailSizeIndex, FadeRgba(colour, 0.65f), detail);
       line += lineHeight;
     }
 
@@ -453,9 +459,10 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
     {
       const std::uint32_t shown = ghost.legCount > 0 ? ghost.legCount : legs;
       char footer[24] = {};
-      std::snprintf(footer, sizeof(footer), "%u LEGS", shown);
+      // One branch, everywhere a count is printed: `1 LEG`, never `1 LEGS`.
+      std::snprintf(footer, sizeof(footer), "%u LEG%s", shown, shown == 1 ? "" : "S");
       const auto width = static_cast<float>(std::strlen(footer)) * _view.cellPixels;
-      _outLabels.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, FadeRgba(colour, 0.5f), footer);
+      _outLabels.AddText(end.x - width * 0.5f, line, _tuning.detailSizeIndex, FadeRgba(colour, 0.5f), footer);
     }
   }
 }

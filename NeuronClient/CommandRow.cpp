@@ -26,15 +26,66 @@ std::uint32_t BuildCommandRow(std::span<const OrderKindOption> _kinds, std::uint
   float pen = _row.x + _tuning.paddingX * scale;
 
   std::uint32_t count = 0;
+
+  /*
+   * The selected command's parameter button, once the row reaches the picker
+   * cluster. Only the selected command gets one, because the parameter *values*
+   * come from `OrderOptions(kind)` and the caller has asked for exactly one
+   * kind's -- five dropdowns would need five asks a frame. It is *deferred*
+   * rather than emitted beside its command: the print keeps the immediate
+   * verbs contiguous (`MOVE ATTACK`) and opens the picker cluster with the
+   * parameter chip (`FORMATION STANCE ABILITIES`), so the chip is held until
+   * the next command that has a parameter name of its own, or the end of the
+   * row.
+   */
+  const OrderKindOption* pendingParameter = nullptr;
+  const auto emitParameter = [&](const OrderKindOption& _kind) {
+    CommandButton& parameter = _outButtons[count];
+    parameter = CommandButton{};
+    parameter.rect = UiRect{pen, top, width, height};
+    parameter.label = _kind.parameterName;
+    parameter.action = CommandAction::CycleParameter;
+    parameter.payload = _kind.kind;
+    parameter.opensPicker = true;
+
+    // Enabled only when there is something to cycle *to*. One option is a
+    // constant, not a choice, and a button that visibly does nothing when
+    // pressed is worse than one that is visibly not for pressing.
+    parameter.enabled = _kind.available && _options.size() > 1;
+    if (_optionIndex < _options.size())
+    {
+      parameter.value = _options[_optionIndex].name;
+    }
+    ++count;
+    pen += width + gap;
+  };
+
   for (const OrderKindOption& kind : _kinds)
   {
-    if (count >= _outButtons.size() || kind.name == nullptr)
+    if (kind.name == nullptr)
     {
       break;
     }
+
+    // The held parameter chip goes down at the door of the picker cluster --
+    // just before the next command that has a parameter of its own.
+    if (pendingParameter != nullptr && kind.parameterName != nullptr)
+    {
+      if (count >= _outButtons.size() || pen + width > right)
+      {
+        return count; // No room. Dropped rather than shrunk: see the header.
+      }
+      emitParameter(*pendingParameter);
+      pendingParameter = nullptr;
+    }
+
+    if (count >= _outButtons.size())
+    {
+      return count;
+    }
     if (pen + width > right)
     {
-      break; // No room. Dropped rather than shrunk: see the header.
+      return count; // No room. Dropped rather than shrunk: see the header.
     }
 
     const bool selected = kind.kind == _selectedKind;
@@ -47,45 +98,23 @@ std::uint32_t BuildCommandRow(std::span<const OrderKindOption> _kinds, std::uint
     button.payload = kind.kind;
     button.enabled = kind.available;
     button.active = selected && kind.available;
+    // A command with a named parameter and no content cannot execute: the only
+    // thing selecting it does is open its picker, and the caret says so. An
+    // available command's picker is its separate parameter chip.
+    button.opensPicker = kind.parameterName != nullptr && !kind.available;
     ++count;
     pen += width + gap;
 
-    /*
-     * The selected command's parameter button, immediately after it.
-     *
-     * Only the selected one gets a parameter button, because the parameter
-     * *values* come from `OrderOptions(kind)` and the caller has asked for
-     * exactly one kind's. Drawing a FORMATION button beside a command the
-     * player has not selected would mean asking the game for every kind's
-     * options every frame to fill in the current value -- and would put five
-     * dropdowns in a row that has space for five buttons.
-     */
-    if (!selected || kind.parameterName == nullptr)
+    if (selected && kind.parameterName != nullptr)
     {
-      continue;
+      pendingParameter = &kind;
     }
-    if (count >= _outButtons.size() || pen + width > right)
-    {
-      break;
-    }
+  }
 
-    CommandButton& parameter = _outButtons[count];
-    parameter = CommandButton{};
-    parameter.rect = UiRect{pen, top, width, height};
-    parameter.label = kind.parameterName;
-    parameter.action = CommandAction::CycleParameter;
-    parameter.payload = kind.kind;
-
-    // Enabled only when there is something to cycle *to*. One option is a
-    // constant, not a choice, and a button that visibly does nothing when
-    // pressed is worse than one that is visibly not for pressing.
-    parameter.enabled = kind.available && _options.size() > 1;
-    if (_optionIndex < _options.size())
-    {
-      parameter.value = _options[_optionIndex].name;
-    }
-    ++count;
-    pen += width + gap;
+  // A selected command at the tail of the list still gets its chip.
+  if (pendingParameter != nullptr && count < _outButtons.size() && pen + width <= right)
+  {
+    emitParameter(*pendingParameter);
   }
   return count;
 }

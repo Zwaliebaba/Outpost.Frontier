@@ -2,6 +2,8 @@
 
 #include "OverlayMark.h"
 
+#include "HudPalette.h" // The gauge band thresholds the roster strips use.
+
 #include <algorithm>
 
 using namespace DirectX;
@@ -89,31 +91,53 @@ void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const s
     _outMarks.marks.push_back(marker);
   }
 
-  for (const std::uint16_t id : _selectedIds)
+  /*
+   * Bars on the selection *and* on anything hurt -- the print's rule
+   * (`tactical-hud.png`): selection plus every ship with hull below 100%. A
+   * damaged ship the player has not selected is exactly the one the readout is
+   * for, and a full pair on every hull would be ink repeating "nothing is
+   * wrong" a fleet at a time. One walk over the entities rather than over the
+   * selection, so a damaged unselected ship is found at all; the selection is
+   * a handful, so the membership scan inside is cheaper than a set.
+   */
+  for (const SceneEntity& entity : _entities)
   {
-    const SceneEntity* entity = FindEntity(_entities, id);
-    if (entity == nullptr)
+    const bool selected =
+        std::find(_selectedIds.begin(), _selectedIds.end(), entity.id) != _selectedIds.end();
+    if (!selected && entity.hullGauge >= 255)
     {
       continue;
     }
 
     OverlayMark bar;
-    bar.anchorPlane = entity->planeMetres;
+    bar.anchorPlane = entity.planeMetres;
     bar.halfWidthPixels = _tuning.barHalfWidthPixels;
     bar.halfHeightPixels = _tuning.barHalfHeightPixels;
 
     // Hull under shield: the shield is what depletes first, so it reads
-    // top-down as the order the player loses them in.
+    // top-down as the order the player loses them in. The hull's fill moves
+    // through the same three bands as the roster's strip, on the same
+    // thresholds, so the two readings of one ship cannot disagree.
+    std::uint32_t hullColour = _tuning.hullColourRgba;
+    if (entity.hullGauge < HULL_GAUGE_LOW_BELOW)
+    {
+      hullColour = _tuning.hullLowColourRgba;
+    }
+    else if (entity.hullGauge < HULL_GAUGE_WORN_BELOW)
+    {
+      hullColour = _tuning.hullWornColourRgba;
+    }
+
     bar.offsetUpPixels = _tuning.barOffsetUpPixels;
-    bar.colourRgba = _tuning.hullColourRgba;
+    bar.colourRgba = hullColour;
     bar.kind = static_cast<std::uint16_t>(OverlayKind::HullBar);
-    bar.fill = GaugeToFill(entity->hullGauge);
+    bar.fill = GaugeToFill(entity.hullGauge);
     _outMarks.marks.push_back(bar);
 
     bar.offsetUpPixels = _tuning.barOffsetUpPixels + 2.0f * _tuning.barHalfHeightPixels + _tuning.barGapPixels;
     bar.colourRgba = _tuning.shieldColourRgba;
     bar.kind = static_cast<std::uint16_t>(OverlayKind::ShieldBar);
-    bar.fill = GaugeToFill(entity->shieldGauge);
+    bar.fill = GaugeToFill(entity.shieldGauge);
     _outMarks.marks.push_back(bar);
   }
 }

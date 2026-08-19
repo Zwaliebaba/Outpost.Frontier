@@ -90,6 +90,17 @@ public:
   }
 
   /*
+   * The world's display strings from `Welcome`, verbatim and unread -- what the
+   * top bar's location cluster and badge draw (`tactical-hud.png`). Empty until
+   * Joined, and the HUD draws its no-session state rather than a blank slot;
+   * they are replicated session fields, so killing the feed does not blank them
+   * any more than it blanks `WorldId`.
+   */
+  [[nodiscard]] const std::string& WorldName() const noexcept { return m_worldName; }
+  [[nodiscard]] const std::string& WorldDetail() const noexcept { return m_worldDetail; }
+  [[nodiscard]] const std::string& WorldBadge() const noexcept { return m_worldBadge; }
+
+  /*
    * Snapshot payloads that arrived since the last drain, oldest first.
    *
    * The connection does not look inside them -- it cannot, they are the game's
@@ -188,6 +199,9 @@ private:
   std::uint16_t m_worldId = 0;
   std::int64_t m_anchorX = 0;
   std::int64_t m_anchorY = 0;
+  std::string m_worldName;
+  std::string m_worldDetail;
+  std::string m_worldBadge;
   double m_roundTripMs = 0.0;
   std::uint64_t m_pingCount = 0;
   std::uint64_t m_pongCount = 0;

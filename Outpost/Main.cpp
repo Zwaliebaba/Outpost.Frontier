@@ -124,7 +124,7 @@ class UniverseSimulation final : public Simulation
 public:
   UniverseSimulation(std::uint64_t _universeHash, WorldMeta _worldMeta, Game::World _world, std::vector<Game::ShipId> _patrolShips)
     : m_universeHash(_universeHash),
-      m_worldMeta(_worldMeta),
+      m_worldMeta(std::move(_worldMeta)),
       m_world(std::move(_world)),
       m_patrolShips(std::move(_patrolShips))
   {
@@ -391,12 +391,40 @@ constexpr FleetWing STARTING_FLEET[] = {
   return world;
 }
 
+/*
+ * The version-of-space on the top bar's `FRONTIER 0.4` line, and the start
+ * system's security rating on its `SEC 0.4` badge (`tactical-hud.png`).
+ *
+ * Authored here, beside the fleet and the wing names, for the same reason those
+ * are: the universe format has no version or security field yet, and growing it
+ * would grow the hashed content (ADR-012 §D) for two strings the session merely
+ * displays. When ADR-016's security bands land in the bake, the badge reads
+ * from the system instead of from this constant -- the seam it travels through
+ * does not change.
+ */
+constexpr std::string_view SPACE_VERSION_TEXT = "0.4";
+constexpr std::string_view START_SECURITY_TEXT = "SEC 0.4";
+
 /// The universe's world meta, in the neutral terms the engine speaks
-/// (ADR-009 §8): which world, and where its tactical grid is anchored.
+/// (ADR-009 §8): which world, where its tactical grid is anchored, and the
+/// display strings the HUD's top bar draws for it.
 WorldMeta MakeWorldMeta(const Game::UniverseDef& _universe)
 {
   const Game::GridAnchor anchor = _universe.StartAnchor();
-  return WorldMeta{anchor.system, anchor.origin.x, anchor.origin.y};
+
+  WorldMeta meta;
+  meta.worldId = anchor.system;
+  meta.anchorX = anchor.origin.x;
+  meta.anchorY = anchor.origin.y;
+
+  // The prime slot is the player's location -- the system, not the product
+  // (`tactical-hud.png` §top-bar). The detail line is the region of space and
+  // its version: the universe's own name, which for this game is "Frontier".
+  const Game::SolarSystem* system = _universe.FindSystem(anchor.system);
+  meta.worldName = system != nullptr ? system->name : "?";
+  meta.worldDetail = _universe.name + " " + std::string(SPACE_VERSION_TEXT);
+  meta.worldBadge = std::string(START_SECURITY_TEXT);
+  return meta;
 }
 
 void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
