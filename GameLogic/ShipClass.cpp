@@ -21,22 +21,31 @@ namespace
  * retuning does not mean rewriting tests.
  *
  * `formationSpacing` is roughly four hull radii: close enough to read as a
- * formation on the print, far enough that stations never overlap, which is what
- * lets MVP steering skip inter-ship avoidance entirely (ADR-005 §2).
+ * formation on the print, far enough that stations never overlap -- which is
+ * what let MVP steering skip inter-ship avoidance, and is now what keeps a
+ * formation in flight from fighting its own contact model (ADR-015 §3).
+ *
+ * `collisionRadius` is that same hull radius made explicit: a quarter of the
+ * spacing, rounded *down* to whole metres -- the table test holds the quarter
+ * as a ceiling, because it is what guarantees hulls parked on adjacent
+ * stations clear water. `Structure` has no spacing to derive from
+ * -- it never flies in formation -- so its radius is set against its pick
+ * radius instead, at the same "pick is wider than the hull" proportion the
+ * capital ships carry.
  */
 constexpr std::array<ShipClassInfo, HULL_CLASS_COUNT> CLASS_TABLE = {{
-    // name           maxSpeed  accel  turnRate  pickRadius  spacing  content
-    {"Interceptor", 320.0f, 90.0f, 1.60f, 45.0f, 70.0f, true},
-    {"Fighter", 300.0f, 80.0f, 1.45f, 45.0f, 75.0f, false},
-    {"Bomber", 240.0f, 55.0f, 1.00f, 55.0f, 100.0f, true},
-    {"Corvette", 210.0f, 45.0f, 0.85f, 65.0f, 130.0f, true},
-    {"Frigate", 170.0f, 30.0f, 0.55f, 90.0f, 200.0f, true},
-    {"Cruiser", 140.0f, 22.0f, 0.40f, 120.0f, 280.0f, false},
-    {"Battleship", 105.0f, 14.0f, 0.22f, 175.0f, 480.0f, true},
-    {"Carrier", 120.0f, 16.0f, 0.26f, 160.0f, 430.0f, true},
-    {"Hauler", 130.0f, 18.0f, 0.30f, 110.0f, 260.0f, true},
-    {"Miner", 115.0f, 17.0f, 0.32f, 100.0f, 240.0f, true},
-    {"Structure", 0.0f, 0.0f, 0.0f, 260.0f, 0.0f, true},
+    // name           maxSpeed  accel  turnRate  pickRadius  spacing  collision  content
+    {"Interceptor", 320.0f, 90.0f, 1.60f, 45.0f, 70.0f, 17.0f, true},
+    {"Fighter", 300.0f, 80.0f, 1.45f, 45.0f, 75.0f, 18.0f, false},
+    {"Bomber", 240.0f, 55.0f, 1.00f, 55.0f, 100.0f, 25.0f, true},
+    {"Corvette", 210.0f, 45.0f, 0.85f, 65.0f, 130.0f, 32.0f, true},
+    {"Frigate", 170.0f, 30.0f, 0.55f, 90.0f, 200.0f, 50.0f, true},
+    {"Cruiser", 140.0f, 22.0f, 0.40f, 120.0f, 280.0f, 70.0f, false},
+    {"Battleship", 105.0f, 14.0f, 0.22f, 175.0f, 480.0f, 120.0f, true},
+    {"Carrier", 120.0f, 16.0f, 0.26f, 160.0f, 430.0f, 107.0f, true},
+    {"Hauler", 130.0f, 18.0f, 0.30f, 110.0f, 260.0f, 65.0f, true},
+    {"Miner", 115.0f, 17.0f, 0.32f, 100.0f, 240.0f, 60.0f, true},
+    {"Structure", 0.0f, 0.0f, 0.0f, 260.0f, 0.0f, 200.0f, true},
 }};
 
 // The table is indexed by the enum, so the two have to stay in step. Spelling

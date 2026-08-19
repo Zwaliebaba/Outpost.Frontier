@@ -2,7 +2,8 @@
 
 **Status:** Accepted · 2026-08-17
 **Depends on:** — (root decision)
-**Feeds:** every other ADR · extended by ADR-009 (universe coordinates)
+**Feeds:** every other ADR · extended by ADR-009 (universe coordinates) and ADR-016 (many
+concurrent grids per session, warp between them)
 
 ## Context
 
@@ -77,7 +78,9 @@ without touching the core model. Do not pre-pay.
      gives ~5 mm resolution at that extent — ample. Galaxy-scale later = many grids, each
      anchored at an exact `int64` universe position; see **ADR-009**, which makes this
      concrete (universe plane in integer metres, systems as graph nodes). Planar float32
-     grids therefore do not block MMO scale.
+     grids therefore do not block MMO scale. *(ADR-016 cashes this in: a session hosts many
+     concurrent grids — one per active anchor — the client viewing one at a time; the
+     one-grid clause was the MVP's, not the model's.)*
 4. **Everything that targets space targets the plane:** move orders are plane points + arrival
    facing; picking is a cursor-ray ∩ plane point followed by 2D proximity tests; formation
    stations are 2D offsets; AoE later is 2D discs.

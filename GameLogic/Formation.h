@@ -37,10 +37,13 @@
  * formation is selected, and the puck never marks a place the fleet avoids.
  *
  * **Adjacent stations are one spacing apart in all three**, which is not a
- * coincidence of the numbers but the property ADR-005 §2 spends: there is no
- * inter-ship avoidance in the MVP because stations do not overlap by
- * construction. The suite asserts it over every count and class mix rather than
- * trusting the three formulas to keep agreeing.
+ * coincidence of the numbers but a property two decisions have now spent:
+ * ADR-005 §2 skipped inter-ship avoidance in the MVP because stations do not
+ * overlap by construction, and ADR-015's contact model relies on the same
+ * guarantee from the other side -- a spacing is four contact radii, so hulls
+ * parked on adjacent stations are never in contact and a formation in cruise
+ * never fights its own avoidance. The suite asserts it over every count and
+ * class mix rather than trusting the three formulas to keep agreeing.
  */
 
 namespace Game

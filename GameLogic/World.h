@@ -176,6 +176,32 @@ public:
   /// float space where the resolution stops being millimetres.
   static constexpr float PLAY_AREA_HALF_EXTENT_METRES = 20000.0f;
 
+  /*
+   * Contact (ADR-015). Two ships are in contact when their centres are closer
+   * than the sum of their class contact radii; steering avoids reaching that
+   * state and `Separate` resolves whatever it could not avoid.
+   *
+   * Avoidance aims to pass traffic with this much of the combined radius to
+   * spare. It must stay below sqrt(2): a Wedge's arms put formation neighbours
+   * 2·sqrt(2) radii off each other's course, and a factor past that would have
+   * a formation in cruise trying to avoid itself.
+   */
+  static constexpr float AVOID_CLEARANCE_FACTOR = 1.2f;
+
+  /// How far ahead, in combined radii, a ship starts steering around traffic --
+  /// on top of its own braking distance, which is speed- and class-dependent.
+  static constexpr float AVOID_LOOKAHEAD_RADII = 4.0f;
+
+  /// Relaxation passes for contact resolution. Chains of overlapped ships
+  /// resolve across passes within the tick and across ticks after that; four is
+  /// enough that avoidance-sized penetrations vanish the tick they appear.
+  static constexpr std::uint32_t SEPARATION_PASSES = 4;
+
+  /// The most of the combined radius one pass may push a pair apart by. A cap,
+  /// because overlap can be authored (spawns) as well as flown into, and a deep
+  /// overlap resolved in one step would read as a teleport on the client.
+  static constexpr float SEPARATION_STEP_FACTOR = 0.25f;
+
   /// Empties the world and seeds it. The seed is part of the replay contract:
   /// same build, same seed, same orders, same state.
   void Reset(std::uint64_t _seed) noexcept;
@@ -231,11 +257,12 @@ public:
   [[nodiscard]] OrderVerdict SubmitOrder(const OrderSubmit& _order);
 
   /*
-   * One fixed step: IngestOrders -> GroupAdvance -> Steering -> Integrate.
+   * One fixed step: IngestOrders -> GroupAdvance -> Steering -> Integrate ->
+   * Separate.
    *
-   * The order is named and fixed (ADR-005 §2). `EmitSnapshot` is not a step
-   * here -- `WriteSnapshot` reads the finished state from outside, which keeps
-   * the world from knowing what a datagram is.
+   * The order is named and fixed (ADR-005 §2; Separate joined it in ADR-015).
+   * `EmitSnapshot` is not a step here -- `WriteSnapshot` reads the finished
+   * state from outside, which keeps the world from knowing what a datagram is.
    *
    * Orders are not a parameter: they arrive through `SubmitOrder` between ticks
    * and wait in world state, so a replay reproduces the queue rather than
@@ -315,6 +342,7 @@ private:
   void GroupAdvance();
   void Steering();
   void Integrate();
+  void Separate();
 
   /// Solves the current leg's stations and writes them into the members'
   /// guidance. The one place a group touches a ship.

@@ -11,7 +11,11 @@ line (there is no argv) and ADR-009's line-oriented universe format (it is JSON)
 deletes the `NeuronCore/Math.h` the Dependency Map originally planned; ADR-013 replaces every
 subdirectory path used illustratively in earlier documents with flat file names; **ADR-014
 overturns Dependency Map ruling #2** — the engine libraries do not link GameLogic, and reach it
-through injected interfaces instead.
+through injected interfaces instead; ADR-015 spends ADR-005 §2's "no inter-ship avoidance in
+MVP" — ships collide now, and the tick gained a fifth system (`Separate`); **ADR-016**
+rescales the universe (F13's ~300 systems → 2,500 across ~50 regions), expires ADR-009 §9's
+no-traversal fence, appends a twelfth hull (`Gate`), and retires ADR-001 §3's
+one-play-area-per-session clause — a session now hosts many grids, the client viewing one.
 
 ## Decisions at a glance
 
@@ -31,6 +35,8 @@ through injected interfaces instead.
 | [012](ADR/ADR-012-configuration-and-json.md) | Configuration *(owner directive)* | **JSON config files only — no argv, no environment**; custom NeuronCore parser (exact `int64`, iterative, diagnostics) also serving universe + banks; settings persist to a LocalAppData user layer |
 | [013](ADR/ADR-013-source-layout.md) | Source layout *(owner directive)* | **Flat project folders**, grouping via `.vcxproj.filters`; repo-wide unique file names; per-project include roots with unqualified includes |
 | [014](ADR/ADR-014-engine-game-separation.md) | Engine/game split *(owner ruling)* | **`Neuron*` never references GameLogic** — the engine declares `Simulation` and `WorldView`, GameLogic implements them, `Outpost.exe` injects them; neutral `EntityRecord` for replication |
+| [015](ADR/ADR-015-ship-collision.md) | Ship collision *(post-MVP)* | **Per-class contact radii; brake + tangent deflection in Steering; positional `Separate` after Integrate** — area-weighted, stations are terrain; no pathfinding, no momentum, no wire change |
+| [016](ADR/ADR-016-procedural-universe-and-warp.md) | Universe & warp *(owner design session)* | **2,500 baked systems (~50 regions), authored anchors as the only warp destinations, timed warp over a deterministic transfer bus, per-grid snapshots + fleet summaries, client-fed routes** — commander stays disembodied; view is presence-gated |
 
 ## Coding standard
 
@@ -54,6 +60,10 @@ moves between the trees without a rename pass. Three things it changed in these 
 - [MVP-Build-Order.md](MVP-Build-Order.md) — S1–S15 vertical slices (S2b, S5b, S5c and S5d were
   added by later directives) with acceptance criteria and a **Built** line per landed slice;
   milestones M0 (heartbeat) / M1 (first commanded fleet) / MVP.
+- [Universe-Build-Order.md](Universe-Build-Order.md) — the post-MVP universe phase: U1–U6
+  slices delivering ADR-016 (bake, anchors, warp, gates, strategic map, system view), plus
+  the named content deliverables (system-view print, `Gate.obj`); milestones W0 (first warp)
+  / W1 (first crossing) / W2 (the universe on screen). No slice started.
 - [Risk-Register.md](Risk-Register.md) — R1–R14 with designed-in mitigations + standing spikes.
   R6 and R14 are marked realised, with what actually happened.
 
@@ -89,6 +99,25 @@ promoted from a textbook guess to a measurement.
 **What still needs a person and a GPU:** a second look at the overlay after the two size fixes,
 the visual checkpoint against the prints at min and max zoom, and the induced 400 ms stall
 reading as extrapolate-then-freeze rather than as a stutter.
+
+**The universe phase is designed and not yet built (ADR-016, 2026-08-19).** The owner design
+session settled procedural generation (2,500 systems baked to authored content), warp
+(timed, anchor-to-anchor, gate traversal between systems), the multi-grid session, the view
+model, and the UI surfaces — with [Universe-Build-Order.md](Universe-Build-Order.md) as the
+delivery plan. Nothing of it is implemented; U1 (the bake) and U5 (strategic map) are the
+open starting points, and the system-view print is the one missing design artifact.
+
+**The first post-MVP feature is in the tree: ship collision (ADR-015, 2026-08-18).** Ships no
+longer fly through each other — per-class contact radii in the class table, braking and
+tangential deflection inside Steering, and a fifth tick system (`Separate`) resolving residual
+overlap positionally, with stations as immovable terrain. Eight `ShipContactTests` scenarios
+plus a converging-crowd replay test joined `GameLogicTests`; nothing on the wire changed. Two
+things worth knowing: a target with a hull parked on it now ends with the mover parked
+adjacent and the leg expiring by its deadline (the obstructed-footprint item stays open, only
+its failure mode improved), and the authored starting fleet carried a real 6 m overlap between
+the Carrier and Battleship wings' line ends that `Separate` now heals on tick 1 — re-parking
+that layout is the owner's call. Verified so far on a Linux clang cross-build of GameLogic
+(all 111 GameLogicTests green there); the MSVC build and official suite run is CI's, as usual.
 
 **Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole

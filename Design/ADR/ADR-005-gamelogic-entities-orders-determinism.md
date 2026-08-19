@@ -1,6 +1,8 @@
 # ADR-005 — GameLogic: Fixed-Schema Tables, Group Orders, Decision Determinism
 
-**Status:** Accepted · 2026-08-17
+**Status:** Accepted · 2026-08-17 · §2's "no inter-ship avoidance in MVP" superseded by
+[ADR-015](ADR-015-ship-collision.md) (2026-08-18), which lands the avoidance this ADR's
+consequences promised — inside Steering, plus a `Separate` step after Integrate
 **Depends on:** ADR-001 (plane), ADR-002 (tick), ADR-004 (wire, quantisation)
 **Feeds:** ADR-006 (extract), ADR-007 (ownership), Build Order (test harness)
 
