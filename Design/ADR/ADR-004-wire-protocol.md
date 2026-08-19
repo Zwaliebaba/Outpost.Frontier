@@ -44,11 +44,18 @@ overhead anyway.
 4. **Control channel:** `[u16 length][u16 type][payload]` per message.
    **Datagram channel:** `[u16 type][payload]`, one message per datagram, ≤ 1,152 B total.
 5. **Protocol constants:** `ProtocolVersion u16` (breaking framing changes only), ALPN `opf/1`.
+   **Version 2 as of T2:** `Hello`/`Welcome` grew `PlayerId` and a reserved resume token
+   (ADR-018 D5/A12), so a build that predates them reads past the end of a message it thinks
+   it understands. The schema hash cannot catch this — it covers game payloads, and `Hello`
+   is the message that *carries* the schema hash — so the version is the only thing that can
+   refuse the connection, and it does.
 
 ### Message set (MVP, complete)
 | Channel | C→S | S→C |
 |---|---|---|
-| control | `Hello{ver, schemaHash, name}` | `Welcome{clientId, tick, tickRate, worldMeta}` / `UpdateRequired{serverSchemaHash}` / `Refuse{reason}` |
+| control | `Hello{ver, schemaHash, name, playerId, resumeToken}` | `Welcome{clientId, tick, tickRate, worldMeta, playerId, resumeToken}` / `UpdateRequired{serverSchemaHash}` / `Refuse{reason}` |
+| control | `StationCommand{orderSeq, verb, station, formation, wing, shipIds[]}` (T2) | shares `OrderAck` |
+| control | — | `StationRoster{station, (shipId, classId, wingId)[]}` (T2, ~1 Hz, per viewer) |
 | control | `OrderSubmit` (below) | `OrderAck{orderSeq, verdict, reasonCode, serverOrderId}` |
 | control | `Goodbye{reason}` | `Goodbye{reason}` |
 | datagram | `Ping{clientSendUs}` | `Pong{clientSendUs, serverTick}` |

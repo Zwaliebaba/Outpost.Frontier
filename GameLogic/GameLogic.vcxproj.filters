@@ -26,6 +26,9 @@
     <ClCompile Include="EventRecord.cpp">
       <Filter>Universe</Filter>
     </ClCompile>
+    <ClCompile Include="StationMessages.cpp">
+      <Filter>Wire</Filter>
+    </ClCompile>
     <ClCompile Include="ReplicatedView.cpp">
       <Filter>Wire</Filter>
     </ClCompile>
@@ -97,6 +100,9 @@
     </ClInclude>
     <ClInclude Include="EventRecord.h">
       <Filter>Universe</Filter>
+    </ClInclude>
+    <ClInclude Include="StationMessages.h">
+      <Filter>Wire</Filter>
     </ClInclude>
     <ClInclude Include="WorldRegistry.h">
       <Filter>World</Filter>

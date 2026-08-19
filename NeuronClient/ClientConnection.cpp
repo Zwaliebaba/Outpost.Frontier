@@ -62,6 +62,12 @@ void ClientConnection::SendHello()
   hello.contentHash = m_contentHash;
   hello.playerName = m_playerName;
 
+  // Anonymous on a first connection (ADR-018 D5): the client learns its
+  // `PlayerId` from the `Welcome` and offers it back on a resume. There is no
+  // resume yet, so this is always the first connection.
+  hello.playerId = INVALID_PLAYER_ID;
+  hello.resumeToken = 0;
+
   std::array<std::uint8_t, 256> buffer{};
   ByteWriter writer{buffer};
   WriteWireType(writer, WireType::Hello);
@@ -155,6 +161,7 @@ void ClientConnection::HandleMessage(const TransportEvent& _event)
       return;
     }
     m_clientId = welcome.clientId;
+    m_playerId = welcome.playerId;
     m_serverTick = welcome.tick;
     m_serverTickRate = welcome.tickRate;
     m_worldId = welcome.worldId;

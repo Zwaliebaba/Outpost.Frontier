@@ -6,6 +6,7 @@
 #include "UniverseGen.h"
 #include "World.h"
 #include "WorldHash.h"
+#include "StationMessages.h"
 #include "WorldRegistry.h"
 
 #include "EntityRecord.h"
@@ -636,6 +637,139 @@ public:
     };
 
     Assert::AreEqual(run(), run(), L"the same script has to produce the same universe");
+  }
+};
+
+TEST_CLASS(StationWireTests)
+{
+public:
+  TEST_METHOD(ACommandSurvivesTheTripUnchanged)
+  {
+    StationCommand sent;
+    sent.orderSeq = 91;
+    sent.verb = StationVerb::Undock;
+    sent.station = 4321;
+    sent.formation = FormationId::Claw;
+    sent.wing = 5;
+    for (std::uint16_t index = 0; index < MAX_SHIPS_PER_ORDER; ++index)
+    {
+      Assert::IsTrue(sent.AddShip(static_cast<ShipId>(1000 + index)));
+    }
+
+    std::uint8_t buffer[MAX_STATION_COMMAND_BYTES];
+    Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
+    Assert::IsTrue(WriteStationCommand(sent, writer));
+    Assert::AreEqual(StationCommandBytes(MAX_SHIPS_PER_ORDER), writer.BytesWritten(),
+                     L"the size function and the writer have to agree, or the decode bound is a guess");
+
+    Neuron::ByteReader reader{std::span<const std::uint8_t>{buffer, writer.BytesWritten()}};
+    StationCommand received;
+    Assert::IsTrue(ReadStationCommand(reader, received));
+
+    Assert::AreEqual(sent.orderSeq, received.orderSeq);
+    Assert::IsTrue(sent.verb == received.verb);
+    Assert::AreEqual<std::uint32_t>(sent.station, received.station);
+    Assert::IsTrue(sent.formation == received.formation);
+    Assert::AreEqual<std::uint32_t>(sent.wing, received.wing);
+    Assert::AreEqual<std::uint32_t>(sent.shipCount, received.shipCount);
+    for (std::uint16_t index = 0; index < sent.shipCount; ++index)
+    {
+      Assert::AreEqual<std::uint32_t>(sent.shipIds[index], received.shipIds[index]);
+    }
+  }
+
+  TEST_METHOD(AnUnknownVerbDecodesAndIsRefusedRatherThanCalledMalformed)
+  {
+    /*
+     * The order family's rule, applied here: a decoder that rejected a verb it
+     * did not recognise would answer "protocol error" where the client is owed
+     * a bounce with a reason. Decoding succeeds; validation is what refuses.
+     */
+    StationCommand sent;
+    sent.orderSeq = 1;
+    sent.station = 7;
+    Assert::IsTrue(sent.AddShip(3));
+
+    std::uint8_t buffer[MAX_STATION_COMMAND_BYTES];
+    Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
+    Assert::IsTrue(WriteStationCommand(sent, writer));
+    buffer[4] = 200; // The verb byte.
+
+    Neuron::ByteReader reader{std::span<const std::uint8_t>{buffer, writer.BytesWritten()}};
+    StationCommand received;
+    Assert::IsTrue(ReadStationCommand(reader, received), L"a strange verb is still a well-formed message");
+    Assert::IsTrue(static_cast<std::uint8_t>(received.verb) == 200);
+  }
+
+  TEST_METHOD(AShipIdBeyondThisBuildsRangeBecomesInvalidRatherThanSomeoneElse)
+  {
+    /*
+     * The ids are u32 on the wire and u16 in the sim until the delta cluster
+     * widens the record. A truncating cast would turn id 65,537 into ship 1 --
+     * a validated command against the wrong hull. Invalid is a value the
+     * validator already refuses with a reason.
+     */
+    std::uint8_t buffer[MAX_STATION_COMMAND_BYTES];
+    Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
+    writer.WriteUInt32(1);
+    writer.WriteUInt8(static_cast<std::uint8_t>(StationVerb::Undock));
+    writer.WriteUInt16(7);
+    writer.WriteUInt8(static_cast<std::uint8_t>(FormationId::Line));
+    writer.WriteUInt8(0);
+    writer.WriteUInt16(1);
+    writer.WriteUInt32(65537);
+    Assert::IsTrue(writer.Ok());
+
+    Neuron::ByteReader reader{std::span<const std::uint8_t>{buffer, writer.BytesWritten()}};
+    StationCommand received;
+    Assert::IsTrue(ReadStationCommand(reader, received));
+    Assert::AreEqual<std::uint32_t>(INVALID_SHIP_ID, received.shipIds[0], L"not ship 1");
+  }
+
+  TEST_METHOD(ACountPastTheCapIsRefusedBeforeAnythingIsRead)
+  {
+    std::uint8_t buffer[MAX_STATION_COMMAND_BYTES];
+    Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
+    writer.WriteUInt32(1);
+    writer.WriteUInt8(0);
+    writer.WriteUInt16(7);
+    writer.WriteUInt8(0);
+    writer.WriteUInt8(0);
+    writer.WriteUInt16(65535); // Sixty-five thousand ships in one command.
+    Assert::IsTrue(writer.Ok());
+
+    Neuron::ByteReader reader{std::span<const std::uint8_t>{buffer, writer.BytesWritten()}};
+    StationCommand received;
+    Assert::IsFalse(ReadStationCommand(reader, received));
+  }
+
+  TEST_METHOD(ARosterSurvivesTheTripAndRefusesAClassNobodyCanDraw)
+  {
+    const RosterEntry docked[] = {RosterEntry{11, HullClass::Battleship, 2},
+                                  RosterEntry{12, HullClass::Interceptor, 2},
+                                  RosterEntry{13, HullClass::Hauler, 0}};
+
+    std::uint8_t buffer[512];
+    Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
+    Assert::IsTrue(WriteStationRoster(77, docked, writer));
+    Assert::AreEqual(StationRosterBytes(3), writer.BytesWritten());
+
+    Neuron::ByteReader reader{std::span<const std::uint8_t>{buffer, writer.BytesWritten()}};
+    AnchorId station = INVALID_ID;
+    std::vector<RosterEntry> received;
+    Assert::IsTrue(ReadStationRoster(reader, station, received));
+    Assert::AreEqual<std::uint32_t>(77, station);
+    Assert::AreEqual<std::size_t>(3, received.size());
+    Assert::AreEqual<std::uint32_t>(11, received[0].shipId);
+    Assert::IsTrue(received[0].hullClass == HullClass::Battleship);
+    Assert::AreEqual<std::uint32_t>(2, received[0].wing);
+
+    // A class this build has no row for is refused here, unlike an unknown
+    // verb: a roster is an answer rather than a request, so there is no verdict
+    // to carry a reason back on, and a row nobody can draw would be drawn wrong.
+    buffer[2 + 2 + 4] = 200;
+    Neuron::ByteReader bad{std::span<const std::uint8_t>{buffer, writer.BytesWritten()}};
+    Assert::IsFalse(ReadStationRoster(bad, station, received));
   }
 };
 

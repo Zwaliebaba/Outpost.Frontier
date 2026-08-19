@@ -24,6 +24,11 @@ void Write(ByteWriter& _writer, const Hello& _message) noexcept
   _writer.WriteUInt64(_message.schemaHash);
   _writer.WriteUInt64(_message.contentHash);
   _writer.WriteText(_message.playerName);
+
+  // Identity last, after the name, so the fields the handshake fails closed on
+  // stay at fixed offsets from the front of the message (ADR-018 D5).
+  _writer.WriteUInt32(_message.playerId);
+  _writer.WriteUInt64(_message.resumeToken);
 }
 
 bool Read(ByteReader& _reader, Hello& _outMessage) noexcept
@@ -32,6 +37,8 @@ bool Read(ByteReader& _reader, Hello& _outMessage) noexcept
   _outMessage.schemaHash = _reader.ReadUInt64();
   _outMessage.contentHash = _reader.ReadUInt64();
   _outMessage.playerName = std::string(_reader.ReadText());
+  _outMessage.playerId = _reader.ReadUInt32();
+  _outMessage.resumeToken = _reader.ReadUInt64();
   return _reader.Ok();
 }
 
@@ -47,6 +54,8 @@ void Write(ByteWriter& _writer, const Welcome& _message) noexcept
   // (ADR-009 §1), so anything narrower would silently fold it.
   _writer.WriteInt64(_message.anchorX);
   _writer.WriteInt64(_message.anchorY);
+  _writer.WriteUInt32(_message.playerId);
+  _writer.WriteUInt64(_message.resumeToken);
 }
 
 bool Read(ByteReader& _reader, Welcome& _outMessage) noexcept
@@ -59,6 +68,8 @@ bool Read(ByteReader& _reader, Welcome& _outMessage) noexcept
   _outMessage.worldId = _reader.ReadUInt16();
   _outMessage.anchorX = _reader.ReadInt64();
   _outMessage.anchorY = _reader.ReadInt64();
+  _outMessage.playerId = _reader.ReadUInt32();
+  _outMessage.resumeToken = _reader.ReadUInt64();
   return _reader.Ok();
 }
 
