@@ -86,6 +86,9 @@
     <ClCompile Include="UniverseLoad.cpp">
       <Filter>Config</Filter>
     </ClCompile>
+    <ClCompile Include="UniverseBake.cpp">
+      <Filter>Config</Filter>
+    </ClCompile>
     <ClCompile Include="ShaderTable.cpp">
       <Filter>Shaders</Filter>
     </ClCompile>
@@ -108,6 +111,9 @@
       <Filter>Config</Filter>
     </ClInclude>
     <ClInclude Include="UniverseLoad.h">
+      <Filter>Config</Filter>
+    </ClInclude>
+    <ClInclude Include="UniverseBake.h">
       <Filter>Config</Filter>
     </ClInclude>
     <ClInclude Include="ShaderTable.h">

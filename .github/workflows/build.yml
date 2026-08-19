@@ -335,7 +335,7 @@ jobs:
           # GameLogic file is per-tick code unless its job *is* the universe, so
           # a file added by U1 or T1 is guarded the day it lands instead of on
           # the day someone remembers to extend a list here.
-          $universeOwned = @('Universe.h', 'Universe.cpp', 'UniverseParse.h', 'UniverseParse.cpp')
+          $universeOwned = @('Universe.h', 'Universe.cpp', 'UniverseParse.h', 'UniverseParse.cpp', 'UniverseGen.h', 'UniverseGen.cpp')
           $perTick = Get-ChildItem -Path GameLogic -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -notin $universeOwned -and $_.Name -ne 'pch.h' -and $_.Name -ne 'pch.cpp' }
           Write-Host "guarding $($perTick.Count) per-tick GameLogic files against universe coordinates"
@@ -861,6 +861,25 @@ jobs:
           $lines += ''
           $lines += 'Measured on a shared runner: read it as an order of magnitude, and as a trend across runs.'
           $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      # R17's parse threshold (build order U1). The committed universe is 2,500
+      # systems of JSON and the fallback if it costs about a second to read is a
+      # structural per-region content split -- so the number belongs in the run
+      # summary beside the tick soak, measured in the configuration D11 says
+      # perf numbers mean, rather than in a note someone took once.
+      - name: Record the universe parse
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path selftest.log)) { Write-Host 'no selftest.log -- nothing to record'; exit 0 }
+          $line = Select-String -Path selftest.log -Pattern 'universe: read, parsed and hashed in (\d+) ms' | Select-Object -First 1
+          if (-not $line) { Write-Host 'no universe timing in selftest.log'; exit 0 }
+          $ms = [int]$line.Matches[0].Groups[1].Value
+          Write-Host "universe parse+hash: $ms ms (${{ matrix.configuration }})"
+          $verdict = if ($ms -lt 1000) { 'inside R17''s ~1000 ms threshold - no per-region content split is owed' }
+                     else { '**over R17''s ~1000 ms threshold** - the per-region split is the designed fallback' }
+          @("## Universe parse (${{ matrix.configuration }}) - R17", '', "Read, parsed and hashed in **$ms ms**: $verdict.") |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
 
       - name: Upload the replay hash
         if: always()

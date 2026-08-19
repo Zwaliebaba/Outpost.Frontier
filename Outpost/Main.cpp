@@ -4,6 +4,7 @@
 #include "ConfigLoad.h"
 #include "ReplicatedWorldView.h"
 #include "SelfTest.h"
+#include "UniverseBake.h"
 #include "ShaderTable.h"
 #include "UniverseLoad.h"
 
@@ -608,10 +609,35 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     NEURON_LOG_WARNING("%s", warning.c_str());
   LogResolvedConfig(config, paths);
 
+  /*
+   * The bake (build order U1), and it exits: this mode writes content rather
+   * than running the game, so there is no window, no server and no universe to
+   * load -- it is about to make one.
+   *
+   * It lives in the composition root because writing a file is the one thing
+   * GameLogic may not do (ADR-009 §7): the generator is pure and hands back
+   * bytes, and the host is what turns bytes into a path on disk. Config-driven
+   * per ADR-012 -- there is no argv to pass a seed on.
+   */
+  if (config.mode == Outpost::HostMode::Bake)
+  {
+    const int result = Outpost::RunBake(config);
+    Log::Shutdown();
+    return result;
+  }
+
   // The universe, read here and parsed by GameLogic (ADR-009 §7). Both halves
   // load the identical definition, so this happens once and feeds both -- and
   // it happens before anything starts, because a universe that will not parse
   // is not a degraded mode, it is a refusal to run.
+  //
+  // Timed, because R17 is a risk with a threshold rather than a worry: the
+  // committed universe is 2,500 systems of JSON, the fallback if parsing it
+  // costs about a second is a *structural* per-region content split, and a
+  // threshold nobody measures is a threshold nobody notices crossing. The
+  // number is logged on every boot, so CI's self test re-takes it on every push
+  // in the configuration ADR-018 D11 says perf numbers mean.
+  const std::int64_t universeStart = Clock::Counter();
   Outpost::UniverseLoadResult universe;
   std::vector<std::string> universeErrors;
   if (!Outpost::LoadUniverse(config.universeDefinition, universe, universeErrors))
@@ -624,6 +650,8 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     Log::Shutdown();
     return 1;
   }
+  NEURON_LOG_INFO("universe: read, parsed and hashed in %.0f ms (R17's threshold is ~1000 ms)",
+                  Clock::MillisecondsBetween(universeStart, Clock::Counter()));
   LogResolvedUniverse(universe);
 
   // GameLogic implements Simulation and the composition root injects it

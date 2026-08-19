@@ -35,6 +35,9 @@
     <ClCompile Include="Universe.cpp">
       <Filter>Universe</Filter>
     </ClCompile>
+    <ClCompile Include="UniverseGen.cpp">
+      <Filter>Universe</Filter>
+    </ClCompile>
     <ClCompile Include="UniverseParse.cpp">
       <Filter>Universe</Filter>
     </ClCompile>
@@ -78,6 +81,9 @@
       <Filter>World</Filter>
     </ClInclude>
     <ClInclude Include="Universe.h">
+      <Filter>Universe</Filter>
+    </ClInclude>
+    <ClInclude Include="UniverseGen.h">
       <Filter>Universe</Filter>
     </ClInclude>
     <ClInclude Include="UniverseParse.h">

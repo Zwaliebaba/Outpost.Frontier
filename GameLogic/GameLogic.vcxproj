@@ -28,6 +28,7 @@
     <ClCompile Include="ShipClass.cpp" />
     <ClCompile Include="Snapshot.cpp" />
     <ClCompile Include="Universe.cpp" />
+    <ClCompile Include="UniverseGen.cpp" />
     <ClCompile Include="UniverseParse.cpp" />
     <ClCompile Include="World.cpp" />
     <ClCompile Include="WorldHash.cpp" />
@@ -45,6 +46,7 @@
     <ClInclude Include="ShipClass.h" />
     <ClInclude Include="Snapshot.h" />
     <ClInclude Include="Universe.h" />
+    <ClInclude Include="UniverseGen.h" />
     <ClInclude Include="UniverseParse.h" />
     <ClInclude Include="World.h" />
     <ClInclude Include="WorldHash.h" />

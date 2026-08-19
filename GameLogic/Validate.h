@@ -77,6 +77,23 @@ struct OrderVerdict
  */
 inline constexpr std::int32_t PLAY_AREA_HALF_EXTENT_CM = 20000 * 100;
 
+/*
+ * How close a fleet must be to dock (ADR-017 §2), in metres.
+ *
+ * The *base* radius. ADR-018 D7 made the rule footprint-derived --
+ * `max(DOCK_RADIUS_METRES, FormationExtentMetres(order) + margin)` -- because
+ * the game's own 41-ship starting fleet spans 19.2 km in a Battleship-paced
+ * Line and could not satisfy a flat 5 km however it was flown. So this is the
+ * floor the scaled radius is never allowed below, and it is the number the
+ * bake's warp-in invariant clears: a fleet that warps to a station is inside
+ * the dock radius on arrival, whatever its footprint then widens it to.
+ *
+ * It lives here rather than in the universe model because it is a validation
+ * bound: ADR-018 D9 folds it into the schema text, so retuning it is a
+ * compatibility event rather than a table edit.
+ */
+inline constexpr std::int64_t DOCK_RADIUS_METRES = 5000;
+
 [[nodiscard]] OrderVerdict ValidateOrder(const ValidationView& _view, const OrderSubmit& _order) noexcept;
 
 } // namespace Game
