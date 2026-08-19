@@ -29,6 +29,9 @@
     <ClCompile Include="World.cpp">
       <Filter>World</Filter>
     </ClCompile>
+    <ClCompile Include="WorldOrders.cpp">
+      <Filter>Orders</Filter>
+    </ClCompile>
     <ClCompile Include="WorldHash.cpp">
       <Filter>World</Filter>
     </ClCompile>

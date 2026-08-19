@@ -225,7 +225,7 @@ one sitting.
   change**. Its §6 is U2's acceptance.
 - ~~**D6 — The interest/delta ADR** *(ADR-018 A14 — drafted during the station phase; its
   implementation slice follows U3c and gates shared grids)*.~~ **Delivered 2026-08-19:
-  [ADR-021](ADR/ADR-021-interest-and-delta.md).** Culling and delta belong to the **session
+  [ADR-022](ADR/ADR-022-interest-and-delta.md).** Culling and delta belong to the **session
   role** and nowhere else (ADR-019 §5d), because relevance is a property of a viewer and the
   sim tier has none. `SnapshotAck` on datagrams; the baseline is the **view as sent**, not the
   world as it was — the subtlety that makes interest and delta safe together. Keyframes take a

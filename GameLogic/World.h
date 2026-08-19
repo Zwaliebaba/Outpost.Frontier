@@ -126,6 +126,23 @@ struct OrderGroup
   /// (`World::LEG_TIMEOUT_FACTOR`). A tick count rather than a duration in
   /// seconds so that world state stays integral and hashes exactly.
   std::uint32_t legDeadlineTick = 0;
+
+  /*
+   * The tick this group reached `Done`, so it can be retired after its linger
+   * (`World::ORDER_DONE_LINGER_TICKS`) instead of squatting in the table
+   * forever. Meaningless until the state is `Done`; zero until then.
+   *
+   * The linger exists for the client: a ghost retires on seeing `Done` in an
+   * order record, and a group erased the same tick it finished might never be
+   * reported as finished at all under loss. Holding it for a moment gives the
+   * snapshot a window of chances to say so.
+   */
+  std::uint32_t doneTick = 0;
+
+  /// How many members the current leg's stations were last solved for. The
+  /// formation is re-solved only when this disagrees with `memberCount` (a
+  /// casualty since the solve) or when the leg is new -- not every tick.
+  std::uint16_t solvedMemberCount = 0;
 };
 
 /*
@@ -192,6 +209,39 @@ public:
   /// on top of its own braking distance, which is speed- and class-dependent.
   static constexpr float AVOID_LOOKAHEAD_RADII = 4.0f;
 
+  /*
+   * Making way (ADR-021): a ship with nowhere to be steps out of the lane of
+   * one that has somewhere to be, and flies home when the lane is clear.
+   *
+   * How far off the mover's course a berth is stood aside to, in combined
+   * radii. **The same number is the trigger and the destination** -- a berth
+   * further off than this is already clear, and a berth inside it is moved to
+   * exactly this -- so the sidestep shrinks continuously to nothing at the
+   * boundary and there is no edge for a ship to flicker across.
+   *
+   * It sits above `AVOID_CLEARANCE_FACTOR` on purpose: a ship that has made
+   * room should end up far enough out that the mover flies *straight* past it
+   * rather than still bending around what has already moved. And below sqrt(2)
+   * for the reason that bound exists at all (ADR-015 §2) -- formation
+   * neighbours sit 2*sqrt(2) radii off each other's course, and a wider
+   * corridor would have a parked wing scattering itself the moment one of its
+   * own members was ordered out of it.
+   */
+  static constexpr float MAKE_WAY_CLEARANCE_FACTOR = 1.35f;
+
+  /*
+   * How far ahead a berth starts clearing, as the mover's own travel time at
+   * its class's **top** speed.
+   *
+   * Top speed rather than the speed it is actually doing, and that is the whole
+   * point. The defect this answers is a mover brought to a *stop* by traffic; a
+   * horizon measured from current speed would be zero at exactly the moment the
+   * lane most needs clearing, and the two ships would sit nose to nose forever.
+   * Class top speed is table data, so the horizon is a distance that cannot be
+   * closed by the jam it exists to break.
+   */
+  static constexpr float MAKE_WAY_LOOKAHEAD_SECONDS = 6.0f;
+
   /// Relaxation passes for contact resolution. Chains of overlapped ships
   /// resolve across passes within the tick and across ticks after that; four is
   /// enough that avoidance-sized penetrations vanish the tick they appear.
@@ -244,6 +294,25 @@ public:
   /// The ceiling, for a leg whose estimate is refused (a group of stations).
   /// Twenty minutes: past any journey this grid affords, and still not forever.
   static constexpr std::uint32_t LEG_TIMEOUT_MAX_TICKS = 24000;
+
+  /*
+   * How long a finished group stays in the table before it is erased.
+   *
+   * Finished groups used to stay **forever** -- nothing erased a group that
+   * still had members -- and the leak was not abstract: the snapshot reports
+   * the first `MAX_ORDERS_PER_SNAPSHOT` groups in table order, so sixteen
+   * completed orders were enough to crowd every *live* order out of the wire
+   * for the rest of the session. The ack still arrived and the ships still
+   * flew; what died was the feedback -- no state, no ETA, no `Done` -- which
+   * the client's ghost machinery reads as "decided and gone".
+   *
+   * Why not erase on the tick it finishes: the ghost's designed retirement is
+   * *seeing* `Done` in an order record. Thirty ticks is thirty snapshots'
+   * worth of chances for that record to land under loss, for the cost of a
+   * bounded tail -- the table now holds at most one live group per ordered
+   * ship plus whatever finished in the last second and a half.
+   */
+  static constexpr std::uint32_t ORDER_DONE_LINGER_TICKS = 30;
 
   /*
    * Validates an order, and queues it for the next tick if it passes.
@@ -348,8 +417,15 @@ private:
   /// guidance. The one place a group touches a ship.
   void ApplyLeg(OrderGroup& _group);
 
-  /// Drops any group a ship still belongs to, so an order cannot outlive its
-  /// last member. Called on despawn.
+  /// The group this ship currently belongs to, or null. A ship is in at most
+  /// one group -- `ForgetShipInGroups` on ingest is what makes that true -- so
+  /// there is exactly one answer. The pointer is invalidated by anything that
+  /// grows or erases `m_groups`, so callers use it and drop it.
+  [[nodiscard]] OrderGroup* FindGroupOf(ShipId _shipId) noexcept;
+
+  /// Removes a ship from whichever group holds it, and erases the group if
+  /// that was its last member -- an order cannot outlive its last member.
+  /// Called on despawn and when a Replace takes the members elsewhere.
   void ForgetShipInGroups(ShipId _shipId) noexcept;
 
   std::uint32_t m_tick = 0;

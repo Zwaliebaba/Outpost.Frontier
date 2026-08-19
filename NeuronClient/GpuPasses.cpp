@@ -299,7 +299,7 @@ void ExpandTextRuns(const UiDrawList& _ui, const GlyphAtlas& _atlas, std::vector
 
 } // namespace
 
-void UiPass::Record(const FrameContext& _context)
+void UiPass::Record(const FrameContext& _context, bool _worldLayer)
 {
   NEURON_SPAN("Ui");
 
@@ -307,12 +307,15 @@ void UiPass::Record(const FrameContext& _context)
   m_glyphCount = 0;
   m_instances.clear();
 
-  if (_context.ui == nullptr || _context.pipelines == nullptr || _context.pipelines->Ui() == nullptr)
+  const UiDrawList* list = _worldLayer ? _context.uiWorld : _context.ui;
+  ID3D12PipelineState* pipeline =
+      _context.pipelines == nullptr ? nullptr : (_worldLayer ? _context.pipelines->UiWorld() : _context.pipelines->Ui());
+  if (list == nullptr || pipeline == nullptr)
   {
     return;
   }
 
-  const UiDrawList& ui = *_context.ui;
+  const UiDrawList& ui = *list;
 
   // Panels first and in order. The build order is the draw order because there
   // is one pipeline and no sort: a panel added after a run of text is meant to
@@ -370,7 +373,7 @@ void UiPass::Record(const FrameContext& _context)
 
   ID3D12GraphicsCommandList* commandList = _context.commandList;
   commandList->SetGraphicsRootSignature(_context.pipelines->RootSignature());
-  commandList->SetPipelineState(_context.pipelines->Ui());
+  commandList->SetPipelineState(pipeline);
   commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
   commandList->IASetVertexBuffers(0, 1, &instanceView);
 
@@ -391,6 +394,11 @@ void UiPass::Record(const FrameContext& _context)
 void GpuPassList::RecordWorld(const FrameContext& _context)
 {
   m_clear.Record(_context);
+  // Before the hulls, and that ordering *is* the occlusion: the lane is painted
+  // onto the cleared target and the Opaque pass covers whatever stands on it.
+  // No depth test, no mask, no radius to guess -- the ship's own silhouette is
+  // the shape of the hole, exactly.
+  m_uiWorldLayer.Record(_context, true);
   m_opaque.Record(_context);
   m_nebula.Record(_context);
   m_overlayWorld.Record(_context);

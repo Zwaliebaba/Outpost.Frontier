@@ -58,7 +58,10 @@ struct RendererSettings
 
 struct CameraSettings
 {
-  double zoomMetres = 8000.0;
+  /// The ortho half-height the session opens at. A third of the original 8,000
+  /// (2026-08-19): the starting fleet sits within about 1.4 km of the station,
+  /// and from 8 km up that whole arrangement was a handful of specks.
+  double zoomMetres = 2667.0;
   double yawSnapDegrees = 45.0;
 };
 

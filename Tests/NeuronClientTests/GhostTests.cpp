@@ -278,6 +278,35 @@ public:
     Assert::IsTrue(ghosts.Empty(), L"an order that is over has nothing left to promise");
   }
 
+  TEST_METHOD(APromotedGhostRetiresWhenTheAuthoritySaysItIsFinished)
+  {
+    /*
+     * The other way an order ends, and the one that was missing.
+     *
+     * The authority keeps reporting a group after it completes, so "still in the
+     * list" does not mean "still running" -- a ghost that only retired on
+     * *disappearing* left its lane and its destination mark on screen for ever,
+     * pointing at somewhere the fleet had already arrived. Reported and finished
+     * has to retire it just as absence does.
+     *
+     * `finished` is a bool rather than the engine comparing `state` to a number:
+     * the game says which of its states is over (ADR-014 §2).
+     */
+    OrderGhostList ghosts;
+    Assert::IsTrue(ghosts.Add(Intent(1), Preview(2), XMFLOAT2{0.0f, 0.0f}, 10.0));
+    ghosts.OnVerdict(Ack(1, true, 0, 88), 10.02);
+
+    OrderFeedback running = Running(1, 88, 1);
+    ghosts.OnFeedback(running, 10.06);
+    Assert::IsFalse(ghosts.Empty(), L"a running order is still a promise");
+
+    OrderFeedback done = Running(1, 88, 1);
+    done.orders[0].finished = true;
+    ghosts.OnFeedback(done, 12.0);
+
+    Assert::IsTrue(ghosts.Empty(), L"a kept promise is retired, not left on screen");
+  }
+
   TEST_METHOD(APendingGhostThePassIsPastWaitsForItsAckBeforeRetiring)
   {
     /*

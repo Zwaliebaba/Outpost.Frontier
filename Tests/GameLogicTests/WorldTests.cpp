@@ -561,8 +561,21 @@ public:
                    L"avoidance cost the westbound ship its arrival");
   }
 
-  TEST_METHOD(AShipFliesAroundAParkedHullAndStillArrives)
+  TEST_METHOD(AParkedHullStepsOutOfTheLaneAndGoesBackToItsBerth)
   {
+    /*
+     * Making way (ADR-021), end to end and in one scenario: an idle Frigate sits
+     * exactly on the line an Interceptor has been told to fly. The three things
+     * the feature owes are all here -- it *leaves* (or nothing was made of it),
+     * nothing is ever flown through, and it *comes back* (or the feature has
+     * quietly relocated a ship the player never ordered anywhere).
+     *
+     * The berth is dead centre on purpose. It is the case ADR-015's deflection
+     * handles worst -- symmetric, so there is no side the mover naturally
+     * prefers -- and the one where a Frigate pointing north has to turn all the
+     * way round before it can clear southward, which is the slowest this can
+     * possibly go.
+     */
     World world;
     world.Reset(11);
     const ShipId mover = SpawnShipAt(world, HullClass::Interceptor, 0.0f, 0.0f);
@@ -571,6 +584,7 @@ public:
 
     const float contact = ContactBetween(HullClass::Interceptor, HullClass::Frigate);
     float closest = std::numeric_limits<float>::max();
+    float furthestFromBerth = 0.0f;
     for (std::uint32_t tick = 1; tick <= 1200; ++tick)
     {
       if (tick == 1)
@@ -579,6 +593,10 @@ public:
       }
       world.Tick(tick);
       closest = std::min(closest, CentreDistance(world, mover, parked));
+
+      std::uint32_t parkedSlot = 0;
+      Assert::IsTrue(world.FindSlot(parked, parkedSlot));
+      furthestFromBerth = std::max(furthestFromBerth, DistanceTo(world.Positions()[parkedSlot], 1500.0f, 0.0f));
     }
 
     Assert::IsTrue(closest >= contact - CONTACT_SLACK_METRES, L"the mover passed through the parked hull");
@@ -586,13 +604,146 @@ public:
     std::uint32_t slot = 0;
     Assert::IsTrue(world.FindSlot(mover, slot));
     Assert::IsTrue(DistanceTo(world.Positions()[slot], 3000.0f, 0.0f) <= World::ARRIVAL_TOLERANCE_METRES,
-                   L"the detour never reached the target");
+                   L"the mover never reached the target");
 
-    // The parked ship was never touched, so it must not have moved -- avoidance
-    // routes around it rather than shouldering it aside.
+    // Room enough to matter: the clearance is what the mover needs to fly past
+    // without bending its course, so anything less than most of it is a twitch
+    // rather than a lane being cleared.
+    const float clearance = World::MAKE_WAY_CLEARANCE_FACTOR * contact;
+    Assert::IsTrue(furthestFromBerth >= 0.75f * clearance, L"the parked hull never actually made room");
+
+    // And back again. This is the half a shove cannot fake: the berth is where
+    // the player left the ship, and the detour is over the moment the lane is.
     Assert::IsTrue(world.FindSlot(parked, slot));
-    Assert::AreEqual(1500.0f, world.Positions()[slot].x, 1e-3f, L"the parked hull was shoved");
-    Assert::AreEqual(0.0f, world.Positions()[slot].y, 1e-3f, L"the parked hull was shoved");
+    Assert::IsTrue(DistanceTo(world.Positions()[slot], 1500.0f, 0.0f) <= World::ARRIVAL_TOLERANCE_METRES,
+                   L"the hull that made way never went home");
+  }
+
+  TEST_METHOD(MakingWayNeverStartsAJamOfItsOwn)
+  {
+    /*
+     * The failure mode a sidestep invents: a ship that has stepped aside is, to
+     * everyone else, a ship on a short journey home -- so idle hulls could take
+     * turns clearing lanes for each other's returns and never settle. Six
+     * Corvettes parked in a row, one Battleship ordered straight down it.
+     *
+     * The property is that the row is *quiet* again afterwards: everybody home,
+     * nobody still moving, nobody overlapping. A jam would show as any of the
+     * three failing, and a mutual-yield loop as the second.
+     *
+     * Run twice and hashed, because making way is the first thing in the tick
+     * that reads one ship's guidance while deciding another ship's course --
+     * the shape of coupling that turns an iteration-order slip into a replay
+     * divergence (ADR-005 §5).
+     */
+    const auto run = [](std::uint64_t _seed) -> std::uint64_t
+    {
+      World world;
+      world.Reset(_seed);
+      ShipId row[6] = {};
+      float berthX[6] = {};
+      for (int index = 0; index < 6; ++index)
+      {
+        berthX[index] = 1000.0f + static_cast<float>(index) * 400.0f;
+        row[index] = SpawnShipAt(world, HullClass::Corvette, berthX[index], 0.0f, PI / 2.0f);
+      }
+      const ShipId mover = SpawnShipAt(world, HullClass::Battleship, -1500.0f, 0.0f);
+      const ShipId moverOnly[] = {mover};
+
+      for (std::uint32_t tick = 1; tick <= 4000; ++tick)
+      {
+        if (tick == 1)
+        {
+          Assert::IsTrue(world.SubmitOrder(MoveTo(moverOnly, 1, 5000.0f, 0.0f)).accepted);
+        }
+        world.Tick(tick);
+      }
+
+      std::uint32_t slot = 0;
+      Assert::IsTrue(world.FindSlot(mover, slot));
+      Assert::IsTrue(DistanceTo(world.Positions()[slot], 5000.0f, 0.0f) <= World::ARRIVAL_TOLERANCE_METRES,
+                     L"the Battleship never got down the row");
+
+      for (int index = 0; index < 6; ++index)
+      {
+        Assert::IsTrue(world.FindSlot(row[index], slot));
+        Assert::IsTrue(DistanceTo(world.Positions()[slot], berthX[index], 0.0f) <= World::ARRIVAL_TOLERANCE_METRES,
+                       L"a hull that made way never went home");
+        Assert::IsTrue(world.SpeedAt(slot) < 1.0f, L"the row never settled");
+      }
+
+      const float contact = ContactBetween(HullClass::Corvette, HullClass::Corvette);
+      for (std::uint32_t first = 0; first < world.ShipCount(); ++first)
+      {
+        for (std::uint32_t second = first + 1; second < world.ShipCount(); ++second)
+        {
+          Assert::IsTrue(DistanceTo(world.Positions()[first], world.Positions()[second].x, world.Positions()[second].y) >=
+                           contact - CONTACT_SLACK_METRES,
+                         L"the row settled overlapping");
+        }
+      }
+      return ComputeWorldHash(world);
+    };
+
+    Assert::AreEqual(run(0x1a4e), run(0x1a4e), L"making way diverged between identical runs");
+  }
+
+  TEST_METHOD(AStationIsNeverAskedToMakeWay)
+  {
+    // Terrain does not step aside (ADR-015 §3): a Structure has no speed to make
+    // way with, and a model that asked it to would be a model that lets a fleet
+    // relocate a station by flying at it. The mover routes round it as before.
+    World world;
+    world.Reset(11);
+    const ShipId station = SpawnShipAt(world, HullClass::Structure, 0.0f, 0.0f);
+    const ShipId mover = SpawnShipAt(world, HullClass::Corvette, -3000.0f, 0.0f);
+    const ShipId moverOnly[] = {mover};
+
+    for (std::uint32_t tick = 1; tick <= 2400; ++tick)
+    {
+      if (tick == 1)
+      {
+        Assert::IsTrue(world.SubmitOrder(MoveTo(moverOnly, 1, 3000.0f, 0.0f)).accepted);
+      }
+      world.Tick(tick);
+
+      std::uint32_t stationSlot = 0;
+      Assert::IsTrue(world.FindSlot(station, stationSlot));
+      Assert::AreEqual(0.0f, world.Positions()[stationSlot].x, 1e-6f, L"the station made way");
+      Assert::AreEqual(0.0f, world.Positions()[stationSlot].y, 1e-6f, L"the station made way");
+    }
+
+    std::uint32_t slot = 0;
+    Assert::IsTrue(world.FindSlot(mover, slot));
+    Assert::IsTrue(DistanceTo(world.Positions()[slot], 3000.0f, 0.0f) <= World::ARRIVAL_TOLERANCE_METRES,
+                   L"the mover never got around the station");
+  }
+
+  TEST_METHOD(AHullOnTheDestinationStaysPutRatherThanSurrenderingIt)
+  {
+    // The one berth making way deliberately does not clear (ADR-021, ADR-015
+    // §5). Stepping off a spot someone is arriving at only means stepping back
+    // into them once they park, so the mover brakes and parks adjacent instead
+    // -- the designed outcome, which stays the designed outcome.
+    World world;
+    world.Reset(11);
+    const ShipId parked = SpawnShipAt(world, HullClass::Corvette, 2000.0f, 0.0f, PI / 2.0f);
+    const ShipId mover = SpawnShipAt(world, HullClass::Corvette, 0.0f, 0.0f);
+    const ShipId moverOnly[] = {mover};
+
+    for (std::uint32_t tick = 1; tick <= 2000; ++tick)
+    {
+      if (tick == 1)
+      {
+        Assert::IsTrue(world.SubmitOrder(MoveTo(moverOnly, 1, 2000.0f, 0.0f)).accepted);
+      }
+      world.Tick(tick);
+    }
+
+    std::uint32_t slot = 0;
+    Assert::IsTrue(world.FindSlot(parked, slot));
+    Assert::IsTrue(DistanceTo(world.Positions()[slot], 2000.0f, 0.0f) <= World::ARRIVAL_TOLERANCE_METRES,
+                   L"the hull on the destination gave up a berth it should have kept");
   }
 
   TEST_METHOD(AStationIsTerrainThatNothingCanBulldoze)
@@ -688,8 +839,10 @@ public:
     std::uint32_t slot = 0;
     Assert::IsTrue(world.FindSlot(mover, slot));
     Assert::IsTrue(world.SpeedAt(slot) < 1.0f, L"the mover is still pushing against an unreachable target");
-    Assert::AreEqual<std::size_t>(1, world.Groups().size());
-    Assert::IsTrue(world.Groups()[0].state == OrderState::Done, L"a blocked leg must end by deadline, not wedge");
+    // Ended by deadline *and long since retired*: a finished group lingers
+    // `ORDER_DONE_LINGER_TICKS` and then leaves the table, so two thousand
+    // ticks later an empty table is what "ended, not wedged" looks like.
+    Assert::IsTrue(world.Groups().empty(), L"a blocked leg must end by deadline and retire, not wedge");
   }
 
   TEST_METHOD(AFormationStillArrivesOnEveryStationWithContactOn)
@@ -715,8 +868,9 @@ public:
       world.Tick(tick);
     }
 
-    Assert::AreEqual<std::size_t>(1, world.Groups().size());
-    Assert::IsTrue(world.Groups()[0].state == OrderState::Done, L"the formation never finished its move");
+    // Finished and retired -- seven hundred ticks is far past the Done linger,
+    // so the finished move's absence from the table is the completion proof.
+    Assert::IsTrue(world.Groups().empty(), L"the formation never finished its move");
     const float contact = ContactBetween(HullClass::Interceptor, HullClass::Interceptor);
     for (std::uint32_t slot = 0; slot < world.ShipCount(); ++slot)
     {

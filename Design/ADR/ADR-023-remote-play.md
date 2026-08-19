@@ -1,4 +1,4 @@
-# ADR-022 — Remote Play: Pinned Trust, the Transport's Config Surface, and a First Abuse Posture
+# ADR-023 — Remote Play: Pinned Trust, the Transport's Config Surface, and a First Abuse Posture
 
 **Status:** Accepted · 2026-08-19 (design deliverable [ADR-018](ADR-018-scaling-baseline.md)
 A22 — **blocks the first remote deployment**)
@@ -231,7 +231,7 @@ first gets a public address.
   things "hosted only" buys, and putting a rate limiter in `ServerHost` would not change it.
 - **It is not anti-cheat.** The server is authoritative and validates every order with the
   same function the client pre-checks with; a lying client changes nothing but its own
-  display. Wallhack-class information leakage is a real and separate topic, and ADR-021's
+  display. Wallhack-class information leakage is a real and separate topic, and ADR-022's
   interest culling is where it will be argued, because that is where the server decides what a
   client is told.
 - **It does not do certificate transparency, OCSP, or revocation.** Pinning with a rotation

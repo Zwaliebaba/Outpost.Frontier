@@ -809,6 +809,7 @@ void ClientApp::BuildHud()
   m_toasts.Advance(nowSeconds);
 
   m_ui.Clear();
+  m_uiWorld.Clear();
 
   // Resolved in `UpdateHud`, so the button a click lands on and the button that
   // is drawn are laid out from one answer rather than two.
@@ -843,7 +844,11 @@ void ClientApp::BuildHud()
   laneView.worldRect = layout.world;
   laneView.cellPixels = cell;
   laneView.scale = layout.scale;
-  BuildGhostLanes(m_ghosts.Ghosts(), laneView, m_overlayTuning, m_laneTuning, nowSeconds, m_ui);
+  // The dashes go into the world layer, drawn before the hulls so the ships
+  // cover them; the labels stay here, on top of everything, because a readout
+  // behind a ship is a readout nobody can read.
+  BuildGhostLanes(m_ghosts.Ghosts(), m_scene.entities, laneView, m_overlayTuning, m_laneTuning, nowSeconds, m_uiWorld,
+                  m_ui);
 
   /*
    * The drag rectangle S8 deferred here.
@@ -1413,6 +1418,7 @@ void ClientApp::RenderFrame()
   context.pipelines = &m_pipelines;
   context.overlayMarks = &m_overlayMarks;
   context.ui = &m_ui;
+  context.uiWorld = &m_uiWorld;
   context.glyphAtlas = &m_glyphAtlas;
   context.meshes = &m_meshes;
   context.scene = &m_scene;

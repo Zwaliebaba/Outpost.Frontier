@@ -57,7 +57,7 @@ using AnchorId = std::uint16_t;
  * **`ShipId` widens to u32 in the T1/T2 clusters (ADR-018 D6)**, staged by
  * arithmetic rather than taste: a 23-byte `EntityRecord` fits 39 records per
  * datagram, under the 41-ship floor, so the *wire* record cannot widen until
- * [ADR-021](../Design/ADR/ADR-021-interest-and-delta.md) removes the full-fit
+ * [ADR-022](../Design/ADR/ADR-022-interest-and-delta.md) removes the full-fit
  * constraint. Until then the registry allocator keeps issued ids inside the u16
  * window and asserts it. The bake already speaks u32 (`Anchor::occupantIdBase`)
  * because a baked id is not a wire value.

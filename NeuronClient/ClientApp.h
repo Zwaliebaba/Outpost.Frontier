@@ -240,6 +240,12 @@ private:
    * stopped is the one failure mode F10 exists to prevent.
    */
   UiDrawList m_ui;
+
+  /// The half of the HUD that belongs *under* the hulls -- the ghost's lane, and
+  /// so far only that. Drawn into the world target before the Opaque pass, so a
+  /// ship standing on a lane covers it with its own silhouette rather than with
+  /// a radius somebody had to guess.
+  UiDrawList m_uiWorld;
   UiTuning m_uiTuning;
 
   /// The colour table every HUD element resolves through, chosen once at boot

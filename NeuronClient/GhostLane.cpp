@@ -142,8 +142,30 @@ void FormatEta(float _seconds, char* _out, std::size_t _capacity) noexcept
   }
 }
 
-void BuildGhostLanes(std::span<const OrderGhost> _ghosts, const GhostLaneView& _view, const OverlayTuning& _colours,
-                     const GhostLaneTuning& _tuning, double _nowSeconds, UiDrawList& _outList)
+float DashCrawlPhase(double _nowSeconds, double _periodSeconds) noexcept
+{
+  // Not `<= 0.0`: a NaN period must answer "no crawl" too, and only a positive
+  // comparison rejects it.
+  if (!(_periodSeconds > 0.0))
+  {
+    return 0.0f;
+  }
+
+  double wrapped = std::fmod(_nowSeconds, _periodSeconds);
+  if (wrapped < 0.0)
+  {
+    wrapped += _periodSeconds; // fmod keeps the dividend's sign.
+  }
+
+  // The division is what makes this a phase rather than a time, and doing it
+  // after the wrap is what keeps the result exact: both operands are now small,
+  // however long the session has been running.
+  return static_cast<float>(wrapped / _periodSeconds);
+}
+
+void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneEntity> _entities,
+                     const GhostLaneView& _view, const OverlayTuning& _colours, const GhostLaneTuning& _tuning,
+                     double _nowSeconds, UiDrawList& _outLanes, UiDrawList& _outLabels)
 {
   if (_ghosts.empty() || _view.viewportWidth == 0 || _view.viewportHeight == 0)
   {
@@ -151,10 +173,28 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, const GhostLaneView& _
   }
 
   const float scale = _view.scale > 0.0f ? _view.scale : 1.0f;
-  const float dash = _tuning.dashPixels * scale;
-  const float gap = _tuning.gapPixels * scale;
   const float thickness = std::max(1.0f, _tuning.thicknessPixels * scale);
-  const float pitch = dash + gap;
+
+  /*
+   * The dash pattern, in screen pixels and the same size at every zoom.
+   *
+   * Scaled by the HUD's own `scale` and by nothing else -- no camera term, which
+   * is the whole point: the lane is chrome, and a player who zooms out is not
+   * asking for finer chrome. A period of zero leaves the lane solid, which is
+   * the branch below rather than a division by nothing.
+   */
+  const float pitch = _tuning.dashPeriodPixels > 0.0f ? _tuning.dashPeriodPixels * scale : 0.0f;
+  const float dash = pitch * std::clamp(_tuning.dashDutyCycle, 0.05f, 0.95f);
+
+  /*
+   * The crawl (`puck-and-wheel.png`'s `crawl`), as a fraction of one cycle.
+   *
+   * Computed once for the whole frame rather than per leg, so every dash on
+   * every lane advances together -- two ghosts side by side marching out of
+   * step would read as them meaning different things.
+   */
+  const float crawl = DashCrawlPhase(_nowSeconds, _tuning.crawlSecondsPerCycle);
+
 
   for (const OrderGhost& ghost : _ghosts)
   {
@@ -178,7 +218,31 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, const GhostLaneView& _
      * which is the single lane S11c drew -- there is no separate case for it.
      */
     XMFLOAT2 plane[MAX_GHOST_LEGS + 1];
+
+    /*
+     * The tail follows the fleet.
+     *
+     * `originMetres` is where the group *was* when the order was given, which is
+     * the right anchor for the bounce (a refusal comes back to where it was
+     * asked from) and the wrong one to draw from: left alone it pins the line to
+     * a patch of empty space the ships left seconds ago, and the lane grows a
+     * tail instead of shortening as they close on the target.
+     *
+     * The first named ship is the one tracked, which is the same ship
+     * `World::IngestOrders` joins an append to -- so the line starts where the
+     * group's own anchor is rather than at an average that no hull sits on. A
+     * ship that has despawned falls back to the origin, because a lane starting
+     * nowhere is worse than one starting stale.
+     */
     plane[0] = ghost.originMetres;
+    for (const SceneEntity& entity : _entities)
+    {
+      if (entity.id == ghost.firstEntityId)
+      {
+        plane[0] = entity.planeMetres;
+        break;
+      }
+    }
     const std::uint32_t legs = std::min<std::uint32_t>(ghost.queuedLegCount, MAX_GHOST_LEGS);
     for (std::uint32_t index = 0; index < legs; ++index)
     {
@@ -221,34 +285,54 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, const GhostLaneView& _
       XMFLOAT2 clippedEnd = to;
       if (length > 0.0f && ClipSegmentToRect(_view.worldRect, clippedStart, clippedEnd))
       {
-        if (underWay)
+        if (pitch <= 0.0f)
         {
-          // Solid the moment the authority agrees. That is the whole visual
-          // difference between a promise and a fact (`puck-and-wheel.png` §4),
-          // and it arrives on the same frame the ships start moving.
-          _outList.AddSegment(clippedStart.x, clippedStart.y, clippedEnd.x, clippedEnd.y, thickness, colour);
+          // No scale to dash with -- a view that never said what a pixel is
+          // worth. Solid, because a lane that vanished would be worse than one
+          // that is merely not marching.
+          _outLanes.AddSegment(clippedStart.x, clippedStart.y, clippedEnd.x, clippedEnd.y, thickness, colour);
         }
-        else if (pitch > 0.0f)
+        else
         {
+          /*
+           * Dashed in every state, including under way.
+           *
+           * This used to go solid the moment the authority agreed, on the
+           * argument that solid-versus-dashed was the difference between a
+           * promise and a fact. It is not, and the owner's call (2026-08-19) is
+           * that **the crawl is what says the ships are moving** -- so the state
+           * a player watches for most of an order's life is the one that has to
+           * show it. Promise and fact stay distinct through colour and alpha,
+           * which were always carrying it too: a half-transparent cyan promise
+           * against an opaque green fact.
+           */
           const XMFLOAT2 direction{dx / length, dy / length};
 
           /*
-           * Dashes are phased off this leg's **own** start, unclipped.
+           * Dashes are phased off this leg's **own** start, unclipped, plus the
+           * frame's crawl.
            *
            * The clip point moves as the camera pans, so phasing off it would
-           * make every dash crawl along the lane while the player scrolls --
+           * make every dash slide along the lane while the player scrolls --
            * motion that reads as the order doing something. Per leg rather than
            * along the whole chain, so a leg's dashes do not shift when the leg
            * *before* it is retracted by a bounce.
+           *
+           * The crawl is the one motion that *is* wanted, and it comes from the
+           * clock alone: adding it to the pattern's origin walks the dashes from
+           * `from` toward `to`, which is the direction the order is going.
+           * Subtracting it would march them back at the ship and read as a
+           * retreat -- the sign is the whole feature.
            */
           const float clippedFrom = (clippedStart.x - from.x) * direction.x + (clippedStart.y - from.y) * direction.y;
           const float clippedTo = (clippedEnd.x - from.x) * direction.x + (clippedEnd.y - from.y) * direction.y;
 
-          const auto firstIndex = static_cast<std::int64_t>(std::floor(clippedFrom / pitch));
+
+          const auto firstIndex = static_cast<std::int64_t>(std::floor(clippedFrom / pitch - crawl));
           std::uint32_t drawn = 0;
           for (std::int64_t step = firstIndex; drawn < _tuning.maxDashesPerLane; ++step)
           {
-            const float dashFrom = static_cast<float>(step) * pitch;
+            const float dashFrom = (static_cast<float>(step) + crawl) * pitch;
             if (dashFrom > clippedTo)
             {
               break;
@@ -259,7 +343,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, const GhostLaneView& _
             {
               continue; // This dash's whole body is outside the visible run.
             }
-            _outList.AddSegment(from.x + direction.x * segmentFrom, from.y + direction.y * segmentFrom,
+            _outLanes.AddSegment(from.x + direction.x * segmentFrom, from.y + direction.y * segmentFrom,
                                 from.x + direction.x * segmentTo, from.y + direction.y * segmentTo, thickness, colour);
             ++drawn;
           }
@@ -291,7 +375,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, const GhostLaneView& _
         continue;
       }
       const auto width = static_cast<float>(std::strlen(waypoint)) * _view.cellPixels;
-      _outList.AddText(to.x - width * 0.5f, to.y + _tuning.labelGapPixels * scale, _tuning.labelSizeIndex,
+      _outLabels.AddText(to.x - width * 0.5f, to.y + _tuning.labelGapPixels * scale, _tuning.labelSizeIndex,
                        FadeRgba(colour, 0.75f), waypoint);
     }
 
@@ -319,7 +403,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, const GhostLaneView& _
     if (ghost.preview.label[0] != '\0')
     {
       const auto width = static_cast<float>(std::strlen(ghost.preview.label)) * _view.cellPixels;
-      _outList.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, colour, ghost.preview.label);
+      _outLabels.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, colour, ghost.preview.label);
       line += lineHeight;
     }
 
@@ -354,7 +438,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, const GhostLaneView& _
       // Dimmer than the name above it: the print draws the command in the
       // ghost's own colour and its numbers a step back, so the eye reads what
       // the order *is* before how far it goes.
-      _outList.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, FadeRgba(colour, 0.65f), detail);
+      _outLabels.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, FadeRgba(colour, 0.65f), detail);
       line += lineHeight;
     }
 
@@ -371,7 +455,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, const GhostLaneView& _
       char footer[24] = {};
       std::snprintf(footer, sizeof(footer), "%u LEGS", shown);
       const auto width = static_cast<float>(std::strlen(footer)) * _view.cellPixels;
-      _outList.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, FadeRgba(colour, 0.5f), footer);
+      _outLabels.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, FadeRgba(colour, 0.5f), footer);
     }
   }
 }

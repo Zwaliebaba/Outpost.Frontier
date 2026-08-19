@@ -81,7 +81,7 @@ programmatic shape that a standalone server binary will reuse verbatim.
    cert validation. *As accepted this sentence ended "no architectural work remains by
    construction", which was true of the **packaging** and was read as true of the
    **deployment**.* **Amended 2026-08-19 (ADR-018 D10, delivered as
-   [ADR-022](ADR-022-remote-play.md) §7): the packaging split is architecture-complete *and
+   [ADR-023](ADR-023-remote-play.md) §7): the packaging split is architecture-complete *and
    gated on that ADR*.** What the first remote deployment owes is named there — the transport's
    descriptor surface, the pinned key and its check, the token step, and the four abuse-budget
    rules. None is large; none is present; and none is a thing to discover on the day a server

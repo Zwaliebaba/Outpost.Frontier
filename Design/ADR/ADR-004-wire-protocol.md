@@ -4,7 +4,7 @@
 (2026-08-19): the schema text grows the verdict-affecting constants and the check-order
 sequence (D9); the §6 growth path gets an owner and a scope — the interest/delta ADR (D4);
 ship-id width staging on the wire (D6) · **§6's growth path is designed as of
-[ADR-021](ADR-021-interest-and-delta.md)** (2026-08-19): `SnapshotAck`, baselines held as
+[ADR-022](ADR-022-interest-and-delta.md)** (2026-08-19): `SnapshotAck`, baselines held as
 *views as sent*, keyframes on a new reliable `Bulk` channel, priority truncation replacing
 whole-snapshot refusal, `EntityRecord.id` → u32, and the relationship bits that spend no
 byte at all

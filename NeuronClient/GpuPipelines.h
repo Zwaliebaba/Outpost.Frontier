@@ -157,6 +157,11 @@ public:
   /// same space, and differ by a flag on the instance (ADR-006 §10).
   [[nodiscard]] ID3D12PipelineState* Ui() const noexcept { return m_ui.get(); }
 
+  /// The Ui pipeline built for the *world* target: multisampled, and drawn
+  /// before the hulls so they paint over it. What puts the ghost's lane behind
+  /// the ships rather than across them.
+  [[nodiscard]] ID3D12PipelineState* UiWorld() const noexcept { return m_uiWorld.get(); }
+
 private:
   [[nodiscard]] bool CreateRootSignature(ID3D12Device* _device);
   [[nodiscard]] bool CreateOpaquePipeline(ID3D12Device* _device, const PipelineShaders& _shaders);
@@ -174,6 +179,7 @@ private:
   GpuPtr<ID3D12PipelineState> m_overlayRings;
   GpuPtr<ID3D12PipelineState> m_overlayBars;
   GpuPtr<ID3D12PipelineState> m_ui;
+  GpuPtr<ID3D12PipelineState> m_uiWorld;
 };
 
 } // namespace Neuron

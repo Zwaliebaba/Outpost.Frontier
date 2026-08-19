@@ -1439,6 +1439,152 @@ public:
 };
 
 /*
+ * Finished orders leave the table.
+ *
+ * The leak this pins: nothing ever erased a group that still had members, so a
+ * completed order sat in `m_groups` for the rest of the session -- and because
+ * the snapshot carries the first `MAX_ORDERS_PER_SNAPSHOT` groups, sixteen
+ * completed orders were enough to crowd every *live* order off the wire
+ * forever. The ack arrived and the ships flew; the feedback died silently.
+ *
+ * The contract now: a `Done` group lingers `ORDER_DONE_LINGER_TICKS` so the
+ * client gets a window of snapshots that *say* it finished, then it is erased;
+ * and while any corpse is present, the snapshot writes live groups first.
+ */
+TEST_CLASS(OrderRetirementTests)
+{
+public:
+  TEST_METHOD(AFinishedOrderLingersToBeSeenAndThenLeavesTheTable)
+  {
+    World world;
+    world.Reset(29);
+    const ShipId ship = SpawnAt(world, HullClass::Interceptor, 500.0f, 500.0f);
+
+    // A move to where the ship already stands completes on its first tick --
+    // the same shape `HoldStopsAShipWhereItIs` leans on -- which makes the
+    // linger window's edges exact instead of solved for.
+    Assert::IsTrue(world.SubmitOrder(Order({ship}, 500.0f, 500.0f)).accepted);
+    world.Tick(1);
+
+    Assert::AreEqual<std::size_t>(1, world.Groups().size());
+    Assert::IsTrue(world.Groups()[0].state == OrderState::Done, L"a zero-length leg completes immediately");
+
+    // While it lingers, the wire says so: the whole point of the linger is
+    // that the client sees `Done` at least once instead of inferring it from
+    // an absence.
+    std::array<std::uint8_t, 2048> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteSnapshot(world, writer));
+    Neuron::ByteReader reader{writer.Written()};
+    SnapshotHeader header;
+    std::vector<Neuron::EntityRecord> ships;
+    std::vector<OrderStateRecord> orders;
+    Assert::IsTrue(ReadSnapshot(reader, header, ships, orders));
+    Assert::AreEqual<std::size_t>(1, orders.size());
+    Assert::AreEqual<std::uint8_t>(static_cast<std::uint8_t>(OrderState::Done), orders[0].state,
+                                   L"the linger exists so this record can exist");
+
+    // Present through the whole linger, gone the tick after it.
+    for (std::uint32_t tick = 2; tick <= World::ORDER_DONE_LINGER_TICKS; ++tick)
+    {
+      world.Tick(tick);
+      Assert::AreEqual<std::size_t>(1, world.Groups().size(), L"retired inside its linger");
+    }
+    world.Tick(World::ORDER_DONE_LINGER_TICKS + 1);
+    Assert::IsTrue(world.Groups().empty(), L"a finished order must not squat in the table past its linger");
+  }
+
+  TEST_METHOD(FinishedOrdersCannotCrowdALiveOneOutOfTheSnapshot)
+  {
+    /*
+     * The user-visible half of the leak, reproduced at its minimum: sixteen
+     * finished orders sit ahead of one live order in table order, and the
+     * snapshot's order area holds sixteen. In table order the live order --
+     * the one the player just gave -- is the record that gets dropped.
+     */
+    World world;
+    world.Reset(29);
+
+    ShipId idle[MAX_ORDERS_PER_SNAPSHOT] = {};
+    for (std::uint32_t index = 0; index < MAX_ORDERS_PER_SNAPSHOT; ++index)
+    {
+      const float y = -16000.0f + static_cast<float>(index) * 2000.0f;
+      idle[index] = SpawnAt(world, HullClass::Interceptor, 0.0f, y);
+      OrderSubmit finish = Order({idle[index]}, 0.0f, y); // Completes tick 1.
+      finish.orderSeq = index + 1;
+      Assert::IsTrue(world.SubmitOrder(finish).accepted);
+    }
+
+    const ShipId mover = SpawnAt(world, HullClass::Interceptor, 0.0f, 16000.0f);
+    OrderSubmit live = Order({mover}, 3000.0f, 16000.0f);
+    live.orderSeq = 100;
+    const OrderVerdict liveVerdict = world.SubmitOrder(live);
+    Assert::IsTrue(liveVerdict.accepted);
+    world.Tick(1);
+
+    Assert::AreEqual<std::size_t>(MAX_ORDERS_PER_SNAPSHOT + 1, world.Groups().size(),
+                                  L"sixteen corpses and one live order share the table");
+
+    std::array<std::uint8_t, 2048> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteSnapshot(world, writer));
+    Neuron::ByteReader reader{writer.Written()};
+    SnapshotHeader header;
+    std::vector<Neuron::EntityRecord> ships;
+    std::vector<OrderStateRecord> orders;
+    Assert::IsTrue(ReadSnapshot(reader, header, ships, orders));
+
+    Assert::AreEqual<std::uint16_t>(MAX_ORDERS_PER_SNAPSHOT, header.orderCount, L"the cap itself is unchanged");
+    bool liveReported = false;
+    for (const OrderStateRecord& record : orders)
+    {
+      liveReported = liveReported || (record.serverOrderId == liveVerdict.serverOrderId &&
+                                      record.state != static_cast<std::uint8_t>(OrderState::Done));
+    }
+    Assert::IsTrue(liveReported, L"when the cap bites, the record dropped must be a corpse, never the live order");
+
+    // And once the linger passes, the corpses leave and the table is exactly
+    // the one order actually flying -- the leak itself, pinned.
+    for (std::uint32_t tick = 2; tick <= World::ORDER_DONE_LINGER_TICKS + 2; ++tick)
+    {
+      world.Tick(tick);
+    }
+    Assert::AreEqual<std::size_t>(1, world.Groups().size(), L"finished orders must retire; this was the pile-up");
+    Assert::AreEqual<std::uint32_t>(liveVerdict.serverOrderId, world.Groups()[0].serverOrderId);
+  }
+
+  TEST_METHOD(RetirementReplaysExactly)
+  {
+    // Retirement erases mid-table during the tick, which is exactly the kind
+    // of structural churn a replay has to reproduce bit-for-bit (ADR-005 §5).
+    // The scenario crosses a completion, the linger, the erase, and an order
+    // issued *after* the erase, twice, and the hashes must agree.
+    const auto run = [](std::uint64_t _seed) -> std::uint64_t
+    {
+      World world;
+      world.Reset(_seed);
+      const ShipId first = SpawnAt(world, HullClass::Interceptor, 0.0f, 0.0f);
+      const ShipId second = SpawnAt(world, HullClass::Corvette, 4000.0f, 0.0f);
+
+      Assert::IsTrue(world.SubmitOrder(Order({first}, 0.0f, 0.0f)).accepted); // Done tick 1.
+      for (std::uint32_t tick = 1; tick <= World::ORDER_DONE_LINGER_TICKS + 20; ++tick)
+      {
+        if (tick == World::ORDER_DONE_LINGER_TICKS + 5)
+        {
+          OrderSubmit next = Order({second}, 6000.0f, 500.0f);
+          next.orderSeq = 2;
+          Assert::IsTrue(world.SubmitOrder(next).accepted);
+        }
+        world.Tick(tick);
+      }
+      return ComputeWorldHash(world);
+    };
+
+    Assert::AreEqual(run(0xdead), run(0xdead), L"retirement diverged between identical runs");
+  }
+};
+
+/*
  * The travel-time model behind the ghost's `ETA 41s` (S11c).
  *
  * Asserted against the *simulation* wherever it can be: the point of the model

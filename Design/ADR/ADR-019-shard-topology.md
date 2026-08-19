@@ -13,7 +13,7 @@ shard-global — §2, §6); ADR-018 D6a (the ship→location index is refined in
 role's projection — §5c); ADR-008 §8 (the packaging split acquires a third axis — §1)
 **Feeds:** U2 (the constraints in §6 are its acceptance), the interest/delta ADR
 (ADR-018 D4 — §5d hands it a changed problem; **delivered as
-[ADR-021](ADR-021-interest-and-delta.md)**, which takes §5d as its §1), the persistence ADR (§8)
+[ADR-022](ADR-022-interest-and-delta.md)**, which takes §5d as its §1), the persistence ADR (§8)
 
 ## Context
 

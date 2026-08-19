@@ -180,6 +180,24 @@ void OrderGhostList::OnFeedback(const OrderFeedback& _feedback, double _nowSecon
 
     if (progress != nullptr)
     {
+      /*
+       * Reported *and* finished: the ships arrived. The promise has been kept,
+       * so there is nothing left to promise and the ghost goes at once -- the
+       * same reasoning as the disappeared-from-the-list case below, reached a
+       * different way.
+       *
+       * This needs saying because the authority keeps reporting a group after
+       * it completes, so "still in the list" does not mean "still running". A
+       * ghost that waited to fall out of the list would leave its lane and its
+       * destination mark on screen pointing at somewhere the fleet had already
+       * got to, which is exactly what it looked like.
+       */
+      if (progress->finished)
+      {
+        settled[index] = true;
+        continue;
+      }
+
       ghost.serverOrderId = progress->serverOrderId;
       ghost.legIndex = progress->legIndex;
       ghost.legCount = progress->legCount;

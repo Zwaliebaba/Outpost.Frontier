@@ -1,4 +1,4 @@
-# ADR-021 — Interest and Delta Replication: Acked Baselines, One Culling Authority, One Guarantee
+# ADR-022 — Interest and Delta Replication: Acked Baselines, One Culling Authority, One Guarantee
 
 **Status:** Accepted · 2026-08-19 (design deliverable [ADR-018](ADR-018-scaling-baseline.md)
 A14 — drafted during the station phase; **its implementation slice follows U3c and gates

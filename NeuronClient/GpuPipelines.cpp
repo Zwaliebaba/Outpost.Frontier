@@ -432,6 +432,28 @@ bool GpuPipelines::CreateUiPipeline(ID3D12Device* _device, const PipelineShaders
 
   check_hresult(_device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(m_ui.put())));
   NAME_D3D12_OBJECT(m_ui);
+
+  /*
+   * The same pipeline again, for the world layer.
+   *
+   * The ghost's lane is a screen-space quad like any other HUD element, but it
+   * belongs *under* the hulls: an order passing behind a ship has to be behind
+   * it. The only way to get that is to draw it before the Opaque pass, into the
+   * world's own render target -- which is multisampled, and a PSO's sample count
+   * must match the target it draws to. Hence a second one; everything else about
+   * it is identical, and both come from the same `desc` for exactly that reason.
+   *
+   * There is no depth test here either. The lane does not need one: it is drawn
+   * first and the ships are simply painted over it, which is occlusion by paint
+   * order rather than by depth and is the whole trick. The *format* is declared
+   * because the world passes leave a DSV bound, and a PSO claiming
+   * `DXGI_FORMAT_UNKNOWN` against a bound DSV is a debug-layer error -- the same
+   * note NebulaPass carries.
+   */
+  desc.SampleDesc.Count = m_sampleCount;
+  desc.DSVFormat = DEPTH_FORMAT;
+  check_hresult(_device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(m_uiWorld.put())));
+  NAME_D3D12_OBJECT(m_uiWorld);
   return true;
 }
 
@@ -479,6 +501,13 @@ bool GpuPipelines::Create(ID3D12Device* _device, const PipelineShaders& _shaders
 
 void GpuPipelines::Destroy()
 {
+  // `m_ui` was missing here, which meant a rebuild -- the only caller is
+  // `Create`, which destroys before it builds -- leaked the previous HUD
+  // pipeline. Harmless in a run that creates its pipelines once and noticed
+  // only when the world layer joined it, which is the usual way a leak in a
+  // once-per-run path gets found.
+  m_uiWorld = nullptr;
+  m_ui = nullptr;
   m_overlayBars = nullptr;
   m_overlayRings = nullptr;
   m_nebula = nullptr;

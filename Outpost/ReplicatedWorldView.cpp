@@ -517,6 +517,11 @@ void ReplicatedWorldView::PollOrderFeedback(OrderFeedback& _outFeedback)
     progress.legCount = record.legCount;
     progress.memberCount = record.memberCount;
 
+    // Which of this game's states means "over", answered here because this is
+    // the only side that knows. The engine retires the ghost on the bool and
+    // never learns that `Done` is a 2.
+    progress.finished = record.state == static_cast<std::uint8_t>(Game::OrderState::Done);
+
     // Dequantised here, where the wire's `NO_ETA` sentinel is still a game
     // concept. What crosses is a float or a negative number, so the engine
     // never learns that 65,535 meant anything in particular.

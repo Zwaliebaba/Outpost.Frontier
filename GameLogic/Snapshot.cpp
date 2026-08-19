@@ -66,6 +66,30 @@ bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer)
   const auto orderCount =
       static_cast<std::uint16_t>(std::min<std::size_t>(_world.Groups().size(), MAX_ORDERS_PER_SNAPSHOT));
 
+  /*
+   * Which sixteen: the live ones first, then the finished ones with whatever
+   * room is left. When the cap bites, the record that gets dropped must be a
+   * corpse serving out its linger, never the order the player just gave --
+   * a live group with no record is a ghost with no ETA and no promotion,
+   * while a `Done` group missing a frame costs a retirement one snapshot of
+   * lateness. Selection order, not table order, so nothing here touches the
+   * world or the replay.
+   */
+  std::uint16_t chosen[MAX_ORDERS_PER_SNAPSHOT] = {};
+  std::uint16_t chosenCount = 0;
+  for (int pass = 0; pass < 2 && chosenCount < orderCount; ++pass)
+  {
+    for (std::size_t index = 0; index < _world.Groups().size() && chosenCount < orderCount; ++index)
+    {
+      const bool done = _world.Groups()[index].state == OrderState::Done;
+      if (done == (pass == 1))
+      {
+        chosen[chosenCount] = static_cast<std::uint16_t>(index);
+        ++chosenCount;
+      }
+    }
+  }
+
   if (_writer.BytesRemaining() < SnapshotBytes(shipCount, orderCount))
   {
     return false;
@@ -86,7 +110,7 @@ bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer)
 
   for (std::uint16_t index = 0; index < orderCount; ++index)
   {
-    const OrderGroup& group = _world.Groups()[index];
+    const OrderGroup& group = _world.Groups()[chosen[index]];
     _writer.WriteUInt32(group.serverOrderId);
     _writer.WriteUInt32(group.clientOrderSeq);
 

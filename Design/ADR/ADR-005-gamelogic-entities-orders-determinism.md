@@ -1,7 +1,7 @@
 # ADR-005 — GameLogic: Fixed-Schema Tables, Group Orders, Decision Determinism
 
 **Status:** Accepted · 2026-08-17 · §5's hash domain is amended by
-**[ADR-021](ADR-021-interest-and-delta.md)** §7 (2026-08-19): `lastOrderSeqProcessed` is
+**[ADR-022](ADR-022-interest-and-delta.md)** §7 (2026-08-19): `lastOrderSeqProcessed` is
 per-session state and leaves the world hash, because with two commanders it is wrong twice
 over — one player's sequence perturbs the other's feedback loop, and a replay's hash depends
 on who submitted. Replay goldens re-baseline once when that slice lands · §2's "no inter-ship avoidance in MVP" superseded by

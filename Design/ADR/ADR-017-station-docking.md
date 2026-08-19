@@ -187,7 +187,7 @@ added here costs ships"): the next person to want a status bit should find the p
 on the page. Two consumers of that shrinking margin are already designed — ADR-016 §6's
 per-grid snapshot header, and any future gauge — so **the delta encoding ADR-004 reserved is
 the growth path**, not another byte. *(That growth path is
-[ADR-021](ADR-021-interest-and-delta.md) as of 2026-08-19, and it spends the margin question
+[ADR-022](ADR-022-interest-and-delta.md) as of 2026-08-19, and it spends the margin question
 differently than expected: ownership costs **no byte at all** — two spare bits of this very
 `statusBits` carry the viewer-relative relationship the icon sheet actually reads, rather than
 an owner id nobody looks at every tick. §1's roster privacy becomes a testable property in the
