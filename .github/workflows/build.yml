@@ -340,12 +340,14 @@ jobs:
           # `UniversePos` is the *coordinate*, and nothing outside the universe
           # files may touch one -- that is the arithmetic ADR-009 §2 is about,
           # and it has no exceptions. `UniverseDef` is the *content*, and one
-          # file outside the universe legitimately reads it: the registry, whose
-          # whole job is turning anchors into worlds (U2). It looks an anchor up
-          # and never does math on a position, which is why it appears in the
-          # second list and not the first.
+          # two files outside the universe legitimately read it: the registry,
+          # whose whole job is turning anchors into worlds (U2), and the route
+          # solver, whose whole job is answering questions about the topology
+          # (U5). Neither does math on a position -- one looks an anchor up, the
+          # other walks a graph of ids -- which is why they appear in the second
+          # list and not the first.
           $posOwned = @('Universe.h', 'Universe.cpp', 'UniverseParse.h', 'UniverseParse.cpp', 'UniverseGen.h', 'UniverseGen.cpp')
-          $defOwned = $posOwned + @('WorldRegistry.h', 'WorldRegistry.cpp')
+          $defOwned = $posOwned + @('WorldRegistry.h', 'WorldRegistry.cpp', 'UniverseRoute.h', 'UniverseRoute.cpp')
           $guarded = Get-ChildItem -Path GameLogic -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -ne 'pch.h' -and $_.Name -ne 'pch.cpp' }
           Write-Host "guarding $($guarded.Count) GameLogic files against universe coordinates"
@@ -783,6 +785,12 @@ jobs:
             Write-Host '--- failing tests ---'
             $detail | ForEach-Object { Write-Host $_ }
 
+            # And to a file the end of the job prints back, for the same reason
+            # clang-tidy's findings go to one: this is a thousand lines from the
+            # end of the log, and the tail is what a reader of a failed job gets.
+            $failures = $totals + @('') + $detail
+            $failures | Out-File -Encoding utf8 test-failures.log
+
             $lines = @('## Tests failed (${{ matrix.configuration }})', '```') + $totals + @('') + $detail + @('```')
             $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
             throw 'tests failed'
@@ -976,16 +984,29 @@ jobs:
           $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
           Write-Host '::warning title=Debug leg failed (non-blocking, R22)::Green certifies Release only until R22 closes'
 
-      # The findings again, where a reader of a failed job will actually find
-      # them: the last thing it printed. See the note in the step above.
-      - name: Say what clang-tidy found
+      # Whatever failed, again, where a reader of a failed job will actually
+      # find it: the last thing the job printed.
+      #
+      # Both of these are already reported where they happen -- and both happen
+      # a thousand lines from the end of a log whose tail is what tooling and
+      # people actually read. A gate whose failures cannot be read *from the
+      # failure* is a gate that gets worked around; this step is what stops that
+      # being true of either of them.
+      - name: Say what failed
         if: always()
         shell: pwsh
         run: |
-          if (-not (Test-Path clang-tidy.log)) { Write-Host 'clang-tidy: nothing recorded'; exit 0 }
-          Write-Host '--- clang-tidy findings ---'
-          Get-Content clang-tidy.log | ForEach-Object { Write-Host $_ }
-          Write-Host '--- end of clang-tidy findings ---'
+          $said = $false
+          foreach ($report in @(@{ file = 'clang-tidy.log'; title = 'clang-tidy findings' },
+                                @{ file = 'test-failures.log'; title = 'failing tests' }))
+          {
+            if (-not (Test-Path $report.file)) { continue }
+            $said = $true
+            Write-Host "--- $($report.title) ---"
+            Get-Content $report.file | ForEach-Object { Write-Host $_ }
+            Write-Host "--- end of $($report.title) ---"
+          }
+          if (-not $said) { Write-Host 'nothing recorded: no gate wrote a report' }
 
       - name: Upload build log
         if: always()
@@ -995,6 +1016,7 @@ jobs:
           path: |
             build.log
             clang-tidy.log
+            test-failures.log
             test.log
             selftest.log
             TestResults/**
