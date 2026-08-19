@@ -13,11 +13,15 @@ first bake (see U1's acceptance).
 **Scaling baseline (owner decisions, 2026-08-19):**
 [ADR-018](ADR/ADR-018-scaling-baseline.md) rides this plan. Its action register (§A) adds
 acceptance items to U1–U3b below, three design deliverables (D5–D7 in the list at the end),
-and one new slice — **U3c, the second-commander gate**. Two actions precede any slice:
-**A2** (the Release|x64 CI leg, spike 2 run once, perf numbers stated as Release) and
-**A3** (the shader build committed to dxc/SM 6.x in both configurations) land before U1;
-**A1** (the topology ADR) and **A4** (R10's 1,024-entity soak, in Release, number recorded)
-land before U2.
+and one new slice — **U3c, the second-commander gate**. The four actions that gated U1 and U2
+are done: **A2** (CI is a Debug/Release matrix and spike 2 is a standing job), **A3** (the
+shader build is dxc/SM 6.x in both configurations), **A1**
+([ADR-019](ADR/ADR-019-shard-topology.md)), and **A4** — the soak, measured: a grid at the
+1,024 cap ticks in **10.6 ms mean / 21.9 ms worst, 21 % of the budget**, so the tick has ~5×
+headroom at the cap and **no broadphase is owed before U2**. Two things A4 still owes: the
+authoritative MSVC Release figure (A2's leg now produces it) and an in-repo soak so the
+number is re-taken rather than remembered — the natural home is U2's own suite, where the
+question becomes M grids rather than one.
 
 The rules are the MVP build order's, unchanged: each slice is independently testable, lands
 green (`Tests/` + `selfTest` where applicable), is sized at "a few days" or less, and later
@@ -63,8 +67,20 @@ anchor record carries what the **deterministic per-order arrival offset** rule n
 so contention never forces an anchor-schema migration.
 
 ### U2 — Anchors and the world registry
-**Gate (ADR-018): A1 — the topology ADR — is written first, and A4's Release soak number is
-recorded**; the registry is shaped location-transparent by both.
+**Gate (ADR-018): both cleared — A1 is delivered
+([ADR-019](ADR/ADR-019-shard-topology.md)) and A4's soak is measured** (a capped grid costs
+~⅕ of a core, so the registry is not racing a broadphase); the registry is shaped
+location-transparent by the first and budgeted by the second.
+**ADR-019 §6 is part of this slice's acceptance**, and every item costs a shape rather than
+a mechanism at `HostId = 0`: worlds addressed by `AnchorId` (no pointer held across a tick);
+transfers naming a destination anchor and never touching the destination world;
+`TransferId = (HostId, counter)` with the `(applyTick, hostId, counter)` total order;
+`HostForAnchor()` existing and returning 0; **the shard tick stated as a contract** — the
+registry drives every world with one number (`World::Tick(_tick)` already takes it), a world
+spun up at shard tick *N* begins there, and the teardown/recreate hash comparison is made at
+equal shard ticks rather than equal ages; player-scoped queries
+going through the index rather than walking the registry; ship ids from a host-held block;
+and no live grid migration.
 The universe runtime in GameLogic: a registry of `World`s keyed by anchor — spin-up spawns
 the anchor's authored occupants, teardown when the last ship leaves and nobody views it
 (the viewer half of that rule lands with U3b; U2 exposes the hold). Per-world PCG32 seeded
@@ -191,10 +207,14 @@ one sitting.
   from — content authoring inside U1, named here because curation is a task, not a fallout.
 - **D4 — Warp audio cues.** Spool/depart/arrive; lands only after S15 gives audio a home in
   the bank format. Deliberately last.
-- **D5 — The topology ADR** *(ADR-018 A1 — blocks U2)*. Grid-to-host assignment,
-  transfer-bus ordering authority across hosts, client connection handoff on view switch.
-  The U-phase implementation stays single-process; the registry is shaped by this document
-  so the shard target (ADR-018 D1) never forces its redesign.
+- ~~**D5 — The topology ADR** *(ADR-018 A1 — blocks U2)*.~~ **Delivered 2026-08-19:
+  [ADR-019](ADR/ADR-019-shard-topology.md).** Three roles (SimHost, SessionHost,
+  Directory) in one process today; the anchor is the placement unit with region affinity
+  and no live migration; transfers filed at departure with a
+  `(applyTick, hostId, counter)` total order and a `TRANSFER_FLOOR_TICKS` floor on transit
+  durations (which U3a and U4 must respect when they set spool, transit and jump times);
+  one client connection through the session front door, so **the client wire does not
+  change**. Its §6 is U2's acceptance.
 - **D6 — The interest/delta ADR** *(ADR-018 A14 — drafted during the station phase; its
   implementation slice follows U3c and gates shared grids)*. Scope fixed by ADR-018 D4:
   snapshot-ack and baseline ownership, the keyframe/initial-sync path, `Simulation`'s

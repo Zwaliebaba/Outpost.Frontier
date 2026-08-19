@@ -10,6 +10,9 @@ deterministic per-order offsets (D18); §4 gains registry-owned ship-id allocati
 the `(applyTick, transferId)` total order (D17), the empty-world quiescence invariant and
 hash-domain rule (D8), and the world-isolation invariant (D1a); §7's presence edges defined
 and marked revocable (D16); per-commander event record joins the universe layer (D19)
+· §4 further amended by [ADR-019](ADR-019-shard-topology.md) (2026-08-19): the registry
+becomes host-aware (`HostForAnchor`) and **the world's tick becomes shard-global** rather
+than a per-world counter; §5's transit durations gain a `TRANSFER_FLOOR_TICKS` floor
 **Depends on:** ADR-001 (plane, grids), ADR-002 (tick), ADR-004 (wire), ADR-005 (orders,
 determinism), ADR-009 (universe model), ADR-012 (JSON), ADR-014 (seam), ADR-015 (contact)
 **Supersedes:** the corpus scale figure F13 (~300 systems across ~6 regions → **2,500 across

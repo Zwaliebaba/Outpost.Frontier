@@ -314,9 +314,15 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
     — use 3 buffers); per-frame command allocator + one direct list; linear upload ring for
     constants/instances; one shader-visible CBV/SRV heap (atlas + per-frame tables); root
     signature: frame CBV, pass CBV, draw root constants, one SRV table.
-    **Shaders are compiled into the executable**, not loaded: `fxc` builds
+    **Shaders are compiled into the executable**, not loaded: the HLSL compiler builds
     `Outpost/Shaders/*.hlsl` as part of `Outpost.vcxproj` into byte arrays, and the composition
-    root hands them to `GpuPipelines` as spans (owner directive, 2026-08-18; ADR-013 §1a). This
+    root hands them to `GpuPipelines` as spans (owner directive, 2026-08-18; ADR-013 §1a).
+    **The compiler is `dxc` at shader model 6.7, in both configurations** (ADR-018 D12,
+    2026-08-19): Debug had been compiling SM 6.7 through dxc via per-file overrides while the
+    never-built Release path said SM 5.1 through fxc — a per-config compiler fork nobody
+    decided, and one the reserved `GpuCull` slot would have had to unpick anyway, since a
+    compute pass wants SM6. The setting now lives once per configuration and says the same
+    thing in both. This
     project builds pipeline states and has no opinion about which shaders go in them — the
     engine ships around a second game, and a shader is exactly what the two differ on
     (ADR-014). One vertex and one pixel file per pass, with what both stages must agree about

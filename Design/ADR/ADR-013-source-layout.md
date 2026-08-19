@@ -25,8 +25,10 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
    folder. No `Wire/`, no `Gpu/`, no `Public/`, no `Private/`. `pch.h`/`pch.cpp` stay at the
    root as the template has them.
 1a. **Two exceptions, both in `Outpost`, both owner directives** (2026-08-18): `Outpost/Shaders`
-   holds the HLSL, and `Outpost/CompiledShaders` holds the byte-array headers `fxc` generates
-   from it. Rule 1 is otherwise unchanged and applies to every other file in every project.
+   holds the HLSL, and `Outpost/CompiledShaders` holds the byte-array headers the HLSL compiler
+   generates from it — **`dxc` at SM 6.7 in both configurations** since ADR-018 D12
+   (2026-08-19); it was `fxc` at SM 5.1 here and 6.7 in Debug, which is the fork that decision
+   closed. Rule 1 is otherwise unchanged and applies to every other file in every project.
 
    The directive that produced rule 1 says *no subdirectories in the code*, and the reading
    that survives is the one where these are not that: `Shaders/` is HLSL rather than C++, and

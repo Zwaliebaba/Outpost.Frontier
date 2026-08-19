@@ -46,7 +46,10 @@ on one universe. Consequences, in force now:
 - **D1b.** A **topology ADR** (grid-to-host assignment, cross-host transfer-bus ordering
   authority, client connection handoff on view switch) is a named design deliverable that
   **blocks U2** — the registry must be shaped by it, even though the U-phase implementation
-  stays single-process. *(NET-3.)*
+  stays single-process. *(NET-3.)* **Delivered 2026-08-19 as
+  [ADR-019](ADR-019-shard-topology.md);** its §6 is U2's acceptance, and it amends this
+  ADR's D6a (the ship→location index is the session role's projection; id allocation stays
+  registry-owned) and ADR-016 §4 (the world's tick becomes shard-global).
 - **D1c.** The tick budget gets numbers: the 50 ms tick must hold the shard's target of
   concurrent live grids at up to the per-grid cap (D4); R10's 1,024-entity soak runs in
   Release **before U2 shapes the registry**, and its result decides whether a spatial
@@ -259,10 +262,10 @@ work must exist before the slice starts; finding ids point into the review's app
 
 | # | Action | Lands | From |
 |---|---|---|---|
-| A1 | Topology ADR: grid-to-host assignment, transfer-bus ordering authority, connection handoff | **Design deliverable, blocks U2** | D1b (NET-3) |
-| A2 | Release\|x64 CI leg + `selfTest`; run spike 2 once; pin the toolset; perf numbers stated as Release | **Before U1** | D11 (CPP-3) |
-| A3 | Shader build → dxc/SM 6.x both configs; amend ADR-006 §12 / ADR-013 §1a / S7a note | **Before U1** (with A2) | D12 (CPP-3) |
-| A4 | Run R10's 1,024-entity soak (Release), record the number; broadphase decision follows it | **Before U2** | D1c (SIM-6, NET-5) |
+| A1 | ~~Topology ADR: grid-to-host assignment, transfer-bus ordering authority, connection handoff~~ **Delivered: [ADR-019](ADR-019-shard-topology.md)** — three roles (SimHost/SessionHost/Directory), anchor placement with region affinity, `(applyTick, hostId, counter)` order with departure-time filing, one client connection through the session front door; U2's eight constraints are its §6 | **Design deliverable, blocks U2** | D1b (NET-3) |
+| A2 | ~~Release\|x64 CI leg + `selfTest`; run spike 2 once; pin the toolset; perf numbers stated as Release~~ **Done 2026-08-19:** the workflow is a `[Debug, Release]` matrix (`fail-fast: false`, source guards on the Debug leg only), the self test emits its replay hash, and **spike 2 is a standing job** that tables the two configurations' hashes and explains why differing is the expected result. *Toolset pinning deliberately not done* — the projects are on `v145`, which only the newest images carry, so a wrong pin trades a floating toolchain for a broken build; a "Record the toolchain" step prints image/VS/MSBuild/dxc every run so the pin can be taken from evidence | **Before U1** | D11 (CPP-3) |
+| A3 | ~~Shader build → dxc/SM 6.x both configs; amend ADR-006 §12 / ADR-013 §1a / S7a note~~ **Done 2026-08-19:** `ShaderModel` is 6.7 in both `ItemDefinitionGroup`s and the eight per-file Debug-only overrides — the mechanism of the fork — are gone, so the setting lives once per configuration; ADR-006 §12, ADR-013 §1a, Dependency-Map and the S7a record are amended | **Before U1** (with A2) | D12 (CPP-3) |
+| A4 | ~~Run R10's 1,024-entity soak, record the number; broadphase decision follows it~~ **Measured 2026-08-19 (indicative): 1,024 ships = 10.6 ms mean / 21.9 ms worst, 21 % of the tick — a capped grid costs ~⅕ core, so the broadphase is a later tuning decision, not a U2 prerequisite.** Recorded in R10. *Still owed:* the authoritative MSVC Release figure (A2's new leg produces it) and an in-repo soak so the number is re-taken automatically | **Before U2** | D1c (SIM-6, NET-5) |
 | A5 | Anchor record carries the D18 offset rule and D6a's derived occupant ids from the first bake; warp-in invariant restated against the D7 radius | **U1** | D18, D6a, D7 |
 | A6 | Registry-owned id allocator (injection into `World::Spawn`), deterministic authored ids, ship→location index; u16-window assert until A14 | **U2** | D6a (SIM-1) |
 | A7 | Quiescence invariant test; registry hash/replay domain excludes ship-less worlds (or logs spin-up/teardown); "worlds forget" recorded as the standing rule | **U2** | D8 (SIM-2) |
@@ -282,7 +285,7 @@ work must exist before the slice starts; finding ids point into the review's app
 | A21 | Schema text grows the verdict constants + check-order sequence (D9), clustered with T2's bump | **T2 cluster** | D9 (SIM-5) |
 | A22 | Remote-play ADR (pinned key, validation on off-loopback, transport config surface, abuse budget); ADR-008 §8 gains the gate sentence | **Design deliverable, blocks first remote deployment** | D10 (NET-4) |
 | A23 | Device-removal risk row; "no session state holds a device reference" invariant recorded; recovery slice deferred | **Risk register, now** | D13 (CPP-2) |
-| A24 | Common MSBuild props (toolset, `stdcpplatest`, conformance, explicit `/fp:precise`, no `/arch` overrides) or a CI guard over `.vcxproj`s; guard file-lists derived from the tree; clang-tidy CI step | **Before a second contributor** | CPP-4 |
+| A24 | Common MSBuild props (toolset, `stdcpplatest`, conformance, explicit `/fp:precise`, no `/arch` overrides) or a CI guard over `.vcxproj`s; guard file-lists derived from the tree; clang-tidy CI step. *Partly done 2026-08-19:* the ADR-014 guard's GameLogic header list is now **derived from the tree** rather than hand-spelled, so a header added by U1 or T1 is covered the day it lands; the props file and the clang-tidy step remain | **Before a second contributor** | CPP-4 |
 | A25 | U3c — the second-commander gate: two clients, distinct `PlayerId`s, disjoint grids, full loop each over real loopback | **New slice after U3b** | D3 (NET-1/2) |
 | A26 | Annotate R10 (sim-only vs wire halves), R17 (Release numbers), R18 (RTT parameterisation); add rows for the replication cliff, device removal, topology | **Risk register, now** | NET-5, D11, D13 |
 
