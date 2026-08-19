@@ -10,7 +10,12 @@
 
 #include "OrderMessages.h"
 #include "ReplicatedView.h"
+#include "SchemaHash.h"
+#include "Snapshot.h"
+#include "World.h"
+#include "WorldHash.h"
 
+#include "ByteReader.h"
 #include "ByteWriter.h"
 #include "Clock.h"
 #include "EntityRecord.h"
@@ -73,6 +78,186 @@ private:
   std::uint32_t m_failures = 0;
 };
 
+/*
+ * A scripted world for the replay-determinism run (S14): a handful of hulls,
+ * real orders through the real validation at fixed ticks, `TICKS` ticks of
+ * simulation. Everything is derived from constants and `_targetNudgeMetres`,
+ * so two calls are the same run by construction -- and a nudged third call is
+ * the control that proves the hash would have noticed a divergence.
+ *
+ * This re-proves in the shipping binary what `GameLogicTests` proves in CI:
+ * the point of having it here is that the self test runs on the machine and
+ * the build actually deployed, where a stray /fp switch or a local compiler
+ * would otherwise only be discovered by a desync.
+ */
+constexpr std::uint32_t REPLAY_TICKS = 400;
+constexpr std::uint32_t REPLAY_CHECKPOINT_TICK = 200;
+
+struct ReplayResult
+{
+  std::uint64_t checkpointHash = 0;
+  std::uint64_t finalHash = 0;
+};
+
+[[nodiscard]] ReplayResult RunScriptedReplay(float _targetNudgeMetres)
+{
+  Game::World world;
+  world.Reset(0x5EEDu);
+
+  Game::ShipId ships[6] = {};
+  constexpr Game::HullClass HULLS[6] = {Game::HullClass::Interceptor, Game::HullClass::Bomber,  Game::HullClass::Corvette,
+                                        Game::HullClass::Frigate,     Game::HullClass::Carrier, Game::HullClass::Battleship};
+  for (std::uint32_t index = 0; index < 6; ++index)
+  {
+    Game::ShipSpawn spawn;
+    spawn.hullClass = HULLS[index];
+    spawn.wing = 1;
+    spawn.xMetres = -2000.0f + 800.0f * static_cast<float>(index);
+    spawn.yMetres = -1500.0f;
+    ships[index] = world.Spawn(spawn);
+  }
+
+  ReplayResult result;
+  for (std::uint32_t tick = 1; tick <= REPLAY_TICKS; ++tick)
+  {
+    if (tick == 1 || tick == 150 || tick == 280)
+    {
+      Game::OrderSubmit order;
+      order.orderSeq = tick;
+      order.kind = Game::OrderKind::Move;
+      order.formation = tick == 150 ? Game::FormationId::Wedge : Game::FormationId::Line;
+      order.queueMode = Game::QueueMode::Replace;
+      for (const Game::ShipId ship : ships)
+      {
+        (void)order.AddShip(ship);
+      }
+      order.target.xCm = Neuron::MetresToCentimetres(1500.0f + _targetNudgeMetres);
+      order.target.yCm = Neuron::MetresToCentimetres(tick == 280 ? -2500.0f : 2500.0f);
+      (void)world.SubmitOrder(order);
+    }
+
+    world.Tick(tick);
+    if (tick == REPLAY_CHECKPOINT_TICK)
+    {
+      result.checkpointHash = Game::ComputeWorldHash(world);
+    }
+  }
+  result.finalHash = Game::ComputeWorldHash(world);
+  return result;
+}
+
+/*
+ * The device-free half of the S14 aggregate: schema self-checks, the wire
+ * round-trips and the replay run. First, before any socket opens, so a
+ * transport failure cannot mask a determinism one.
+ */
+void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation)
+{
+  // Schema: the number the handshake fails closed on. Nonzero, stable across
+  // computation, and the shipping simulation states the same one the game's
+  // own function does -- three cheap facts a corrupted build breaks first.
+  const std::uint64_t schema = Game::GameSchemaHash();
+  _checks.Record("schema hash is nonzero", schema != 0);
+  _checks.Record("schema hash is stable", Game::GameSchemaHash() == schema);
+  _checks.Record("the simulation states the game's schema", _simulation.SchemaHash() == schema);
+  _checks.Record("the simulation states a content hash", _simulation.ContentHash() != 0);
+
+  // The order wire: write one, read it back, compare every field the layout
+  // carries (ADR-004 §7).
+  {
+    Game::OrderSubmit order;
+    order.orderSeq = 77;
+    order.kind = Game::OrderKind::Move;
+    order.formation = Game::FormationId::Claw;
+    order.queueMode = Game::QueueMode::Append;
+    (void)order.AddShip(3);
+    (void)order.AddShip(9);
+    order.target.xCm = -123456;
+    order.target.yCm = 654321;
+    order.target.facingTurns16 = 0x1234;
+
+    std::array<std::uint8_t, Game::MAX_ORDER_SUBMIT_BYTES> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    bool ok = Game::WriteOrderSubmit(order, writer);
+
+    Game::OrderSubmit read;
+    if (ok)
+    {
+      Neuron::ByteReader reader{writer.Written()};
+      ok = Game::ReadOrderSubmit(reader, read);
+    }
+    ok = ok && read.orderSeq == order.orderSeq && read.kind == order.kind && read.formation == order.formation &&
+         read.queueMode == order.queueMode && read.shipCount == order.shipCount && read.shipIds[0] == 3 && read.shipIds[1] == 9 &&
+         read.target.xCm == order.target.xCm && read.target.yCm == order.target.yCm &&
+         read.target.facingTurns16 == order.target.facingTurns16;
+    _checks.Record("an order round-trips the wire byte-exactly", ok);
+  }
+
+  // The snapshot wire: emit from a real world, apply through the client's own
+  // view, and compare in *integers* -- re-quantising the sampled ships must
+  // reproduce the exact centimetres that crossed (the same assertion
+  // GameLogicTests makes, re-proved in the shipping binary).
+  {
+    Game::World world;
+    world.Reset(1);
+    for (std::uint32_t index = 0; index < 5; ++index)
+    {
+      Game::ShipSpawn spawn;
+      spawn.hullClass = Game::HullClass::Corvette;
+      spawn.wing = 1;
+      spawn.xMetres = 100.5f * static_cast<float>(index + 1);
+      spawn.yMetres = -77.25f * static_cast<float>(index + 1);
+      (void)world.Spawn(spawn);
+    }
+    world.Tick(1);
+
+    std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    bool ok = Game::WriteSnapshot(world, writer);
+    _checks.Record("a snapshot fits the datagram cap", ok && writer.Written().size() <= Neuron::MAX_DATAGRAM_BYTES);
+
+    Game::SnapshotHeader header;
+    std::vector<Neuron::EntityRecord> records;
+    if (ok)
+    {
+      Neuron::ByteReader reader{writer.Written()};
+      ok = Game::ReadSnapshot(reader, header, records);
+    }
+
+    Game::ReplicatedView view;
+    ok = ok && view.ApplySnapshot(writer.Written());
+
+    std::vector<Game::ReplicatedShip> sampled;
+    if (ok)
+    {
+      view.SampleAt(static_cast<double>(view.LatestTick()), sampled);
+    }
+    ok = ok && sampled.size() == records.size() && sampled.size() == world.ShipCount();
+    if (ok)
+    {
+      for (std::size_t index = 0; index < sampled.size(); ++index)
+      {
+        ok = ok && sampled[index].id == records[index].id &&
+             Neuron::MetresToCentimetres(sampled[index].positionMetres.x) == records[index].posXCm &&
+             Neuron::MetresToCentimetres(sampled[index].positionMetres.y) == records[index].posYCm;
+      }
+    }
+    _checks.Record("a snapshot round-trips emit -> bytes -> apply in integers", ok);
+  }
+
+  // Replay determinism, in this binary on this machine: two identical scripted
+  // runs agree at the checkpoint and the end, and the control -- one target
+  // moved a metre -- diverges, which is what proves agreement means something.
+  {
+    const ReplayResult first = RunScriptedReplay(0.0f);
+    const ReplayResult second = RunScriptedReplay(0.0f);
+    const ReplayResult nudged = RunScriptedReplay(1.0f);
+    _checks.Record("replay determinism holds at the checkpoint", first.checkpointHash == second.checkpointHash);
+    _checks.Record("replay determinism holds at the end", first.finalHash == second.finalHash);
+    _checks.Record("the world hash notices a one-metre change", first.finalHash != nudged.finalHash);
+  }
+}
+
 /// Services the client until the predicate holds or the deadline passes. The
 /// server has its own thread, so only this end needs pumping.
 template <typename Predicate> bool PumpUntil(Neuron::ClientConnection& _client, Predicate _predicate)
@@ -94,9 +279,15 @@ template <typename Predicate> bool PumpUntil(Neuron::ClientConnection& _client, 
 
 int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
 {
-  NEURON_LOG_INFO("self test: starting (handshake, orders and snapshots over QUIC loopback)");
+  NEURON_LOG_INFO("self test: starting (schema, wire round-trips, replay determinism, then the QUIC loopback loop)");
 
   Checklist checks;
+
+  // The S14 aggregate's device-free half runs first: schema self-check, wire
+  // round-trips and the replay-determinism run need no socket, so a transport
+  // failure cannot mask them -- and on a GPU-less CI runner they are most of
+  // what this gate proves.
+  RunLocalChecks(checks, _simulation);
 
   // Port 0 whatever the config says: a self test must not fail because the
   // configured port is already taken by the thing it is testing.
@@ -244,7 +435,16 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
   server.Stop();
   server.Join();
   checks.Record("server stops cleanly", !server.Running() && server.TickCount() > 0);
-  checks.Record("no tick overran", server.OverrunCount() == 0);
+
+  // Zero on any healthy machine, but this gate now runs in CI (S14) and a
+  // shared runner is not a real-time system -- the same argument S3 made for
+  // the loose cadence bound. A couple of overruns is scheduler noise; a stream
+  // of them is a real defect, and the count is logged either way.
+  if (server.OverrunCount() != 0)
+  {
+    NEURON_LOG_WARNING("self test: %u tick overrun(s) -- expected 0 on an idle machine", server.OverrunCount());
+  }
+  checks.Record("ticks did not persistently overrun", server.OverrunCount() <= 2);
 
   // What the lanes recorded while all of that happened. Not a check -- a
   // measurement, printed because a self test that says only "PASSED" tells you

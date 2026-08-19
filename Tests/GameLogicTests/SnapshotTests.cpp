@@ -652,4 +652,134 @@ public:
   }
 };
 
+/*
+ * The cosmetic bank's inputs (Build Order S14, ADR-006 §6).
+ *
+ * The sim's velocity is always along its heading -- the no-strafing rule -- so
+ * a slip angle is identically zero and the *observed heading rate* between two
+ * snapshots is the only replicated signal a roll can be derived from. These
+ * cover both halves: the view measuring the rate, and the pure function
+ * turning it into a clamped roll.
+ */
+TEST_CLASS(CosmeticBankTests)
+{
+public:
+  TEST_METHOD(AnInterpolatedSampleMeasuresTheHeadingRateBetweenItsSnapshots)
+  {
+    // A ship ordered to a point behind it turns hard, so consecutive snapshots
+    // carry different headings and the sampled rate must be their shortest-arc
+    // difference over one tick -- not zero, and not a wild number.
+    World world;
+    world.Reset(3);
+    ShipSpawn spawn;
+    spawn.hullClass = HullClass::Interceptor;
+    spawn.headingRadians = 0.0f;
+    const ShipId ship = world.Spawn(spawn);
+
+    OrderSubmit turn;
+    turn.orderSeq = 1;
+    (void)turn.AddShip(ship);
+    turn.target.xCm = Neuron::MetresToCentimetres(-5000.0f);
+    turn.target.yCm = Neuron::MetresToCentimetres(4000.0f);
+    (void)world.SubmitOrder(turn);
+
+    for (std::uint32_t tick = 1; tick <= 10; ++tick)
+    {
+      world.Tick(tick);
+    }
+
+    ReplicatedView view;
+    std::array<std::uint8_t, 512> firstBuffer{};
+    Neuron::ByteWriter firstWriter{firstBuffer};
+    Assert::IsTrue(WriteSnapshot(world, firstWriter));
+    Assert::IsTrue(view.ApplySnapshot(firstWriter.Written()));
+
+    // The two quantised headings, straight off the wire: the rate the view
+    // reports has to be *their* difference, because those are what it holds.
+    Neuron::ByteReader firstReader{firstWriter.Written()};
+    SnapshotHeader firstHeader;
+    std::vector<Neuron::EntityRecord> firstShips;
+    Assert::IsTrue(ReadSnapshot(firstReader, firstHeader, firstShips));
+
+    world.Tick(11);
+    std::array<std::uint8_t, 512> secondBuffer{};
+    Neuron::ByteWriter secondWriter{secondBuffer};
+    Assert::IsTrue(WriteSnapshot(world, secondWriter));
+    Assert::IsTrue(view.ApplySnapshot(secondWriter.Written()));
+
+    Neuron::ByteReader secondReader{secondWriter.Written()};
+    SnapshotHeader secondHeader;
+    std::vector<Neuron::EntityRecord> secondShips;
+    Assert::IsTrue(ReadSnapshot(secondReader, secondHeader, secondShips));
+
+    std::vector<ReplicatedShip> sampled;
+    view.SampleAt(10.5, sampled);
+    Assert::AreEqual<std::size_t>(1, sampled.size());
+
+    const float fromHeading = Neuron::HeadingToRadians(firstShips[0].headingTurns16);
+    const float toHeading = Neuron::HeadingToRadians(secondShips[0].headingTurns16);
+    const auto expected = static_cast<float>(XMScalarModAngle(toHeading - fromHeading) / World::TICK_SECONDS);
+
+    Assert::IsTrue(std::fabs(expected) > 0.01f, L"the scenario must actually turn, or this test asserts nothing");
+    Assert::AreEqual(expected, sampled[0].headingRateRadiansPerSec, 1e-4f);
+  }
+
+  TEST_METHOD(AnExtrapolatedSampleReportsNoTurn)
+  {
+    // Past the newest snapshot the heading is held, and a held heading is not
+    // a turn: a frozen ship banking would be the view inventing motion.
+    World world;
+    std::vector<ShipId> ids;
+    BuildFlyingWorld(world, 1, ids, 10);
+
+    ReplicatedView view;
+    std::array<std::uint8_t, 512> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteSnapshot(world, writer));
+    Assert::IsTrue(view.ApplySnapshot(writer.Written()));
+
+    std::vector<ReplicatedShip> sampled;
+    view.SampleAt(static_cast<double>(view.LatestTick()) + 2.0, sampled);
+    Assert::AreEqual<std::size_t>(1, sampled.size());
+    Assert::AreEqual(0.0f, sampled[0].headingRateRadiansPerSec);
+  }
+
+  TEST_METHOD(TheBankIsClampedSignedAndFadesWithSpeed)
+  {
+    const ShipClassInfo& interceptor = ShipClass(HullClass::Interceptor);
+
+    // Full rate at full speed is the full bank, and a turn to port (CCW,
+    // positive rate) banks port-down, which is negative in the record's
+    // starboard-down-positive convention.
+    const float fullBank =
+        CosmeticBankRadians(HullClass::Interceptor, interceptor.turnRateRadiansPerSec, interceptor.maxSpeedMetresPerSec);
+    Assert::AreEqual(-MAX_COSMETIC_BANK_RADIANS, fullBank, 1e-6f);
+
+    // The other way rolls the other way.
+    const float starboard =
+        CosmeticBankRadians(HullClass::Interceptor, -interceptor.turnRateRadiansPerSec, interceptor.maxSpeedMetresPerSec);
+    Assert::AreEqual(MAX_COSMETIC_BANK_RADIANS, starboard, 1e-6f);
+
+    // A wild rate off a corrupted sample cannot roll a ship onto its back.
+    const float wild = CosmeticBankRadians(HullClass::Interceptor, 1000.0f, interceptor.maxSpeedMetresPerSec);
+    Assert::IsTrue(std::fabs(wild) <= MAX_COSMETIC_BANK_RADIANS + 1e-6f);
+
+    // Half speed halves the roll -- banking depicts lateral acceleration, and
+    // a ship pivoting on the spot has almost none.
+    const float halfSpeed =
+        CosmeticBankRadians(HullClass::Interceptor, interceptor.turnRateRadiansPerSec, interceptor.maxSpeedMetresPerSec * 0.5f);
+    Assert::AreEqual(-MAX_COSMETIC_BANK_RADIANS * 0.5f, halfSpeed, 1e-6f);
+
+    // At rest there is nothing to bank into.
+    Assert::AreEqual(0.0f, CosmeticBankRadians(HullClass::Interceptor, interceptor.turnRateRadiansPerSec, 0.0f));
+  }
+
+  TEST_METHOD(AHullThatCannotTurnNeverBanks)
+  {
+    // The Structure's turn rate is zero, and a division by it would be the
+    // quiet way to bank a station onto its side.
+    Assert::AreEqual(0.0f, CosmeticBankRadians(HullClass::Structure, 1.0f, 1.0f));
+  }
+};
+
 } // namespace GameLogicTests

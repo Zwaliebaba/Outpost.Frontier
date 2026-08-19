@@ -59,6 +59,13 @@ enum class OverlayKind : std::uint16_t
   HullBar = 3,
   ShieldBar = 4,
 
+  /// The icon sheet's STALE state marker (§4): a dashed screen-facing ring on a
+  /// ship whose extrapolation hit the 250 ms cap and froze (ADR-002 §4). Screen
+  /// facing, because it is a readout about the *feed* and must never hide
+  /// behind the hull it is warning about -- and dashed, the sheet's convention
+  /// for anything unresolved.
+  StaleMarker = 5,
+
   FIRST_SCREEN_FACING = HullBar
 };
 
@@ -138,6 +145,13 @@ struct OverlayTuning
   /// pending and rejected ghosts are both dashed and its accepted one is solid,
   /// which is the whole visual difference between a promise and a fact.
   std::uint16_t ghostDashCount = 24;
+
+  /// The STALE marker (icon sheet §4): a dashed screen-facing ring, drawn on
+  /// *every* frozen ship rather than only selected ones -- a ship holding
+  /// position because the feed stopped must never read as a ship that chose to
+  /// stop, and the player has not necessarily selected the one that froze.
+  float staleMarkerRadiusPixels = 11.0f;
+  std::uint16_t staleMarkerDashCount = 8;
 
   /*
    * Colours, packed as `OverlayMark::colourRgba` says: 8:8:8:8 with **r in the

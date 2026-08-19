@@ -119,10 +119,14 @@ bool ClientApp::Initialise(const ClientConfig& _config, const PipelineShaders& _
     return false;
   }
 
-  if (!m_swapChain.Create(m_device, m_window.Handle(), m_window.Width(), m_window.Height()))
+  if (!m_swapChain.Create(m_device, m_window.Handle(), m_window.Width(), m_window.Height(), _config.msaaSamples))
   {
     return false;
   }
+
+  // The strip's starting visibility is the setting; F1 is a shortcut to the
+  // same bit, not a second source of truth (debug-hud.png §6).
+  m_diagnosticsVisible = _config.diagnosticsStrip;
 
   CreateFrameResources();
 
@@ -188,7 +192,9 @@ bool ClientApp::CreateContent()
     return false;
   }
 
-  bool ok = m_pipelines.Create(m_device.Device(), m_shaders);
+  // The world pipelines take the sample count the swapchain actually built --
+  // which may be 1 if the requested MSAA was unsupported and it fell back.
+  bool ok = m_pipelines.Create(m_device.Device(), m_shaders, m_swapChain.SampleCount());
   ok = ok && m_meshes.Create(m_device, m_config.meshDirectory, m_config.meshFiles, m_taskPool);
   ok = ok && m_uploadRing.Create(m_device.Device(), UPLOAD_BYTES_PER_FRAME, GpuSwapChain::BUFFER_COUNT);
 
@@ -353,6 +359,14 @@ void ClientApp::UpdateCamera(float _deltaSeconds)
 void ClientApp::UpdateHud()
 {
   m_uiLayout = ResolveUiLayout(m_input.viewportWidth, m_input.viewportHeight, m_config.uiScale, m_uiTuning);
+
+  // The diagnostics toggle, before anything can consume the frame's edges. A
+  // level edge rather than a chord: the strip is a setting with a shortcut,
+  // not a gesture (debug-hud.png §6).
+  if (m_input.Pressed(InputAction::ToggleDiagnostics))
+  {
+    m_diagnosticsVisible = !m_diagnosticsVisible;
+  }
 
   m_commandButtonCount =
       BuildCommandRow(std::span<const OrderKindOption>{m_orderKinds, m_orderKindCount}, m_selectedKind,
@@ -855,6 +869,16 @@ void ClientApp::BuildHud()
     m_ui.AddText(right, chipY, m_uiTuning.smallSizeIndex, m_palette.caution, buffer);
   }
 
+  // The feed-level STALE readout (S14): the whole world on screen is frozen
+  // past the extrapolation cap (ADR-002 §4). The per-ship markers say which
+  // ships; this says it is the *feed*, in the place the eye checks the link.
+  if (joined && m_snapshots.Stale(nowSeconds))
+  {
+    const char* staleText = "STALE";
+    right -= (static_cast<float>(TextCellCount(staleText)) + 2.0f) * cell;
+    m_ui.AddText(right, chipY, m_uiTuning.smallSizeIndex, m_palette.caution, staleText);
+  }
+
   // --- the fleet roster ---------------------------------------------------
   //
   // The rows are the game's answer, not a grouping this file performs: it has
@@ -1190,6 +1214,84 @@ void ClientApp::BuildHud()
     m_ui.AddText(rect.x + pad, rect.y + pad * 0.5f + bodyPx + 2.0f * layout.scale, m_uiTuning.smallSizeIndex,
                  m_palette.phosphorBody, toast.detail);
   }
+
+  // --- the Tier-1 diagnostics strip (S14) ---------------------------------
+  //
+  // Collection always, drawing behind the toggle: the drain is what keeps the
+  // lanes from overflowing whether or not anyone is looking. Cost is measured
+  // around both halves and displayed by the strip itself next frame -- the
+  // observer effect cannot be removed, so it is reported (debug-hud.png §4).
+  {
+    const std::int64_t stripStart = Clock::Counter();
+    CollectDiagnostics(nowSeconds);
+    if (m_diagnosticsVisible)
+    {
+      DebugStripStyle style;
+      style.x = layout.world.x + pad;
+      style.y = layout.world.y + pad;
+      style.scale = layout.scale;
+      style.cellPixels = cell;
+      style.smallLinePixels = smallPx;
+      style.smallSizeIndex = m_uiTuning.smallSizeIndex;
+      style.bodySizeIndex = m_uiTuning.bodySizeIndex;
+      (void)BuildDebugStrip(m_stripReadout, style, m_palette, m_ui);
+    }
+    m_stripCostMs = Clock::MillisecondsBetween(stripStart, Clock::Counter());
+  }
+}
+
+void ClientApp::CollectDiagnostics(double _nowSeconds)
+{
+  // The collector's drain (ADR-007 §8): every lane, once a frame, on the game
+  // thread. This is bounded by ring capacity rather than by event count, which
+  // is what keeps the instrument inside a fixed budget under exactly the load
+  // that makes it interesting.
+  m_telemetry.Clear();
+  m_telemetry.DrainAll();
+  m_stripHistory.AccumulateFrame(m_telemetry, _nowSeconds);
+
+  if (!m_diagnosticsVisible)
+  {
+    return; // Accumulated but not asked: the readout is a display value.
+  }
+
+  m_stripHistory.FillTimings(m_stripReadout);
+  m_stripReadout.stripMs = m_stripCostMs; // Last frame's; this frame's is still being spent.
+
+  const bool joined = m_connection.State() == ClientLinkState::Joined;
+  m_stripReadout.joined = joined;
+  if (joined)
+  {
+    // Asked only while the strip is up: the transport query walks into msquic,
+    // and a hidden strip should cost nothing but the drain above.
+    const TransportStats stats = m_connection.Stats();
+    m_stripReadout.rttMs = m_connection.RoundTripMs();
+    m_stripReadout.minRttMs = stats.minRoundTripMs;
+    m_stripReadout.controlResends = stats.controlResends;
+    m_stripReadout.datagramsDropped = stats.datagramsDropped;
+  }
+
+  m_stripReadout.hasEstimate = m_snapshots.HasEstimate();
+  m_stripReadout.stale = m_snapshots.Stale(_nowSeconds);
+  m_stripReadout.snapAgeMs = m_snapshots.SecondsSinceSnapshot(_nowSeconds) * 1000.0;
+  m_stripReadout.driftTicks = m_snapshots.DriftTicks();
+  m_stripReadout.outOfOrder = m_snapshots.OutOfOrderCount();
+
+  // Viewer-held counts: the scene the game handed over and what the passes
+  // issued last frame. Never a world-truth count (debug-hud.png §1).
+  m_stripReadout.replicated = static_cast<std::uint32_t>(m_scene.entities.size());
+  m_stripReadout.drawnInstances = m_passes.Opaque().InstanceCount();
+  m_stripReadout.drawCalls = m_passes.Opaque().DrawCount();
+  m_stripReadout.glyphQuads = m_passes.Ui().GlyphCount();
+  m_stripReadout.missingGlyphs = m_passes.Ui().MissingGlyphCount();
+  m_stripReadout.snapshotDrops = m_connection.SnapshotOverflowCount();
+
+  std::uint64_t telemetryDrops = 0;
+  for (LaneId lane = 0; lane < Telemetry::LaneCount(); ++lane)
+  {
+    telemetryDrops += Telemetry::DroppedCount(lane);
+  }
+  m_stripReadout.telemetryDrops = telemetryDrops;
 }
 
 void ClientApp::RenderFrame()
@@ -1206,14 +1308,18 @@ void ClientApp::RenderFrame()
   check_hresult(m_commandList->Reset(allocator, nullptr));
 
   ID3D12Resource* backBuffer = m_swapChain.CurrentBackBuffer();
+  const bool msaa = m_swapChain.SampleCount() > 1;
 
+  // With MSAA the back buffer's first job this frame is to receive the
+  // resolve, not to be drawn on -- the world renders into the offscreen
+  // target and only the Ui pass touches the back buffer directly (S14).
   D3D12_RESOURCE_BARRIER barrier{};
   barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
   barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
   barrier.Transition.pResource = backBuffer;
   barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
   barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-  barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+  barrier.Transition.StateAfter = msaa ? D3D12_RESOURCE_STATE_RESOLVE_DEST : D3D12_RESOURCE_STATE_RENDER_TARGET;
   m_commandList->ResourceBarrier(1, &barrier);
 
   ID3D12DescriptorHeap* heaps[] = {m_srvHeap.get()};
@@ -1234,7 +1340,10 @@ void ClientApp::RenderFrame()
   context.glyphAtlas = &m_glyphAtlas;
   context.meshes = &m_meshes;
   context.scene = &m_scene;
-  context.renderTargetView = m_swapChain.CurrentRenderTargetView();
+  // The world's target: the MSAA offscreen when one exists, the back buffer
+  // otherwise. The Ui pass never reads this -- it draws on whatever the frame
+  // loop has bound by then, which after a resolve is the back buffer.
+  context.renderTargetView = msaa ? m_swapChain.MsaaRenderTargetView() : m_swapChain.CurrentRenderTargetView();
   context.depthStencilView = m_swapChain.DepthStencilView();
   context.textureTable = m_textureTable;
   context.viewportWidth = m_swapChain.Width();
@@ -1266,7 +1375,46 @@ void ClientApp::RenderFrame()
     context.scene = nullptr; // Clear and present; the ring already logged why.
   }
 
-  m_passes.Record(context);
+  m_passes.RecordWorld(context);
+
+  if (msaa)
+  {
+    /*
+     * The resolve, between the two halves of the frame (S14). The barriers are
+     * the frame loop's for the same reason the PRESENT transitions are: a pass
+     * that transitioned resources it does not own could not be reordered
+     * without reading every other pass first.
+     *
+     * The MSAA target ends the block back in RENDER_TARGET, so it is always in
+     * that state at frame start and never needs a barrier there.
+     */
+    ID3D12Resource* msaaColour = m_swapChain.MsaaColour();
+
+    D3D12_RESOURCE_BARRIER toResolve = barrier;
+    toResolve.Transition.pResource = msaaColour;
+    toResolve.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    toResolve.Transition.StateAfter = D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
+    m_commandList->ResourceBarrier(1, &toResolve);
+
+    m_commandList->ResolveSubresource(backBuffer, 0, msaaColour, 0, GpuSwapChain::RESOLVE_FORMAT);
+
+    D3D12_RESOURCE_BARRIER afterResolve[2] = {barrier, barrier};
+    afterResolve[0].Transition.pResource = msaaColour;
+    afterResolve[0].Transition.StateBefore = D3D12_RESOURCE_STATE_RESOLVE_SOURCE;
+    afterResolve[0].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    afterResolve[1].Transition.pResource = backBuffer;
+    afterResolve[1].Transition.StateBefore = D3D12_RESOURCE_STATE_RESOLVE_DEST;
+    afterResolve[1].Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+    m_commandList->ResourceBarrier(2, afterResolve);
+
+    // The HUD draws on the resolved image, single-sampled, with no depth --
+    // its pipeline declares DSVFormat UNKNOWN, so none is bound. The viewport
+    // and scissor persist from ClearPass; only the target changes.
+    const D3D12_CPU_DESCRIPTOR_HANDLE backBufferView = m_swapChain.CurrentRenderTargetView();
+    m_commandList->OMSetRenderTargets(1, &backBufferView, FALSE, nullptr);
+  }
+
+  m_passes.RecordUi(context);
 
   // Back to PRESENT: the runtime requires this state at Present time.
   barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;

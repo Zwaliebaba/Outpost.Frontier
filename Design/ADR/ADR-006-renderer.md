@@ -150,10 +150,18 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
    but "every face is flat" is not a property anything may rely on.
 6. **One opaque PSO.** Per-draw: instanced per ship class; per-instance data =
    `InstanceRecord{ XMFLOAT3 posWorld, float heading, u8 teamColorId, u8 selectionAndLodBias,
-   u16 classId }` (field names deliberately match the corpus). Per-submesh root constants pick
+   u16 classId, f32 bank }` (field names deliberately match the corpus; `bank` was appended by
+   S14 — appended, so every earlier field keeps the offset the input layout declares, the same
+   discipline `UiInstance::axis` set). Per-submesh root constants pick
    one of the **5 canonical materials** (albedo, emissive strength — `accent`/`thruster` carry
    emissive; `glass` is just dark). Lighting: one fixed directional + hemispherical ambient.
-   Cosmetic banking/hover (ADR-001) computed in Extract from replicated velocity/heading only.
+   Cosmetic banking/hover (ADR-001) computed in Extract from replicated quantities only — and
+   S14 recorded what "only" turned out to mean: the sim's velocity is always along its heading
+   (the no-strafing rule), so a slip angle is identically zero and the bank derives from the
+   **heading rate the client measures between its two bracketing snapshots**, normalised by the
+   class's own turn-rate and speed limits (`Game::CosmeticBankRadians`). Hover is a per-class
+   constant in the class table, cosmetic like `pickRadiusMetres`; the entity keeps the plane
+   point, so rings and picking never learn about either.
 7. **Selection tint/rings never recolour hulls** — relationship colour and selection live in
    the Overlay pass (rings, bars), per the icon sheet's channel separation.
 
@@ -310,9 +318,17 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
     engine ships around a second game, and a shader is exactly what the two differ on
     (ADR-014). One vertex and one pixel file per pass, with what both stages must agree about
     in a shared `.hlsli`, because that agreement is the link between them. Debug layer on in dev;
-    `tick/frame/extract` timings feed the Tier-1 counters strip (`debug-hud.png`). No MSAA in
-    first slices; a 4× MSAA offscreen target + resolve is a listed polish slice (flat-shaded
-    silhouettes alias hard, and it's cheap here).
+    `tick/frame/extract` timings feed the Tier-1 counters strip (`debug-hud.png`).
+    **MSAA landed with S14 as the listed polish slice**: a 4× offscreen colour target and a
+    multisampled depth buffer, owned by `GpuSwapChain` beside the back buffers whose size they
+    share; the world passes (opaque, nebula, overlay) render there and the frame loop resolves
+    into the back buffer before the Ui pass draws on it single-sampled. The resolve's format is
+    the back buffer's own UNORM — the MSAA resource is typeless so its RTV can be the sRGB view,
+    but a resolve into a typed destination must state that destination's format exactly, so the
+    averaging happens in gamma space; on a near-black scene that is a subtler wrong than the
+    debug-layer error the sRGB spelling risks. An unsupported sample count falls back to 1 with
+    a log line rather than refusing to start, and `client.renderer.msaa` (shipped 4) is the knob
+    that was in the config unread since S2b.
 
 ## Alternatives rejected
 

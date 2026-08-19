@@ -18,6 +18,9 @@
     <ClCompile Include="NeuronClientTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DebugStripTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="CameraTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

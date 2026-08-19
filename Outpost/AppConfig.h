@@ -100,6 +100,14 @@ struct UiSettings
   std::string font = "Consolas"; // A monospace face for the glyph atlas (ADR-006 §9).
 };
 
+/// The Diagnostics section (`debug-hud.png` §6): the Tier-1 counters strip
+/// ships in every build, off by default, behind this setting -- the F1 key at
+/// runtime is a shortcut to the same bit, not a second switch.
+struct DiagnosticsSettings
+{
+  bool strip = false;
+};
+
 /*
  * Where the client's boot-time content lives, and which meshes it loads.
  *
@@ -125,6 +133,7 @@ struct ClientSettings
   NebulaSettings nebula;
   AudioSettings audio;
   UiSettings ui;
+  DiagnosticsSettings diagnostics;
 };
 
 struct AppConfig

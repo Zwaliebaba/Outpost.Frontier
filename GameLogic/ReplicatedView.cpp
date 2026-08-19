@@ -137,6 +137,7 @@ void ReplicatedView::SampleAt(double _renderTick, std::vector<ReplicatedShip>& _
   {
     const double span = static_cast<double>(newer->header.tick) - static_cast<double>(older->header.tick);
     const float blend = span > 0.0 ? static_cast<float>(std::clamp((_renderTick - older->header.tick) / span, 0.0, 1.0)) : 0.0f;
+    const auto spanSeconds = static_cast<float>(span * World::TICK_SECONDS);
 
     _outShips.reserve(older->ships.size());
     for (std::size_t index = 0; index < older->ships.size(); ++index)
@@ -157,7 +158,14 @@ void ReplicatedView::SampleAt(double _renderTick, std::vector<ReplicatedShip>& _
                                      Lerp(ship.positionMetres.y, target.positionMetres.y, blend)};
       ship.velocityMetresPerSec = XMFLOAT2{Lerp(ship.velocityMetresPerSec.x, target.velocityMetresPerSec.x, blend),
                                            Lerp(ship.velocityMetresPerSec.y, target.velocityMetresPerSec.y, blend)};
-      ship.headingRadians = LerpAngle(ship.headingRadians, target.headingRadians, blend);
+      const float fromHeading = ship.headingRadians;
+      ship.headingRadians = LerpAngle(fromHeading, target.headingRadians, blend);
+      // The observed turn, for the cosmetic bank: shortest-arc, like the lerp
+      // above, or a ship crossing pi would report a full turn's worth of rate.
+      if (spanSeconds > 0.0f)
+      {
+        ship.headingRateRadiansPerSec = XMScalarModAngle(target.headingRadians - fromHeading) / spanSeconds;
+      }
       ship.hullGauge = blend < 0.5f ? ship.hullGauge : target.hullGauge;
       ship.shieldGauge = blend < 0.5f ? ship.shieldGauge : target.shieldGauge;
       _outShips.push_back(ship);

@@ -75,6 +75,11 @@ struct ShipClassInfo
   /// a group. The formation solve reads it (S10); nothing else should.
   float formationSpacingMetres = 0.0f;
 
+  /// Cosmetic hover height above the plane (ADR-001 §2), in metres. Presentation
+  /// only, like `pickRadiusMetres`: nothing in `Tick` may read it, it is never
+  /// replicated, and the selection ring stays on the plane beneath the hull.
+  float hoverMetres = 0.0f;
+
   /// False for the two reserved ids. A class with no content can still be named
   /// and still occupies its wire value; it simply must never be spawned.
   bool hasContent = true;
@@ -99,5 +104,27 @@ struct ShipClassInfo
 
 /// The two reserved ids, asked rather than remembered.
 [[nodiscard]] bool HullClassHasContent(HullClass _hullClass) noexcept;
+
+/*
+ * Cosmetic banking (ADR-001 §2, ADR-006 §6): how far a hull rolls into the turn
+ * it is observed making, in radians. Positive drops the starboard wing, which
+ * is the roll a turn to starboard (heading rate < 0, CCW-positive) earns.
+ *
+ * Computed from replicated quantities only -- the heading *rate* the client
+ * measures between two snapshots, and the sampled speed -- because the sim has
+ * no roll to replicate: velocity is always along heading (the no-strafing
+ * rule), so a slip angle is identically zero and the turn itself is the only
+ * signal there is. Full bank is a hull turning at its class's full rate at its
+ * class's full speed; a ship pivoting on the spot barely tips, because what
+ * banking depicts is lateral acceleration and at rest there is none.
+ *
+ * Pure and clamped, so a wild rate off a corrupted sample cannot roll a ship
+ * onto its back. A class that cannot turn (Structure) banks zero.
+ */
+[[nodiscard]] float CosmeticBankRadians(HullClass _hullClass, float _headingRateRadiansPerSec,
+                                        float _speedMetresPerSec) noexcept;
+
+/// The clamp `CosmeticBankRadians` promises: no hull ever rolls past this.
+inline constexpr float MAX_COSMETIC_BANK_RADIANS = 0.42f;
 
 } // namespace Game

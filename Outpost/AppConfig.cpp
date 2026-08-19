@@ -177,6 +177,17 @@ void ReadUi(const JsonValue& _parent, UiSettings& _settings, ConfigDiagnostics& 
   ReadText(ui, "font", _settings.font, "client.ui", _diagnostics);
 }
 
+void ReadDiagnostics(const JsonValue& _parent, DiagnosticsSettings& _settings, ConfigDiagnostics& _diagnostics)
+{
+  const JsonValue diagnostics = _parent.Member("diagnostics");
+  if (!diagnostics.Valid())
+  {
+    return;
+  }
+  WarnUnknownKeys(diagnostics, {"strip"}, "client.diagnostics", _diagnostics);
+  ReadBool(diagnostics, "strip", _settings.strip, "client.diagnostics", _diagnostics);
+}
+
 /// A list of file names. Present-but-empty is an error rather than a fallback:
 /// a config that says "no meshes" and gets nine of them is a config that lies.
 void ReadTextList(const JsonValue& _parent, const char* _name, std::vector<std::string>& _value, std::string_view _path,
@@ -233,7 +244,8 @@ void ReadClient(const JsonValue& _root, ClientSettings& _settings, ConfigDiagnos
   {
     return;
   }
-  WarnUnknownKeys(client, {"connect", "window", "renderer", "camera", "nebula", "audio", "ui"}, "client", _diagnostics);
+  WarnUnknownKeys(client, {"connect", "window", "renderer", "camera", "nebula", "audio", "ui", "diagnostics"}, "client",
+                  _diagnostics);
 
   const JsonValue connect = client.Member("connect");
   if (connect.Valid())
@@ -279,6 +291,7 @@ void ReadClient(const JsonValue& _root, ClientSettings& _settings, ConfigDiagnos
 
   ReadAudio(client, _settings.audio, _diagnostics);
   ReadUi(client, _settings.ui, _diagnostics);
+  ReadDiagnostics(client, _settings.diagnostics, _diagnostics);
 }
 
 } // namespace
@@ -377,11 +390,14 @@ void ApplyUserLayer(const JsonValue& _root, AppConfig& _config, ConfigDiagnostic
   {
     return;
   }
-  WarnUnknownKeys(client, {"window", "renderer", "audio", "ui"}, "settings.client", _diagnostics);
+  // Diagnostics is a user preference by design: the print's whole answer to
+  // F11 is that the strip is a setting the settings screen owns.
+  WarnUnknownKeys(client, {"window", "renderer", "audio", "ui", "diagnostics"}, "settings.client", _diagnostics);
   ReadWindow(client, _config.client.window, _diagnostics);
   ReadRenderer(client, _config.client.renderer, _diagnostics);
   ReadAudio(client, _config.client.audio, _diagnostics);
   ReadUi(client, _config.client.ui, _diagnostics);
+  ReadDiagnostics(client, _config.client.diagnostics, _diagnostics);
 }
 
 } // namespace Outpost

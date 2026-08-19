@@ -12,9 +12,10 @@
  * What Extract hands the renderer (ADR-006 §6, ADR-007).
  *
  * `InstanceRecord` is the whole bridge between replicated world state and the
- * GPU, and its field names are the corpus's own. It is 20 bytes, and it stays
- * 20 bytes: it is the per-instance vertex stream, so a field added here is a
- * field added to the input layout and to every mesh draw in the frame.
+ * GPU, and its field names are the corpus's own. It is the per-instance vertex
+ * stream, so a field added here is a field added to the input layout and to
+ * every mesh draw in the frame -- which happened exactly once, when S14's
+ * cosmetic bank was appended (20 -> 24 bytes, recorded in ADR-006 §6).
  *
  * Nothing in this header knows what a ship is. `classId` is an index into a
  * mesh table the composition root supplies, and `teamColorId` indexes a palette
@@ -64,11 +65,17 @@ struct InstanceRecord
   DirectX::XMFLOAT3 posWorld;             // Render space: (sim.x, cosmetic height, sim.y).
   float heading;                          // Radians CCW from +x in sim space (ADR-001 §3).
   std::uint8_t teamColorId;               // Indexes the emissive palette, never the hull (ADR-006 §7).
-  std::uint8_t selectionAndLodBias;       // Reserved for S8's overlay channel; carried, not read.
+  std::uint8_t selectionAndLodBias;       // Bit 0 carries the stale flag; carried, not read here.
   std::uint16_t classId;                  // Index into the mesh table.
+
+  /// Cosmetic roll into the turn, radians; positive drops the starboard wing
+  /// (ADR-001 §2, ADR-006 §6 -- S14). **Appended rather than inserted**, like
+  /// `UiInstance::axis`: every field above keeps the offset the input layout
+  /// already declares for it.
+  float bank = 0.0f;
 };
 
-static_assert(sizeof(InstanceRecord) == 20, "InstanceRecord is a vertex stream layout; its size is the stride the input "
+static_assert(sizeof(InstanceRecord) == 24, "InstanceRecord is a vertex stream layout; its size is the stride the input "
                                             "layout declares, so a change here is a change in three places");
 
 /// Where one class's instances sit in the scene's instance array. The opaque

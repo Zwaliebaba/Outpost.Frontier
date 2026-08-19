@@ -65,6 +65,9 @@
     <ClCompile Include="ToastStack.cpp">
       <Filter>Hud</Filter>
     </ClCompile>
+    <ClCompile Include="DebugStrip.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
     <ClCompile Include="UiDrawList.cpp">
       <Filter>Hud</Filter>
     </ClCompile>
@@ -168,6 +171,9 @@
       <Filter>Hud</Filter>
     </ClInclude>
     <ClInclude Include="ToastStack.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClInclude Include="DebugStrip.h">
       <Filter>Hud</Filter>
     </ClInclude>
     <ClInclude Include="UiDrawList.h">

@@ -327,6 +327,48 @@ jobs:
             throw 'tests failed'
           }
 
+      # The S14 gate: the aggregated self test -- schema self-check, wire
+      # round-trips, a replay-determinism run, and the whole handshake + order
+      # + snapshot loop over a real QUIC loopback socket -- in the shipping
+      # binary, on a runner with no GPU and no display. The exe reads its
+      # config from the working directory (there is no command line, ADR-012),
+      # so the step runs from a scratch directory whose Outpost.json turns the
+      # self test on and points back at the repo's content.
+      - name: Run the self test
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD 'x64\Debug\Outpost.exe'
+          if (-not (Test-Path $exe)) { throw 'Outpost.exe was not built' }
+
+          New-Item -ItemType Directory -Force ci-selftest | Out-Null
+          @'
+          {
+            "mode": "headless",
+            "selfTest": true,
+            "logging": { "level": "debug", "file": "Outpost.log" },
+            "universe": { "definition": "../GameData/Universe/Frontier.json" }
+          }
+          '@ | Out-File -Encoding utf8 ci-selftest\Outpost.json
+
+          # A Windows-subsystem exe detaches from the console, so wait on the
+          # process object to get the real exit code.
+          $p = Start-Process -FilePath $exe -WorkingDirectory ci-selftest -Wait -PassThru
+          Write-Host "self test exit code: $($p.ExitCode)"
+
+          if (Test-Path ci-selftest\Outpost.log)
+          {
+            Get-Content ci-selftest\Outpost.log | ForEach-Object { Write-Host $_ }
+            Copy-Item ci-selftest\Outpost.log selftest.log
+          }
+          if ($p.ExitCode -ne 0)
+          {
+            $failures = Select-String -Path ci-selftest\Outpost.log -Pattern 'FAILED' -ErrorAction SilentlyContinue |
+              ForEach-Object { $_.Line.Trim() }
+            $lines = @('## Self test failed', '```') + $failures + @('```')
+            $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            throw "self test failed with exit code $($p.ExitCode)"
+          }
+
       # MSBuild can exit non-zero with the failure only in the file log, so
       # surface it rather than leaving the job with no explanation.
       - name: Show failures from build log
@@ -375,4 +417,5 @@ jobs:
           path: |
             build.log
             test.log
+            selftest.log
           if-no-files-found: ignore

@@ -496,6 +496,7 @@ ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
   client.borderlessFullscreen = _config.client.window.mode == "borderless";
   client.vsync = _config.client.renderer.vsync;
   client.frameCap = _config.client.renderer.frameCap;
+  client.msaaSamples = _config.client.renderer.msaa; // S14: the 4x offscreen target.
   client.serverHost = _config.client.connectHost;
   client.serverPort = _config.client.connectPort;
 
@@ -533,6 +534,7 @@ ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
   client.cameraYawSnapDegrees = static_cast<float>(_config.client.camera.yawSnapDegrees);
   client.uiScale = static_cast<float>(_config.client.ui.scale);
   client.uiPalette = _config.client.ui.palette;
+  client.diagnosticsStrip = _config.client.diagnostics.strip; // S14: the Tier-1 strip's setting.
 
   // The world is not here any more. Scenery, the grid anchor and the handshake
   // hashes went behind `Neuron::WorldView` with S5c: configuration is how the

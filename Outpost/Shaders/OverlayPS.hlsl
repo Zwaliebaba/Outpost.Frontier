@@ -82,6 +82,23 @@ float4 PixelMain(VertexOutput _input) : SV_Target
     return float4(_input.colour.rgb, _input.colour.a * alpha);
   }
 
+  if (_input.kind == OVERLAY_STALE_MARKER)
+  {
+    // The icon sheet's STALE state marker (S14): a dashed ring, like a pending
+    // footprint, but screen-facing -- so the dash runs evenly on the *screen*,
+    // which is correct here for the same reason it would be wrong on the
+    // footprint: this quad is built in pixels and lies on no plane.
+    const float distance = length(_input.local);
+    float alpha = RingAlpha(distance);
+    if (_input.fill > 0.5f)
+    {
+      const float turns = atan2(_input.local.y, _input.local.x) * (0.5f / 3.14159265f) + 0.5f;
+      alpha *= step(frac(turns * _input.fill), 0.55f);
+    }
+    clip(alpha - 0.004f);
+    return float4(_input.colour.rgb, _input.colour.a * alpha);
+  }
+
   // A bar: filled from the left edge to `fill`, with the remainder drawn dark
   // rather than transparent. An empty bar has to be visible as an empty bar --
   // a shield at zero that draws nothing is indistinguishable from a ship that

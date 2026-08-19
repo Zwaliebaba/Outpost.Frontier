@@ -44,17 +44,19 @@ constexpr float PLAY_AREA_HALF_EXTENT_METRES = 20000.0f;
 TEST_CLASS(RenderSceneTests)
 {
 public:
-  TEST_METHOD(InstanceRecordIsTheTwentyByteVertexStream)
+  TEST_METHOD(InstanceRecordIsTheTwentyFourByteVertexStream)
   {
     // It is the per-instance vertex stream, so its size is the stride the input
     // layout declares and the shader reads. A field added here is a change in
-    // three places, and this is the one that notices.
-    Assert::AreEqual<std::size_t>(20, sizeof(InstanceRecord));
+    // three places, and this is the one that notices. S14 appended the cosmetic
+    // bank -- appended, so every earlier field keeps its declared offset.
+    Assert::AreEqual<std::size_t>(24, sizeof(InstanceRecord));
     Assert::AreEqual<std::size_t>(0, offsetof(InstanceRecord, posWorld));
     Assert::AreEqual<std::size_t>(12, offsetof(InstanceRecord, heading));
     Assert::AreEqual<std::size_t>(16, offsetof(InstanceRecord, teamColorId));
     Assert::AreEqual<std::size_t>(17, offsetof(InstanceRecord, selectionAndLodBias));
     Assert::AreEqual<std::size_t>(18, offsetof(InstanceRecord, classId));
+    Assert::AreEqual<std::size_t>(20, offsetof(InstanceRecord, bank));
   }
 
   TEST_METHOD(SortingByClassPartitionsTheInstanceArray)

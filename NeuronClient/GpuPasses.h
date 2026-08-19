@@ -197,7 +197,16 @@ private:
 class GpuPassList
 {
 public:
-  void Record(const FrameContext& _context);
+  /*
+   * Two halves rather than one Record (S14): everything up to and including
+   * OverlayWorld draws into `renderTargetView` -- the MSAA target when one
+   * exists -- and Ui draws after the frame loop has resolved, straight onto
+   * the back buffer. The resolve and its barriers sit between the two calls
+   * and belong to the frame loop, exactly as the PRESENT transitions do:
+   * barriers are not a pass (see the file comment).
+   */
+  void RecordWorld(const FrameContext& _context);
+  void RecordUi(const FrameContext& _context);
 
   [[nodiscard]] const OpaquePass& Opaque() const noexcept { return m_opaque; }
   [[nodiscard]] const NebulaPass& Nebula() const noexcept { return m_nebula; }
