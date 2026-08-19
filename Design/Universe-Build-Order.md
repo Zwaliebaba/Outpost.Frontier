@@ -4,6 +4,12 @@
 [ADR-016](ADR/ADR-016-procedural-universe-and-warp.md); where this document and that one
 disagree, the ADR wins on *what* and this one on *when*.
 
+**Interleave (owner sequencing, 2026-08-19):** the station phase
+([Station-Build-Order.md](Station-Build-Order.md), ADR-017) runs **after U2 and before
+U3a**. It introduces the transfer bus and `World`'s transfer seam, so U3a inherits both
+rather than building them; U1's anchor table carries ADR-017's undock fields from the
+first bake (see U1's acceptance).
+
 The rules are the MVP build order's, unchanged: each slice is independently testable, lands
 green (`Tests/` + `selfTest` where applicable), is sized at "a few days" or less, and later
 slices assume earlier ones. Landed slices will carry a **Built** line naming what is in the
@@ -27,13 +33,17 @@ with symmetric pairs (1–4 gates per system, ~2.4 average); curated-root naming
 constellations proper, systems `ROOT-N`, unique); security bands per region + per-system
 values; per system one star and 2–8 planets at real orbital scales; 1–2 stations, each
 orbiting a planet at an Anchorage-style standoff; the **anchor table** (station / planet /
-gate, each with grid origin, warp-in point, warp-in facing — ADR-016 §3); ~3 starter systems
+gate, each with grid origin, warp-in point, warp-in facing — ADR-016 §3 — and, for station
+anchors, the undock point and undock facing, ~800 m off the structure facing outward —
+ADR-017 §3); ~3 starter systems
 designated. **Curated inserts**: Vesta-3 stays hand-authored as the start, the galaxy grows
 around it. Bake mode in the exe (config-selected, ADR-012) writes the canonical JSON; the
 2,500-system file is **committed** as the authored universe.
 **Accept:** same seed + config ⇒ byte-identical file, run twice in CI; the invariants suite
 (connectivity, symmetry, uniqueness, station-orbits-planet, security ranges, cluster
-separation, starter validity, warp-in-inside-grid) is green against the *committed* file;
+separation, starter validity, warp-in-inside-grid — plus ADR-017's: station warp-in inside
+the dock radius, undock point clear of the structure's contact radius, parking rings inside
+the grid) is green against the *committed* file;
 parse + `universeHash` of that file **measured and the number recorded here** (per-region
 split is the reserved fallback if it exceeds ~1 s Debug); headless boot from it; `Ids.h`'s
 scale comment corrected.
@@ -54,7 +64,9 @@ by both halves with the new reasons (`UnknownAnchor`; ordering added to the chec
 contract, ADR-005 §4a); class table gains `warpSpeedMetresPerSec` and `spoolSeconds` (shape
 asserted by the envelope suite: capitals spool slower, warp slower). Spool (cancellable by
 replacement) → committed transit via the **transfer bus** (tick-stamped records, applied
-between ticks in (arrival tick, order id) order) → arrival by formation solve at the warp-in
+between ticks in (arrival tick, order id) order — **inherited from T1**, which lands it with
+dock/undock records and the transfer seam on `World`; U3a adds transit records, not the
+mechanism) → arrival by formation solve at the warp-in
 point with ADR-015 separation. Transit duration: base + universe distance / slowest member's
 warp speed. Replay harness and `WorldHash`-level suites extend to cover transfers.
 **Accept:** `GameLogicTests`: double-run bit-identity across a scenario with concurrent
