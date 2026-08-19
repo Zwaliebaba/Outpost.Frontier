@@ -93,6 +93,36 @@ public:
     return true;
   }
 
+  /*
+   * Present-and-valid, or nothing.
+   *
+   * `ReadInt64` **requires**: a missing key is a diagnostic, which is right for
+   * a position and wrong for a field added after content was authored. Reading
+   * an optional field through it silently made every pre-bake universe file
+   * invalid -- which is exactly what happened, and what the hand-authored
+   * test universe caught.
+   */
+  [[nodiscard]] bool ReadOptionalInt64(const JsonValue& _parent, std::string_view _name, const std::string& _path,
+                                       std::int64_t _min, std::int64_t _max, std::int64_t& _outValue)
+  {
+    if (!_parent.Member(_name).Valid())
+    {
+      return false;
+    }
+    return ReadInt64(_parent, _name, _path, _min, _max, _outValue);
+  }
+
+  /// The same, for an id.
+  [[nodiscard]] bool ReadOptionalId(const JsonValue& _parent, std::string_view _name, const std::string& _path,
+                                    std::uint16_t& _outId)
+  {
+    if (!_parent.Member(_name).Valid())
+    {
+      return false;
+    }
+    return ReadId(_parent, _name, _path, _outId);
+  }
+
   [[nodiscard]] bool ReadId(const JsonValue& _parent, std::string_view _name, const std::string& _path, std::uint16_t& _outId)
   {
     std::int64_t value = 0;
@@ -351,11 +381,11 @@ void ReadRegions(Reader& _reader, const JsonValue& _root, UniverseDef& _outUnive
     // parse failure.
     std::int64_t floorValue = 0;
     std::int64_t ceilingValue = 0;
-    if (_reader.ReadInt64(entry, "securityFloor", path, 0, 100, floorValue))
+    if (_reader.ReadOptionalInt64(entry, "securityFloor", path, 0, 100, floorValue))
     {
       region.securityFloor = static_cast<std::uint8_t>(floorValue);
     }
-    if (_reader.ReadInt64(entry, "securityCeiling", path, 0, 100, ceilingValue))
+    if (_reader.ReadOptionalInt64(entry, "securityCeiling", path, 0, 100, ceilingValue))
     {
       region.securityCeiling = static_cast<std::uint8_t>(ceilingValue);
     }
@@ -401,13 +431,14 @@ void ReadConstellations(Reader& _reader, const JsonValue& _root, UniverseDef& _o
       _reader.Fail(entry, path, "must be an object");
       continue;
     }
-    RejectUnknownKeys(_reader, entry, {"id", "region", "name"}, path);
+    RejectUnknownKeys(_reader, entry, {"id", "region", "name", "centre"}, path);
 
     Constellation constellation;
     const bool haveId = _reader.ReadId(entry, "id", path, constellation.id);
     const bool haveRegion = _reader.ReadId(entry, "region", path, constellation.region);
     const bool haveName = _reader.ReadName(entry, "name", path, constellation.name);
-    if (!haveId || !haveRegion || !haveName)
+    const bool haveCentre = _reader.ReadPosition(entry, path, constellation.centre, "centre");
+    if (!haveId || !haveRegion || !haveName || !haveCentre)
     {
       continue;
     }
@@ -510,7 +541,7 @@ void ReadAnchors(Reader& _reader, const JsonValue& _system, const std::string& _
     anchor.warpInFacingTurns16 = static_cast<std::uint16_t>(facing);
 
     std::int64_t spread = 0;
-    if (_reader.ReadInt64(entry, "arrivalSpreadRadiusCm", path, 0, GRID_HALF_EXTENT_METRES * 100, spread))
+    if (_reader.ReadOptionalInt64(entry, "arrivalSpreadRadiusCm", path, 0, GRID_HALF_EXTENT_METRES * 100, spread))
     {
       anchor.arrivalSpreadRadiusCm = static_cast<std::int32_t>(spread);
     }
@@ -573,9 +604,9 @@ void ReadSystems(Reader& _reader, const JsonValue& _root, UniverseDef& _outUnive
     const bool haveRegion = _reader.ReadId(entry, "region", path, system.region);
     const bool haveName = _reader.ReadName(entry, "name", path, system.name);
 
-    (void)_reader.ReadId(entry, "constellation", path, system.constellation); // Optional.
+    (void)_reader.ReadOptionalId(entry, "constellation", path, system.constellation);
     std::int64_t security = 0;
-    if (_reader.ReadInt64(entry, "security", path, 0, 100, security))
+    if (_reader.ReadOptionalInt64(entry, "security", path, 0, 100, security))
     {
       system.security = static_cast<std::uint8_t>(security);
     }

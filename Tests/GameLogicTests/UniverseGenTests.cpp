@@ -167,40 +167,45 @@ public:
 
   TEST_METHOD(ConstellationsCluster)
   {
-    // The strategic map's stated requirement, made measurable: every system is
-    // nearer its own constellation's centre than any other's. The generator
-    // guarantees it by construction (a system sits inside a radius, centres are
-    // more than twice that radius apart), so a failure here means one of those
-    // two constants moved without the other.
+    /*
+     * The strategic map's stated requirement, made measurable: every system is
+     * nearer its own constellation's **placed** centre than any other's. The
+     * generator guarantees it by construction -- a system sits inside a radius,
+     * and centres are more than twice that radius apart -- so a failure here
+     * means one of those two constants moved without the other.
+     *
+     * Against the *placed* centre, not the centroid of the systems drawn into
+     * it. That distinction is why `Constellation` carries its centre: with a
+     * handful of systems sampled from a much larger lattice, the centroid
+     * drifts far enough to break a property the placement never broke, and the
+     * first version of this test failed for exactly that reason.
+     */
     const UniverseDef universe = Bake(SmallConfig());
 
     std::vector<UniversePos> centre(universe.constellations.size() + 1);
+    for (const Constellation& constellation : universe.constellations)
+    {
+      centre[constellation.id] = constellation.centre;
+    }
+
     std::vector<std::uint32_t> members(universe.constellations.size() + 1, 0);
     for (const SolarSystem& system : universe.systems)
     {
-      centre[system.constellation].x += system.centre.x >> 8;
-      centre[system.constellation].y += system.centre.y >> 8;
       ++members[system.constellation];
-    }
-    for (std::size_t index = 1; index < centre.size(); ++index)
-    {
-      Assert::IsTrue(members[index] > 0, L"a constellation has no systems");
-      centre[index].x = (centre[index].x / members[index]) << 8;
-      centre[index].y = (centre[index].y / members[index]) << 8;
-    }
-
-    for (const SolarSystem& system : universe.systems)
-    {
       const std::int64_t own = DistanceSquared(system.centre, centre[system.constellation], 24);
-      for (std::size_t index = 1; index < centre.size(); ++index)
+      for (const Constellation& other : universe.constellations)
       {
-        if (index == system.constellation)
+        if (other.id == system.constellation)
         {
           continue;
         }
-        Assert::IsTrue(own < DistanceSquared(system.centre, centre[index], 24),
+        Assert::IsTrue(own < DistanceSquared(system.centre, other.centre, 24),
                        L"a system sits nearer another constellation's centre than its own");
       }
+    }
+    for (const Constellation& constellation : universe.constellations)
+    {
+      Assert::IsTrue(members[constellation.id] > 0, L"a constellation has no systems");
     }
   }
 

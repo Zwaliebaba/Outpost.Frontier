@@ -131,6 +131,7 @@ std::uint64_t ComputeUniverseHash(const UniverseDef& _universe)
     hash = HashValue(constellation.id, hash);
     hash = HashValue(constellation.region, hash);
     hash = HashName(constellation.name, hash);
+    hash = HashPosition(constellation.centre, hash);
   }
 
   hash = HashValue(static_cast<std::uint32_t>(_universe.systems.size()), hash);

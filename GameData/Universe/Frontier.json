@@ -320,1252 +320,2252 @@
     {
       "id": 1,
       "region": 1,
-      "name": "Zelgren Drift"
+      "name": "Zelgren Drift",
+      "centre": {
+        "x": -737087054906867205,
+        "y": -734617119090811589
+      }
     },
     {
       "id": 2,
       "region": 1,
-      "name": "Ishith Veil"
+      "name": "Ishith Veil",
+      "centre": {
+        "x": -663855324157731305,
+        "y": -724519438101058480
+      }
     },
     {
       "id": 3,
       "region": 1,
-      "name": "Orrdan Chain"
+      "name": "Orrdan Chain",
+      "centre": {
+        "x": -576528040480815901,
+        "y": -738902703644410710
+      }
     },
     {
       "id": 4,
       "region": 1,
-      "name": "Merdan Cluster"
+      "name": "Merdan Cluster",
+      "centre": {
+        "x": -735061294961163182,
+        "y": -654065572780133156
+      }
     },
     {
       "id": 5,
       "region": 1,
-      "name": "Quargren Span"
+      "name": "Quargren Span",
+      "centre": {
+        "x": -655324504192538407,
+        "y": -660031136742477775
+      }
     },
     {
       "id": 6,
       "region": 2,
-      "name": "Thaltia Wreath"
+      "name": "Thaltia Wreath",
+      "centre": {
+        "x": -512087541934156981,
+        "y": -725514008787650110
+      }
     },
     {
       "id": 7,
       "region": 2,
-      "name": "Kessvek Lattice"
+      "name": "Kessvek Lattice",
+      "centre": {
+        "x": -431182176322149385,
+        "y": -727331805717520132
+      }
     },
     {
       "id": 8,
       "region": 2,
-      "name": "Varvek Shoal"
+      "name": "Varvek Shoal",
+      "centre": {
+        "x": -372532152257161565,
+        "y": -729580727686188603
+      }
     },
     {
       "id": 9,
       "region": 2,
-      "name": "Garvek Drift"
+      "name": "Garvek Drift",
+      "centre": {
+        "x": -503996122340403103,
+        "y": -658501170340784354
+      }
     },
     {
       "id": 10,
       "region": 2,
-      "name": "Hothros Veil"
+      "name": "Hothros Veil",
+      "centre": {
+        "x": -428060937461789067,
+        "y": -659959495332265124
+      }
     },
     {
       "id": 11,
       "region": 3,
-      "name": "Dunler Chain"
+      "name": "Dunler Chain",
+      "centre": {
+        "x": -276602367723501543,
+        "y": -720327298223352956
+      }
     },
     {
       "id": 12,
       "region": 3,
-      "name": "Grimith Cluster"
+      "name": "Grimith Cluster",
+      "centre": {
+        "x": -220727159178892048,
+        "y": -734935540441588391
+      }
     },
     {
       "id": 13,
       "region": 3,
-      "name": "Kessmar Span"
+      "name": "Kessmar Span",
+      "centre": {
+        "x": -137372432645633566,
+        "y": -719185120028028144
+      }
     },
     {
       "id": 14,
       "region": 3,
-      "name": "Lornvek Wreath"
+      "name": "Lornvek Wreath",
+      "centre": {
+        "x": -292018863335436861,
+        "y": -656429374514206338
+      }
     },
     {
       "id": 15,
       "region": 3,
-      "name": "Kesstia Lattice"
+      "name": "Kesstia Lattice",
+      "centre": {
+        "x": -207697895315970389,
+        "y": -647024099212863927
+      }
     },
     {
       "id": 16,
       "region": 4,
-      "name": "Faldros Shoal"
+      "name": "Faldros Shoal",
+      "centre": {
+        "x": -68515938226130529,
+        "y": -742928455680926401
+      }
     },
     {
       "id": 17,
       "region": 4,
-      "name": "Ephler Drift"
+      "name": "Ephler Drift",
+      "centre": {
+        "x": -9780374557170096,
+        "y": -719084131966809953
+      }
     },
     {
       "id": 18,
       "region": 4,
-      "name": "Calmar Veil"
+      "name": "Calmar Veil",
+      "centre": {
+        "x": 80734522933586583,
+        "y": -716358420919158259
+      }
     },
     {
       "id": 19,
       "region": 4,
-      "name": "Draldan Chain"
+      "name": "Draldan Chain",
+      "centre": {
+        "x": -80186391377349098,
+        "y": -661743698107309902
+      }
     },
     {
       "id": 20,
       "region": 4,
-      "name": "Ephith Cluster"
+      "name": "Ephith Cluster",
+      "centre": {
+        "x": 789403625631858,
+        "y": -652996986346614842
+      }
     },
     {
       "id": 21,
       "region": 5,
-      "name": "Urros Span"
+      "name": "Urros Span",
+      "centre": {
+        "x": 153801698294630268,
+        "y": -738207186452598661
+      }
     },
     {
       "id": 22,
       "region": 5,
-      "name": "Kessler Wreath"
+      "name": "Kessler Wreath",
+      "centre": {
+        "x": 223423228513387703,
+        "y": -716265291177996089
+      }
     },
     {
       "id": 23,
       "region": 5,
-      "name": "Grimgren Lattice"
+      "name": "Grimgren Lattice",
+      "centre": {
+        "x": 298649688564376300,
+        "y": -724192765341016179
+      }
     },
     {
       "id": 24,
       "region": 5,
-      "name": "Orrros Shoal"
+      "name": "Orrros Shoal",
+      "centre": {
+        "x": 135398180261020777,
+        "y": -656873432600602250
+      }
     },
     {
       "id": 25,
       "region": 5,
-      "name": "Hothvek Drift"
+      "name": "Hothvek Drift",
+      "centre": {
+        "x": 219097261701385385,
+        "y": -659236962930493219
+      }
     },
     {
       "id": 26,
       "region": 6,
-      "name": "Jorler Veil"
+      "name": "Jorler Veil",
+      "centre": {
+        "x": 366193181947629056,
+        "y": -720666370637444394
+      }
     },
     {
       "id": 27,
       "region": 6,
-      "name": "Aldith Chain"
+      "name": "Aldith Chain",
+      "centre": {
+        "x": 432390357179240878,
+        "y": -734808950882981427
+      }
     },
     {
       "id": 28,
       "region": 6,
-      "name": "Xanros Cluster"
+      "name": "Xanros Cluster",
+      "centre": {
+        "x": 504263195334504423,
+        "y": -726902625918315174
+      }
     },
     {
       "id": 29,
       "region": 6,
-      "name": "Aldmar Span"
+      "name": "Aldmar Span",
+      "centre": {
+        "x": 378528383677397511,
+        "y": -662597426042564652
+      }
     },
     {
       "id": 30,
       "region": 6,
-      "name": "Dunith Wreath"
+      "name": "Dunith Wreath",
+      "centre": {
+        "x": 436569205420698420,
+        "y": -656555378468931835
+      }
     },
     {
       "id": 31,
       "region": 7,
-      "name": "Ravvek Lattice"
+      "name": "Ravvek Lattice",
+      "centre": {
+        "x": 590038913915175294,
+        "y": -724075551408326994
+      }
     },
     {
       "id": 32,
       "region": 7,
-      "name": "Kessros Shoal"
+      "name": "Kessros Shoal",
+      "centre": {
+        "x": 655407767610422717,
+        "y": -716945992690624651
+      }
     },
     {
       "id": 33,
       "region": 7,
-      "name": "Urler Drift"
+      "name": "Urler Drift",
+      "centre": {
+        "x": 725830736097991559,
+        "y": -727199386200551485
+      }
     },
     {
       "id": 34,
       "region": 7,
-      "name": "Nymdan Veil"
+      "name": "Nymdan Veil",
+      "centre": {
+        "x": 585672133139662561,
+        "y": -667065060450345720
+      }
     },
     {
       "id": 35,
       "region": 7,
-      "name": "Jorvek Chain"
+      "name": "Jorvek Chain",
+      "centre": {
+        "x": 668442316380637966,
+        "y": -653716964011086416
+      }
     },
     {
       "id": 36,
       "region": 8,
-      "name": "Vexith Cluster"
+      "name": "Vexith Cluster",
+      "centre": {
+        "x": 816462176261050606,
+        "y": -728451084212853898
+      }
     },
     {
       "id": 37,
       "region": 8,
-      "name": "Quarith Span"
+      "name": "Quarith Span",
+      "centre": {
+        "x": 892453680621155593,
+        "y": -737018374153719816
+      }
     },
     {
       "id": 38,
       "region": 8,
-      "name": "Hothler Wreath"
+      "name": "Hothler Wreath",
+      "centre": {
+        "x": 939977968706094447,
+        "y": -739651312127257564
+      }
     },
     {
       "id": 39,
       "region": 8,
-      "name": "Pelgren Lattice"
+      "name": "Pelgren Lattice",
+      "centre": {
+        "x": 820017418017059615,
+        "y": -673600873680588924
+      }
     },
     {
       "id": 40,
       "region": 8,
-      "name": "Jorros Shoal"
+      "name": "Jorros Shoal",
+      "centre": {
+        "x": 870264699701929762,
+        "y": -664485564209619897
+      }
     },
     {
       "id": 41,
       "region": 9,
-      "name": "Ambrtia Drift"
+      "name": "Ambrtia Drift",
+      "centre": {
+        "x": -715510200767016276,
+        "y": -516985829864061482
+      }
     },
     {
       "id": 42,
       "region": 9,
-      "name": "Corvgren Veil"
+      "name": "Corvgren Veil",
+      "centre": {
+        "x": -668587167680995288,
+        "y": -509555076008457412
+      }
     },
     {
       "id": 43,
       "region": 9,
-      "name": "Hothmar Chain"
+      "name": "Hothmar Chain",
+      "centre": {
+        "x": -592048650179654819,
+        "y": -510354468682406945
+      }
     },
     {
       "id": 44,
       "region": 9,
-      "name": "Ishgren Cluster"
+      "name": "Ishgren Cluster",
+      "centre": {
+        "x": -719177192653801653,
+        "y": -432376404585264244
+      }
     },
     {
       "id": 45,
       "region": 9,
-      "name": "Hestmar Span"
+      "name": "Hestmar Span",
+      "centre": {
+        "x": -664621530200738636,
+        "y": -434382011815089622
+      }
     },
     {
       "id": 46,
       "region": 10,
-      "name": "Aldgren Wreath"
+      "name": "Aldgren Wreath",
+      "centre": {
+        "x": -517402883603412310,
+        "y": -519703639013506182
+      }
     },
     {
       "id": 47,
       "region": 10,
-      "name": "Ravmar Lattice"
+      "name": "Ravmar Lattice",
+      "centre": {
+        "x": -438396971403132358,
+        "y": -516612528959402396
+      }
     },
     {
       "id": 48,
       "region": 10,
-      "name": "Yarros Shoal"
+      "name": "Yarros Shoal",
+      "centre": {
+        "x": -374784473768630784,
+        "y": -497527180822758129
+      }
     },
     {
       "id": 49,
       "region": 10,
-      "name": "Sevvek Drift"
+      "name": "Sevvek Drift",
+      "centre": {
+        "x": -522836258155566473,
+        "y": -428337736719522369
+      }
     },
     {
       "id": 50,
       "region": 10,
-      "name": "Yardan Veil"
+      "name": "Yardan Veil",
+      "centre": {
+        "x": -450351939795122477,
+        "y": -445813662485518809
+      }
     },
     {
       "id": 51,
       "region": 11,
-      "name": "Kaltia Chain"
+      "name": "Kaltia Chain",
+      "centre": {
+        "x": -277437778506313048,
+        "y": -512327536225783393
+      }
     },
     {
       "id": 52,
       "region": 11,
-      "name": "Xandan Cluster"
+      "name": "Xandan Cluster",
+      "centre": {
+        "x": -222178577710940075,
+        "y": -517437618185577673
+      }
     },
     {
       "id": 53,
       "region": 11,
-      "name": "Cindgren Span"
+      "name": "Cindgren Span",
+      "centre": {
+        "x": -148116009595366639,
+        "y": -507571130684586645
+      }
     },
     {
       "id": 54,
       "region": 11,
-      "name": "Hestgren Wreath"
+      "name": "Hestgren Wreath",
+      "centre": {
+        "x": -293106496680072177,
+        "y": -446035260031784804
+      }
     },
     {
       "id": 55,
       "region": 11,
-      "name": "Sevler Lattice"
+      "name": "Sevler Lattice",
+      "centre": {
+        "x": -229985990700460503,
+        "y": -446044979148591636
+      }
     },
     {
       "id": 56,
       "region": 12,
-      "name": "Sevtia Shoal"
+      "name": "Sevtia Shoal",
+      "centre": {
+        "x": -74279515584467835,
+        "y": -517467781126706165
+      }
     },
     {
       "id": 57,
       "region": 12,
-      "name": "Xantia Drift"
+      "name": "Xantia Drift",
+      "centre": {
+        "x": 8576352379828715,
+        "y": -501296198789546892
+      }
     },
     {
       "id": 58,
       "region": 12,
-      "name": "Vargren Veil"
+      "name": "Vargren Veil",
+      "centre": {
+        "x": 60178437926145537,
+        "y": -511062362101494834
+      }
     },
     {
       "id": 59,
       "region": 12,
-      "name": "Lorntia Chain"
+      "name": "Lorntia Chain",
+      "centre": {
+        "x": -62853089373581331,
+        "y": -434081069138696466
+      }
     },
     {
       "id": 60,
       "region": 12,
-      "name": "Vexler Cluster"
+      "name": "Vexler Cluster",
+      "centre": {
+        "x": 1043829220836759,
+        "y": -433507272862863874
+      }
     },
     {
       "id": 61,
       "region": 13,
-      "name": "Dralith Span"
+      "name": "Dralith Span",
+      "centre": {
+        "x": 152688885920776432,
+        "y": -504396529519155056
+      }
     },
     {
       "id": 62,
       "region": 13,
-      "name": "Ishtia Wreath"
+      "name": "Ishtia Wreath",
+      "centre": {
+        "x": 222821191197840915,
+        "y": -506562337324558070
+      }
     },
     {
       "id": 63,
       "region": 13,
-      "name": "Gargren Lattice"
+      "name": "Gargren Lattice",
+      "centre": {
+        "x": 279084361590872779,
+        "y": -502665449187788075
+      }
     },
     {
       "id": 64,
       "region": 13,
-      "name": "Brandan Shoal"
+      "name": "Brandan Shoal",
+      "centre": {
+        "x": 151878662131197616,
+        "y": -442955840095203795
+      }
     },
     {
       "id": 65,
       "region": 13,
-      "name": "Zelros Drift"
+      "name": "Zelros Drift",
+      "centre": {
+        "x": 231318993830072516,
+        "y": -435040782015825618
+      }
     },
     {
       "id": 66,
       "region": 14,
-      "name": "Torgren Veil"
+      "name": "Torgren Veil",
+      "centre": {
+        "x": 355294664388325450,
+        "y": -498622587897491080
+      }
     },
     {
       "id": 67,
       "region": 14,
-      "name": "Orrtia Chain"
+      "name": "Orrtia Chain",
+      "centre": {
+        "x": 428758693323159132,
+        "y": -499219632569118751
+      }
     },
     {
       "id": 68,
       "region": 14,
-      "name": "Nymler Cluster"
+      "name": "Nymler Cluster",
+      "centre": {
+        "x": 516316950109638510,
+        "y": -516563919865946695
+      }
     },
     {
       "id": 69,
       "region": 14,
-      "name": "Varith Span"
+      "name": "Varith Span",
+      "centre": {
+        "x": 369342423193619362,
+        "y": -437561229059250466
+      }
     },
     {
       "id": 70,
       "region": 14,
-      "name": "Ravtia Wreath"
+      "name": "Ravtia Wreath",
+      "centre": {
+        "x": 444490895069255800,
+        "y": -430524373441456306
+      }
     },
     {
       "id": 71,
       "region": 15,
-      "name": "Ishros Lattice"
+      "name": "Ishros Lattice",
+      "centre": {
+        "x": 585901468226552309,
+        "y": -512228757857672031
+      }
     },
     {
       "id": 72,
       "region": 15,
-      "name": "Thalros Shoal"
+      "name": "Thalros Shoal",
+      "centre": {
+        "x": 665005833462517260,
+        "y": -514838365881873024
+      }
     },
     {
       "id": 73,
       "region": 15,
-      "name": "Lornros Drift"
+      "name": "Lornros Drift",
+      "centre": {
+        "x": 721035280924078160,
+        "y": -497711798269955939
+      }
     },
     {
       "id": 74,
       "region": 15,
-      "name": "Thalgren Veil"
+      "name": "Thalgren Veil",
+      "centre": {
+        "x": 589507292627823417,
+        "y": -434453114641330976
+      }
     },
     {
       "id": 75,
       "region": 15,
-      "name": "Quartia Chain"
+      "name": "Quartia Chain",
+      "centre": {
+        "x": 658710831734068323,
+        "y": -431569079817049074
+      }
     },
     {
       "id": 76,
       "region": 16,
-      "name": "Lorndan Cluster"
+      "name": "Lorndan Cluster",
+      "centre": {
+        "x": 804785087939282389,
+        "y": -497109511605153386
+      }
     },
     {
       "id": 77,
       "region": 16,
-      "name": "Nymgren Span"
+      "name": "Nymgren Span",
+      "centre": {
+        "x": 877236401334291495,
+        "y": -512979955040400925
+      }
     },
     {
       "id": 78,
       "region": 16,
-      "name": "Ambrmar Wreath"
+      "name": "Ambrmar Wreath",
+      "centre": {
+        "x": 941909517744356512,
+        "y": -499101104484908399
+      }
     },
     {
       "id": 79,
       "region": 16,
-      "name": "Ishdan Lattice"
+      "name": "Ishdan Lattice",
+      "centre": {
+        "x": 818213635781363797,
+        "y": -436341398688127755
+      }
     },
     {
       "id": 80,
       "region": 16,
-      "name": "Orrgren Shoal"
+      "name": "Orrgren Shoal",
+      "centre": {
+        "x": 881149100713127953,
+        "y": -438929187295084700
+      }
     },
     {
       "id": 81,
       "region": 17,
-      "name": "Falddan Drift"
+      "name": "Falddan Drift",
+      "centre": {
+        "x": -733866488209057660,
+        "y": -281226973263280245
+      }
     },
     {
       "id": 82,
       "region": 17,
-      "name": "Ravith Veil"
+      "name": "Ravith Veil",
+      "centre": {
+        "x": -669637385991804315,
+        "y": -278875565802733142
+      }
     },
     {
       "id": 83,
       "region": 17,
-      "name": "Wendith Chain"
+      "name": "Wendith Chain",
+      "centre": {
+        "x": -577381479610011372,
+        "y": -275609929344898300
+      }
     },
     {
       "id": 84,
       "region": 17,
-      "name": "Ephdan Cluster"
+      "name": "Ephdan Cluster",
+      "centre": {
+        "x": -734632685455633244,
+        "y": -222534916947180096
+      }
     },
     {
       "id": 85,
       "region": 17,
-      "name": "Hestros Span"
+      "name": "Hestros Span",
+      "centre": {
+        "x": -670153993679297183,
+        "y": -219007508053833213
+      }
     },
     {
       "id": 86,
       "region": 18,
-      "name": "Brangren Wreath"
+      "name": "Brangren Wreath",
+      "centre": {
+        "x": -506847216851917269,
+        "y": -287225672699834070
+      }
     },
     {
       "id": 87,
       "region": 18,
-      "name": "Mergren Lattice"
+      "name": "Mergren Lattice",
+      "centre": {
+        "x": -447181807350522702,
+        "y": -302513071796587682
+      }
     },
     {
       "id": 88,
       "region": 18,
-      "name": "Corvler Shoal"
+      "name": "Corvler Shoal",
+      "centre": {
+        "x": -384608331595489194,
+        "y": -275763832664566987
+      }
     },
     {
       "id": 89,
       "region": 18,
-      "name": "Nymvek Drift"
+      "name": "Nymvek Drift",
+      "centre": {
+        "x": -506267991006206120,
+        "y": -225863301775497589
+      }
     },
     {
       "id": 90,
       "region": 18,
-      "name": "Tordan Veil"
+      "name": "Tordan Veil",
+      "centre": {
+        "x": -450882611944289954,
+        "y": -230006005590892521
+      }
     },
     {
       "id": 91,
       "region": 19,
-      "name": "Quarmar Chain"
+      "name": "Quarmar Chain",
+      "centre": {
+        "x": -280232286497109420,
+        "y": -289083905335298728
+      }
     },
     {
       "id": 92,
       "region": 19,
-      "name": "Lorngren Cluster"
+      "name": "Lorngren Cluster",
+      "centre": {
+        "x": -231018233275451755,
+        "y": -290877364114094786
+      }
     },
     {
       "id": 93,
       "region": 19,
-      "name": "Torith Span"
+      "name": "Torith Span",
+      "centre": {
+        "x": -149707115807521985,
+        "y": -275528514070430728
+      }
     },
     {
       "id": 94,
       "region": 19,
-      "name": "Bexgren Wreath"
+      "name": "Bexgren Wreath",
+      "centre": {
+        "x": -290189896712850376,
+        "y": -215623175897342468
+      }
     },
     {
       "id": 95,
       "region": 19,
-      "name": "Orrith Lattice"
+      "name": "Orrith Lattice",
+      "centre": {
+        "x": -212064299144800771,
+        "y": -211850235277630537
+      }
     },
     {
       "id": 96,
       "region": 20,
-      "name": "Wendvek Shoal"
+      "name": "Wendvek Shoal",
+      "centre": {
+        "x": -77725824158363192,
+        "y": -294007286000871401
+      }
     },
     {
       "id": 97,
       "region": 20,
-      "name": "Xanmar Drift"
+      "name": "Xanmar Drift",
+      "centre": {
+        "x": -584849664252064,
+        "y": -300353002127853731
+      }
     },
     {
       "id": 98,
       "region": 20,
-      "name": "Yarler Veil"
+      "name": "Yarler Veil",
+      "centre": {
+        "x": 76501778223018516,
+        "y": -289130545111887957
+      }
     },
     {
       "id": 99,
       "region": 20,
-      "name": "Haldan Chain"
+      "name": "Haldan Chain",
+      "centre": {
+        "x": -69085273891696569,
+        "y": -209079670479773308
+      }
     },
     {
       "id": 100,
       "region": 20,
-      "name": "Ambrvek Cluster"
+      "name": "Ambrvek Cluster",
+      "centre": {
+        "x": -8646079497360981,
+        "y": -208406316717153065
+      }
     },
     {
       "id": 101,
       "region": 21,
-      "name": "Urith Span"
+      "name": "Urith Span",
+      "centre": {
+        "x": 158836667842450060,
+        "y": -279329571311514691
+      }
     },
     {
       "id": 102,
       "region": 21,
-      "name": "Branler Wreath"
+      "name": "Branler Wreath",
+      "centre": {
+        "x": 206460184002392377,
+        "y": -288660163254771142
+      }
     },
     {
       "id": 103,
       "region": 21,
-      "name": "Vextia Lattice"
+      "name": "Vextia Lattice",
+      "centre": {
+        "x": 301489569633413531,
+        "y": -277205959520053238
+      }
     },
     {
       "id": 104,
       "region": 21,
-      "name": "Bextia Shoal"
+      "name": "Bextia Shoal",
+      "centre": {
+        "x": 155001296259508907,
+        "y": -215562469917613179
+      }
     },
     {
       "id": 105,
       "region": 21,
-      "name": "Xanler Drift"
+      "name": "Xanler Drift",
+      "centre": {
+        "x": 218107210097916138,
+        "y": -225006913925367999
+      }
     },
     {
       "id": 106,
       "region": 22,
-      "name": "Solvek Veil"
+      "name": "Solvek Veil",
+      "centre": {
+        "x": 371473584573780328,
+        "y": -290760941297823599
+      }
     },
     {
       "id": 107,
       "region": 22,
-      "name": "Malvek Chain"
+      "name": "Malvek Chain",
+      "centre": {
+        "x": 447361420747539645,
+        "y": -288285450402209550
+      }
     },
     {
       "id": 108,
       "region": 22,
-      "name": "Mermar Cluster"
+      "name": "Mermar Cluster",
+      "centre": {
+        "x": 507597931873909346,
+        "y": -284696960901140970
+      }
     },
     {
       "id": 109,
       "region": 22,
-      "name": "Grimtia Span"
+      "name": "Grimtia Span",
+      "centre": {
+        "x": 356608455401185660,
+        "y": -234592398112074148
+      }
     },
     {
       "id": 110,
       "region": 22,
-      "name": "Quardan Wreath"
+      "name": "Quardan Wreath",
+      "centre": {
+        "x": 432303472412558119,
+        "y": -225252080326508979
+      }
     },
     {
       "id": 111,
       "region": 23,
-      "name": "Bexvek Lattice"
+      "name": "Bexvek Lattice",
+      "centre": {
+        "x": 578417163699191241,
+        "y": -304679356795025124
+      }
     },
     {
       "id": 112,
       "region": 23,
-      "name": "Ishvek Shoal"
+      "name": "Ishvek Shoal",
+      "centre": {
+        "x": 660833282237546691,
+        "y": -278255695169972178
+      }
     },
     {
       "id": 113,
       "region": 23,
-      "name": "Yarvek Drift"
+      "name": "Yarvek Drift",
+      "centre": {
+        "x": 722245327236216162,
+        "y": -282887474383548987
+      }
     },
     {
       "id": 114,
       "region": 23,
-      "name": "Merros Veil"
+      "name": "Merros Veil",
+      "centre": {
+        "x": 589958665822463756,
+        "y": -231553491930702256
+      }
     },
     {
       "id": 115,
       "region": 23,
-      "name": "Ravros Chain"
+      "name": "Ravros Chain",
+      "centre": {
+        "x": 654757787459348600,
+        "y": -233027139526286840
+      }
     },
     {
       "id": 116,
       "region": 24,
-      "name": "Fengren Cluster"
+      "name": "Fengren Cluster",
+      "centre": {
+        "x": 817419925511703735,
+        "y": -300118562968041984
+      }
     },
     {
       "id": 117,
       "region": 24,
-      "name": "Merith Span"
+      "name": "Merith Span",
+      "centre": {
+        "x": 881358888672121234,
+        "y": -295451749070123201
+      }
     },
     {
       "id": 118,
       "region": 24,
-      "name": "Xangren Wreath"
+      "name": "Xangren Wreath",
+      "centre": {
+        "x": 938763238815199000,
+        "y": -278501674689504334
+      }
     },
     {
       "id": 119,
       "region": 24,
-      "name": "Branros Lattice"
+      "name": "Branros Lattice",
+      "centre": {
+        "x": 822393943998024825,
+        "y": -230450400755414860
+      }
     },
     {
       "id": 120,
       "region": 24,
-      "name": "Zeller Shoal"
+      "name": "Zeller Shoal",
+      "centre": {
+        "x": 885161070937661980,
+        "y": -227974300939884524
+      }
     },
     {
       "id": 121,
       "region": 25,
-      "name": "Ephvek Drift"
+      "name": "Ephvek Drift",
+      "centre": {
+        "x": -739150391819604862,
+        "y": -70557062219512899
+      }
     },
     {
       "id": 122,
       "region": 25,
-      "name": "Malros Veil"
+      "name": "Malros Veil",
+      "centre": {
+        "x": -659547999814794204,
+        "y": -75417739692071818
+      }
     },
     {
       "id": 123,
       "region": 25,
-      "name": "Quarvek Chain"
+      "name": "Quarvek Chain",
+      "centre": {
+        "x": -596090690547082014,
+        "y": -74040507782380956
+      }
     },
     {
       "id": 124,
       "region": 25,
-      "name": "Grimros Cluster"
+      "name": "Grimros Cluster",
+      "centre": {
+        "x": -721526508846081975,
+        "y": -9396957759389281
+      }
     },
     {
       "id": 125,
       "region": 25,
-      "name": "Maller Span"
+      "name": "Maller Span",
+      "centre": {
+        "x": -654945834202279312,
+        "y": -3406334978590250
+      }
     },
     {
       "id": 126,
       "region": 26,
-      "name": "Ambrler Wreath"
+      "name": "Ambrler Wreath",
+      "centre": {
+        "x": -513172154189800478,
+        "y": -64654023717798861
+      }
     },
     {
       "id": 127,
       "region": 26,
-      "name": "Thaller Lattice"
+      "name": "Thaller Lattice",
+      "centre": {
+        "x": -445525457597917539,
+        "y": -67503902890847534
+      }
     },
     {
       "id": 128,
       "region": 26,
-      "name": "Soller Shoal"
+      "name": "Soller Shoal",
+      "centre": {
+        "x": -368815723906234053,
+        "y": -60917357622320435
+      }
     },
     {
       "id": 129,
       "region": 26,
-      "name": "Garros Drift"
+      "name": "Garros Drift",
+      "centre": {
+        "x": -500960821936492367,
+        "y": -13079150420833640
+      }
     },
     {
       "id": 130,
       "region": 26,
-      "name": "Calvek Veil"
+      "name": "Calvek Veil",
+      "centre": {
+        "x": -452822460468454219,
+        "y": 11223307819299765
+      }
     },
     {
       "id": 131,
       "region": 27,
-      "name": "Gardan Chain"
+      "name": "Gardan Chain",
+      "centre": {
+        "x": -286918670275847067,
+        "y": -70587118562430128
+      }
     },
     {
       "id": 132,
       "region": 27,
-      "name": "Tortia Cluster"
+      "name": "Tortia Cluster",
+      "centre": {
+        "x": -231947813890035974,
+        "y": -64663684238219794
+      }
     },
     {
       "id": 133,
       "region": 27,
-      "name": "Grimdan Span"
+      "name": "Grimdan Span",
+      "centre": {
+        "x": -148323171981738368,
+        "y": -79028526730899504
+      }
     },
     {
       "id": 134,
       "region": 27,
-      "name": "Ephtia Wreath"
+      "name": "Ephtia Wreath",
+      "centre": {
+        "x": -299766934806569294,
+        "y": 8512338781080245
+      }
     },
     {
       "id": 135,
       "region": 27,
-      "name": "Lornmar Lattice"
+      "name": "Lornmar Lattice",
+      "centre": {
+        "x": -225140507123438713,
+        "y": -9393803364622869
+      }
     },
     {
       "id": 136,
       "region": 28,
-      "name": "Urtia Shoal"
+      "name": "Urtia Shoal",
+      "centre": {
+        "x": -61443591212902817,
+        "y": -60020213861705767
+      }
     },
     {
       "id": 137,
       "region": 28,
-      "name": "Bexler Drift"
+      "name": "Bexler Drift",
+      "centre": {
+        "x": -14904829073960441,
+        "y": -64187380357441815
+      }
     },
     {
       "id": 138,
       "region": 28,
-      "name": "Ishler Veil"
+      "name": "Ishler Veil",
+      "centre": {
+        "x": 67215116839132701,
+        "y": -80769597990374971
+      }
     },
     {
       "id": 139,
       "region": 28,
-      "name": "Dralgren Chain"
+      "name": "Dralgren Chain",
+      "centre": {
+        "x": -84455615602029167,
+        "y": -7009845542066668
+      }
     },
     {
       "id": 140,
       "region": 28,
-      "name": "Fendan Cluster"
+      "name": "Fendan Cluster",
+      "centre": {
+        "x": 3949354262002785,
+        "y": 11812159112778946
+      }
     },
     {
       "id": 141,
       "region": 29,
-      "name": "Thaldan Span"
+      "name": "Thaldan Span",
+      "centre": {
+        "x": 160036734119857227,
+        "y": -71425882510837769
+      }
     },
     {
       "id": 142,
       "region": 29,
-      "name": "Vardan Wreath"
+      "name": "Vardan Wreath",
+      "centre": {
+        "x": 220693699856846832,
+        "y": -66116019357641803
+      }
     },
     {
       "id": 143,
       "region": 29,
-      "name": "Haltia Lattice"
+      "name": "Haltia Lattice",
+      "centre": {
+        "x": 284693080529184754,
+        "y": -81857771770040002
+      }
     },
     {
       "id": 144,
       "region": 29,
-      "name": "Aldros Shoal"
+      "name": "Aldros Shoal",
+      "centre": {
+        "x": 140128888241096205,
+        "y": 6447380163041336
+      }
     },
     {
       "id": 145,
       "region": 29,
-      "name": "Jordan Drift"
+      "name": "Jordan Drift",
+      "centre": {
+        "x": 216776686077670969,
+        "y": 11457672106971707
+      }
     },
     {
       "id": 146,
       "region": 30,
-      "name": "Vexmar Veil"
+      "name": "Vexmar Veil",
+      "centre": {
+        "x": 364840364116314761,
+        "y": -64791746460050303
+      }
     },
     {
       "id": 147,
       "region": 30,
-      "name": "Zelith Chain"
+      "name": "Zelith Chain",
+      "centre": {
+        "x": 447389841508580982,
+        "y": -68238651076938718
+      }
     },
     {
       "id": 148,
       "region": 30,
-      "name": "Alddan Cluster"
+      "name": "Alddan Cluster",
+      "centre": {
+        "x": 505682696141297075,
+        "y": -67366296896138148
+      }
     },
     {
       "id": 149,
       "region": 30,
-      "name": "Ephros Span"
+      "name": "Ephros Span",
+      "centre": {
+        "x": 368170222572176586,
+        "y": 11192636912015308
+      }
     },
     {
       "id": 150,
       "region": 30,
-      "name": "Faldtia Wreath"
+      "name": "Faldtia Wreath",
+      "centre": {
+        "x": 425214673134401260,
+        "y": 8970527288862538
+      }
     },
     {
       "id": 151,
       "region": 31,
-      "name": "Ravler Lattice"
+      "name": "Ravler Lattice",
+      "centre": {
+        "x": 596280260545157772,
+        "y": -79176375305393266
+      }
     },
     {
       "id": 152,
       "region": 31,
-      "name": "Thalvek Shoal"
+      "name": "Thalvek Shoal",
+      "centre": {
+        "x": 666820868763087570,
+        "y": -72057969512474286
+      }
     },
     {
       "id": 153,
       "region": 31,
-      "name": "Hothtia Drift"
+      "name": "Hothtia Drift",
+      "centre": {
+        "x": 720207538317766592,
+        "y": -83861566023680316
+      }
     },
     {
       "id": 154,
       "region": 31,
-      "name": "Corvtia Veil"
+      "name": "Corvtia Veil",
+      "centre": {
+        "x": 580786510716602144,
+        "y": -2262179729247810
+      }
     },
     {
       "id": 155,
       "region": 31,
-      "name": "Garith Chain"
+      "name": "Garith Chain",
+      "centre": {
+        "x": 646113063103498391,
+        "y": 7032948668108425
+      }
     },
     {
       "id": 156,
       "region": 32,
-      "name": "Sevros Cluster"
+      "name": "Sevros Cluster",
+      "centre": {
+        "x": 799140833966542766,
+        "y": -65401631584455594
+      }
     },
     {
       "id": 157,
       "region": 32,
-      "name": "Branith Span"
+      "name": "Branith Span",
+      "centre": {
+        "x": 891392062991739812,
+        "y": -79301237779589200
+      }
     },
     {
       "id": 158,
       "region": 32,
-      "name": "Dunvek Wreath"
+      "name": "Dunvek Wreath",
+      "centre": {
+        "x": 947822527265800645,
+        "y": -78000346182299421
+      }
     },
     {
       "id": 159,
       "region": 32,
-      "name": "Aldvek Lattice"
+      "name": "Aldvek Lattice",
+      "centre": {
+        "x": 802718047933027251,
+        "y": -7493886473306506
+      }
     },
     {
       "id": 160,
       "region": 32,
-      "name": "Calgren Shoal"
+      "name": "Calgren Shoal",
+      "centre": {
+        "x": 880115654152763522,
+        "y": 3154543586923298
+      }
     },
     {
       "id": 161,
       "region": 33,
-      "name": "Cindmar Drift"
+      "name": "Cindmar Drift",
+      "centre": {
+        "x": -718881394726530460,
+        "y": 141906900400573082
+      }
     },
     {
       "id": 162,
       "region": 33,
-      "name": "Varler Veil"
+      "name": "Varler Veil",
+      "centre": {
+        "x": -650287162276423671,
+        "y": 160019002695916195
+      }
     },
     {
       "id": 163,
       "region": 33,
-      "name": "Dralvek Chain"
+      "name": "Dralvek Chain",
+      "centre": {
+        "x": -593300939570596158,
+        "y": 138039587314166909
+      }
     },
     {
       "id": 164,
       "region": 33,
-      "name": "Orrmar Cluster"
+      "name": "Orrmar Cluster",
+      "centre": {
+        "x": -735234290644927411,
+        "y": 223083476416298230
+      }
     },
     {
       "id": 165,
       "region": 33,
-      "name": "Hestith Span"
+      "name": "Hestith Span",
+      "centre": {
+        "x": -674055846572892202,
+        "y": 205418122940375248
+      }
     },
     {
       "id": 166,
       "region": 34,
-      "name": "Caltia Wreath"
+      "name": "Caltia Wreath",
+      "centre": {
+        "x": -504068908554397718,
+        "y": 138060762311680447
+      }
     },
     {
       "id": 167,
       "region": 34,
-      "name": "Garmar Lattice"
+      "name": "Garmar Lattice",
+      "centre": {
+        "x": -442343259453747672,
+        "y": 135719336508323818
+      }
     },
     {
       "id": 168,
       "region": 34,
-      "name": "Yarith Shoal"
+      "name": "Yarith Shoal",
+      "centre": {
+        "x": -381358436316501105,
+        "y": 142194983239791866
+      }
     },
     {
       "id": 169,
       "region": 34,
-      "name": "Fenith Drift"
+      "name": "Fenith Drift",
+      "centre": {
+        "x": -508826571829956136,
+        "y": 234774087132564209
+      }
     },
     {
       "id": 170,
       "region": 34,
-      "name": "Fenler Veil"
+      "name": "Fenler Veil",
+      "centre": {
+        "x": -448775837110201312,
+        "y": 234233041187380924
+      }
     },
     {
       "id": 171,
       "region": 35,
-      "name": "Zeltia Chain"
+      "name": "Zeltia Chain",
+      "centre": {
+        "x": -281706564929793622,
+        "y": 153757111094605318
+      }
     },
     {
       "id": 172,
       "region": 35,
-      "name": "Torler Cluster"
+      "name": "Torler Cluster",
+      "centre": {
+        "x": -220189799422820302,
+        "y": 149958859734891730
+      }
     },
     {
       "id": 173,
       "region": 35,
-      "name": "Halith Span"
+      "name": "Halith Span",
+      "centre": {
+        "x": -135880875555261312,
+        "y": 158034838725081400
+      }
     },
     {
       "id": 174,
       "region": 35,
-      "name": "Halmar Wreath"
+      "name": "Halmar Wreath",
+      "centre": {
+        "x": -300989522827835432,
+        "y": 211187532391634849
+      }
     },
     {
       "id": 175,
       "region": 35,
-      "name": "Caller Lattice"
+      "name": "Caller Lattice",
+      "centre": {
+        "x": -225352133571071757,
+        "y": 213300069305995549
+      }
     },
     {
       "id": 176,
       "region": 36,
-      "name": "Bexdan Shoal"
+      "name": "Bexdan Shoal",
+      "centre": {
+        "x": -84457731487998422,
+        "y": 157992986336155221
+      }
     },
     {
       "id": 177,
       "region": 36,
-      "name": "Hestdan Drift"
+      "name": "Hestdan Drift",
+      "centre": {
+        "x": -10112503459503059,
+        "y": 138898547095916980
+      }
     },
     {
       "id": 178,
       "region": 36,
-      "name": "Cindler Veil"
+      "name": "Cindler Veil",
+      "centre": {
+        "x": 59326656689416575,
+        "y": 164443347420705974
+      }
     },
     {
       "id": 179,
       "region": 36,
-      "name": "Hesttia Chain"
+      "name": "Hesttia Chain",
+      "centre": {
+        "x": -77726229874046805,
+        "y": 205378262293223212
+      }
     },
     {
       "id": 180,
       "region": 36,
-      "name": "Kessdan Cluster"
+      "name": "Kessdan Cluster",
+      "centre": {
+        "x": 9788448184033246,
+        "y": 216130997543128817
+      }
     },
     {
       "id": 181,
       "region": 37,
-      "name": "Urmar Span"
+      "name": "Urmar Span",
+      "centre": {
+        "x": 138372401442235731,
+        "y": 137275860152191820
+      }
     },
     {
       "id": 182,
       "region": 37,
-      "name": "Mertia Wreath"
+      "name": "Mertia Wreath",
+      "centre": {
+        "x": 232356833967908454,
+        "y": 137353110008971356
+      }
     },
     {
       "id": 183,
       "region": 37,
-      "name": "Ambrgren Lattice"
+      "name": "Ambrgren Lattice",
+      "centre": {
+        "x": 289628049399553744,
+        "y": 145354961818165065
+      }
     },
     {
       "id": 184,
       "region": 37,
-      "name": "Corvdan Shoal"
+      "name": "Corvdan Shoal",
+      "centre": {
+        "x": 164116988956865614,
+        "y": 214732005059347185
+      }
     },
     {
       "id": 185,
       "region": 37,
-      "name": "Calith Drift"
+      "name": "Calith Drift",
+      "centre": {
+        "x": 218129732705173517,
+        "y": 224455346847394371
+      }
     },
     {
       "id": 186,
       "region": 38,
-      "name": "Dunmar Veil"
+      "name": "Dunmar Veil",
+      "centre": {
+        "x": 377387310097430887,
+        "y": 139357229062098080
+      }
     },
     {
       "id": 187,
       "region": 38,
-      "name": "Pelros Chain"
+      "name": "Pelros Chain",
+      "centre": {
+        "x": 429402517423887977,
+        "y": 153866758939420993
+      }
     },
     {
       "id": 188,
       "region": 38,
-      "name": "Cindvek Cluster"
+      "name": "Cindvek Cluster",
+      "centre": {
+        "x": 517224532551431580,
+        "y": 139332780381664681
+      }
     },
     {
       "id": 189,
       "region": 38,
-      "name": "Malmar Span"
+      "name": "Malmar Span",
+      "centre": {
+        "x": 369407289951005042,
+        "y": 228246393873001169
+      }
     },
     {
       "id": 190,
       "region": 38,
-      "name": "Wendros Wreath"
+      "name": "Wendros Wreath",
+      "centre": {
+        "x": 437030870659162286,
+        "y": 211565051397111203
+      }
     },
     {
       "id": 191,
       "region": 39,
-      "name": "Jormar Lattice"
+      "name": "Jormar Lattice",
+      "centre": {
+        "x": 588438384366517909,
+        "y": 151918718992748036
+      }
     },
     {
       "id": 192,
       "region": 39,
-      "name": "Kalros Shoal"
+      "name": "Kalros Shoal",
+      "centre": {
+        "x": 662406584970268782,
+        "y": 141167853470531908
+      }
     },
     {
       "id": 193,
       "region": 39,
-      "name": "Draller Drift"
+      "name": "Draller Drift",
+      "centre": {
+        "x": 723791995455733334,
+        "y": 154322693752678188
+      }
     },
     {
       "id": 194,
       "region": 39,
-      "name": "Kaller Veil"
+      "name": "Kaller Veil",
+      "centre": {
+        "x": 580740156521816023,
+        "y": 234905698630057880
+      }
     },
     {
       "id": 195,
       "region": 39,
-      "name": "Wendmar Chain"
+      "name": "Wendmar Chain",
+      "centre": {
+        "x": 645755115394135186,
+        "y": 209562564237160013
+      }
     },
     {
       "id": 196,
       "region": 40,
-      "name": "Orrler Cluster"
+      "name": "Orrler Cluster",
+      "centre": {
+        "x": 800818540045942062,
+        "y": 139745711740035457
+      }
     },
     {
       "id": 197,
       "region": 40,
-      "name": "Quarler Span"
+      "name": "Quarler Span",
+      "centre": {
+        "x": 883544932709283253,
+        "y": 149941221770301441
+      }
     },
     {
       "id": 198,
       "region": 40,
-      "name": "Jortia Wreath"
+      "name": "Jortia Wreath",
+      "centre": {
+        "x": 948488470729028545,
+        "y": 144852186803666445
+      }
     },
     {
       "id": 199,
       "region": 40,
-      "name": "Vexgren Lattice"
+      "name": "Vexgren Lattice",
+      "centre": {
+        "x": 818466021267578141,
+        "y": 220147833677875229
+      }
     },
     {
       "id": 200,
       "region": 40,
-      "name": "Thalith Shoal"
+      "name": "Thalith Shoal",
+      "centre": {
+        "x": 882626503403593923,
+        "y": 217757002371048908
+      }
     },
     {
       "id": 201,
       "region": 41,
-      "name": "Zeldan Drift"
+      "name": "Zeldan Drift",
+      "centre": {
+        "x": -721445120892000944,
+        "y": 366417713703168823
+      }
     },
     {
       "id": 202,
       "region": 41,
-      "name": "Fenros Veil"
+      "name": "Fenros Veil",
+      "centre": {
+        "x": -674382500608413953,
+        "y": 379047531877243666
+      }
     },
     {
       "id": 203,
       "region": 41,
-      "name": "Grimvek Chain"
+      "name": "Grimvek Chain",
+      "centre": {
+        "x": -598161733620807152,
+        "y": 365552831022552636
+      }
     },
     {
       "id": 204,
       "region": 41,
-      "name": "Kessgren Cluster"
+      "name": "Kessgren Cluster",
+      "centre": {
+        "x": -742067272254604224,
+        "y": 426591781540775162
+      }
     },
     {
       "id": 205,
       "region": 41,
-      "name": "Jorith Span"
+      "name": "Jorith Span",
+      "centre": {
+        "x": -647137444608188715,
+        "y": 433799577304480683
+      }
     },
     {
       "id": 206,
       "region": 42,
-      "name": "Faldgren Wreath"
+      "name": "Faldgren Wreath",
+      "centre": {
+        "x": -509741893198810359,
+        "y": 368949481775481951
+      }
     },
     {
       "id": 207,
       "region": 42,
-      "name": "Haller Lattice"
+      "name": "Haller Lattice",
+      "centre": {
+        "x": -433633870226015878,
+        "y": 355522679475974158
+      }
     },
     {
       "id": 208,
       "region": 42,
-      "name": "Hothith Shoal"
+      "name": "Hothith Shoal",
+      "centre": {
+        "x": -372681961682517636,
+        "y": 362835083626377474
+      }
     },
     {
       "id": 209,
       "region": 42,
-      "name": "Zelmar Drift"
+      "name": "Zelmar Drift",
+      "centre": {
+        "x": -500950522639866264,
+        "y": 442461332013489225
+      }
     },
     {
       "id": 210,
       "region": 42,
-      "name": "Corvith Veil"
+      "name": "Corvith Veil",
+      "centre": {
+        "x": -440573981581822924,
+        "y": 449482402543603142
+      }
     },
     {
       "id": 211,
       "region": 43,
-      "name": "Aldler Chain"
+      "name": "Aldler Chain",
+      "centre": {
+        "x": -275059239329069823,
+        "y": 371204241342201945
+      }
     },
     {
       "id": 212,
       "region": 43,
-      "name": "Ravgren Cluster"
+      "name": "Ravgren Cluster",
+      "centre": {
+        "x": -229524806603110107,
+        "y": 372519870741304153
+      }
     },
     {
       "id": 213,
       "region": 43,
-      "name": "Ambrith Span"
+      "name": "Ambrith Span",
+      "centre": {
+        "x": -140244770888541507,
+        "y": 355145109135047704
+      }
     },
     {
       "id": 214,
       "region": 43,
-      "name": "Halros Wreath"
+      "name": "Halros Wreath",
+      "centre": {
+        "x": -281387925803058135,
+        "y": 433661292383333517
+      }
     },
     {
       "id": 215,
       "region": 43,
-      "name": "Malith Lattice"
+      "name": "Malith Lattice",
+      "centre": {
+        "x": -221708715843495890,
+        "y": 449043591529605291
+      }
     },
     {
       "id": 216,
       "region": 44,
-      "name": "Corvvek Shoal"
+      "name": "Corvvek Shoal",
+      "centre": {
+        "x": -67408083246039152,
+        "y": 356707373497280063
+      }
     },
     {
       "id": 217,
       "region": 44,
-      "name": "Ishmar Drift"
+      "name": "Ishmar Drift",
+      "centre": {
+        "x": 6514985524836058,
+        "y": 368105028050027731
+      }
     },
     {
       "id": 218,
       "region": 44,
-      "name": "Ravdan Veil"
+      "name": "Ravdan Veil",
+      "centre": {
+        "x": 72712361140214089,
+        "y": 370227982906510832
+      }
     },
     {
       "id": 219,
       "region": 44,
-      "name": "Grimmar Chain"
+      "name": "Grimmar Chain",
+      "centre": {
+        "x": -82963010116774042,
+        "y": 445496465686154665
+      }
     },
     {
       "id": 220,
       "region": 44,
-      "name": "Dungren Cluster"
+      "name": "Dungren Cluster",
+      "centre": {
+        "x": -398615500259573,
+        "y": 454823157489591917
+      }
     },
     {
       "id": 221,
       "region": 45,
-      "name": "Pelith Span"
+      "name": "Pelith Span",
+      "centre": {
+        "x": 157373070086853484,
+        "y": 377280384546252758
+      }
     },
     {
       "id": 222,
       "region": 45,
-      "name": "Caldan Wreath"
+      "name": "Caldan Wreath",
+      "centre": {
+        "x": 215310414909844271,
+        "y": 371049158059962247
+      }
     },
     {
       "id": 223,
       "region": 45,
-      "name": "Brantia Lattice"
+      "name": "Brantia Lattice",
+      "centre": {
+        "x": 298865454523202792,
+        "y": 359716916660266247
+      }
     },
     {
       "id": 224,
       "region": 45,
-      "name": "Sevmar Shoal"
+      "name": "Sevmar Shoal",
+      "centre": {
+        "x": 163289100425014853,
+        "y": 430259329189582108
+      }
     },
     {
       "id": 225,
       "region": 45,
-      "name": "Cindith Drift"
+      "name": "Cindith Drift",
+      "centre": {
+        "x": 225978005227022204,
+        "y": 448954398945797362
+      }
     },
     {
       "id": 226,
       "region": 46,
-      "name": "Fentia Veil"
+      "name": "Fentia Veil",
+      "centre": {
+        "x": 380128876951264827,
+        "y": 362419680831681567
+      }
     },
     {
       "id": 227,
       "region": 46,
-      "name": "Varros Chain"
+      "name": "Varros Chain",
+      "centre": {
+        "x": 444684615188302927,
+        "y": 366472942258982568
+      }
     },
     {
       "id": 228,
       "region": 46,
-      "name": "Halvek Cluster"
+      "name": "Halvek Cluster",
+      "centre": {
+        "x": 503303644382410046,
+        "y": 363823085906621439
+      }
     },
     {
       "id": 229,
       "region": 46,
-      "name": "Lornler Span"
+      "name": "Lornler Span",
+      "centre": {
+        "x": 371037948078893997,
+        "y": 433059488938357747
+      }
     },
     {
       "id": 230,
       "region": 46,
-      "name": "Hothdan Wreath"
+      "name": "Hothdan Wreath",
+      "centre": {
+        "x": 437506339541503034,
+        "y": 452377795787752539
+      }
     },
     {
       "id": 231,
       "region": 47,
-      "name": "Dralros Lattice"
+      "name": "Dralros Lattice",
+      "centre": {
+        "x": 598571668475062923,
+        "y": 367576939181744771
+      }
     },
     {
       "id": 232,
       "region": 47,
-      "name": "Draltia Shoal"
+      "name": "Draltia Shoal",
+      "centre": {
+        "x": 663347550141188625,
+        "y": 359145020012551164
+      }
     },
     {
       "id": 233,
       "region": 47,
-      "name": "Urvek Drift"
+      "name": "Urvek Drift",
+      "centre": {
+        "x": 724156053706683712,
+        "y": 381233647224745924
+      }
     },
     {
       "id": 234,
       "region": 47,
-      "name": "Wendgren Veil"
+      "name": "Wendgren Veil",
+      "centre": {
+        "x": 592245308300271647,
+        "y": 442515294368974604
+      }
     },
     {
       "id": 235,
       "region": 47,
-      "name": "Kalvek Chain"
+      "name": "Kalvek Chain",
+      "centre": {
+        "x": 653866103135636518,
+        "y": 446665713761009999
+      }
     },
     {
       "id": 236,
       "region": 48,
-      "name": "Sevith Cluster"
+      "name": "Sevith Cluster",
+      "centre": {
+        "x": 799694326627753804,
+        "y": 369020378532400925
+      }
     },
     {
       "id": 237,
       "region": 48,
-      "name": "Branmar Span"
+      "name": "Branmar Span",
+      "centre": {
+        "x": 892665538782008187,
+        "y": 371479306032398803
+      }
     },
     {
       "id": 238,
       "region": 48,
-      "name": "Maldan Wreath"
+      "name": "Maldan Wreath",
+      "centre": {
+        "x": 964242674717403495,
+        "y": 381624312612220911
+      }
     },
     {
       "id": 239,
       "region": 48,
-      "name": "Bexros Lattice"
+      "name": "Bexros Lattice",
+      "centre": {
+        "x": 797990168271798340,
+        "y": 445125664651315849
+      }
     },
     {
       "id": 240,
       "region": 48,
-      "name": "Grimler Shoal"
+      "name": "Grimler Shoal",
+      "centre": {
+        "x": 874026005806921446,
+        "y": 451958052805047352
+      }
     },
     {
       "id": 241,
       "region": 49,
-      "name": "Kaldan Drift"
+      "name": "Kaldan Drift",
+      "centre": {
+        "x": -715509918336408275,
+        "y": 595698102440719045
+      }
     },
     {
       "id": 242,
       "region": 49,
-      "name": "Hestler Veil"
+      "name": "Hestler Veil",
+      "centre": {
+        "x": -674478540023905126,
+        "y": 599718845673199411
+      }
     },
     {
       "id": 243,
       "region": 49,
-      "name": "Jorgren Chain"
+      "name": "Jorgren Chain",
+      "centre": {
+        "x": -580684240868728365,
+        "y": 590690083468928180
+      }
     },
     {
       "id": 244,
       "region": 49,
-      "name": "Ambrdan Cluster"
+      "name": "Ambrdan Cluster",
+      "centre": {
+        "x": -721643176421596137,
+        "y": 647316135474475602
+      }
     },
     {
       "id": 245,
       "region": 49,
-      "name": "Corvmar Span"
+      "name": "Corvmar Span",
+      "centre": {
+        "x": -651046125407003958,
+        "y": 650935233320109863
+      }
     },
     {
       "id": 246,
       "region": 50,
-      "name": "Vartia Wreath"
+      "name": "Vartia Wreath",
+      "centre": {
+        "x": -502394528297721507,
+        "y": 587476625147588356
+      }
     },
     {
       "id": 247,
       "region": 50,
-      "name": "Corvros Lattice"
+      "name": "Corvros Lattice",
+      "centre": {
+        "x": -426289257388949122,
+        "y": 596712278177580806
+      }
     },
     {
       "id": 248,
       "region": 50,
-      "name": "Thalmar Shoal"
+      "name": "Thalmar Shoal",
+      "centre": {
+        "x": -370452414502654154,
+        "y": 592694332094765899
+      }
     },
     {
       "id": 249,
       "region": 50,
-      "name": "Vexdan Drift"
+      "name": "Vexdan Drift",
+      "centre": {
+        "x": -503800549959613140,
+        "y": 668459745558287020
+      }
     },
     {
       "id": 250,
       "region": 50,
-      "name": "Peldan Veil"
+      "name": "Peldan Veil",
+      "centre": {
+        "x": -447783166351416651,
+        "y": 673447379381762612
+      }
     }
   ],
   "systems": [

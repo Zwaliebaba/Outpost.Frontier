@@ -297,6 +297,7 @@ bool GenerateUniverse(const UniverseGenConfig& _config, UniverseDef& _outUnivers
     Constellation constellation;
     constellation.id = static_cast<ConstellationId>(index + 1);
     constellation.region = static_cast<RegionId>(regionIndex + 1);
+    constellation.centre = constellationCentre[index];
     constellation.name =
         RootWord(rootOrder[(_config.regionCount + index) % rootCount], false) + " " + CONSTELLATION_FORM[index % CONSTELLATION_FORM.size()];
     _outUniverse.constellations.push_back(constellation);
@@ -744,6 +745,7 @@ bool WriteUniverseJson(const UniverseDef& _universe, std::string& _outJson)
     writer.Member("id", static_cast<std::int64_t>(constellation.id));
     writer.Member("region", static_cast<std::int64_t>(constellation.region));
     writer.Member("name", constellation.name);
+    position("centre", constellation.centre);
     writer.EndObject();
   }
   writer.EndArray();

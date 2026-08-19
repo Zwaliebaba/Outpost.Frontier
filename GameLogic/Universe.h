@@ -199,6 +199,19 @@ struct Constellation
   ConstellationId id = INVALID_ID;
   RegionId region = INVALID_ID;
   std::string name;
+
+  /*
+   * Where the cluster is, as the bake placed it -- not the centroid of whatever
+   * systems ended up in it.
+   *
+   * It is carried rather than derived because the two are different numbers and
+   * the difference matters twice: the map draws the constellation pinch level
+   * from this, and the clustering invariant ("every system is nearer its own
+   * constellation's centre than any other's") is only true against the placed
+   * centre. Derived centroids drift with however many systems were drawn, which
+   * is how that invariant first appeared to fail.
+   */
+  UniversePos centre;
 };
 
 struct SolarSystem
