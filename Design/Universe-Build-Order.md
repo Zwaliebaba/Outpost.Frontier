@@ -223,12 +223,23 @@ one sitting.
   durations (which U3a and U4 must respect when they set spool, transit and jump times);
   one client connection through the session front door, so **the client wire does not
   change**. Its §6 is U2's acceptance.
-- **D6 — The interest/delta ADR** *(ADR-018 A14 — drafted during the station phase; its
-  implementation slice follows U3c and gates shared grids)*. Scope fixed by ADR-018 D4:
-  snapshot-ack and baseline ownership, the keyframe/initial-sync path, `Simulation`'s
-  relevance hook, the degradation rule, the interest guarantee (owned + selected never
-  culled; unreplicated presence stated via counted chips), `lastOrderSeqProcessed` out of
-  the world hash, `EntityRecord` → u32 id, the ownership field.
+- ~~**D6 — The interest/delta ADR** *(ADR-018 A14 — drafted during the station phase; its
+  implementation slice follows U3c and gates shared grids)*.~~ **Delivered 2026-08-19:
+  [ADR-021](ADR/ADR-021-interest-and-delta.md).** Culling and delta belong to the **session
+  role** and nowhere else (ADR-019 §5d), because relevance is a property of a viewer and the
+  sim tier has none. `SnapshotAck` on datagrams; the baseline is the **view as sent**, not the
+  world as it was — the subtlety that makes interest and delta safe together. Keyframes take a
+  new reliable **`Bulk`** channel (a view switch *is* a mid-session join, and 21 KB is not a
+  datagram-shaped object) so they never queue behind the player's orders. The relevance hook
+  **ranks in the game and truncates in the engine**. Owned and selected ships are never culled
+  — that is pre-check parity, not politeness — and `culledCount` says how many the player is
+  not being shown. Whole-snapshot refusal becomes priority truncation. `lastOrderSeqProcessed`
+  leaves the world hash (one replay re-baseline). And ownership costs **no byte**: two spare
+  `statusBits` carry the viewer-relative relationship the icon sheet reads.
+
+  **What this changes for U3b/T2, which come first:** the per-client sender (A13) and the
+  per-viewer roster are not optimisations to add later — they are the shapes this design
+  assumes already exist.
 - ~~**D7 — The UI-architecture ADR** *(ADR-018 A19 — blocks U5 here and T3 in the station
   order)*.~~ **Delivered 2026-08-19: [ADR-020](ADR/ADR-020-ui-architecture.md).** A surface
   is a value on a small stack (pushing one already present pops back to it, so `◀ TACTICAL`

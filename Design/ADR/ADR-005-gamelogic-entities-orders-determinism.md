@@ -1,6 +1,10 @@
 # ADR-005 — GameLogic: Fixed-Schema Tables, Group Orders, Decision Determinism
 
-**Status:** Accepted · 2026-08-17 · §2's "no inter-ship avoidance in MVP" superseded by
+**Status:** Accepted · 2026-08-17 · §5's hash domain is amended by
+**[ADR-021](ADR-021-interest-and-delta.md)** §7 (2026-08-19): `lastOrderSeqProcessed` is
+per-session state and leaves the world hash, because with two commanders it is wrong twice
+over — one player's sequence perturbs the other's feedback loop, and a replay's hash depends
+on who submitted. Replay goldens re-baseline once when that slice lands · §2's "no inter-ship avoidance in MVP" superseded by
 [ADR-015](ADR-015-ship-collision.md) (2026-08-18), which lands the avoidance this ADR's
 consequences promised — inside Steering, plus a `Separate` step after Integrate · amended
 by [ADR-018](ADR-018-scaling-baseline.md) (2026-08-19): §4a's check order joins the

@@ -156,6 +156,14 @@ can hang off. The timed model is not negotiable ornament: the route planner prin
 
 ### 6. The wire
 
+*(Amended 2026-08-19 by [ADR-021](ADR-021-interest-and-delta.md): the per-grid stream becomes
+a per-**viewer** stream. "ADR-004's budgets are unchanged and per-grid" below was true while a
+grid's snapshot was one datagram for everyone watching it; under interest culling the viewed
+grid's update is sized by a per-tick byte budget, packed into as many datagrams as it takes,
+and each viewer gets a different subset. Summaries are untouched — they were already per-player
+and already cheap. §7's presence rules gain one affordance: `culledCount` states how many
+entities the player is **not** being sent, through the icon ladder's counted-chip rung.)*
+
 Snapshots become **per-grid**: the header carries the grid's identity, and a client is
 subscribed to exactly one grid's stream — its **view** (§7). Three additions, all under the
 existing schema hash: a **view request** (client → server: point my view at this grid of

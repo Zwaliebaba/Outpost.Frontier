@@ -24,7 +24,14 @@ owner's scaling-baseline decisions over the five-lens review — the target is a
 shard on a persistent service** — amending ADR-004/005/006/007/008/012/013/014/016/017
 (each carries the note), adding U3c (the second-commander gate) and three named design
 deliverables (the topology ADR, the interest/delta ADR, the UI-architecture ADR), and
-extending the Risk Register with R19–R21.
+extending the Risk Register with R19–R21; **ADR-021** delivers the interest/delta
+deliverable and amends ADR-003 §1 (a second reliable channel, `Bulk`), ADR-004 §6 (the growth
+path stops being a label), ADR-005 §5 (`lastOrderSeqProcessed` leaves the world hash — the
+one replay re-baseline in the set), ADR-014 (the relevance hook lands as rank-in-the-game,
+truncate-in-the-engine) and ADR-016 §6 (per-grid becomes per-viewer); **ADR-022** delivers
+remote play and amends ADR-003 §1/§3 (descriptors, and validation that is off only against
+loopback), ADR-008 §8 (its "no architectural work remains" now names what the first remote
+deployment owes) and ADR-012 §3.
 
 ## Decisions at a glance
 
@@ -50,6 +57,8 @@ extending the Risk Register with R19–R21.
 | [018](ADR/ADR-018-scaling-baseline.md) | Scaling baseline *(owner decisions over the review)* | **MMO shard (hundreds of commanders), persistent service; durable `PlayerId` + u32 ship ids (staged by the snapshot arithmetic); footprint-derived dock radius; worlds forget — durable state lives at the universe layer; `(applyTick, transferId)` bus order; behaviour joins the fail-closed gate; Release in CI, dxc/SM 6.x; screens are engine surfaces, data-fed** — 19 decisions, a 26-action register the build orders carry |
 | [019](ADR/ADR-019-shard-topology.md) | Shard topology *(deliverable A1 — blocks U2)* | **Three roles in one process today** (SimHost / SessionHost / Directory); the **anchor is the placement unit**, region-affine, never live-migrated; the tick is **shard-global**; transfers are **filed at departure** and ordered `(applyTick, hostId, counter)` with no coordination; **one client connection** through the session front door, so the client wire never learns the topology exists |
 | [020](ADR/ADR-020-ui-architecture.md) | UI architecture *(deliverable A19 — blocks U5 and T3)* | **A surface is a value on a small stack** (re-pushing pops back, so `◀ TACTICAL` and `◀ BACK` are one mechanism); a full-screen surface **skips** the world passes rather than adding one; **input is claimed once by one router** over three independent channels, with the printable-key rule that makes "W" type *or* pan; the screen-data contract is **three shapes, not three methods**, and a **badge class index** crosses the seam, never a colour |
+| [021](ADR/ADR-021-interest-and-delta.md) | Interest & delta *(deliverable A14 — gates shared grids)* | **Culling and delta live in the session role alone**; `SnapshotAck` against a ring of **views as sent**, not world states; keyframes on a new reliable `Bulk` channel because a view switch is a mid-session join; the game **ranks** relevance and the engine **truncates** it; **owned and selected are never culled** and `culledCount` says what is missing; truncate, never refuse; ownership costs **no byte** — two spare `statusBits` carry the relationship |
+| [022](ADR/ADR-022-remote-play.md) | Remote play *(deliverable A22 — blocks first remote deployment)* | **A two-pin key compiled into the build, never a config value**; `Listen`/`Connect` take descriptors and the validation policy is *derived from the address*, so "no validation off-loopback" is unrepresentable rather than discouraged; the token step lives in the front door and the game never sees it; four abuse rules, each closing something in the tree today |
 
 ## Coding standard
 
@@ -89,11 +98,10 @@ moves between the trees without a rename pass. Three things it changed in these 
   (`UX-/NET-/CPP-/UI-/SIM-`), a decision list sequenced against the build orders, and the
   fourteen questions the owner answered the same day — **the answers are normative as
   [ADR-018](ADR/ADR-018-scaling-baseline.md)**; the review stays the evidence record.
-  **Everything the register asks for that is due now is delivered** — A1–A4, A19, A23, A24
-  and A26. The rest is gated, and the gates are the register's own: A5–A18, A20, A21 and A25
-  land with U1, U2, T1, T2, U3b, U3c and U5; the interest/delta ADR (A14) is drafted during
-  the station phase; the remote-play ADR (A22) blocks the first remote deployment, its
-  parameters already fixed by D10.
+  **Ten of the register's twenty-six actions are delivered, and every design deliverable in
+  it is now written** — A1–A4, A14, A19, A22, A23, A24, A26. What remains is slice work, and
+  the gates are the register's own: A5–A13 and A15–A18, A20, A21 and A25 land with U1, U2,
+  T1, T2, U3b, U3c and U5. Nothing is waiting on a decision; the next move is U1.
 
 ## Implementation state (2026-08-19)
 

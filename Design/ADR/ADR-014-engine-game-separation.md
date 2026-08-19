@@ -8,7 +8,12 @@ security/sovereignty/service semantics; the fifth-project revisit gains its trip
 · given its mechanism by [ADR-020](ADR-020-ui-architecture.md) §6 (2026-08-19): a screen's
 seam budget is **three shapes, not three methods**; a **badge class index**, never a literal
 colour, crosses the seam; and the fifth-project question reopens when a screen needs a game
-*rule* rather than game *data* to render
+*rule* rather than game *data* to render · the "generic relevance hook on `Simulation`" its
+Consequences reserved is designed by [ADR-021](ADR-021-interest-and-delta.md) §4
+(2026-08-19), and lands as this seam's own pattern rather than an exception to it: the game
+**ranks** (relevance is game semantics) and the engine **truncates** (budget is link
+semantics), so a hostility rule stays a GameLogic edit and a bandwidth change stays an
+engine one
 **Depends on:** the fixed project structure, ADR-004 (wire), ADR-008 (composition root)
 **Supersedes:** Dependency Map ruling #2 ("NeuronClient links GameLogic from day one") and
 every consequence drawn from it.

@@ -454,24 +454,26 @@ jobs:
       # ("Nothing runs either automatically yet. Until a CI step exists, §1 is
       # enforced by review"), and ADR-018 A24 asks for.
       #
-      # It does not gate the run yet, and that is deliberate rather than timid.
-      # This tree has never once been through clang-tidy on Windows: the engine
-      # projects reach D3D12, C++/WinRT, XAudio2 and msquic headers, and whether
-      # clang parses those cleanly under this SDK is a question nobody here can
-      # answer without running it. Shipping a blocking step over an unanswered
-      # question is how a guard gets deleted the first week it fires. So the
-      # first job of this step is to produce the evidence: the findings go into
-      # the run summary, and the day a run comes back clean the
-      # `continue-on-error` comes off and this becomes a gate.
+      # It landed non-blocking, on the argument that this tree had never been
+      # through clang-tidy on Windows and a gate over an unanswered question is
+      # a gate that gets deleted the week it first fires. **The question is
+      # answered and the `continue-on-error` is gone**, which is the promise
+      # that step made to itself.
       #
-      # What it will *not* find on the first run is anything in GameLogic. The
-      # determinism-critical project was swept clean while this step was written
-      # -- two identifier findings and a truncating division stated as one, plus
-      # the `performance-enum-size` exclusion the sweep argued for -- so a
-      # finding there is new work, not archaeology.
+      # The two runs it took are worth keeping. The first found something the
+      # same sweep under clang-tidy 18 on Linux had not (the runner carries LLVM
+      # 20.1.8): `ComputeUniverseHash` promising `noexcept` while allocating a
+      # vector per entity list, which is `std::terminate` on `bad_alloc` on the
+      # boot path that reads the biggest file this game owns. The second came
+      # back clean in ~90 s. So the version spread is itself a finding -- "clean"
+      # is always clean *under something* -- and it is the argument for running
+      # this where it runs rather than where it was written.
+      #
+      # It still covers GameLogic only. Widening to the engine projects, which
+      # reach D3D12, C++/WinRT, XAudio2 and msquic headers, is its own piece of
+      # work and should land the same way: non-blocking until a run is clean.
       - name: Run clang-tidy
         if: matrix.configuration == 'Debug'
-        continue-on-error: true
         shell: pwsh
         run: |
           # Findings arrive on stderr and clang-tidy exits non-zero on them
@@ -516,16 +518,14 @@ jobs:
           if ($findings.Count -eq 0)
           {
             Write-Host 'clang-tidy: GameLogic is clean'
-            '## clang-tidy: GameLogic is clean - this step is ready to become a gate (ADR-018 A24)' |
-              Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
             exit 0
           }
 
-          $findings | ForEach-Object { Write-Host $_ }
+          $findings | ForEach-Object { Write-Host "::error::$_" }
           $lines = @("## clang-tidy: $($findings.Count) finding(s) in GameLogic", '```') +
                    ($findings | Select-Object -First 40) + @('```')
           $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
-          exit 0
+          throw "clang-tidy found $($findings.Count) finding(s) in GameLogic (AGENTS.md §1)"
 
       # ADR-018 A24 / review finding CPP-4. Nine projects each carried an
       # identical copy of the toolset and the language switches, and the two

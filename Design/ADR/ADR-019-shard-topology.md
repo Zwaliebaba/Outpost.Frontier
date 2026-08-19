@@ -12,7 +12,8 @@ ADR-017 (rosters), ADR-018 (**D1** the shard target, **D1a** location transparen
 shard-global — §2, §6); ADR-018 D6a (the ship→location index is refined into the session
 role's projection — §5c); ADR-008 §8 (the packaging split acquires a third axis — §1)
 **Feeds:** U2 (the constraints in §6 are its acceptance), the interest/delta ADR
-(ADR-018 D4 — §5d hands it a changed problem), the persistence ADR (§8)
+(ADR-018 D4 — §5d hands it a changed problem; **delivered as
+[ADR-021](ADR-021-interest-and-delta.md)**, which takes §5d as its §1), the persistence ADR (§8)
 
 ## Context
 
@@ -33,19 +34,24 @@ either inherits or fights.
 **Sizing, so the design is not aimed at an imaginary problem.** At ADR-018 D15.6's envelope
 (~200 owned ships, ~12 concurrent fleets per commander) and 300 commanders: ~60,000 ships
 in ~3,600 fleets, clustering at hubs into perhaps 1,000–2,500 live grids. **The tick cost is
-now measured rather than guessed** (ADR-018 A4, indicative cross-build — clang 18 `-O2`,
-2.1 GHz Xeon; the authoritative MSVC Release figure comes from CI per D11), against the
-converging-crowd pattern that is the worst case for both the avoidance scan and `Separate`:
+measured rather than guessed, by CI rather than by hand** (ADR-018 A4 — the in-repo soak runs
+in the shipping binary on every push, and these are the **authoritative MSVC Release** figures
+D11 asked for), against the converging-crowd pattern that is the worst case for both the
+avoidance scan and `Separate`:
 
 | ships on one grid | mean tick | worst tick | of the 50 ms budget | grids per core at 20 Hz |
 |---|---|---|---|---|
-| 41 (the MVP fleet) | 0.013 ms | 0.085 ms | 0.03 % | ~3,700 |
-| 256 | 0.43 ms | 0.96 ms | 0.9 % | ~117 |
-| 512 | 2.2 ms | 4.5 ms | 4.4 % | ~23 |
-| 1,024 (the D4 cap) | 10.6 ms | 21.9 ms | 21 % | ~5 |
+| 41 (the MVP fleet) | 0.016 ms | 0.028 ms | 0.03 % | ~3,100 |
+| 256 | 0.568 ms | 1.052 ms | 1.1 % | ~88 |
+| 512 | 2.164 ms | 2.758 ms | 4.3 % | ~23 |
+| 1,024 (the D4 cap) | 7.728 ms | 13.605 ms | 15 % | ~6.5 |
+
+*(The first table here carried an indicative clang cross-build — 10.6 ms at the cap. MSVC
+Release is faster, so every conclusion below held with more room than it was granted. Debug is
+78.3 ms, 10.1× Release and 156 % of the tick, which is D11's whole argument in one row.)*
 
 The shape is the expected quadratic, and the headline is that **a grid at the cap costs about
-a fifth of a core, not a whole one** — so the honest answer at the stated target is *a
+a seventh of a core, not a whole one** — so the honest answer at the stated target is *a
 handful of hosts*, and possibly one for the sim at realistic occupancy. That is the point:
 this design exists so the host count **can** be greater than one, not because it must be
 large. Everything below is chosen for cheapness at N=1 and correctness at N>1.

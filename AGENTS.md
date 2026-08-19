@@ -151,19 +151,19 @@ yourself on the files you wrote, not on the tree, before you push:
 clang-tidy --quiet NeuronCore/YourNewFile.cpp -- -I . -D _WIN32 -D _DEBUG /std:c++latest
 ```
 
-- **`Run clang-tidy`** sweeps GameLogic with the config above. It is **non-blocking for now**,
-  and on purpose: the engine projects reach D3D12, C++/WinRT, XAudio2 and msquic headers, and
-  a gate over a question nobody has answered is a gate that gets deleted the week it first
-  fires. Its findings go to the run summary; the day a run comes back clean the
-  `continue-on-error` comes off.
+- **`Run clang-tidy`** sweeps GameLogic with the config above, and **it gates** — a finding
+  fails the step. It landed non-blocking and earned the promotion in two runs: the first
+  (LLVM 20.1.8 on the runner, ~90 s) found one thing the same sweep under clang-tidy 18 on
+  Linux had not — `ComputeUniverseHash` promising `noexcept` while allocating per entity list,
+  which is `std::terminate` on `bad_alloc` on the boot path that reads the biggest file this
+  game owns — and the second came back clean.
 
-  Its first Windows run (LLVM 20.1.8, ~90 s over GameLogic) justified that caution and paid
-  for the step at once: it found one thing the same sweep under clang-tidy 18 had not —
-  `ComputeUniverseHash` promising `noexcept` while allocating per entity list, which is
-  `std::terminate` on `bad_alloc` on the boot path that reads the biggest file this game owns.
-  That is fixed. **Read a finding here as real** — GameLogic has been swept under both
-  toolchains now — and expect the engine projects to have their own reckoning when the step
-  widens past GameLogic.
+  Two things to take from that. **A finding here is real**: GameLogic is clean under both
+  toolchains, so anything the step says is yours. And **"clean" is always clean under
+  something** — the newer clang-tidy saw a defect the older one did not, which is why the run
+  that counts is CI's. The step covers **GameLogic only**; widening it to the engine projects
+  (D3D12, C++/WinRT, XAudio2, msquic headers) is its own piece of work, and should land the
+  same way this did: non-blocking until a run comes back clean.
 - **`Check the naming rules clang-tidy cannot express`** is blocking, and carries the two
   rules the config cannot state:
   - **R2 (type prefixes)** — clang-tidy can require an *absent* prefix but cannot ban a

@@ -78,7 +78,14 @@ programmatic shape that a standalone server binary will reuse verbatim.
    this code path inside `Outpost.exe` from the first server slice onward, the standalone
    binary is a new vcxproj + a `main()` — the promised packaging change. Client-side, the
    split is `mode: "client"` with a remote `client.connect` + QUIC transport (ADR-003) + real
-   cert validation; no architectural work remains by construction.
+   cert validation. *As accepted this sentence ended "no architectural work remains by
+   construction", which was true of the **packaging** and was read as true of the
+   **deployment**.* **Amended 2026-08-19 (ADR-018 D10, delivered as
+   [ADR-022](ADR-022-remote-play.md) §7): the packaging split is architecture-complete *and
+   gated on that ADR*.** What the first remote deployment owes is named there — the transport's
+   descriptor surface, the pinned key and its check, the token step, and the four abuse-budget
+   rules. None is large; none is present; and none is a thing to discover on the day a server
+   first gets a public address.
 
 ## Alternatives rejected
 

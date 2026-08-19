@@ -8,14 +8,14 @@
 # overlap: clang-tidy has no check that reports a wrong brace position or an over-long line, and
 # clang-format cannot see that a parameter is missing its `_`.
 #
-# ── Status: CI runs this over GameLogic, non-blocking ──────────────────────────────────────
+# ── Status: CI runs this over GameLogic, and it gates ──────────────────────────────────────
 #
-# There is a `Run clang-tidy` step in CI since ADR-018 A24. It sweeps GameLogic and does not
-# gate the run yet: this tree has never met clang-tidy on Windows, where the engine projects
-# reach D3D12, C++/WinRT, XAudio2 and msquic headers, so the first job of the step is to
-# produce the evidence for whether it can. Findings go to the run summary, and the day a run
-# comes back clean the `continue-on-error` comes off. The .vcxproj files still do not enable
-# MSBuild code analysis. Run it by hand ON THE FILES YOU WROTE:
+# There is a `Run clang-tidy` step in CI since ADR-018 A24. It sweeps GameLogic and **fails the
+# step on a finding** -- it landed non-blocking, came back clean on its second run, and was
+# promoted, which was the promise it made. It covers GameLogic only; the engine projects reach
+# D3D12, C++/WinRT, XAudio2 and msquic headers and have not been through it, so widening the
+# step should land the same way: non-blocking until a run is clean. The .vcxproj files still do
+# not enable MSBuild code analysis. Run it by hand ON THE FILES YOU WROTE:
 #
 #   clang-tidy --quiet NeuronCore/YourNewFile.cpp -- -I . -D _WIN32 -D _DEBUG /std:c++latest
 #

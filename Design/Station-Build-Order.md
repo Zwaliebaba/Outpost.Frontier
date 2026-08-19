@@ -90,8 +90,12 @@ expiry; a mid-approach disconnect halts the fleet outside; the snapshot budget a
 hold at the narrowed cap and a 43-ship snapshot round-trips inside one datagram; every
 pre-existing suite green. **ADR-018 additions:** the **over-cap refusal is tested loudly**
 (a grid pushed past the snapshot cap refuses with a counted, logged event — the designed
-behaviour until the interest/delta slice, A13/SIM-4); the roster message is observed to
-reach **only** its owner's connection; a dock validated at fleet scale (the 41-ship
+behaviour until the interest/delta slice, A13/SIM-4 — now designed as
+[ADR-021](ADR/ADR-021-interest-and-delta.md), whose §6 replaces this refusal with priority
+truncation, and whose §1 is why the sender T2 writes must be **per client from its first
+line**); the roster message is observed to reach **only** its owner's connection — which
+ADR-021 §1 restates as a rule rather than a test: on a broadcast-shaped sender that privacy
+promise is a silent leak nothing catches, because nothing before U3c runs two clients; a dock validated at fleet scale (the 41-ship
 starting fleet, footprint-derived radius) round-trips with parity.
 
 ### T3 — The hangar screen 🏁 H1

@@ -186,7 +186,12 @@ it is recorded here for the same reason `ORDER_STATE_RECORD_BYTES` records its o
 added here costs ships"): the next person to want a status bit should find the price already
 on the page. Two consumers of that shrinking margin are already designed — ADR-016 §6's
 per-grid snapshot header, and any future gauge — so **the delta encoding ADR-004 reserved is
-the growth path**, not another byte. If T2 measures the margin as too thin to land on,
+the growth path**, not another byte. *(That growth path is
+[ADR-021](ADR-021-interest-and-delta.md) as of 2026-08-19, and it spends the margin question
+differently than expected: ownership costs **no byte at all** — two spare bits of this very
+`statusBits` carry the viewer-relative relationship the icon sheet actually reads, rather than
+an owner id nobody looks at every tick. §1's roster privacy becomes a testable property in the
+same slice, because the per-viewer sender it needs is the sender interest culling requires.)* If T2 measures the margin as too thin to land on,
 packing the bit into a spare high bit of `groupId` (wings are 1..255 but a session fields
 eight) is the named fallback, rejected as the default only because a bitfield hidden in an
 id field is exactly the mistake `groupId`'s own comment was written to prevent.
