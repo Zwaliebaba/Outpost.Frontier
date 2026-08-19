@@ -19,22 +19,25 @@ namespace
 
 } // namespace
 
-void OwnerThread::Claim() noexcept
+bool OwnerThread::Enter() noexcept
 {
-  m_owner = ThisThread();
+  const std::uint32_t thisThread = ThisThread();
+  if (m_owner == 0)
+  {
+    // Unowned: this thread takes it. No interlocked exchange, deliberately --
+    // two threads racing to adopt the same object is exactly the bug being
+    // looked for, and making the adoption atomic would hide the losing thread
+    // instead of tripping it. The window is one store wide and the check that
+    // follows is what actually reports.
+    m_owner = thisThread;
+    return true;
+  }
+  return m_owner == thisThread;
 }
 
 void OwnerThread::Release() noexcept
 {
   m_owner = 0;
-}
-
-bool OwnerThread::OwnedByThisThread() const noexcept
-{
-  // Unclaimed is owned by whoever asks. An object that has not been given an
-  // owner yet is being set up, and asserting during construction would make the
-  // rule fire on the one path that cannot violate it.
-  return m_owner == 0 || m_owner == ThisThread();
 }
 
 } // namespace Neuron

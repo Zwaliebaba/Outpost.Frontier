@@ -281,6 +281,11 @@ public:
   /// (ADR-018 D6a), recording the mobile half as it goes.
   void SpawnStartingFleet();
 
+  /// Gives the worlds to whichever thread runs them next (ADR-007 §7). The last
+  /// thing the composition root does to the simulation, and the reason the sim
+  /// thread's first tick adopts rather than trips.
+  void HandOff() noexcept { m_registry.HandOff(); }
+
 private:
   std::uint64_t m_universeHash = 0;
   WorldMeta m_worldMeta;
@@ -667,6 +672,18 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   // which is the honest relationship between the two.
   UniverseSimulation simulation{universe.universeHash, MakeWorldMeta(universe.universe), universe.universe, universe.universeHash};
   simulation.SpawnStartingFleet();
+
+  /*
+   * And that is the last thing this thread does to the world (ADR-007 §7).
+   *
+   * Everything above ran on Main -- the registry spun the start grid up, the
+   * fleet was spawned into it -- and everything below runs it on the server's
+   * Sim thread. The hand-off is explicit because the alternative is a rule
+   * nobody can check: the owner-assert adopts the first thread to touch a
+   * world, so without this line the sim's first tick would trip on Main's
+   * fingerprints. It did, in CI, which is how this line came to exist.
+   */
+  simulation.HandOff();
 
   // Before anything opens a window: the self test is a diagnostic, and its
   // answer is an exit code (Build Order S4).

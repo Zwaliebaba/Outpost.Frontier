@@ -71,6 +71,14 @@ void WorldRegistry::Reset(const UniverseDef* _universe, const RegistryConfig& _c
   m_nextDynamicId = DYNAMIC_SHIP_ID_BASE;
 }
 
+void WorldRegistry::HandOff() noexcept
+{
+  for (LiveWorld& entry : m_live)
+  {
+    entry.world->ReleaseOwner();
+  }
+}
+
 HostId WorldRegistry::HostForAnchor(AnchorId _anchor) noexcept
 {
   (void)_anchor;

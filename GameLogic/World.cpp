@@ -450,9 +450,14 @@ struct TrafficSteer
 
 void World::Reset(std::uint64_t _seed) noexcept
 {
-  // Reset is where a world is established, so it is where its owner is: the
-  // thread that seeds a world is the thread that ticks it (ADR-007 §5).
-  m_owner.Claim();
+  /*
+   * A reset world is **unowned** (ADR-007 §7). Not claimed here, because the
+   * thread that seeds a world is not necessarily the thread that ticks it: the
+   * composition root builds the start grid on Main and the server runs it on
+   * Sim, and a claim taken here would record the builder and fire on the first
+   * tick. Ownership is taken by the first thread that mutates it instead.
+   */
+  m_owner.Release();
 
   m_tick = 0;
   m_slotById.clear();
@@ -518,6 +523,16 @@ ShipId World::Spawn(const ShipSpawn& _spawn, ShipId _shipId)
   m_hulls.push_back(255);
   m_shields.push_back(255);
   return shipId;
+}
+
+void World::ReleaseOwner() noexcept
+{
+  // The hand-off ADR-007 §7 sanctions, and the only one this game makes: the
+  // composition root populates the start grid on Main, says here that it is
+  // done, and the sim thread adopts it on its first tick. Anything that touches
+  // the world from two threads *without* passing through here is the bug the
+  // owner-assert exists to find.
+  m_owner.Release();
 }
 
 bool World::Despawn(ShipId _shipId)

@@ -271,6 +271,10 @@ public:
    */
   [[nodiscard]] ShipId Spawn(const ShipSpawn& _spawn, ShipId _shipId);
 
+  /// Gives the world up, so another thread may take it (ADR-007 §7). Boot's
+  /// Main-to-Sim hand-off is the sanctioned use and, today, the only one.
+  void ReleaseOwner() noexcept;
+
   /// Removes a ship. Returns false if the id is not present, which is a
   /// question worth being able to ask rather than an error worth asserting.
   bool Despawn(ShipId _shipId);

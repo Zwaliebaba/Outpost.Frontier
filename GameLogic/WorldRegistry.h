@@ -110,6 +110,20 @@ public:
   void AddViewer(AnchorId _anchor);
   void RemoveViewer(AnchorId _anchor);
 
+  /*
+   * Hands every live world over (ADR-007 §7).
+   *
+   * The composition root builds the start grid on Main -- spinning it up,
+   * spawning the authored fleet -- and the server then runs it on Sim. This is
+   * where the first says it is finished, so the second adopts rather than
+   * trips. It is the one hand-off the design sanctions, and it is a single call
+   * because the registry is what knows how many worlds there are.
+   *
+   * Worlds spun up *after* this are claimed by whichever thread spun them up,
+   * which is the sim thread for every path that exists today.
+   */
+  void HandOff() noexcept;
+
   /// Which host owns an anchor (ADR-019 §6.4). Zero, today and by design --
   /// what matters is that every cross-world addressing path already asks.
   [[nodiscard]] static HostId HostForAnchor(AnchorId _anchor) noexcept;
