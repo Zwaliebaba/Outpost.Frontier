@@ -10,6 +10,15 @@ U3a**. It introduces the transfer bus and `World`'s transfer seam, so U3a inheri
 rather than building them; U1's anchor table carries ADR-017's undock fields from the
 first bake (see U1's acceptance).
 
+**Scaling baseline (owner decisions, 2026-08-19):**
+[ADR-018](ADR/ADR-018-scaling-baseline.md) rides this plan. Its action register (§A) adds
+acceptance items to U1–U3b below, three design deliverables (D5–D7 in the list at the end),
+and one new slice — **U3c, the second-commander gate**. Two actions precede any slice:
+**A2** (the Release|x64 CI leg, spike 2 run once, perf numbers stated as Release) and
+**A3** (the shader build committed to dxc/SM 6.x in both configurations) land before U1;
+**A1** (the topology ADR) and **A4** (R10's 1,024-entity soak, in Release, number recorded)
+land before U2.
+
 The rules are the MVP build order's, unchanged: each slice is independently testable, lands
 green (`Tests/` + `selfTest` where applicable), is sized at "a few days" or less, and later
 slices assume earlier ones. Landed slices will carry a **Built** line naming what is in the
@@ -42,21 +51,38 @@ around it. Bake mode in the exe (config-selected, ADR-012) writes the canonical 
 **Accept:** same seed + config ⇒ byte-identical file, run twice in CI; the invariants suite
 (connectivity, symmetry, uniqueness, station-orbits-planet, security ranges, cluster
 separation, starter validity, warp-in-inside-grid — plus ADR-017's: station warp-in inside
-the dock radius, undock point clear of the structure's contact radius, parking rings inside
-the grid) is green against the *committed* file;
-parse + `universeHash` of that file **measured and the number recorded here** (per-region
-split is the reserved fallback if it exceeds ~1 s Debug); headless boot from it; `Ids.h`'s
-scale comment corrected.
+the dock radius **as amended by ADR-018 D7 (footprint-derived — the invariant holds for the
+base radius; fleet-scaled radii are validation-time)**, undock point clear of the
+structure's contact radius, parking rings inside the grid) is green against the *committed*
+file; parse + `universeHash` of that file **measured and the number recorded here** (in
+**Release**, per ADR-018 D11, with the Debug ratio noted; per-region split is the reserved
+fallback if it exceeds ~1 s); headless boot from it; `Ids.h`'s scale comment corrected.
+**ADR-018 additions (A5):** every authored occupant's **deterministic u32 ship id, derived
+from its anchor** (D6a), is a bake output the invariants suite checks for uniqueness; the
+anchor record carries what the **deterministic per-order arrival offset** rule needs (D18)
+so contention never forces an anchor-schema migration.
 
 ### U2 — Anchors and the world registry
+**Gate (ADR-018): A1 — the topology ADR — is written first, and A4's Release soak number is
+recorded**; the registry is shaped location-transparent by both.
 The universe runtime in GameLogic: a registry of `World`s keyed by anchor — spin-up spawns
 the anchor's authored occupants, teardown when the last ship leaves and nobody views it
 (the viewer half of that rule lands with U3b; U2 exposes the hold). Per-world PCG32 seeded
-from (session seed, anchor id). The exe's `Simulation` implementation hosts the registry
-while the wire still serves exactly the start grid — **no visible change**.
+from (session seed, anchor id). The registry **owns ship-id allocation** (ADR-018 D6a):
+`World::Spawn` takes an injected id, authored occupants take their bake-derived ids, and
+the registry keeps the session-wide ship→location index. The exe's `Simulation`
+implementation hosts the registry while the wire still serves exactly the start grid —
+**no visible change**.
 **Accept:** a session boots into the start anchor exactly as today; registry double-run
 determinism suite green, including a teardown/recreate cycle reproducing spawned state
-bit-exactly; the "no `UniversePos` in per-tick code" CI guard extended to the new files.
+bit-exactly **and bit-identical occupant ids**; the "no `UniversePos` in per-tick code" CI
+guard extended to the new files. **ADR-018 additions (A6–A8):** the **empty-world
+quiescence test** (a world holding only authored occupants ticked N times hashes
+identically to its recreation) and the registry hash/replay domain excluding ship-less
+viewer-held worlds (D8); the **world-isolation invariant** stated in the registry API
+(worlds share no mutable state during `Tick`; the bus and extract are the only crossings)
+with a **permuted-world-tick-order bit-identity test** holding it (D1a); ADR-007 §7's
+owner-assert built and armed on every world.
 
 ### U3a — In-system warp (sim)
 `OrderKind::Warp` (appended; schema bump) with an anchor-reference payload; validation shared
@@ -83,9 +109,30 @@ roster location blocks with IN WARP / off-grid states, warp ghosts and bounces t
 existing S9 pipeline, ~200 ms designed view-switch settle over the interpolation refill,
 ~1 s depart/arrive treatment in the existing overlay vocabulary.
 **Accept 🏁 W0:** two fleets on different anchors; roster click switches view to smooth
-motion in under half a second; a watched fleet warps and the view follows it to arrival; the
-unwatched fleet's roster block tracks its summary; `selfTest` drives a headless warp over the
-real loopback and observes the grid switch and the summaries; every pre-existing suite green.
+motion in under half a second **at zero added RTT — the target is stated as RTT + settle
+and re-run with an injected-delay shim on the loopback (ADR-018 A15)**; a watched fleet
+warps and the view follows it to arrival; the unwatched fleet's roster block tracks its
+summary; `selfTest` drives a headless warp over the real loopback and observes the grid
+switch and the summaries; every pre-existing suite green.
+**ADR-018 additions:** `SnapshotSender` is **per-client from its first line** (A13 — the
+per-grid stream and per-player summaries are already per-client facts); the presence-edge
+rules render (D16: presence lost under a pinned camera → the map; every fleet in transit →
+the map); warp events emit into the **per-commander event record** (A17) and the alerts
+taxonomy gains its universe rows with the toast **action payload** (A18); summaries and
+view rights key on `PlayerId` (D5, minted in T2's cluster).
+
+### U3c — The second-commander gate *(ADR-018 A25, new)*
+Two real clients against one shard: distinct `PlayerId`s, each commanding its own fleets on
+**disjoint grids** — the shared-grid case stays gated behind the interest/delta slice (D6
+in the deliverables below), because two full fleets on one grid exceed the full-snapshot
+cap by arithmetic. No new mechanism: this slice is the proof that U3b/T2's per-client
+machinery, identity keying, and privacy rules actually hold with a second commander on the
+wire.
+**Accept:** `selfTest` (or a scripted twin-client run) drives both clients through the full
+loop — handshake with distinct ids, orders attributed correctly, per-player summaries and
+rosters private (client B never receives A's `StationRoster` or summaries), view rights
+enforced (B cannot subscribe to A's grid), disconnect + reconnect resumes B's session under
+the grace window with the fleet intact; every pre-existing suite green.
 
 ### U4 — Gates: the twelfth hull and the jump
 `HullClass::Gate = 11` (append; `hull{}` schema bump; ADR-015 contact-radius row; STATIC
@@ -101,6 +148,12 @@ client mid-route halts the fleet at the next gate and reconnecting resumes the f
 tree and its OPEN note updated.
 
 ### U5 — Strategic map v1 *(depends only on U1 — runs in parallel with U2–U4)*
+**Gate (ADR-018): D7 — the UI-architecture ADR — is written first (A19), and A20's
+instruments are run** (spike 3, the S5 frame check) with the upload ring and fixed GPU
+budgets re-sized from the corpus caps (1,024 entities / 2,500 nodes) so this slice measures
+the map, not the MVP's constants. The screen is built as an **engine surface fed neutral
+data** (ADR-018 D14): the baked topology crosses the seam once at boot as a neutral graph,
+search and route-solve are GameLogic pure functions.
 The screen from `strategic-map.png`, deliberately the subset whose content exists: region /
 constellation / system pinch levels over the real bake, gate links, `ROOT-N` labels, security
 overlay + region band badge, search, selected-system panel, fleet markers from summaries
@@ -138,6 +191,19 @@ one sitting.
   from — content authoring inside U1, named here because curation is a task, not a fallout.
 - **D4 — Warp audio cues.** Spool/depart/arrive; lands only after S15 gives audio a home in
   the bank format. Deliberately last.
+- **D5 — The topology ADR** *(ADR-018 A1 — blocks U2)*. Grid-to-host assignment,
+  transfer-bus ordering authority across hosts, client connection handoff on view switch.
+  The U-phase implementation stays single-process; the registry is shaped by this document
+  so the shard target (ADR-018 D1) never forces its redesign.
+- **D6 — The interest/delta ADR** *(ADR-018 A14 — drafted during the station phase; its
+  implementation slice follows U3c and gates shared grids)*. Scope fixed by ADR-018 D4:
+  snapshot-ack and baseline ownership, the keyframe/initial-sync path, `Simulation`'s
+  relevance hook, the degradation rule, the interest guarantee (owned + selected never
+  culled; unreplicated presence stated via counted chips), `lastOrderSeqProcessed` out of
+  the world hash, `EntityRecord` → u32 id, the ownership field.
+- **D7 — The UI-architecture ADR** *(ADR-018 A19 — blocks U5 here and T3 in the station
+  order)*. The active-surface model, input routing as ordered consumption, focus and text
+  input, one scrolling-list primitive, the screen-data contract (ADR-018 D14/D15).
 
 ## Sequencing rationale
 

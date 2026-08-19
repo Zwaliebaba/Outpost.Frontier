@@ -1,7 +1,9 @@
 # ADR-013 — Source Layout: Flat Project Directories, Grouping via VS Filters
 
 **Status:** Accepted · 2026-08-17 (owner directive) · amended 2026-08-18 (§1a, owner directive:
-shaders under `Outpost/Shaders`, compiled into `Outpost/CompiledShaders`)
+shaders under `Outpost/Shaders`, compiled into `Outpost/CompiledShaders`) · §1a further
+amended by [ADR-018](ADR-018-scaling-baseline.md) (2026-08-19): the shader compiler is
+dxc, SM 6.x, in both configurations (D12)
 **Depends on:** the fixed project structure
 **Supersedes:** every subdirectory path used illustratively in earlier documents
 (`game/wire/Snapshot.h`, `wire/Order.h`, a possible `Public/` split) — those are rewritten

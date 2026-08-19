@@ -4,7 +4,12 @@
 [ADR-017](ADR-017-station-docking.md) (2026-08-19): station anchors gain an undock point
 and facing (§3); the transfer bus lands with the station phase, before U3a (§4);
 `StationRoster` becomes the summary family's first resident (§6); presence includes docked
-ships (§7)
+ships (§7) · further amended by [ADR-018](ADR-018-scaling-baseline.md) (2026-08-19): the
+target is an MMO shard and a topology ADR blocks U2 (D1); §3 arrival contention answered by
+deterministic per-order offsets (D18); §4 gains registry-owned ship-id allocation (D6a),
+the `(applyTick, transferId)` total order (D17), the empty-world quiescence invariant and
+hash-domain rule (D8), and the world-isolation invariant (D1a); §7's presence edges defined
+and marked revocable (D16); per-commander event record joins the universe layer (D19)
 **Depends on:** ADR-001 (plane, grids), ADR-002 (tick), ADR-004 (wire), ADR-005 (orders,
 determinism), ADR-009 (universe model), ADR-012 (JSON), ADR-014 (seam), ADR-015 (contact)
 **Supersedes:** the corpus scale figure F13 (~300 systems across ~6 regions → **2,500 across

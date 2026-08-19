@@ -1,6 +1,9 @@
 # ADR-012 — Configuration: JSON Files Only, Custom Parser in NeuronCore
 
-**Status:** Accepted · 2026-08-17 (owner directive)
+**Status:** Accepted · 2026-08-17 (owner directive) · §3 amended by
+[ADR-018](ADR-018-scaling-baseline.md) (2026-08-19): the user layer's key families widen
+(settings, wing names, route avoid-list) with unknown-key tolerance stated as forward-compat
+(D15.5)
 **Depends on:** ADR-008 (hosting), ADR-009 (universe content)
 **Supersedes:** ADR-008 §4 (the `--headless/--port/--transport/--selftest/--connect` command
 line) and ADR-009 §7 (the line-oriented universe format) — both are replaced below.

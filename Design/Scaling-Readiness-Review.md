@@ -2,7 +2,15 @@
 
 **Status:** Review output 2026-08-19 · **advisory, not normative.** This document decides
 nothing: the ADRs remain the authority, and every recommendation below is a proposal for the
-owner to accept, amend, or decline. Commissioned by the owner as a five-expert review of the
+owner to accept, amend, or decline. **Decided 2026-08-19:** the owner answered all fourteen
+questions the same day; the answers are recorded in
+[ADR-018](ADR/ADR-018-scaling-baseline.md), whose action register (A1–A26) supersedes the
+decision list below wherever they differ. Headline answers: **MMO shard (hundreds of
+commanders), persistent service**; two-client gate right after U3b; 1,024 stays normative;
+`PlayerId` now; **u32 ship ids everywhere, staged**; footprint-derived dock radius; worlds
+forget; strict behaviour gate; official service first (pinned key, Win11/Server 2022+
+floor); Release CI leg; dxc/SM 6.x; relaunch-on-device-removal + invariant; engine
+surfaces, data-fed; the UI package; presence gating revocable. Commissioned by the owner as a five-expert review of the
 code-complete MVP (S1–S14 plus ADR-015) and the full design corpus, asking one question: **is
 the baseline structurally right, so that scaling does not later force structural changes whose
 cost dwarfs fixing the baseline now?** Feature proposals were out of scope; so were code

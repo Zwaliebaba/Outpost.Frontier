@@ -1,6 +1,9 @@
 # ADR-007 — Threading: Two Owning Threads, Transport-Only Crossings
 
-**Status:** Accepted · 2026-08-17
+**Status:** Accepted · 2026-08-17 · amended by [ADR-018](ADR-018-scaling-baseline.md)
+(2026-08-19): world-level fan-out across the universe registry's worlds is §4's
+pre-approved first parallel consumer, under the world-isolation invariant and the replay
+gate (D1a); the §7 owner-assert is built with U2 (A8)
 **Depends on:** ADR-002 (tick loop), ADR-003 (Poll contract), ADR-005 (single-writer worlds)
 **Feeds:** ADR-008 (lifecycle), telemetry design
 
