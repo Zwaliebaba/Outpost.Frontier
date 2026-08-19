@@ -1,6 +1,14 @@
 # ADR-014 — Engine/Game Separation: Neuron Knows No Game
 
-**Status:** Accepted · 2026-08-17 (owner ruling)
+**Status:** Accepted · 2026-08-17 (owner ruling) · §2c amended by
+[ADR-018](ADR-018-scaling-baseline.md) (2026-08-19): screens are engine surfaces fed
+neutral data — static topology crosses once at boot as a neutral graph, live data as
+summary-keyed rows, search/route-solve as game pure functions; the leak test extends to
+security/sovereignty/service semantics; the fifth-project revisit gains its tripwire (D14)
+· given its mechanism by [ADR-020](ADR-020-ui-architecture.md) §6 (2026-08-19): a screen's
+seam budget is **three shapes, not three methods**; a **badge class index**, never a literal
+colour, crosses the seam; and the fifth-project question reopens when a screen needs a game
+*rule* rather than game *data* to render
 **Depends on:** the fixed project structure, ADR-004 (wire), ADR-008 (composition root)
 **Supersedes:** Dependency Map ruling #2 ("NeuronClient links GameLogic from day one") and
 every consequence drawn from it.

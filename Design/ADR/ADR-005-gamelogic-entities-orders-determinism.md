@@ -2,7 +2,10 @@
 
 **Status:** Accepted · 2026-08-17 · §2's "no inter-ship avoidance in MVP" superseded by
 [ADR-015](ADR-015-ship-collision.md) (2026-08-18), which lands the avoidance this ADR's
-consequences promised — inside Steering, plus a `Separate` step after Integrate
+consequences promised — inside Steering, plus a `Separate` step after Integrate · amended
+by [ADR-018](ADR-018-scaling-baseline.md) (2026-08-19): §4a's check order joins the
+compatibility gate (D9); `ShipId` widens to u32, staged (D6); `World::Spawn` takes an
+injected id from the universe registry (D6a)
 **Depends on:** ADR-001 (plane), ADR-002 (tick), ADR-004 (wire, quantisation)
 **Feeds:** ADR-006 (extract), ADR-007 (ownership), Build Order (test harness)
 

@@ -1,6 +1,13 @@
 # ADR-006 — Renderer: Fixed Forward Pass List, Orthographic 30°, Atlas Text
 
-**Status:** Accepted · 2026-08-17
+**Status:** Accepted · 2026-08-17 · amended by [ADR-018](ADR-018-scaling-baseline.md)
+(2026-08-19): §9 player-text charset + named i18n reopen (D15.1), §10 DPI-derived effective
+scale + 1280×720 floor (D15.2), §12 shader toolchain → dxc/SM 6.x (D12), device-removed
+posture = relaunch + the no-device-refs-in-session-state invariant (D13) · §§9–10 given
+their mechanism by [ADR-020](ADR-020-ui-architecture.md) (2026-08-19): the effective-scale
+formula (the 0.8–1.6 clamp applies to the *preference*, not the product), `WM_DPICHANGED`,
+the atlas re-bake on a scale change, and the rule that a full-screen surface **skips** the
+world passes rather than adding one
 **Depends on:** ADR-001 (plane), ADR-002 (interpolation), ADR-005 (extract source)
 **Feeds:** Build Order S1/S5/S8/S11
 
@@ -311,9 +318,15 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
     — use 3 buffers); per-frame command allocator + one direct list; linear upload ring for
     constants/instances; one shader-visible CBV/SRV heap (atlas + per-frame tables); root
     signature: frame CBV, pass CBV, draw root constants, one SRV table.
-    **Shaders are compiled into the executable**, not loaded: `fxc` builds
+    **Shaders are compiled into the executable**, not loaded: the HLSL compiler builds
     `Outpost/Shaders/*.hlsl` as part of `Outpost.vcxproj` into byte arrays, and the composition
-    root hands them to `GpuPipelines` as spans (owner directive, 2026-08-18; ADR-013 §1a). This
+    root hands them to `GpuPipelines` as spans (owner directive, 2026-08-18; ADR-013 §1a).
+    **The compiler is `dxc` at shader model 6.7, in both configurations** (ADR-018 D12,
+    2026-08-19): Debug had been compiling SM 6.7 through dxc via per-file overrides while the
+    never-built Release path said SM 5.1 through fxc — a per-config compiler fork nobody
+    decided, and one the reserved `GpuCull` slot would have had to unpick anyway, since a
+    compute pass wants SM6. The setting now lives once per configuration and says the same
+    thing in both. This
     project builds pipeline states and has no opinion about which shaders go in them — the
     engine ships around a second game, and a shader is exactly what the two differ on
     (ADR-014). One vertex and one pixel file per pass, with what both stages must agree about

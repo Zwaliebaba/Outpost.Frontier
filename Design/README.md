@@ -19,7 +19,12 @@ one-play-area-per-session clause — a session now hosts many grids, the client 
 **ADR-017** expires the docking half of ADR-009 §9's fence, extends ADR-016 §3's anchor
 record (undock point and facing) and §6's summary family (`StationRoster` lands first),
 amends §7's presence rule (docked ships count as presence), and moves §4's transfer bus
-earlier — it arrives with the station phase, and U3a inherits it.
+earlier — it arrives with the station phase, and U3a inherits it; **ADR-018** records the
+owner's scaling-baseline decisions over the five-lens review — the target is an **MMO
+shard on a persistent service** — amending ADR-004/005/006/007/008/012/013/014/016/017
+(each carries the note), adding U3c (the second-commander gate) and three named design
+deliverables (the topology ADR, the interest/delta ADR, the UI-architecture ADR), and
+extending the Risk Register with R19–R21.
 
 ## Decisions at a glance
 
@@ -42,6 +47,9 @@ earlier — it arrives with the station phase, and U3a inherits it.
 | [015](ADR/ADR-015-ship-collision.md) | Ship collision *(post-MVP)* | **Per-class contact radii; brake + tangent deflection in Steering; positional `Separate` after Integrate** — area-weighted, stations are terrain; no pathfinding, no momentum, no wire change |
 | [016](ADR/ADR-016-procedural-universe-and-warp.md) | Universe & warp *(owner design session)* | **2,500 baked systems (~50 regions), authored anchors as the only warp destinations, timed warp over a deterministic transfer bus, per-grid snapshots + fleet summaries, client-fed routes** — commander stays disembodied; view is presence-gated |
 | [017](ADR/ADR-017-station-docking.md) | Station docking *(owner design session)* | **Docked ships are an off-grid roster; a fleet docks together, instantly, inside 5 km; undock spawns at an authored point with 15 s command-broken protection and self-parks on a scanned berth ring; the hangar screen recombines emergent fleets and wings** — repair is the roster holding no damage |
+| [018](ADR/ADR-018-scaling-baseline.md) | Scaling baseline *(owner decisions over the review)* | **MMO shard (hundreds of commanders), persistent service; durable `PlayerId` + u32 ship ids (staged by the snapshot arithmetic); footprint-derived dock radius; worlds forget — durable state lives at the universe layer; `(applyTick, transferId)` bus order; behaviour joins the fail-closed gate; Release in CI, dxc/SM 6.x; screens are engine surfaces, data-fed** — 19 decisions, a 26-action register the build orders carry |
+| [019](ADR/ADR-019-shard-topology.md) | Shard topology *(deliverable A1 — blocks U2)* | **Three roles in one process today** (SimHost / SessionHost / Directory); the **anchor is the placement unit**, region-affine, never live-migrated; the tick is **shard-global**; transfers are **filed at departure** and ordered `(applyTick, hostId, counter)` with no coordination; **one client connection** through the session front door, so the client wire never learns the topology exists |
+| [020](ADR/ADR-020-ui-architecture.md) | UI architecture *(deliverable A19 — blocks U5 and T3)* | **A surface is a value on a small stack** (re-pushing pops back, so `◀ TACTICAL` and `◀ BACK` are one mechanism); a full-screen surface **skips** the world passes rather than adding one; **input is claimed once by one router** over three independent channels, with the printable-key rule that makes "W" type *or* pan; the screen-data contract is **three shapes, not three methods**, and a **badge class index** crosses the seam, never a colour |
 
 ## Coding standard
 
@@ -76,6 +84,11 @@ moves between the trees without a rename pass. Three things it changed in these 
   (dock/undock audio). No slice started.
 - [Risk-Register.md](Risk-Register.md) — R1–R14 with designed-in mitigations + standing spikes.
   R6 and R14 are marked realised, with what actually happened.
+- [Scaling-Readiness-Review.md](Scaling-Readiness-Review.md) — five-lens review of the MVP
+  and this corpus for scaling readiness (2026-08-19, **advisory**): consolidated findings
+  (`UX-/NET-/CPP-/UI-/SIM-`), a decision list sequenced against the build orders, and the
+  fourteen questions the owner answered the same day — **the answers are normative as
+  [ADR-018](ADR/ADR-018-scaling-baseline.md)**; the review stays the evidence record.
 
 ## Implementation state (2026-08-19)
 
