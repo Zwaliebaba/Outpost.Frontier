@@ -15,7 +15,11 @@ through injected interfaces instead; ADR-015 spends ADR-005 §2's "no inter-ship
 MVP" — ships collide now, and the tick gained a fifth system (`Separate`); **ADR-016**
 rescales the universe (F13's ~300 systems → 2,500 across ~50 regions), expires ADR-009 §9's
 no-traversal fence, appends a twelfth hull (`Gate`), and retires ADR-001 §3's
-one-play-area-per-session clause — a session now hosts many grids, the client viewing one.
+one-play-area-per-session clause — a session now hosts many grids, the client viewing one;
+**ADR-017** expires the docking half of ADR-009 §9's fence, extends ADR-016 §3's anchor
+record (undock point and facing) and §6's summary family (`StationRoster` lands first),
+amends §7's presence rule (docked ships count as presence), and moves §4's transfer bus
+earlier — it arrives with the station phase, and U3a inherits it.
 
 ## Decisions at a glance
 
@@ -37,6 +41,7 @@ one-play-area-per-session clause — a session now hosts many grids, the client 
 | [014](ADR/ADR-014-engine-game-separation.md) | Engine/game split *(owner ruling)* | **`Neuron*` never references GameLogic** — the engine declares `Simulation` and `WorldView`, GameLogic implements them, `Outpost.exe` injects them; neutral `EntityRecord` for replication |
 | [015](ADR/ADR-015-ship-collision.md) | Ship collision *(post-MVP)* | **Per-class contact radii; brake + tangent deflection in Steering; positional `Separate` after Integrate** — area-weighted, stations are terrain; no pathfinding, no momentum, no wire change |
 | [016](ADR/ADR-016-procedural-universe-and-warp.md) | Universe & warp *(owner design session)* | **2,500 baked systems (~50 regions), authored anchors as the only warp destinations, timed warp over a deterministic transfer bus, per-grid snapshots + fleet summaries, client-fed routes** — commander stays disembodied; view is presence-gated |
+| [017](ADR/ADR-017-station-docking.md) | Station docking *(owner design session)* | **Docked ships are an off-grid roster; a fleet docks together, instantly, inside 5 km; undock spawns at an authored point with 15 s command-broken protection and self-parks on a scanned berth ring; the hangar screen recombines emergent fleets and wings** — repair is the roster holding no damage |
 
 ## Coding standard
 
@@ -64,6 +69,11 @@ moves between the trees without a rename pass. Three things it changed in these 
   slices delivering ADR-016 (bake, anchors, warp, gates, strategic map, system view), plus
   the named content deliverables (system-view print, `Gate.obj`); milestones W0 (first warp)
   / W1 (first crossing) / W2 (the universe on screen). No slice started.
+- [Station-Build-Order.md](Station-Build-Order.md) — the docking phase: T1–T3 slices
+  delivering ADR-017 (roster + transfer bus in the sim, the wire and tactical surfaces,
+  the hangar screen), interleaved **after U2, before U3a**; milestones H0 (the headless
+  loop) / H1 (the hangar loop); deliverables P1 (station-screen print, blocks T3) and P2
+  (dock/undock audio). No slice started.
 - [Risk-Register.md](Risk-Register.md) — R1–R14 with designed-in mitigations + standing spikes.
   R6 and R14 are marked realised, with what actually happened.
 
@@ -106,6 +116,14 @@ session settled procedural generation (2,500 systems baked to authored content),
 model, and the UI surfaces — with [Universe-Build-Order.md](Universe-Build-Order.md) as the
 delivery plan. Nothing of it is implemented; U1 (the bake) and U5 (strategic map) are the
 open starting points, and the system-view print is the one missing design artifact.
+
+**The station phase is designed and not yet built (ADR-017, 2026-08-19).** A second owner
+design session settled docking: docked ships as an off-grid roster, the dock order (together,
+instant, inside the radius, client-fed approach), undock with 15-second command-broken
+protection and deterministic self-parking on a berth ring, and the hangar screen where
+emergent fleets and wings are recombined. [Station-Build-Order.md](Station-Build-Order.md)
+is the delivery plan, interleaved after U2 and before U3a — it introduces the transfer bus
+warp will inherit. The station-screen print (P1) is its one missing design artifact.
 
 **The first post-MVP feature is in the tree: ship collision (ADR-015, 2026-08-18).** Ships no
 longer fly through each other — per-class contact radii in the class table, braking and

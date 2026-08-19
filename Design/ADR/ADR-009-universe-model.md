@@ -4,7 +4,8 @@
 superseded by [ADR-016](ADR-016-procedural-universe-and-warp.md) (2026-08-19): the scale
 figure grows (~300 systems → 2,500 across ~50 regions), §9's no-traversal fence expires,
 §6's hull roster gains an appended `Gate` class, and grid anchors become authored warp
-destinations
+destinations · [ADR-017](ADR-017-station-docking.md) (2026-08-19) expires the docking half
+of §9's fence — stations dock, hold, and relaunch fleets now
 **Depends on:** ADR-001 (planar sim), ADR-004 (wire), ADR-005 (GameLogic structure)
 **Feeds:** Build Order S5/S6 content, strategic map (post-MVP), Dependency Map (GameLogic)
 
