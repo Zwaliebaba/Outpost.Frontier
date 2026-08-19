@@ -550,6 +550,10 @@ variable name `g_p<shader>`.
 `Outpost/Shaders/OpaqueVS.hlsl` `OpaquePS.hlsl` `NebulaVS.hlsl` `NebulaPS.hlsl`, compiled by
 `fxc` as part of `Outpost.vcxproj` (`ShaderModel` 5.1, warnings as errors, `/Od /Zi` in Debug —
 the same flags `D3DCompileFromFile` was being handed) into `g_pOpaqueVS` and friends.
+*Superseded 2026-08-19 (ADR-018 D12): the compiler is **`dxc` at SM 6.7 in both
+configurations**. What this line recorded had already stopped being true without a decision —
+Debug acquired per-file SM 6.7 overrides (so it was dxc), while Release kept 5.1 and had never
+once been compiled. The setting now lives once per configuration.*
 `Outpost/ShaderTable.h/.cpp` — the one translation unit that includes the generated headers,
 and the only place their names appear. The arrays have internal linkage, so a second includer
 would put a second copy of every shader in the binary.
@@ -577,7 +581,7 @@ on unknown keys, so a stale user layer says so rather than being quietly ignored
 **Verified:** the four suites still pass unchanged (195). The split itself is checked by
 expanding the includes and comparing declaration-for-declaration against the files as they were
 — every declaration preserved, none added, one entry point per file. There is no HLSL compiler
-outside Windows, so that textual check plus CI's `fxc` run is the whole of it.
+outside Windows, so that textual check plus CI's HLSL-compiler run is the whole of it.
 **Outstanding:** nothing renders differently, and that is the claim a GPU has to confirm. The
 bytes are compiled from the same source with the same flags to the same shader model, so a
 visible difference would be a surprise rather than a risk — but "should be identical" is not

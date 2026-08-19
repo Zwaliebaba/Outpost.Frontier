@@ -1,6 +1,9 @@
 # ADR-004 — Wire Protocol: Hand-Rolled, Full Snapshots, Acked Order Stream
 
-**Status:** Accepted · 2026-08-17
+**Status:** Accepted · 2026-08-17 · amended by [ADR-018](ADR-018-scaling-baseline.md)
+(2026-08-19): the schema text grows the verdict-affecting constants and the check-order
+sequence (D9); the §6 growth path gets an owner and a scope — the interest/delta ADR (D4);
+ship-id width staging on the wire (D6)
 **Depends on:** ADR-002 (tick), ADR-003 (channels & 1,152 B datagram cap)
 **Feeds:** ADR-005 (schema ownership), HUD feedback loop
 

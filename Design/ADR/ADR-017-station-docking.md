@@ -1,6 +1,12 @@
 # ADR-017 — Station Docking: the Roster, the Hangar, and the Parking Ring
 
-**Status:** Accepted · 2026-08-19 (owner design session)
+**Status:** Accepted · 2026-08-19 (owner design session) · amended by
+[ADR-018](ADR-018-scaling-baseline.md) (2026-08-19): §2's dock radius is
+**footprint-derived** — `max(DOCK_RADIUS_METRES, FormationExtentMetres + margin)`, same
+pure function on both halves (D7); §5's protection arithmetic corrected (fifteen seconds
+covers ~1.2–1.6 km for a Battleship, not ~3 km — the window is re-checked against the
+class table); §9's transfer-bus ordering reads as `(applyTick, transferId)` (D17); rosters,
+logs and `StationCommand` carry u32 ship ids and key on `PlayerId` (D5/D6)
 **Depends on:** ADR-002 (tick), ADR-004 (wire), ADR-005 (orders, validation, determinism),
 ADR-009 (universe model, stations), ADR-012 (JSON, user settings layer), ADR-014 (seam),
 ADR-015 (contact, stations as terrain), ADR-016 (anchors, universe runtime, summaries,

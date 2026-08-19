@@ -1,6 +1,10 @@
 # ADR-008 — In-Process Hosting: Composition Root, Lifecycle, Headless Proof
 
 **Status:** Accepted · 2026-08-17 · **§4–§5, §8 amended by ADR-012 (JSON config, no argv)**
+· §8 further amended by [ADR-018](ADR-018-scaling-baseline.md) (2026-08-19): the packaging
+split is architecture-complete *and* gated on the remote-play ADR (D10 — pinned-key trust,
+validation on off-loopback, transport config surface, abuse posture); sessions survive
+transport disconnect for a grace window keyed on `PlayerId` (D5)
 **Depends on:** ADR-003 (transport), ADR-007 (threads/ownership), ADR-012 (configuration)
 **Feeds:** Build Order S3/S4, future OutpostServer.exe
 

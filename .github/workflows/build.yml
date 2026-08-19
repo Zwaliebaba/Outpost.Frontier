@@ -1,26 +1,116 @@
 name: Build
 
-# Debug|x64 only. Release is deliberately not built: x64 is the only platform
-# (Outpost.slnx declares no other), and while the tree is this young a Release
-# build would double the CI time to catch almost nothing Debug does not. Add it
-# when optimised-only breakage becomes a real risk -- /O2 codegen differences,
-# or the NDEBUG-only paths in the wire layer.
+# Debug|x64 and Release|x64, since 2026-08-19 (ADR-018 D11).
+#
+# Release was deliberately not built while the tree was young -- a second
+# configuration doubles CI time to catch little that Debug does not. The
+# universe phase is what changed the calculation, and it changed it three ways:
+# acceptance criteria are now perf-gated (R17's parse threshold triggers a
+# *structural* content split, U5 has a frame budget, ADR-018 D1c gives the tick
+# one), and a number measured in Debug is 5-20x away from the number that
+# decides those; a shard ships Release binaries (ADR-018 D1); and the shader
+# build had forked per configuration without anyone deciding it, so the Release
+# path had never once been compiled.
+#
+# The source-level guards run on the Debug leg only: they read source, not
+# object code, so running them twice would only make the log longer.
+#
+# The Debug leg is currently NON-BLOCKING (see `continue-on-error` below) while
+# R22 is open, so a green run on this workflow certifies Release only. That is a
+# temporary, deliberate, and loudly-announced reduction in coverage, not a
+# silenced failure.
 
 on:
   push:
     branches: ['**']
   workflow_dispatch:
 
+# One run per branch. Added after four runs of the same branch sat in progress
+# simultaneously -- each holding a Windows runner on the hung Debug test step
+# (R22) -- and starved the run that was carrying the instrument meant to
+# diagnose it. Superseding is right regardless of the hang: a push makes the
+# run below it uninteresting, and the queue is shared.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    name: Debug|x64
+    name: ${{ matrix.configuration }}|x64
+    # NOT pinned, and that is a known gap rather than an oversight: ADR-018 D11
+    # asks for a pinned image, and the projects are on PlatformToolset v145,
+    # which only the newest images carry -- pinning to the wrong one would trade
+    # a floating toolchain for a broken build. The "Record the toolchain" step
+    # below prints what the runner actually provided, so the day an image bump
+    # changes the compiler it shows up as a diff in the summary rather than as a
+    # mystery. Pin this the first time that log says something new.
     runs-on: windows-latest
+
+    # The Debug leg does not gate the run, by owner decision (2026-08-19), until
+    # R22's intermittent Debug test hang is root-caused -- that needs a Windows
+    # machine and the hang dump, which CI cannot supply. This is a deliberate and
+    # temporary reduction in what a green run means: **green currently certifies
+    # Release only**. It is not a way of hiding the failure -- the Debug leg still
+    # builds, still runs, still uploads its dump, and the last step of this job
+    # writes an unmissable banner into the summary when it fails.
+    #
+    # Remove this line the day R22 closes. If it is still here and R22 is closed,
+    # that is a bug in someone's discipline, not in the build.
+    continue-on-error: ${{ matrix.configuration == 'Debug' }}
+
+    # A hang must cost 45 minutes, not the 6-hour default. Added when the Debug
+    # leg was found stuck in `Run tests` for over 100 minutes on a docs-only
+    # commit -- a pre-existing hang the Release leg exposed by contrast, since
+    # Release runs the same four suites in seconds (see the WER step below).
+    timeout-minutes: 45
+
+    strategy:
+      # Both legs always run: a Release failure is information about Release,
+      # and it must not hide whether Debug is green.
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
+
+      # What the floating image actually gave us. This is the visible half of
+      # ADR-018 D11's pinning decision (see the runs-on comment).
+      - name: Record the toolchain
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -format json | ConvertFrom-Json
+          $lines = @(
+            "- image: $env:ImageOS ($env:ImageVersion)",
+            "- visual studio: $($vs.installationVersion) ($($vs.displayName))",
+            "- msbuild: $((msbuild -version -nologo | Select-Object -Last 1).Trim())"
+          )
+          $dxc = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter dxc.exe -ErrorAction SilentlyContinue |
+            Sort-Object FullName | Select-Object -Last 1
+          if ($dxc) { $lines += "- dxc: $($dxc.FullName)" } else { $lines += '- dxc: not found on PATH roots' }
+          $lines | ForEach-Object { Write-Host $_ }
+          (@("## Toolchain (${{ matrix.configuration }})") + $lines) | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      # `ASSERT`/`DEBUG_ASSERT` end in `__debugbreak()` (NeuronCore/Debug.h:41,
+      # 48), and `DEBUG_ASSERT` is `__noop` in Release (:62). So an assertion
+      # that fires under test is a Debug-only event, and on a runner with no
+      # debugger the breakpoint exception reaches Windows Error Reporting, whose
+      # default behaviour is to sit there -- which is a hung job rather than a
+      # failed one, and indistinguishable from a slow one. Turning the UI off
+      # and disabling the queue makes the process die instead, so vstest reports
+      # a crashed test and `/Blame` below names it.
+      - name: Make a Debug assertion fail the job instead of hanging it
+        shell: pwsh
+        run: |
+          $wer = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting'
+          New-Item -Path $wer -Force | Out-Null
+          Set-ItemProperty -Path $wer -Name DontShowUI -Value 1 -Type DWord
+          Set-ItemProperty -Path $wer -Name Disabled -Value 1 -Type DWord
+          Write-Host 'Windows Error Reporting UI disabled for this runner'
 
       # msquic and C++/WinRT arrive as NuGet packages. These are
       # packages.config projects, not PackageReference, so this is
@@ -47,6 +137,7 @@ jobs:
       # namespace, 24 errors deep inside the STL with nothing pointing at us.
       # Cheap to check, miserable to diagnose.
       - name: Check header names against the CRT
+        if: matrix.configuration == 'Debug'
         shell: pwsh
         run: |
           $reserved = @('assert','ctype','errno','fenv','float','inttypes','iso646','limits','locale','math',
@@ -74,6 +165,7 @@ jobs:
       # differently depending on which project is building. ADR-013 §3's registry
       # is the discipline; this is the check.
       - name: Check file names are unique repo-wide
+        if: matrix.configuration == 'Debug'
         shell: pwsh
         run: |
           $seen = @{}
@@ -105,6 +197,7 @@ jobs:
       # and every translation unit that saw both failed with C2371. The file
       # check could not see it because the two files have different names.
       - name: Check the engine declares no constant twice
+        if: matrix.configuration == 'Debug'
         shell: pwsh
         run: |
           $seen = @{}
@@ -142,6 +235,7 @@ jobs:
       # game's client. That is a property nobody can hold in their head across
       # a year of slices, so the build holds it instead.
       - name: Check that only Outpost references GameLogic
+        if: matrix.configuration == 'Debug'
         shell: pwsh
         run: |
           $bad = @()
@@ -159,13 +253,19 @@ jobs:
           }
           # Source, not just project files: an include would fail to compile
           # without the reference, but it is worth naming the real mistake.
+          # The header list is derived from the tree rather than hand-spelled,
+          # so a GameLogic header added by a later slice is covered the day it
+          # lands (ADR-018 A24) -- pch.h is excluded because every project has
+          # one and the name says nothing about the game.
+          $gameHeaders = Get-ChildItem -Path GameLogic -Filter *.h |
+            Where-Object { $_.Name -ne 'pch.h' } |
+            ForEach-Object { [regex]::Escape($_.BaseName) }
+          $pattern = '#include\s*"(' + ($gameHeaders -join '|') + ')\.h"'
+          Write-Host "guarding $($gameHeaders.Count) GameLogic headers"
           foreach ($dir in 'NeuronCore', 'NeuronServer', 'NeuronClient')
           {
             Get-ChildItem -Path $dir -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-              if ((Get-Content $_.FullName -Raw) -match '#include\s*"(Universe|UniverseParse|World|Orders|Validate|Formation|Eta|ShipClass|Snapshot|OrderMessages|SchemaHash|WorldHash|ReplicatedView)\.h"')
-              {
-                $bad += $_.FullName
-              }
+              if ((Get-Content $_.FullName -Raw) -match $pattern) { $bad += $_.FullName }
             }
           }
           if ($bad.Count -gt 0)
@@ -179,6 +279,7 @@ jobs:
       # and every one of these is a way to spend it by accident. The replay
       # suite would catch most of them eventually; this says which line did it.
       - name: Check GameLogic's determinism rules
+        if: matrix.configuration == 'Debug'
         shell: pwsh
         run: |
           $bad = @()
@@ -246,7 +347,7 @@ jobs:
           foreach ($p in 'NeuronCore', 'GameLogic', 'NeuronServer', 'NeuronClient')
           {
             msbuild "$p\$p.vcxproj" `
-              /p:Configuration=Debug /p:Platform=x64 /p:SolutionDir=$PWD\ `
+              /p:Configuration=${{ matrix.configuration }} /p:Platform=x64 /p:SolutionDir=$PWD\ `
               /v:normal /nologo "/flp:LogFile=build.log;Verbosity=diagnostic;Append"
             if ($LASTEXITCODE -ne 0) { throw "build failed for $p" }
           }
@@ -269,7 +370,7 @@ jobs:
           }
           Write-Host 'Outpost.exe: entry point found -- building'
           msbuild Outpost\Outpost.vcxproj `
-            /p:Configuration=Debug /p:Platform=x64 /p:SolutionDir=$PWD\ `
+            /p:Configuration=${{ matrix.configuration }} /p:Platform=x64 /p:SolutionDir=$PWD\ `
             /v:normal /nologo "/flp:LogFile=build.log;Verbosity=diagnostic;Append"
           if ($LASTEXITCODE -ne 0) { throw 'build failed for Outpost' }
 
@@ -281,7 +382,7 @@ jobs:
           foreach ($t in 'NeuronCoreTests', 'GameLogicTests', 'NeuronServerTests', 'NeuronClientTests')
           {
             msbuild "Tests\$t\$t.vcxproj" `
-              /p:Configuration=Debug /p:Platform=x64 /p:SolutionDir=$PWD\ `
+              /p:Configuration=${{ matrix.configuration }} /p:Platform=x64 /p:SolutionDir=$PWD\ `
               /v:normal /nologo "/flp:LogFile=build.log;Verbosity=diagnostic;Append"
             if ($LASTEXITCODE -ne 0) { throw "build failed for $t" }
           }
@@ -296,8 +397,12 @@ jobs:
           $vstest = Join-Path $vs 'Common7\IDE\CommonExtensions\Microsoft\TestWindow\vstest.console.exe'
           if (-not (Test-Path $vstest)) { throw "vstest.console.exe not found under $vs" }
 
+          # Scoped to this leg's output directory: with two configurations built
+          # in the same workspace on different jobs this is belt and braces, but
+          # a stray assembly from the other configuration would be a confusing
+          # way to go green.
           $dlls = Get-ChildItem -Recurse -Filter '*Tests.dll' |
-            Where-Object { $_.FullName -notmatch '\\packages\\' } |
+            Where-Object { $_.FullName -notmatch '\\packages\\' -and $_.FullName -match '\\${{ matrix.configuration }}\\' } |
             Select-Object -ExpandProperty FullName
           if (-not $dlls) { throw 'no test assemblies were produced' }
 
@@ -306,7 +411,21 @@ jobs:
           # Captured as well as echoed: a failing assertion is the whole reason
           # this step exists, and it must not be something you have to scroll a
           # 1500-line log to find.
-          & $vstest $dlls /Platform:x64 /Logger:console`;verbosity=normal 2>&1 |
+          # Blame with hang detection, because the job timeout is the wrong
+          # instrument: it kills the runner and takes the evidence with it.
+          # `TestTimeout` makes *vstest* give up on a test that has produced
+          # nothing for five minutes, dump the hung process and name the test in
+          # Sequence.xml -- so a hang becomes a normal red build with a culprit.
+          # Five minutes is far above any honest Debug test here: the whole
+          # Release suite finishes in seventeen seconds.
+          #
+          # Disabling Windows Error Reporting (step above) was the first attempt
+          # and did not stop the hang, which is itself a finding: the Debug hang
+          # is not an assertion reaching WER but something that waits -- a
+          # deadlock or a socket that never returns, visible only at Debug
+          # timing. This is the instrument that will say which.
+          & $vstest $dlls /Platform:x64 /Blame:"CollectHangDump;TestTimeout=300000" `
+            /Logger:console`;verbosity=normal 2>&1 |
             Tee-Object -FilePath test.log
           $failed = $LASTEXITCODE -ne 0
 
@@ -322,7 +441,7 @@ jobs:
             Write-Host '--- failing tests ---'
             $detail | ForEach-Object { Write-Host $_ }
 
-            $lines = @('## Tests failed', '```') + $totals + @('') + $detail + @('```')
+            $lines = @('## Tests failed (${{ matrix.configuration }})', '```') + $totals + @('') + $detail + @('```')
             $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
             throw 'tests failed'
           }
@@ -337,7 +456,7 @@ jobs:
       - name: Run the self test
         shell: pwsh
         run: |
-          $exe = Join-Path $PWD 'x64\Debug\Outpost.exe'
+          $exe = Join-Path $PWD 'x64\${{ matrix.configuration }}\Outpost.exe'
           if (-not (Test-Path $exe)) { throw 'Outpost.exe was not built' }
 
           New-Item -ItemType Directory -Force ci-selftest | Out-Null
@@ -364,10 +483,36 @@ jobs:
           {
             $failures = Select-String -Path ci-selftest\Outpost.log -Pattern 'FAILED' -ErrorAction SilentlyContinue |
               ForEach-Object { $_.Line.Trim() }
-            $lines = @('## Self test failed', '```') + $failures + @('```')
+            $lines = @('## Self test failed (${{ matrix.configuration }})', '```') + $failures + @('```')
             $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
             throw "self test failed with exit code $($p.ExitCode)"
           }
+
+      # Spike 2's raw material (Risk Register, standing spikes). The self test
+      # logs the replay hash it computed; this lifts it out so the comparison
+      # job can put the two configurations side by side. ADR-005 §6 scopes
+      # determinism to one binary, so the two are *expected* to differ -- the
+      # point of recording it is that nobody mistakes that for a defect later.
+      - name: Extract the replay hash
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path selftest.log)) { Write-Host 'no selftest.log -- nothing to extract'; exit 0 }
+          $line = Select-String -Path selftest.log -Pattern 'replay hash ([0-9a-f]{16}) \(checkpoint ([0-9a-f]{16})\)' |
+            Select-Object -First 1
+          if (-not $line) { Write-Host 'no replay-hash line in selftest.log'; exit 0 }
+          $final = $line.Matches[0].Groups[1].Value
+          $checkpoint = $line.Matches[0].Groups[2].Value
+          Write-Host "${{ matrix.configuration }}: final=$final checkpoint=$checkpoint"
+          "${{ matrix.configuration }} $final $checkpoint" | Out-File -Encoding ascii "replay-hash-${{ matrix.configuration }}.txt"
+
+      - name: Upload the replay hash
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: replay-hash-${{ matrix.configuration }}
+          path: replay-hash-${{ matrix.configuration }}.txt
+          if-no-files-found: ignore
 
       # MSBuild can exit non-zero with the failure only in the file log, so
       # surface it rather than leaving the job with no explanation.
@@ -393,7 +538,7 @@ jobs:
           $warnings = Select-String -Path build.log -Pattern ': warning [A-Z]+[0-9]+:' |
             ForEach-Object { $_.Line.Trim() -replace $root, '' -replace ' \[[^\]]*\.vcxproj\]$', '' } |
             Sort-Object -Unique
-          $header = "## Debug|x64 - $($warnings.Count) unique warning(s)"
+          $header = "## ${{ matrix.configuration }}|x64 - $($warnings.Count) unique warning(s)"
           Write-Host $header
           $header | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
           if ($warnings.Count -gt 0)
@@ -409,13 +554,91 @@ jobs:
             $shown | ForEach-Object { Write-Host $_ }
           }
 
+      # continue-on-error makes the run green; it must not make the failure
+      # quiet. Anyone reading the summary sees what did not pass and why it was
+      # allowed through.
+      - name: Say plainly that Debug failed and was not allowed to gate
+        if: failure() && matrix.configuration == 'Debug'
+        shell: pwsh
+        run: |
+          $lines = @(
+            '## :warning: Debug|x64 FAILED - and did not fail the run',
+            '',
+            'The Debug leg is **non-blocking** by owner decision (2026-08-19) while',
+            'Risk-Register **R22** is open: the Debug test run hangs intermittently, and',
+            'root-causing it needs a Windows machine and the hang dump attached to this run.',
+            '',
+            '**A green tick on this run certifies Release only.** Debug coverage is not',
+            'being reported. The dump and per-test blame output are in the',
+            '`build-log-Debug-x64` artifact.',
+            '',
+            'When R22 closes, delete `continue-on-error` from the build job.'
+          )
+          $lines | ForEach-Object { Write-Host $_ }
+          $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          Write-Host '::warning title=Debug leg failed (non-blocking, R22)::Green certifies Release only until R22 closes'
+
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log-debug-x64
+          name: build-log-${{ matrix.configuration }}-x64
           path: |
             build.log
             test.log
             selftest.log
+            TestResults/**
           if-no-files-found: ignore
+
+  # Standing spike 2: "confirm hashes *differ* across configs is acceptable and
+  # documented (same-binary scope, ADR-005 §6) -- prevents a false alarm later."
+  # It ran as a one-off nowhere for months because it needed a Release build
+  # nobody had; now that both configurations exist it is a job, and it reports
+  # rather than judges. Differing hashes are the expected result and are not a
+  # failure; the failure this repo actually cares about -- a configuration
+  # disagreeing with *itself* -- is asserted inside each self test.
+  replay-hash-comparison:
+    name: Spike 2 - replay hash across configurations
+    runs-on: ubuntu-latest
+    needs: build
+    if: always()
+
+    steps:
+      - name: Download the hashes
+        uses: actions/download-artifact@v4
+        with:
+          pattern: replay-hash-*
+          merge-multiple: true
+
+      - name: Compare
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=(replay-hash-*.txt)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "no replay hashes were produced (both legs failed before the self test?)"
+            echo "## Spike 2: no hashes produced" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          cat "${files[@]}"
+          {
+            echo "## Spike 2 - replay hash across configurations"
+            echo
+            echo '| configuration | final | checkpoint |'
+            echo '|---|---|---|'
+            awk '{ printf "| %s | `%s` | `%s` |\n", $1, $2, $3 }' "${files[@]}"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ ${#files[@]} -lt 2 ]; then
+            echo "only one configuration reported -- nothing to compare this run" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          distinct=$(awk '{ print $2 }' "${files[@]}" | sort -u | wc -l)
+          if [ "$distinct" -eq 1 ]; then
+            echo "Debug and Release agree. Allowed, not required: ADR-005 §6 scopes determinism to one binary, so this is a coincidence of codegen rather than a guarantee, and nothing should be built on it." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Debug and Release differ, which is the **expected** result: ADR-005 §6 buys same-binary replay determinism only, and deliberately does not pay for cross-build bit-exactness. Replays and world-hash goldens are per-build artifacts. This line exists so that a future run finding two different numbers is read as the design working rather than as a defect." >> "$GITHUB_STEP_SUMMARY"
+          fi

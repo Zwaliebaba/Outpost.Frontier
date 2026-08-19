@@ -255,6 +255,16 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation)
     _checks.Record("replay determinism holds at the checkpoint", first.checkpointHash == second.checkpointHash);
     _checks.Record("replay determinism holds at the end", first.finalHash == second.finalHash);
     _checks.Record("the world hash notices a one-metre change", first.finalHash != nudged.finalHash);
+
+    // The values themselves, so the standing Debug/Release comparison (Risk
+    // Register spike 2) is a line CI reads rather than a run someone remembers
+    // to do by hand. ADR-005 §6 scopes determinism to one binary, so the two
+    // configurations are *allowed* to disagree here and the comparison exists
+    // to document that rather than to police it. A configuration disagreeing
+    // with itself is the defect, and the two Record lines above are what catch
+    // that.
+    NEURON_LOG_INFO("self test: replay hash %016llx (checkpoint %016llx)", static_cast<unsigned long long>(first.finalHash),
+                    static_cast<unsigned long long>(first.checkpointHash));
   }
 }
 
