@@ -132,7 +132,7 @@ together) have run green locally, with CI's run standing behind it as usual.
 **Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
 handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. The
-suite now stands at **362** — 188 client, 91 GameLogic, 73 core, 10 server. Its
+suite now stands at **477** — 263 client, 130 GameLogic, 74 core, 10 server. Its
 visible half — window open, swapchain presenting, heartbeat live — together with the four
 other criteria that need a GPU and a person (five minutes clean under the debug layer,
 PresentMon showing the flip model, a clean exit, and the 60-second tick cadence on an idle
