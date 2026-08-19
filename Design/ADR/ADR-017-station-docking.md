@@ -168,9 +168,22 @@ skirts.
 
 Replication is one bit: `EntityRecord` gains a **`statusBits`** byte (engine-neutral, the
 game defines the bits — the `typeId`/`groupId` pattern; and unlike the old always-zero
-`flags` byte this one is a bitfield *on purpose*), bit 0 = protected. One byte per entity
-per tick is the honest cost, paid for the shimmer the client draws and whatever future
-states (in-warp, combat-flagged) need the other seven bits.
+`flags` byte this one is a bitfield *on purpose*), bit 0 = protected. The other seven are
+where in-warp and combat-flagged will live, which is why a byte and not a widened `typeId`.
+
+**Priced, because in this tree a replicated field costs ships.** `ENTITY_RECORD_BYTES`
+goes 20 → 21, and `MAX_SHIPS_PER_SNAPSHOT` is derived from it: with the 1,150-byte budget,
+the 16-byte header and the reserved 224-byte order area, the 910 bytes left hold **43 ships
+instead of 45**. The MVP fleet is 41 and `Snapshot.h`'s floor asserts ≥ 41, so the cap still
+clears it — on a margin of two rather than four. That is the honest cost of the shimmer, and
+it is recorded here for the same reason `ORDER_STATE_RECORD_BYTES` records its own ("a field
+added here costs ships"): the next person to want a status bit should find the price already
+on the page. Two consumers of that shrinking margin are already designed — ADR-016 §6's
+per-grid snapshot header, and any future gauge — so **the delta encoding ADR-004 reserved is
+the growth path**, not another byte. If T2 measures the margin as too thin to land on,
+packing the bit into a spare high bit of `groupId` (wings are 1..255 but a session fields
+eight) is the named fallback, rejected as the default only because a bitfield hidden in an
+id field is exactly the mistake `groupId`'s own comment was written to prevent.
 
 ### 6. The hangar screen
 
@@ -312,6 +325,9 @@ dense order with no RNG draw; parking is as replayable as steering.
 - **Schema bumps, enumerated once**: `OrderKind{+Warp reserved, +Dock}`;
   `OrderReason{9–13}`; `EntityRecord.statusBits`; `StationCommand`; `StationRoster` — one
   cluster in T2, riding the fail-closed hash.
+- **The snapshot ship cap falls 45 → 43** (§5), still above `Snapshot.h`'s asserted floor of
+  41 but on half the margin. T2 updates the constant's comment with the new arithmetic, and
+  the static asserts catch it if the number is ever wrong.
 - **U1's spec is amended before it builds** (Universe-Build-Order): Station anchors carry
   the undock point and facing; new bake invariants — warp-in point inside the dock radius,
   undock point clear of the structure's contact radius, parking rings inside the grid.

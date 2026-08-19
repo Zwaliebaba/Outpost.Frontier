@@ -48,7 +48,9 @@ damaged ship — when gauges exist to damage — undock full).
 ### T2 — The wire and the tactical surfaces 🏁 H0
 One clustered schema bump (ADR-017 §8): `OrderKind{+Warp reserved, +Dock}`,
 `OrderReason{9–13}` (including reserved `CombatEngaged = 13`), `EntityRecord.statusBits`
-(bit 0 = protected), `StationCommand` on the acked order stream (shared seq/ack/reason),
+(bit 0 = protected — `ENTITY_RECORD_BYTES` 20 → 21 and the snapshot ship cap 45 → 43, still
+over the asserted floor of 41; the constant's comment is updated with the new arithmetic),
+`StationCommand` on the acked order stream (shared seq/ack/reason),
 `StationRoster` at ~1 Hz (the first resident of the summary family — U3b builds beside it).
 Client: DOCK as a **context action on the station structure** (the command row stays as
 printed), the client-feeds approach chain (Move to perimeter → Dock when every member is
@@ -59,7 +61,9 @@ clause (ADR-017 §7) — the view may stay on a grid where only docked ships rem
 **Accept 🏁 H0:** `selfTest` drives the headless loop over the real loopback — dock a
 fleet, observe the roster message and the ships leaving the snapshot, undock a subset,
 observe spawn, shimmer bit, parking order and its lane in the order records, protection
-expiry; a mid-approach disconnect halts the fleet outside; every pre-existing suite green.
+expiry; a mid-approach disconnect halts the fleet outside; the snapshot budget asserts still
+hold at the narrowed cap and a 43-ship snapshot round-trips inside one datagram; every
+pre-existing suite green.
 
 ### T3 — The hangar screen 🏁 H1
 **Prerequisite: P1, the station-screen print — designed and agreed before this slice
