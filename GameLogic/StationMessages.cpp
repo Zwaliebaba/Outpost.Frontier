@@ -118,6 +118,9 @@ bool ReadStationRoster(Neuron::ByteReader& _reader, AnchorId& _outStation, std::
     return false;
   }
 
+  // Sized once from the count the header already bounded, rather than grown a
+  // row at a time.
+  _outDocked.reserve(count);
   for (std::uint16_t index = 0; index < count; ++index)
   {
     RosterEntry row;

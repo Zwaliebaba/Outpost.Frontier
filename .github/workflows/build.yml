@@ -536,6 +536,14 @@ jobs:
             exit 0
           }
 
+          # Also to a file, and the file is re-printed at the *end* of the job.
+          #
+          # Not belt and braces: a finding printed here sits in the middle of a
+          # several-thousand-line log, and the tools that read a failed job read
+          # its tail. A gate whose findings cannot be read from the failure is a
+          # gate that gets worked around, so the failure has to carry them.
+          $findings | Out-File -Encoding utf8 clang-tidy.log
+
           $findings | ForEach-Object { Write-Host "::error::$_" }
           $lines = @("## clang-tidy: $($findings.Count) finding(s) in GameLogic", '```') +
                    ($findings | Select-Object -First 40) + @('```')
@@ -968,6 +976,17 @@ jobs:
           $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
           Write-Host '::warning title=Debug leg failed (non-blocking, R22)::Green certifies Release only until R22 closes'
 
+      # The findings again, where a reader of a failed job will actually find
+      # them: the last thing it printed. See the note in the step above.
+      - name: Say what clang-tidy found
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path clang-tidy.log)) { Write-Host 'clang-tidy: nothing recorded'; exit 0 }
+          Write-Host '--- clang-tidy findings ---'
+          Get-Content clang-tidy.log | ForEach-Object { Write-Host $_ }
+          Write-Host '--- end of clang-tidy findings ---'
+
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
@@ -975,6 +994,7 @@ jobs:
           name: build-log-${{ matrix.configuration }}-x64
           path: |
             build.log
+            clang-tidy.log
             test.log
             selftest.log
             TestResults/**
