@@ -92,7 +92,7 @@ GridAnchor UniverseDef::StartAnchor() const noexcept
   return GridAnchor{start.system, station->position};
 }
 
-std::uint64_t ComputeUniverseHash(const UniverseDef& _universe) noexcept
+std::uint64_t ComputeUniverseHash(const UniverseDef& _universe)
 {
   std::uint64_t hash = HashName(_universe.name, Neuron::FNV_OFFSET_BASIS_64);
 

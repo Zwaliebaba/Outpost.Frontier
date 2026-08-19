@@ -152,11 +152,18 @@ clang-tidy --quiet NeuronCore/YourNewFile.cpp -- -I . -D _WIN32 -D _DEBUG /std:c
 ```
 
 - **`Run clang-tidy`** sweeps GameLogic with the config above. It is **non-blocking for now**,
-  and on purpose: this tree has never been through clang-tidy on Windows, where the engine
-  projects reach D3D12, C++/WinRT, XAudio2 and msquic headers, and a gate over an unanswered
-  question is a gate that gets deleted the week it first fires. Its findings go to the run
-  summary; the day a run comes back clean the `continue-on-error` comes off. GameLogic itself
-  *was* swept clean when the step landed, so a finding there is new work, not archaeology.
+  and on purpose: the engine projects reach D3D12, C++/WinRT, XAudio2 and msquic headers, and
+  a gate over a question nobody has answered is a gate that gets deleted the week it first
+  fires. Its findings go to the run summary; the day a run comes back clean the
+  `continue-on-error` comes off.
+
+  Its first Windows run (LLVM 20.1.8, ~90 s over GameLogic) justified that caution and paid
+  for the step at once: it found one thing the same sweep under clang-tidy 18 had not —
+  `ComputeUniverseHash` promising `noexcept` while allocating per entity list, which is
+  `std::terminate` on `bad_alloc` on the boot path that reads the biggest file this game owns.
+  That is fixed. **Read a finding here as real** — GameLogic has been swept under both
+  toolchains now — and expect the engine projects to have their own reckoning when the step
+  widens past GameLogic.
 - **`Check the naming rules clang-tidy cannot express`** is blocking, and carries the two
   rules the config cannot state:
   - **R2 (type prefixes)** — clang-tidy can require an *absent* prefix but cannot ban a

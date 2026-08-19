@@ -193,7 +193,10 @@ open, so a green tick currently certifies Release only — the note at the top o
 why), restores NuGet per project, runs **seven source guards** before compiling anything,
 builds the four libraries, builds `Outpost.exe` once an entry point exists, builds and runs the
 tests, runs the self test, and surfaces failing tests, deduplicated warnings, the two
-configurations' replay hashes and **R10's tick-soak table** in the job summary. It is the only
+configurations' replay hashes and **R10's tick-soak table** in the job summary. The soak's
+first run put the authoritative Release number on the record: **a 1,024-ship grid ticks in
+7.7 ms, 15 % of the budget**, against 78.3 ms in Debug — the 10× gap D11 exists to stop
+anyone reading a phase acceptance number off the wrong leg. It is the only
 compiler this work has: every defect listed in R14 and the S4 notes was found by pushing and
 reading the log.
 

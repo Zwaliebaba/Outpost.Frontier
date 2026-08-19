@@ -22,8 +22,10 @@ headroom at the cap and **no broadphase is owed before U2**. **A4's in-repo soak
 same day** (`Outpost/TickSoak.h/.cpp`): the self test runs the 41 / 256 / 512 / 1,024 ladder
 in the shipping binary on every push, CI tables it per configuration, and the capped-grid
 figure D1c wants — how many grids fit one core — is printed beside it. So the number is now
-re-taken rather than remembered, and the one thing A4 still owes is the authoritative MSVC
-**Release** figure, which the first run of A2's leg produces on its own. **U2 inherits the
+re-taken rather than remembered — **and the first run closed A4's last owed item**, the
+authoritative MSVC **Release** figure: a capped grid ticks in **7.728 ms mean / 13.6 ms worst,
+15 % of the budget, ~6.5 grids per core**, better than the cross-build indicated. (Debug is
+78.3 ms, 10.1× that, which is D11 in one number.) **U2 inherits the
 instrument, not the chore:** the ladder measures one grid, and the question U2 makes
 interesting is M grids — extending it is a line in the soak rather than a new harness.
 **A24 also landed**, so the build invariants the determinism story cites are stated in two

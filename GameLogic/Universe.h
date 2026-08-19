@@ -161,8 +161,17 @@ struct UniverseDef
  *
  * Everything hashed is an integer or a string. There is no float in the
  * universe model, so there is no question about how one hashes.
+ *
+ * Not `noexcept`, and it used to be: walking in id order means sorting indices,
+ * which allocates once per entity list, and a `noexcept` function that
+ * allocates promises something it cannot keep -- `bad_alloc` there is
+ * `std::terminate`, on the boot path that reads the largest file this game
+ * owns (R17). The annotation was incidental rather than a design promise: the
+ * one production caller (`Outpost::LoadUniverse`) already allocates and already
+ * reports failures as diagnostics. Found by the clang-tidy CI step's first
+ * Windows run (ADR-018 A24).
  */
-[[nodiscard]] std::uint64_t ComputeUniverseHash(const UniverseDef& _universe) noexcept;
+[[nodiscard]] std::uint64_t ComputeUniverseHash(const UniverseDef& _universe);
 
 /*
  * Anchor and local conversion (ADR-009 §2).
