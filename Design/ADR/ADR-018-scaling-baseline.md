@@ -284,10 +284,10 @@ work must exist before the slice starts; finding ids point into the review's app
 | A20 | Run spike 3 (1,024-instance draw) + the S5 frame check; upload-ring and fixed GPU budgets sized from corpus caps (1,024 entities / 2,500 nodes), made config | **Before U5** | CPP-5 |
 | A21 | Schema text grows the verdict constants + check-order sequence (D9), clustered with T2's bump | **T2 cluster** | D9 (SIM-5) |
 | A22 | Remote-play ADR (pinned key, validation on off-loopback, transport config surface, abuse budget); ADR-008 §8 gains the gate sentence | **Design deliverable, blocks first remote deployment** | D10 (NET-4) |
-| A23 | Device-removal risk row; "no session state holds a device reference" invariant recorded; recovery slice deferred | **Risk register, now** | D13 (CPP-2) |
+| A23 | ~~Device-removal risk row; "no session state holds a device reference" invariant recorded; recovery slice deferred~~ **Done 2026-08-19: R20** | **Risk register, now** | D13 (CPP-2) |
 | A24 | Common MSBuild props (toolset, `stdcpplatest`, conformance, explicit `/fp:precise`, no `/arch` overrides) or a CI guard over `.vcxproj`s; guard file-lists derived from the tree; clang-tidy CI step. *Partly done 2026-08-19:* the ADR-014 guard's GameLogic header list is now **derived from the tree** rather than hand-spelled, so a header added by U1 or T1 is covered the day it lands; the props file and the clang-tidy step remain | **Before a second contributor** | CPP-4 |
 | A25 | U3c — the second-commander gate: two clients, distinct `PlayerId`s, disjoint grids, full loop each over real loopback | **New slice after U3b** | D3 (NET-1/2) |
-| A26 | Annotate R10 (sim-only vs wire halves), R17 (Release numbers), R18 (RTT parameterisation); add rows for the replication cliff, device removal, topology | **Risk register, now** | NET-5, D11, D13 |
+| A26 | ~~Annotate R10 (sim-only vs wire halves), R17 (Release numbers), R18 (RTT parameterisation); add rows for the replication cliff, device removal, topology~~ **Done 2026-08-19: R10/R17/R18 annotated (R10 now carries the measured soak), R19 (replication cliff), R20 (device removal), R21 (topology, mitigated by ADR-019) added** | **Risk register, now** | NET-5, D11, D13 |
 
 ## Consequences
 

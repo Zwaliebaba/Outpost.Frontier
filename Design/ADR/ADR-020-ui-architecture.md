@@ -16,19 +16,18 @@ This decides design only; no code is written here and none is assumed to exist.
 ## Context
 
 R9 fenced the MVP HUD — "atlas ASCII + quads only, layouts hardcoded to print zones,
-UI-scale multiplier the only flexibility" — and the fence held. The queue of things that
+UI-scale multiplier the only flexibility" — and the fence held: the queue of things that
 wanted to become widgets (the drag rectangle, the bounce toast, the dashed lane, the NET
 readouts) emptied without one arriving, and the single primitive it cost was the oriented
 quad, added as a class rather than a feature (ADR-006 §8c; Risk-Register R9). Nothing that
-fence protects is reopened here.
-
-What changed is the level. R9 governed primitives *inside one screen*; the roadmap is three
-to five full-screen surfaces — strategic map (U5), system view (U6), hangar (T3), settings,
-six pre-session screens — with navigation, search, renames, dropdowns, scrolling lists and
-per-screen state, and **no document says what a screen mechanically is**. Today the frame is
-a fixed single-surface sequence (`ClientApp.h:88–107`) and routing is hand-ordered zone
-re-tests with nowhere to say "this was eaten" (`ClientApp.cpp:361–455`). That is right for
-one screen and two consumers and does not survive four.
+fence protects is reopened here. What changed is the level. R9 governed primitives *inside
+one screen*; the roadmap is three to five full-screen surfaces — strategic map (U5), system
+view (U6), hangar (T3), settings, six pre-session screens — with navigation, search,
+renames, dropdowns, scrolling lists and per-screen state, and **no document says what a
+screen mechanically is**. Today the frame is a fixed single-surface sequence
+(`ClientApp.h:88–107`) and routing is hand-ordered zone re-tests with nowhere to say "this
+was eaten" (`ClientApp.cpp:361–455`) — right for one screen and two consumers, and it does
+not survive four.
 
 The corpus has already made the load-bearing calls, which is why this ADR is short and its
 code cost near zero. `debug-hud.png` §1 states the budget model — "every other screen in 04
@@ -36,7 +35,7 @@ replaces the one before it, which is what lets §1.5 say screens never stack" �
 diagnostics strip as the one entry that *composes*, with per-screen budget rows in §5. The
 prints draw the navigation (`◀ TACTICAL |`, `◀ BACK |`) and `alerts-and-toasts.png` fixes
 toast placement. What is missing is only the mechanism; ADR-018 D14/D15 already fixed the
-policy. This ADR implements them and does not re-argue them.
+policy, and this ADR implements them rather than re-arguing them.
 
 ## Decision
 
@@ -58,10 +57,10 @@ is the one additive cost and the one surface permitted to occlude world (`debug-
 
 **Entry and exit are declared, and entry is where staleness dies.** `OnEnter` validates the
 surface's retained state against the data it now holds (§5), requests anything asked-once it
-lacks (§6), and claims no input. `OnExit` clears focus (§3) and cancels any in-flight drag;
-it destroys no retained state, because lifetime is §5's decision and not navigation's.
-Validating on entry rather than exit is deliberate: a surface cannot know, as it leaves,
-which of the things it names will still exist when it returns.
+lacks (§6), and claims no input. `OnExit` clears focus (§3) and cancels any in-flight drag,
+and destroys no retained state — lifetime is §5's decision, not navigation's. Validating on
+entry rather than exit is deliberate: a surface cannot know, as it leaves, which of the
+things it names will still exist when it returns.
 
 **Which passes run beneath a surface — an insertion-free use of ADR-006 §1's fixed list, not
 a new pass.** The frame loop already records that list in two halves (`GpuPasses.h:195–215`):
@@ -84,15 +83,12 @@ view. **No surface renders a partial world.**
 
 **The network half of the frame runs on every surface; extract runs only when the world half
 is recorded.** Snapshots keep arriving and keep the interpolation buffer full while the map
-is up, so returning to tactical costs no refill. A *surface* switch is therefore not a *view*
-switch, and ADR-016 §7's ~200 ms settle is owed only by the latter — stated because U5 is
-where the two will first be confused.
-
-**Toasts are a cross-surface layer**, drawn above the active surface on every in-session
-surface, in the zones `alerts-and-toasts.png` fixes: Critical centre-top, the rest
-bottom-right, neither over the context bar. Pre-session surfaces carry no toast layer —
-there is no session to raise one, and their equivalents (UPDATE REQUIRED, the queue position)
-are the screens themselves.
+is up, so returning to tactical costs no refill: a *surface* switch is not a *view* switch,
+and ADR-016 §7's ~200 ms settle is owed only by the latter. **Toasts are a cross-surface
+layer**, drawn above the active surface on every in-session surface in the zones
+`alerts-and-toasts.png` fixes — Critical centre-top, the rest bottom-right, neither over the
+context bar. Pre-session surfaces carry no toast layer: there is no session to raise one, and
+their equivalents (UPDATE REQUIRED, the queue position) are the screens themselves.
 
 ### 2. Input is claimed once, in one order, by one router
 
@@ -100,11 +96,10 @@ An `InputRouter` wraps the frame and carries claim flags; each stage in turn ask
 remains and claims what it takes. The consumed-event concept is a **claim over a latched
 frame**, not an event queue, because `InputFrame` (`InputMap.h:79–111`) is what the camera,
 selection and puck already read — converting it would touch every consumer to buy a property
-claims already provide.
-
-Three channels claim independently — **pointer**, **wheel**, **keyboard** — so a wheel notch
-over a scrolling list does not also cost the click still pending in the same frame. The order
-for pointer and wheel: **focused widget → active surface → cross-surface layers → world.**
+claims already provide. Three channels claim independently — **pointer**, **wheel**,
+**keyboard** — so a wheel notch over a scrolling list does not also cost the click still
+pending in the same frame. The order for pointer and wheel: **focused widget → active
+surface → cross-surface layers → world.**
 
 Cross-surface layers sit after the active surface because the two **may not contend for a
 pixel**: toast zones and the strip's clamp are already written so they never overlap a
@@ -128,7 +123,6 @@ translating virtual keys to logical actions and stays ignorant of listeners.
 cleared on surface exit, on a pointer claim outside the focused widget, and on window
 deactivation. Two widget kinds may hold it: an editable field, and a binding-capture control
 (§8), which claims the whole keyboard channel while armed rather than the text channel.
-
 **`TextEditState` is the whole machinery**: a UTF-8 buffer, a caret byte offset, a selection
 anchor, a codepoint cap — device-free and testable exactly like `CommandRow`.
 
@@ -136,13 +130,12 @@ anchor, a codepoint cap — device-free and testable exactly like `CommandRow`.
 `InputFrame` that the router hands to the focus owner. Two details that are defects if
 missed: `WM_CHAR` delivers UTF-16 code units, so a surrogate pair arrives as two messages and
 must be assembled before it is a codepoint; and control characters (`\b`, `\r`, `\t`) arrive
-here too and belong to the editing keys, not the buffer.
-
-**IME is explicitly deferred** — the statement D15/UI-2 asked for. No `WM_IME_*` message is
-handled and the window makes no IME arrangement of its own; anything reaching the buffer
-through a composition path meets the same filter as everything else, so nothing unpaintable
-can enter. The reopen trigger is the one already named: the localisation decision reopening
-ADR-006 §9 with per-locale bake lists and a shaping call (ADR-018 D15.1).
+here too and belong to the editing keys, not the buffer. **IME is explicitly deferred** — the
+statement D15/UI-2 asked for. No `WM_IME_*` message is handled and the window makes no IME
+arrangement of its own; anything reaching the buffer through a composition path meets the
+same filter as everything else, so nothing unpaintable can enter. The reopen trigger is the
+one already named: the localisation decision reopening ADR-006 §9 with per-locale bake lists
+and a shaping call (ADR-018 D15.1).
 
 **The charset is the atlas's baked set, and the atlas is the single source of it** (D15.1).
 A codepoint is acceptable iff `GlyphAtlas::Find` answers for it at **every** baked size —
@@ -166,10 +159,10 @@ this.
 a row straddling the edge is not emitted either. The reason is what the alternative costs —
 either a clip rectangle on `UiInstance`, whose 48-byte stride ADR-006 §10a and a static
 assert deliberately pin, or a scissor change mid-pass with a sort to group by it — bought for
-a half-row the prints never draw. `tactical-hud.png` shows the roster's affordance as
-`∨ 8/8`, a count and a chevron; `strategic-map.png`'s route list is rows with a footer. The
-primitive stays device-free and the pass stays one upload and one draw. **Wheel routing is
-part of it**: a list under the cursor claims the wheel before the camera's zoom sees it,
+a half-row the prints never draw: `tactical-hud.png` shows the roster's affordance as
+`∨ 8/8`, a count and a chevron, and `strategic-map.png`'s route list is rows with a footer.
+The primitive stays device-free and the pass stays one upload and one draw. **Wheel routing
+is part of it**: a list under the cursor claims the wheel before the camera's zoom sees it,
 through §2's chain and nothing bespoke.
 
 ### 5. Widget conventions, generalised from `CommandRow`
@@ -195,11 +188,10 @@ through §2's chain and nothing bespoke.
 **This answers `station-screen.png` §3's OPEN question as a rule rather than a proposal.** A
 surface's selection state is **session-lifetime**: the composer survives navigation within a
 session, is cleared by the action that consumes it (UNDOCK), and is cleared of anything its
-data no longer contains — §1's entry validation. The print's proposal is adopted and
-generalised, so the map's selected system, the route panel's route and the hangar's composer
-get one answer and nobody asks a third time. The stale-selection hazard the print worried
-about is closed by validating on entry, which is the half a per-print proposal could not
-supply.
+data no longer contains — §1's entry validation, which is the half a per-print proposal could
+not supply and which closes the stale-selection hazard the print worried about. The print's
+proposal is adopted and generalised, so the map's selected system, the route panel's route
+and the hangar's composer get one answer and nobody asks a third time.
 
 ### 6. The screen-data contract across the ADR-014 seam
 
@@ -235,10 +227,10 @@ the seam starts leaking"), so it fires only after code exists. It is now a test 
 design time: **if a screen needs a game *rule* rather than game *data* to render, ADR-014's
 deferred fifth-project question reopens** — not answered by widening the seam one more
 method, and not by quietly re-adding the dependency. Game data is a label, a number, a class
-index, an opaque id. A game rule is anything the engine would have to *evaluate* to decide
-what to draw: which tab is legal, what a band means, how two badges combine, whether a route
-is allowed. S11d is why this needs judgement rather than CI — the engine-references-game
-check greps includes and project references, and a string literal is neither (ADR-014 §2c).
+index, an opaque id; a game rule is anything the engine would have to *evaluate* to decide
+what to draw — which tab is legal, what a band means, how two badges combine, whether a route
+is allowed. S11d is why this needs judgement rather than CI: the engine-references-game check
+greps includes and project references, and a string literal is neither (ADR-014 §2c).
 
 ### 7. The display envelope (ADR-018 D15.2, amending ADR-006 §10)
 
@@ -248,7 +240,6 @@ slider. **The clamp applies to the preference, not the product** — clamping th
 1.6 would cap a 200 % display below parity, which is exactly the defect UI-4 raised, so the
 review's own wording is corrected here. A product guard (0.5–4.0) exists only so a degenerate
 DPI report cannot produce a degenerate layout; it is a guard, not a design range.
-
 **`WM_DPICHANGED` is a resize plus a rescale**: honour the suggested rectangle through
 `SetWindowPos`, then take the existing resize path and re-resolve the zones —
 `ResolveUiLayout` already runs per frame (`UiLayout.h:108`), so the rescale half is free.
@@ -266,11 +257,10 @@ is one rasterise and one upload on a change the player makes by hand.
 pixels, so the value is the design floor times the monitor's DPI factor, recomputed on
 `WM_DPICHANGED`; `Window.cpp:312–318`'s 320×240 stays what it is — a swapchain guard against
 a zero-sized client area, not a design floor. **The prints are normative at 1440×900**, which
-is what "visual checkpoint against the print" means at U5 and T3.
-
-**Every zone declares one overflow rule from a closed set of three** — the `CommandRow`
-drop-verbs precedent (`CommandRow.h:104–113`) generalised rather than left as one control's
-habit. A surface with no declared rule for a zone is not finished.
+is what "visual checkpoint against the print" means at U5 and T3. **Every zone declares one
+overflow rule from a closed set of three** — the `CommandRow` drop-verbs precedent
+(`CommandRow.h:104–113`) generalised rather than left as one control's habit. A surface with
+no declared rule for a zone is not finished.
 
 | Surface | Rule | Why |
 |---|---|---|
@@ -338,10 +328,10 @@ place is 200 chips, so the hangar's wing columns scroll.
 - **Keeping per-consumer zone re-tests** — today's arrangement, extended. Each new consumer
   multiplies the pairs that must agree about precedence, and there is nowhere to express
   "this key was eaten" (UI-2). Rejected.
-- **A real event queue instead of claim flags** — genuinely better if a surface ever needs
-  ordering *within* a frame; today it buys nothing claims do not, at the cost of touching the
-  camera, the selection and the puck, which all read the latched frame. Rejected now, named
-  as the upgrade if intra-frame ordering ever matters.
+- **A real event queue instead of claim flags** — better if a surface ever needs ordering
+  *within* a frame; today it buys nothing claims do not, at the cost of touching the camera,
+  the selection and the puck, which all read the latched frame. Rejected now, named as the
+  upgrade if intra-frame ordering ever matters.
 - **Immediate mode with implicit ids** (the hand-rolled imgui idiom) — no retained state at
   all, which is the attraction. It hit-tests during the build, so the pointer is tested
   against the *previous* frame's layout, the opposite of ADR-006 §10b's call; and anonymous
@@ -364,9 +354,10 @@ place is 200 chips, so the hangar's wing columns scroll.
 
 - **U5 and T3 are unblocked.** Both build orders carry an explicit gate naming this document
   (Universe-Build-Order U5 / deliverable D7; Station-Build-Order T3); the gate is satisfied.
-- **Amendment notes are owed** to ADR-006 §9 and §10 and to ADR-014 §2c, and the README's
-  decisions table owes a row. This deliverable wrote one file, so those edits are outstanding
-  rather than done — recorded here so they are a task and not a discovery.
+- **Amendment notes land with this ADR**: ADR-006 §§9–10 and ADR-014 §2c point here for the
+  mechanism they were given, the README's decisions table grows a row, and U5's and T3's gate
+  lines name this document. Where a note and this ADR ever disagree, this one is the decision
+  and the note is the pointer.
 - **The seam grows, and each addition is paid for three times**: a `NullWorldView` stub, a
   test double in each engine test project, and an adapter in `Outpost.exe` (ADR-014 §2a) —
   the argument for §6's three-shapes budget over one method per question.
