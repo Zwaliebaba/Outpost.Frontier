@@ -333,8 +333,12 @@ dense order with no RNG draw; parking is as replayable as steering.
   undock point clear of the structure's contact radius, parking rings inside the grid.
 - The replay contract gains its transfer log **early**, with the registry hash covering
   rosters; U3a's suites extend a mechanism instead of introducing one.
-- **Named deliverables**: **P1 — the station-screen print** (blocks T3); **P2 — dock and
-  undock audio cues** (after S15 gives audio its home, deliberately last).
+- **Named deliverables**: 
+- **P1 delivered 2026-08-19:** `ScreenPrints/station-screen.png` — tabbed station
+  surface (HANGAR active; REPAIR/REFIT/CONSTRUCT/MARKET stubbed as disabled tabs).
+  Print proposals awaiting review: wave-2 trigger, composer persistence,
+  no per-wing colour, class-then-name sort.
+ **P2 — dock and undock audio cues** (after S15 gives audio its home, deliberately last).
 - New constants join the envelope suite's guardianship: `DOCK_RADIUS_METRES` (5,000),
   `PARKING_RING_METRES` (2,500 / 4,000), 12 bearings per ring,
   `UNDOCK_PROTECTION_SECONDS` (15) — table data, retunable as table edits.
