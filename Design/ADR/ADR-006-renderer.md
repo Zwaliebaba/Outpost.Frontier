@@ -3,7 +3,11 @@
 **Status:** Accepted · 2026-08-17 · amended by [ADR-018](ADR-018-scaling-baseline.md)
 (2026-08-19): §9 player-text charset + named i18n reopen (D15.1), §10 DPI-derived effective
 scale + 1280×720 floor (D15.2), §12 shader toolchain → dxc/SM 6.x (D12), device-removed
-posture = relaunch + the no-device-refs-in-session-state invariant (D13)
+posture = relaunch + the no-device-refs-in-session-state invariant (D13) · §§9–10 given
+their mechanism by [ADR-020](ADR-020-ui-architecture.md) (2026-08-19): the effective-scale
+formula (the 0.8–1.6 clamp applies to the *preference*, not the product), `WM_DPICHANGED`,
+the atlas re-bake on a scale change, and the rule that a full-screen surface **skips** the
+world passes rather than adding one
 **Depends on:** ADR-001 (plane), ADR-002 (interpolation), ADR-005 (extract source)
 **Feeds:** Build Order S1/S5/S8/S11
 

@@ -164,10 +164,10 @@ client mid-route halts the fleet at the next gate and reconnecting resumes the f
 tree and its OPEN note updated.
 
 ### U5 — Strategic map v1 *(depends only on U1 — runs in parallel with U2–U4)*
-**Gate (ADR-018): D7 — the UI-architecture ADR — is written first (A19), and A20's
-instruments are run** (spike 3, the S5 frame check) with the upload ring and fixed GPU
-budgets re-sized from the corpus caps (1,024 entities / 2,500 nodes) so this slice measures
-the map, not the MVP's constants. The screen is built as an **engine surface fed neutral
+**Gate (ADR-018): D7 is delivered — [ADR-020](ADR/ADR-020-ui-architecture.md) — and A20's
+instruments still owe their run** (spike 3, the S5 frame check), with the upload ring and
+fixed GPU budgets re-sized from the corpus caps (1,024 entities / 2,500 nodes) so this slice
+measures the map, not the MVP's constants. The screen is built as an **engine surface fed neutral
 data** (ADR-018 D14): the baked topology crosses the seam once at boot as a neutral graph,
 search and route-solve are GameLogic pure functions.
 The screen from `strategic-map.png`, deliberately the subset whose content exists: region /
@@ -221,9 +221,15 @@ one sitting.
   relevance hook, the degradation rule, the interest guarantee (owned + selected never
   culled; unreplicated presence stated via counted chips), `lastOrderSeqProcessed` out of
   the world hash, `EntityRecord` → u32 id, the ownership field.
-- **D7 — The UI-architecture ADR** *(ADR-018 A19 — blocks U5 here and T3 in the station
-  order)*. The active-surface model, input routing as ordered consumption, focus and text
-  input, one scrolling-list primitive, the screen-data contract (ADR-018 D14/D15).
+- ~~**D7 — The UI-architecture ADR** *(ADR-018 A19 — blocks U5 here and T3 in the station
+  order)*.~~ **Delivered 2026-08-19: [ADR-020](ADR/ADR-020-ui-architecture.md).** A surface
+  is a value on a small stack (pushing one already present pops back to it, so `◀ TACTICAL`
+  and `◀ BACK` are one mechanism); a full-screen surface skips the three world passes and the
+  resolve rather than adding a pass, which is where U5's node budget comes from; input is
+  claimed once by one router across three independent channels, with the printable-key rule
+  that makes "W" type *or* pan; the screen-data contract is three shapes, not three methods.
+  A surface switch is **not** a view switch — the network half runs on every surface, so
+  returning to tactical costs no interpolation refill.
 
 ## Sequencing rationale
 

@@ -96,10 +96,11 @@ starting fleet, footprint-derived radius) round-trips with parity.
 
 ### T3 — The hangar screen 🏁 H1
 **Prerequisite: P1, the station-screen print — designed and agreed before this slice
-builds. Gate (ADR-018): the UI-architecture ADR (A19) is written first — the hangar is the
-second full-screen surface and must not hand-roll its own answers to navigation, focus,
-text input (wing renames), scrolling, or per-surface state; renames obey the atlas-charset
-policy (D15.1).** The TACTICAL ⇄ STATION surface: docked roster grouped by wing with the roster
+builds. Gate (ADR-018) cleared: the UI-architecture ADR is delivered —
+[ADR-020](ADR/ADR-020-ui-architecture.md) — so the hangar inherits the surface stack, the
+input router, focus and text editing for wing renames (atlas-charset policy, D15.1),
+the scrolling list, and the composer's retained-state lifetime as a rule rather than a
+per-print proposal.** The TACTICAL ⇄ STATION surface: docked roster grouped by wing with the roster
 vocabulary, multi-selection, formation dropdown, UNDOCK, wing assignment (existing wings
 plus "new wing" picking an unused id; names for new wings and renames in the user settings
 layer, client-side only), repair/refit/market as visible stubs, handoff and keybinding in
