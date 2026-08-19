@@ -299,6 +299,31 @@ content* — constellation hulls disjoint, labels legible, which is U1's cluster
 paying off on screen; a destination set on the map produces a real crossing; the full 2,500
 render inside the frame budget with the `Ui` span proving it.
 
+**Built (U5's pure half, 2026-08-19).** `GameLogic/UniverseRoute.h/.cpp`: the two questions
+the strategic map asks that are not about drawing — "which system did you mean" and "how do I
+get there" — as pure functions over the baked universe, which is where ADR-018 D14 puts them.
+A search that lived in the client would be a second search the day a route is planned from
+anywhere else, and a route solver that lived there could not be replayed.
+
+Breadth-first, because a gate is a gate; when jumps stop being equal (a security-weighted
+route, a toll, a blockade) this becomes Dijkstra over the same graph and the signature does
+not move. **Ties break by system id**, which is not an implementation detail: two equally
+short routes have to be *the same* route on the server and the client, or the line drawn on
+the map is not the line the fleet flies. Search is substring and case-folded — the names are
+`ROOT-N` and a player who remembers the number types the number — ordered by id and capped, so
+a one-letter query cannot ask the screen for 2,500 rows.
+
+Seven tests, including "every system reaches every other", which is U1's connectivity
+invariant asked from the planner's side rather than the generator's, and "every step of a
+route is a gate that exists", because a plan the fleet cannot fly is worse than no plan.
+
+**Still owed by U5, and it is most of it:** the screen. Region/constellation/system pinch
+levels, gate links, labels, the security overlay, the selected-system panel, fleet markers,
+the route line, TACTICAL ⇄ MAP — all engine surface work, and its acceptance is a *visual*
+checkpoint against the print plus a frame-budget measurement, neither of which can be done
+without a GPU. The neutral topology that crosses the seam at boot (D14) is not built either:
+it is an engine type, and it should land with the surface that consumes it.
+
 ### U6 — System view and focus polish
 **Prerequisite: the system-view print (D1) — designed and agreed before this slice builds.**
 The screen: sun, orbit rings at presentation scale, anchor icons (planets, stations, gates),
