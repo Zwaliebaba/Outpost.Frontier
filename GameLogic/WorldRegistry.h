@@ -201,6 +201,7 @@ public:
   /// The live anchors, in the order everything iterates them.
   [[nodiscard]] std::vector<AnchorId> LiveAnchors() const;
 
+
 private:
   struct LiveWorld
   {
@@ -221,6 +222,15 @@ private:
 
   [[nodiscard]] StationRoster& RosterFor(AnchorId _anchor);
   void ApplyUndock(const TransferRequest& _request);
+  void ApplyTransit(const TransferRequest& _request);
+
+  /// How long a crossing between two anchors takes, in ticks (U3a): a base
+  /// plus the universe distance over the slowest member's warp speed.
+  [[nodiscard]] std::uint32_t TransitTicks(AnchorId _from, const TransferRequest& _request) const;
+
+  /// Which anchors a grid may warp to (ADR-016 §5). Same system, itself
+  /// excluded -- gates are how a fleet leaves one, and that is U4's.
+  [[nodiscard]] std::vector<AnchorId> ReachableFrom(AnchorId _anchor) const;
 
   /// Writes the index, growing it as ids climb. The one place the projection is
   /// written, so it cannot drift into being a second source of truth.

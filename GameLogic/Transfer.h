@@ -128,6 +128,16 @@ struct TransferRequest
   }
 };
 
+/*
+ * The fixed part of a warp, in seconds (ADR-016 §5).
+ *
+ * Every crossing costs this much before distance is counted -- the alignment,
+ * the entry, the arrival -- so a hop to the next planet is not instantaneous
+ * and the difference between two nearby destinations is not the whole cost of
+ * choosing. The distance term does the rest.
+ */
+inline constexpr float WARP_BASE_SECONDS = 5.0f;
+
 /// A filed request, stamped. The registry stamps -- the counter is the host's,
 /// not a world's, and a world minting its own would give two grids the same
 /// number in the same tick.

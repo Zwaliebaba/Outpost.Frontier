@@ -114,6 +114,31 @@ struct OrderGroup
   FormationId formation = FormationId::Line;
   OrderState state = OrderState::Underway;
 
+  /*
+   * What the group is *doing* (U3a). A Move flies legs; a Warp spools and then
+   * leaves.
+   *
+   * A kind on the group rather than a second table, because a warp is an order
+   * in every way that matters -- it is acked, it is replaced by the next order,
+   * it holds its members, and the client draws a ghost for it. What differs is
+   * what happens when it completes, and that is one branch rather than a
+   * parallel machine.
+   */
+  OrderKind kind = OrderKind::Move;
+
+  /// Where a `Warp` is going. `INVALID_ID` for a Move.
+  AnchorId anchor = INVALID_ID;
+
+  /*
+   * When the spool finishes (ADR-016 §5), for a `Warp`.
+   *
+   * The window in which a warp can still be called off -- by a replacing order,
+   * which is the only cancel there is: ADR-016 §8 refuses a program of verbs, so
+   * "cancel" is "tell them to do something else", and the group table already
+   * makes that work. Zero for a Move.
+   */
+  std::uint32_t spoolUntilTick = 0;
+
   std::uint16_t memberCount = 0;
   ShipId members[MAX_SHIPS_PER_ORDER] = {};
 
@@ -337,8 +362,13 @@ public:
    *
    * `INVALID_SHIP_ID` for a grid with no station -- a gate, a planet, open
    * space -- which is what makes every Dock there `UnknownStation`.
+   *
+   * `_reachable` is where a `Warp` from here may go: **a list of ids**, copied
+   * because it is content and never changes, and ids because the world may not
+   * read a universe (ADR-009 §2). The registry knows both halves, so the
+   * registry is what says this once, on spin-up.
    */
-  void SetAnchor(AnchorId _anchor, ShipId _stationShip) noexcept;
+  void SetAnchor(AnchorId _anchor, ShipId _stationShip, std::span<const AnchorId> _reachable);
 
   [[nodiscard]] AnchorId Anchor() const noexcept { return m_anchor; }
   [[nodiscard]] ShipId StationShip() const noexcept { return m_stationShip; }
@@ -543,6 +573,10 @@ private:
   void Integrate();
   void Separate();
 
+  /// Sends off the warps whose spool has run out (U3a). Run at the top of
+  /// `GroupAdvance`, because a fleet that has left is not a fleet with a leg.
+  void DepartFinishedWarps();
+
   /// Solves the current leg's stations and writes them into the members'
   /// guidance. The one place a group touches a ship.
   void ApplyLeg(OrderGroup& _group);
@@ -583,6 +617,10 @@ private:
   /// recreation on another host.
   AnchorId m_anchor = INVALID_ID;
   ShipId m_stationShip = INVALID_SHIP_ID;
+
+  /// Where a warp from this grid may go. Content, set once, never hashed --
+  /// it is the same list in every run of the same universe.
+  std::vector<AnchorId> m_reachable;
 
   std::vector<ShipId> m_ids;
   std::vector<std::uint8_t> m_classes;

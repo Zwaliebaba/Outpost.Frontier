@@ -226,6 +226,7 @@ ValidationView World::Validation()
   ValidationView view;
   view.shipIds = m_ids;
   view.shipMarks = m_validationMarks;
+  view.reachableAnchors = m_reachable;
   view.queuedLegs = 0; // Per-group, and resolved in SubmitOrder where the group is known.
 
   /*
@@ -305,6 +306,8 @@ OrderVerdict World::Submit(const OrderSubmit& _order, bool _systemIssued)
    * Replace is about to destroy. Resolving early would append to a corpse.
    */
   group.systemIssued = _systemIssued;
+  group.kind = _order.kind;
+  group.anchor = _order.anchor;
   group.serverOrderId = append ? 0 : m_nextOrderId;
   group.clientOrderSeq = _order.orderSeq;
   group.formation = _order.formation;
@@ -396,6 +399,36 @@ void World::IngestOrders()
           m_protectedUntil[slot] = 0;
         }
       }
+    }
+
+    /*
+     * A warp **spools where it stands** (ADR-016 §5).
+     *
+     * It takes the group table like any order -- so it is acked, replaced by
+     * the next order, and drawn as a ghost -- but it has no legs: the fleet
+     * holds, the clock runs, and when it finishes the ships leave the world on
+     * the transfer bus. Holding rather than drifting is what makes "cancelled
+     * by a replacing order" mean something: the fleet is exactly where the
+     * player left it.
+     *
+     * The spool is the **slowest member's**, for the same reason the transit is:
+     * a fleet arrives together, so it leaves together.
+     */
+    if (pending.kind == OrderKind::Warp)
+    {
+      float spoolSeconds = 0.0f;
+      for (std::uint16_t index = 0; index < submitted.memberCount; ++index)
+      {
+        std::uint32_t slot = 0;
+        if (FindSlot(submitted.members[index], slot))
+        {
+          spoolSeconds = std::max(spoolSeconds, ShipClass(static_cast<HullClass>(m_classes[slot])).spoolSeconds);
+          m_guidances[slot] = Guidance{};
+        }
+      }
+      submitted.spoolUntilTick = m_tick + static_cast<std::uint32_t>(spoolSeconds / TICK_SECONDS);
+      submitted.legCount = 0;
+      submitted.legIndex = 0;
     }
 
     const bool append = pending.queueMode == QueueMode::Append;
@@ -636,8 +669,77 @@ float World::LegEtaSeconds(const OrderGroup& _group) const noexcept
   return GroupTravelSeconds(std::span<const TravelLeg>{legs, count});
 }
 
+void World::DepartFinishedWarps()
+{
+  /*
+   * A warp that has finished spooling leaves (ADR-016 §5, ADR-017 §9).
+   *
+   * The ships go out through the same seam a dock uses -- `TransferOut`, id and
+   * class and wing intact -- and the registry decides where and when they
+   * arrive, because that needs the universe and a world does not have one.
+   *
+   * **Collected first, transferred second, and that is not tidiness.**
+   * `TransferOut` despawns, despawning forgets the ship in its group, and
+   * forgetting the last member *erases the group* -- so transferring while
+   * iterating `m_groups` would delete the entry being read. The list of
+   * departures is taken while nothing is being removed, and the removals happen
+   * after.
+   */
+  struct Departure
+  {
+    AnchorId anchor = INVALID_ID;
+    FormationId formation = FormationId::Line;
+    std::uint16_t memberCount = 0;
+    ShipId members[MAX_SHIPS_PER_ORDER] = {};
+  };
+
+  std::vector<Departure> leaving;
+  for (OrderGroup& group : m_groups)
+  {
+    if (group.kind != OrderKind::Warp || group.state == OrderState::Done || m_tick < group.spoolUntilTick)
+    {
+      continue;
+    }
+
+    Departure departure;
+    departure.anchor = group.anchor;
+    departure.formation = group.formation;
+    departure.memberCount = group.memberCount;
+    std::copy(group.members, group.members + group.memberCount, departure.members);
+    leaving.push_back(departure);
+
+    // Marked before anything is removed, so the group that survives the
+    // despawns (one whose members did not all leave) is not asked to depart
+    // again next tick.
+    group.state = OrderState::Done;
+    group.doneTick = m_tick;
+  }
+
+  for (const Departure& departure : leaving)
+  {
+    TransferRequest request;
+    request.kind = TransferKind::Transit;
+    request.anchor = departure.anchor;
+    request.formation = departure.formation;
+    for (std::uint16_t index = 0; index < departure.memberCount; ++index)
+    {
+      TransferMember member;
+      if (TransferOut(departure.members[index], member) && !request.AddMember(member))
+      {
+        break;
+      }
+    }
+    if (request.memberCount > 0)
+    {
+      m_filed.push_back(request);
+    }
+  }
+}
+
 void World::GroupAdvance()
 {
+  DepartFinishedWarps();
+
   for (OrderGroup& group : m_groups)
   {
     if (group.state == OrderState::Done || group.legIndex >= group.legCount)

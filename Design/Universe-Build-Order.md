@@ -164,6 +164,44 @@ warps in both directions; spool cancellation; slowest-member timing; arrival lan
 ship inside tolerance of its station with no contact pair; validation-parity matrix over the
 new reasons; `etaSeconds` on the order record tracks transit to zero.
 
+
+**Built (U3a, 2026-08-19).** `OrderKind::Warp` stopped being reserved and filled in the
+number ADR-016 published, with `OrderReason::UnknownAnchor = 14` after the station phase's
+five. The class table grew `warpSpeedMetresPerSec` and `spoolSeconds`, scaled the way speed
+and turn rate already are; the envelope claim is asserted as a comparison (a battleship
+spools longer and travels slower) rather than against values, so retuning is not rewriting
+tests.
+
+`ValidationView` gained `reachableAnchors` — **a list of ids, not the universe**. Both halves
+load the identical definition and could each look a destination up, but naming that type in
+the validator would put the universe inside the one function that must round the same way on
+both machines. The registry resolves reachability (same system, itself excluded — leaving a
+system is what gates are for, and that is U4's) and hands the world the list once at spin-up,
+because it is content and never changes.
+
+The three phases are the ADR's. A warp **spools where it stands**: it takes the group table
+like any order, so it is acked, replaced by the next order and drawn as a ghost, but it has
+no legs — the fleet holds, which is what makes "cancelled by a replacing order" mean
+something. When the spool runs out the ships leave through the same seam a dock uses, and the
+registry stamps the record's `applyTick` at the **arrival** tick: base plus universe distance
+over the slowest member's warp speed. In between the fleet is *nowhere* — `LocationOf` says
+so — and the crossing is on the bus, which is why the in-flight bus is in the hash. Arrival is
+a formation solve at the anchor's authored warp-in point.
+
+One thing that needed care rather than cleverness: `TransferOut` despawns, despawning forgets
+the ship in its group, and forgetting the last member **erases the group**. Departing while
+iterating the group table would have deleted the entry being read, so the departures are
+collected first and executed after.
+
+The distance is computed in `double` and the reason is arithmetic: two anchors in one system
+are up to ~1e12 metres apart and squaring that overflows `int64`, while `double` counts
+integers exactly to 9e15. What it must never become is `float`, which stops counting metres
+exactly at about sixteen million of them.
+
+**Still owed by U3a:** `etaSeconds` on the order record tracking transit to zero — a fleet in
+transit is in no world, so the number belongs to U3b's fleet summaries rather than to a grid's
+order records.
+
 ### U3b — Warp on the wire and on screen
 Per-grid snapshots (grid identity in the header — the smear guard), the view request,
 the grid-switch notice, and **fleet summaries** (~1 Hz: anchor-or-transit, count, state,

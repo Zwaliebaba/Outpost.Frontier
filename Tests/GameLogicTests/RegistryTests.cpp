@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <vector>
 
@@ -129,6 +130,67 @@ void DockAndLand(WorldRegistry& _registry, AnchorId _anchor, std::span<const Shi
     Assert::IsTrue(command.AddShip(ship));
   }
   return command;
+}
+
+/// Two anchors of the *same* system, which is what an in-system warp needs.
+[[nodiscard]] std::vector<AnchorId> TwoAnchorsInOneSystem(const UniverseDef& _universe)
+{
+  for (const SolarSystem& system : _universe.systems)
+  {
+    if (system.anchors.size() >= 2)
+    {
+      return {system.anchors[0].id, system.anchors[1].id};
+    }
+  }
+  Assert::Fail(L"the test universe has no system with two anchors");
+  return {};
+}
+
+/// Submits a warp from the grid the ships are on.
+[[nodiscard]] OrderVerdict SubmitWarp(WorldRegistry& _registry, AnchorId _from, AnchorId _to,
+                                      std::span<const ShipId> _ships)
+{
+  World* world = _registry.Borrow(_from);
+  Assert::IsNotNull(world);
+
+  OrderSubmit order;
+  order.orderSeq = 1;
+  order.kind = OrderKind::Warp;
+  order.anchor = _to;
+  for (const ShipId ship : _ships)
+  {
+    Assert::IsTrue(order.AddShip(ship));
+  }
+  return world->SubmitOrder(order);
+}
+
+/// Runs the shard until `_predicate` holds or the cap is reached, and reports
+/// the tick it stopped at. A cap rather than a while(true): a test that hangs
+/// tells you nothing, and a test that stops tells you how long it waited.
+std::uint32_t TickUntil(WorldRegistry& _registry, std::uint32_t& _tick, std::uint32_t _cap,
+                        const std::function<bool()>& _predicate)
+{
+  for (std::uint32_t step = 0; step < _cap; ++step)
+  {
+    _registry.Tick(++_tick);
+    if (_predicate())
+    {
+      return _tick;
+    }
+  }
+  return _tick;
+}
+
+/// Is this ship standing on that grid?
+[[nodiscard]] bool OnGrid(const WorldRegistry& _registry, AnchorId _anchor, ShipId _ship)
+{
+  const World* world = _registry.Peek(_anchor);
+  if (world == nullptr)
+  {
+    return false;
+  }
+  const std::span<const ShipId> ids = world->Ids();
+  return std::find(ids.begin(), ids.end(), _ship) != ids.end();
 }
 
 } // namespace
@@ -637,6 +699,245 @@ public:
     };
 
     Assert::AreEqual(run(), run(), L"the same script has to produce the same universe");
+  }
+};
+
+TEST_CLASS(WarpTests)
+{
+public:
+  TEST_METHOD(AWarpSpoolsWhereItStandsAndThenIsSimplyGone)
+  {
+    /*
+     * ADR-016 §5's shape, in one scenario: the fleet holds while it spools --
+     * cancellable, visible, still where the player left it -- and then leaves
+     * the world entirely until it arrives. Nowhere in between, which is what
+     * makes the in-flight bus part of the hash rather than a detail.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+
+    const ShipId ship = AddShip(registry, anchors[0], 300.0f, 0.0f);
+    const ShipId fleet[] = {ship};
+    Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], fleet).accepted);
+
+    // Spooling: still here, and still standing where it was told to wait.
+    registry.Tick(++tick);
+    Assert::IsTrue(OnGrid(registry, anchors[0], ship), L"a spooling fleet has not left yet");
+
+    const std::uint32_t left = TickUntil(registry, tick, 2000, [&] { return !OnGrid(registry, anchors[0], ship); });
+    Assert::IsTrue(left < 2000, L"the spool never finished");
+
+    AnchorId where = INVALID_ID;
+    Assert::IsFalse(registry.LocationOf(ship, where), L"a fleet in transit is nowhere");
+    Assert::IsTrue(registry.PendingTransferCount() > 0, L"and its crossing is on the bus");
+
+    const std::uint32_t arrived = TickUntil(registry, tick, 40000, [&] { return OnGrid(registry, anchors[1], ship); });
+    Assert::IsTrue(arrived > left, L"the crossing took no time at all");
+    Assert::IsTrue(OnGrid(registry, anchors[1], ship), L"the fleet never arrived");
+    Assert::IsTrue(registry.LocationOf(ship, where));
+    Assert::AreEqual<std::uint32_t>(anchors[1], where);
+  }
+
+  TEST_METHOD(TheSlowestMemberSetsThePaceForEverybody)
+  {
+    /*
+     * A fleet arrives together, so it leaves together and travels together --
+     * which means the heaviest hull in the selection decides both the spool and
+     * the transit. Asserted as a *comparison* rather than against a number, so
+     * retuning the class table does not rewrite the test.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+
+    const auto crossingTicks = [&universe, &anchors](HullClass _class)
+    {
+      WorldRegistry registry;
+      registry.Reset(&universe, Config());
+      std::uint32_t tick = 0;
+
+      ShipSpawn spawn;
+      spawn.hullClass = _class;
+      spawn.wing = 1;
+      spawn.xMetres = 300.0f;
+      const ShipId ship = registry.Spawn(anchors[0], spawn);
+      const ShipId fleet[] = {ship};
+      Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], fleet).accepted);
+      return TickUntil(registry, tick, 60000, [&] { return OnGrid(registry, anchors[1], ship); });
+    };
+
+    const std::uint32_t light = crossingTicks(HullClass::Interceptor);
+    const std::uint32_t heavy = crossingTicks(HullClass::Battleship);
+    Assert::IsTrue(heavy > light, L"a battleship spools longer and travels slower than an interceptor");
+  }
+
+  TEST_METHOD(AReplacingOrderCancelsASpoolThatHasNotFinished)
+  {
+    /*
+     * ADR-016 §8 refuses a program of verbs, so "cancel the warp" is "tell them
+     * to do something else" -- and the group table already makes that work. The
+     * point of this test is that the machinery *is* the machinery: nothing was
+     * built for cancellation.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+
+    ShipSpawn spawn;
+    spawn.hullClass = HullClass::Battleship; // The longest spool, so there is time to change one's mind.
+    spawn.wing = 1;
+    spawn.xMetres = 300.0f;
+    const ShipId ship = registry.Spawn(anchors[0], spawn);
+    const ShipId fleet[] = {ship};
+
+    Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], fleet).accepted);
+    registry.Tick(++tick);
+
+    OrderSubmit move;
+    move.orderSeq = 2;
+    Assert::IsTrue(move.AddShip(ship));
+    move.target.xCm = Neuron::MetresToCentimetres(1200.0f);
+    Assert::IsTrue(registry.Borrow(anchors[0])->SubmitOrder(move).accepted);
+
+    // Long enough for the original spool to have finished twice over.
+    for (std::uint32_t step = 0; step < 800; ++step)
+    {
+      registry.Tick(++tick);
+    }
+
+    Assert::IsTrue(OnGrid(registry, anchors[0], ship), L"the replaced warp took the fleet anyway");
+    Assert::IsFalse(OnGrid(registry, anchors[1], ship));
+  }
+
+  TEST_METHOD(WarpingSomewhereThisGridCannotReachIsRefused)
+  {
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    const ShipId ship = AddShip(registry, anchors[0], 300.0f, 0.0f);
+    const ShipId fleet[] = {ship};
+
+    const OrderVerdict nowhere = SubmitWarp(registry, anchors[0], 60000, fleet);
+    Assert::IsFalse(nowhere.accepted);
+    Assert::IsTrue(nowhere.reason == OrderReason::UnknownAnchor);
+
+    // And warping to where you already are is not offered either.
+    const OrderVerdict itself = SubmitWarp(registry, anchors[0], anchors[0], fleet);
+    Assert::IsFalse(itself.accepted);
+    Assert::IsTrue(itself.reason == OrderReason::UnknownAnchor);
+  }
+
+  TEST_METHOD(ArrivalPutsEveryShipOnItsOwnStationAndNoneInContact)
+  {
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+    const Anchor* destination = universe.FindAnchor(anchors[1]);
+    Assert::IsNotNull(destination);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+
+    std::vector<ShipId> fleet;
+    for (std::uint32_t index = 0; index < 6; ++index)
+    {
+      ShipSpawn spawn;
+      spawn.hullClass = index % 2 == 0 ? HullClass::Frigate : HullClass::Corvette;
+      spawn.wing = 1;
+      spawn.xMetres = 200.0f * static_cast<float>(index);
+      fleet.push_back(registry.Spawn(anchors[0], spawn));
+    }
+    Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], fleet).accepted);
+    TickUntil(registry, tick, 60000, [&] { return OnGrid(registry, anchors[1], fleet[0]); });
+
+    const World* world = registry.Peek(anchors[1]);
+    Assert::IsNotNull(world);
+
+    const float warpInX = Neuron::CentimetresToMetres(static_cast<std::int32_t>(destination->warpInPoint.x));
+    const float warpInY = Neuron::CentimetresToMetres(static_cast<std::int32_t>(destination->warpInPoint.y));
+
+    std::uint32_t found = 0;
+    for (std::size_t slot = 0; slot < world->Ids().size(); ++slot)
+    {
+      if (std::find(fleet.begin(), fleet.end(), world->Ids()[slot]) == fleet.end())
+      {
+        continue;
+      }
+      ++found;
+      const float dx = world->Positions()[slot].x - warpInX;
+      const float dy = world->Positions()[slot].y - warpInY;
+      Assert::IsTrue(std::sqrt(dx * dx + dy * dy) < 4000.0f, L"a six-ship formation solves near its anchor");
+    }
+    Assert::AreEqual<std::uint32_t>(6, found, L"the whole fleet arrived, and the same ships");
+
+    // No pair in contact, which is what the formation spacing guarantees and
+    // ADR-015's separation would otherwise have to fix on arrival.
+    for (std::size_t a = 0; a < world->Ids().size(); ++a)
+    {
+      for (std::size_t b = a + 1; b < world->Ids().size(); ++b)
+      {
+        const float dx = world->Positions()[a].x - world->Positions()[b].x;
+        const float dy = world->Positions()[a].y - world->Positions()[b].y;
+        const float contact = ShipClass(static_cast<HullClass>(world->Classes()[a])).collisionRadiusMetres +
+                              ShipClass(static_cast<HullClass>(world->Classes()[b])).collisionRadiusMetres;
+        Assert::IsTrue(std::sqrt(dx * dx + dy * dy) > contact, L"two arrivals landed on top of each other");
+      }
+    }
+  }
+
+  TEST_METHOD(ConcurrentWarpsInBothDirectionsReproduceBitForBit)
+  {
+    /*
+     * U3a's acceptance. Two fleets crossing in opposite directions at the same
+     * time is the scenario that breaks a bus whose order is not total: the
+     * records interleave, both grids spin up and tear down, and the hash has to
+     * agree anyway.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+
+    const auto run = [&universe, &anchors]()
+    {
+      WorldRegistry registry;
+      registry.Reset(&universe, Config());
+      std::uint32_t tick = 0;
+
+      const ShipId here = AddShip(registry, anchors[0], 300.0f, 0.0f);
+      const ShipId there = AddShip(registry, anchors[1], -300.0f, 200.0f);
+      const ShipId outbound[] = {here};
+      const ShipId inbound[] = {there};
+
+      Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], outbound).accepted);
+      Assert::IsTrue(SubmitWarp(registry, anchors[1], anchors[0], inbound).accepted);
+
+      std::vector<std::uint64_t> hashes;
+      for (std::uint32_t step = 0; step < 2000; ++step)
+      {
+        registry.Tick(++tick);
+        if (step % 250 == 0)
+        {
+          hashes.push_back(registry.Hash());
+        }
+      }
+      hashes.push_back(registry.Hash());
+      return hashes;
+    };
+
+    const std::vector<std::uint64_t> first = run();
+    const std::vector<std::uint64_t> second = run();
+    Assert::AreEqual(first.size(), second.size());
+    for (std::size_t index = 0; index < first.size(); ++index)
+    {
+      Assert::AreEqual(first[index], second[index], L"two runs of one script disagreed mid-crossing");
+    }
   }
 };
 

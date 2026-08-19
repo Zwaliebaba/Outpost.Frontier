@@ -11,6 +11,7 @@
 #include "Hash.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 namespace Game
@@ -158,7 +159,7 @@ WorldRegistry::LiveWorld& WorldRegistry::SpinUp(const Anchor& _anchor)
    * world knows which anchor it is. An id, not a coordinate -- the tick still
    * has no idea where in the galaxy it is.
    */
-  entry.world->SetAnchor(_anchor.id, stationShip);
+  entry.world->SetAnchor(_anchor.id, stationShip, ReachableFrom(_anchor.id));
 
   const auto at = std::lower_bound(m_live.begin(), m_live.end(), _anchor.id,
                                    [](const LiveWorld& _entry, AnchorId _id) { return _entry.anchor < _id; });
@@ -400,8 +401,159 @@ void WorldRegistry::ApplyDueTransfers()
     {
       ApplyUndock(record.what);
     }
+    else if (record.what.kind == TransferKind::Transit)
+    {
+      ApplyTransit(record.what);
+    }
   }
   m_bus.erase(m_bus.begin(), m_bus.begin() + static_cast<std::ptrdiff_t>(applied));
+}
+
+std::vector<AnchorId> WorldRegistry::ReachableFrom(AnchorId _anchor) const
+{
+  /*
+   * Every other anchor in the same system (ADR-016 §5).
+   *
+   * In-system only, and that is U3a's whole scope: leaving a system is what
+   * gates are for, and routing through them is U4's. Itself excluded, because
+   * "warp to where you already are" is not a refusal worth a reason -- it is a
+   * destination that should not be offered.
+   */
+  std::vector<AnchorId> reachable;
+  if (m_universe == nullptr)
+  {
+    return reachable;
+  }
+  const Anchor* here = m_universe->FindAnchor(_anchor);
+  if (here == nullptr)
+  {
+    return reachable;
+  }
+  const SolarSystem* system = m_universe->FindSystem(here->system);
+  if (system == nullptr)
+  {
+    return reachable;
+  }
+  reachable.reserve(system->anchors.size());
+  for (const Anchor& anchor : system->anchors)
+  {
+    if (anchor.id != _anchor)
+    {
+      reachable.push_back(anchor.id);
+    }
+  }
+  return reachable;
+}
+
+std::uint32_t WorldRegistry::TransitTicks(AnchorId _from, const TransferRequest& _request) const
+{
+  const Anchor* from = m_universe == nullptr ? nullptr : m_universe->FindAnchor(_from);
+  const Anchor* to = m_universe == nullptr ? nullptr : m_universe->FindAnchor(_request.anchor);
+  if (from == nullptr || to == nullptr)
+  {
+    return 1;
+  }
+
+  /*
+   * The distance, in `double` rather than shifted integers.
+   *
+   * Two anchors in one system are at most a few astronomical units apart --
+   * about 1e12 metres -- and squaring that is 1e24, which overflows `int64`.
+   * `double` counts integers exactly to 9e15, so the *inputs* are exact, and
+   * the product and the root are IEEE operations the build already pins
+   * (`/fp:precise`, no `/arch`, ADR-010 §6): same binary, same answer. What
+   * this must never become is a `float`, which stops counting metres exactly at
+   * about 16 million of them.
+   */
+  const auto dx = static_cast<double>(to->origin.x - from->origin.x);
+  const auto dy = static_cast<double>(to->origin.y - from->origin.y);
+  const double metres = std::sqrt(dx * dx + dy * dy);
+
+  // The slowest member sets the pace, because a fleet arrives together.
+  float slowest = 0.0f;
+  for (std::uint16_t index = 0; index < _request.memberCount; ++index)
+  {
+    const float speed = ShipClass(_request.members[index].hullClass).warpSpeedMetresPerSec;
+    slowest = slowest == 0.0f ? speed : std::min(slowest, speed);
+  }
+  if (slowest <= 0.0f)
+  {
+    // Nothing here can warp -- a fleet of structures, which validation should
+    // never have let through. One tick rather than a division by zero.
+    return 1;
+  }
+
+  const double seconds = static_cast<double>(WARP_BASE_SECONDS) + metres / static_cast<double>(slowest);
+  const double ticks = seconds / static_cast<double>(World::TICK_SECONDS);
+  return std::max<std::uint32_t>(1, static_cast<std::uint32_t>(ticks));
+}
+
+void WorldRegistry::ApplyTransit(const TransferRequest& _request)
+{
+  const Anchor* anchor = m_universe == nullptr ? nullptr : m_universe->FindAnchor(_request.anchor);
+  if (anchor == nullptr)
+  {
+    return;
+  }
+
+  // Arriving spins the destination up, which is the same door an undock opens
+  // from the inside (ADR-016 §4).
+  World* world = Borrow(_request.anchor);
+  if (world == nullptr)
+  {
+    return;
+  }
+
+  const DirectX::XMFLOAT2 arrival{Neuron::CentimetresToMetres(static_cast<std::int32_t>(anchor->warpInPoint.x)),
+                                  Neuron::CentimetresToMetres(static_cast<std::int32_t>(anchor->warpInPoint.y))};
+  const float facing = Neuron::HeadingToRadians(anchor->warpInFacingTurns16);
+
+  struct MemberLookup
+  {
+    const TransferRequest* request = nullptr;
+
+    [[nodiscard]] static HullClass Of(ShipId _shipId, void* _context) noexcept
+    {
+      const auto* lookup = static_cast<const MemberLookup*>(_context);
+      for (std::uint16_t index = 0; index < lookup->request->memberCount; ++index)
+      {
+        if (lookup->request->members[index].shipId == _shipId)
+        {
+          return lookup->request->members[index].hullClass;
+        }
+      }
+      return HullClass::Interceptor;
+    }
+  };
+
+  ShipId ids[MAX_SHIPS_PER_ORDER];
+  for (std::uint16_t index = 0; index < _request.memberCount; ++index)
+  {
+    ids[index] = _request.members[index].shipId;
+  }
+
+  FormationStation stations[MAX_SHIPS_PER_ORDER];
+  MemberLookup lookup{&_request};
+  const std::uint32_t placed =
+    SolveFormation(_request.formation, std::span<const ShipId>{ids, _request.memberCount}, &MemberLookup::Of, &lookup,
+                   arrival, facing, std::span<FormationStation>{stations});
+
+  for (std::uint32_t index = 0; index < placed; ++index)
+  {
+    const TransferMember& member = _request.members[index];
+    ShipSpawn spawn;
+    spawn.hullClass = member.hullClass;
+    spawn.wing = member.wing;
+    spawn.xMetres = stations[index].positionMetres.x;
+    spawn.yMetres = stations[index].positionMetres.y;
+    spawn.headingRadians = facing;
+    if (world->Spawn(spawn, member.shipId) != INVALID_SHIP_ID)
+    {
+      RecordLocation(member.shipId, _request.anchor);
+    }
+  }
+
+  m_events.Emit(m_shardTick, EventKind::Arrived, _request.anchor, static_cast<std::uint16_t>(placed));
 }
 
 void WorldRegistry::ApplyUndock(const TransferRequest& _request)
@@ -551,9 +703,21 @@ void WorldRegistry::CollectFiledTransfers()
       TransferRecord record;
       record.id = TransferId{m_config.hostId, m_nextTransferCounter++};
 
-      // Filed during this tick, applied before the next one -- which is what
-      // makes "no world ever reads another mid-tick" true rather than hoped.
+      /*
+       * Filed during this tick, applied before the next one -- which is what
+       * makes "no world ever reads another mid-tick" true rather than hoped.
+       *
+       * A transit is the exception that proves it: it applies at its *arrival*
+       * tick, which is the same rule with a longer number. The journey is the
+       * delay, and the fleet is nowhere in the meantime -- which is why the
+       * in-flight bus is in the hash (ADR-018 D17): a replay that lost a fleet
+       * mid-crossing would agree about two empty grids.
+       */
       record.applyTick = m_shardTick + 1;
+      if (request.kind == TransferKind::Transit)
+      {
+        record.applyTick = m_shardTick + TransitTicks(entry.anchor, request);
+      }
       record.what = request;
       m_bus.push_back(record);
     }

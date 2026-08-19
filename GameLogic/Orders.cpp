@@ -45,12 +45,12 @@ const char* OrderKindName(OrderKind _kind) noexcept
 
 bool OrderKindHasContent(OrderKind _kind) noexcept
 {
-  // Move and Dock are simulated; Warp is numbered and inert until U3a.
+  // Move, Warp and Dock are simulated; the other three are numbered and inert.
   // `ValidateOrder` enforces the same thing from the other side, and the two
   // agreeing is not a coincidence worth relying on -- this answers "may a
   // surface offer it", that answers "may the world act on it", and a kind
   // gaining content has to change both.
-  return _kind == OrderKind::Move || _kind == OrderKind::Dock;
+  return _kind == OrderKind::Move || _kind == OrderKind::Warp || _kind == OrderKind::Dock;
 }
 
 const char* OrderKindParameterName(OrderKind _kind) noexcept
@@ -68,14 +68,14 @@ const char* OrderKindParameterName(OrderKind _kind) noexcept
   case OrderKind::Abilities:
     return "Ability";
 
-  // Neither of these takes a parameter, for two different reasons: Attack takes
-  // a *target*, and Warp takes the anchor it names rather than a value chosen
-  // from a list (U3a decides whether that is a dropdown). Null rather than an
-  // empty string in both cases, because a button labelled with nothing is still
-  // a button.
+  // Attack takes a *target* rather than a parameter, and null rather than an
+  // empty string says so: a button labelled with nothing is still a button.
   case OrderKind::Attack:
-  case OrderKind::Warp:
     return nullptr;
+  case OrderKind::Warp:
+    // Warp varies by formation too: the fleet arrives in one, solved at the
+    // anchor's authored warp-in point.
+    return "Formation";
   }
   return nullptr;
 }
@@ -112,6 +112,8 @@ const char* OrderReasonText(OrderReason _reason) noexcept
     return "cannot be queued";
   case OrderReason::CombatEngaged:
     return "in combat";
+  case OrderReason::UnknownAnchor:
+    return "no route to there";
   }
   // Not a default label: a new enumerator should fail the switch's exhaustive
   // warning first, and only reach here if it crossed the wire from a build that

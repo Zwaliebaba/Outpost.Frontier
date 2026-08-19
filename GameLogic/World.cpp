@@ -467,6 +467,7 @@ void World::Reset(std::uint64_t _seed) noexcept
   // be judged against the grid this world used to be.
   m_anchor = INVALID_ID;
   m_stationShip = INVALID_SHIP_ID;
+  m_reachable.clear();
 
   m_filed.clear();
 
@@ -567,10 +568,11 @@ bool World::TransferOut(ShipId _shipId, TransferMember& _outMember)
   return Despawn(_shipId);
 }
 
-void World::SetAnchor(AnchorId _anchor, ShipId _stationShip) noexcept
+void World::SetAnchor(AnchorId _anchor, ShipId _stationShip, std::span<const AnchorId> _reachable)
 {
   m_anchor = _anchor;
   m_stationShip = _stationShip;
+  m_reachable.assign(_reachable.begin(), _reachable.end());
 }
 
 void World::ReleaseOwner() noexcept

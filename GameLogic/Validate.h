@@ -100,6 +100,23 @@ struct ValidationView
   /// frame. Meaningless when `stationAnchor` is `INVALID_ID`.
   std::int32_t stationXCm = 0;
   std::int32_t stationYCm = 0;
+
+  /*
+   * Where a `Warp` may go from here (U3a, ADR-016 §5).
+   *
+   * A *list of anchor ids*, not the universe. Both halves load the identical
+   * universe definition and could each look the destination up -- but naming
+   * that type here would put the universe inside the one function that must
+   * round the same way on both machines, and CI's determinism guard bans it
+   * outside the universe files for exactly this reason. (It bans the *word*,
+   * comments included, which is how this sentence came to be phrased around
+   * it.) A span of ids is the intersection: the caller resolves reachability,
+   * the validator decides the order.
+   *
+   * Empty means nowhere, which is what a grid outside any system is, and every
+   * `Warp` from it is `UnknownAnchor`.
+   */
+  std::span<const AnchorId> reachableAnchors;
 };
 
 /// The verdict, in GameLogic's own terms. `Neuron::OrderVerdict` carries the

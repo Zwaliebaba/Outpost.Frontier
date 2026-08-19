@@ -40,11 +40,11 @@ namespace Game
  * engine may not name it -- so the name is here, beside the value it belongs
  * to, rather than as a string in a client that is meant to serve a second game.
  *
- * **`Warp = 4` is reserved and `Dock = 5` is real**, which is the opposite of
- * the order they were designed in (ADR-017 §2). The station phase landed before
- * in-system warp, and ADR-016 had already published warp's number; renumbering
- * it to close the gap would have made a written-down wire value a lie for the
- * sake of tidiness. So warp keeps 4 until U3a fills it in.
+ * **`Warp = 4` and `Dock = 5`**, which is the opposite of the order they were
+ * built in (ADR-017 §2). The station phase landed before in-system warp and
+ * ADR-016 had already published warp's number; renumbering it to close the gap
+ * would have made a written-down wire value a lie for the sake of tidiness. So
+ * warp kept 4 while it was reserved, and U3a filled it in where it stood.
  *
  * Numbered contiguously from zero and never renumbered: the value crosses the
  * wire in `OrderSubmit`.
@@ -55,7 +55,7 @@ enum class OrderKind : std::uint8_t
   Attack = 1,    // Reserved: no validation, no simulation.
   Stance = 2,    // Reserved.
   Abilities = 3, // Reserved.
-  Warp = 4,      // Reserved until U3a (ADR-016 §5 published the number first).
+  Warp = 4,
   Dock = 5
 };
 
@@ -151,7 +151,12 @@ enum class OrderReason : std::uint16_t
   NotAtStation = 10,
   NotDocked = 11,
   InvalidQueueMode = 12,
-  CombatEngaged = 13 // Reserved: nothing returns this until combat exists.
+  CombatEngaged = 13, // Reserved: nothing returns this until combat exists.
+
+  /// The anchor a `Warp` named is not one this grid can reach (U3a). After the
+  /// station phase's five, which is the cost of that phase landing first and
+  /// was written down when it did.
+  UnknownAnchor = 14
 };
 
 /// Human text for a reason, for logs and for the toast the client raises. Never

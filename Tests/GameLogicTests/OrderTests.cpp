@@ -239,7 +239,8 @@ public:
                                    OrderReason::InvalidFormation, OrderReason::TooManyShips,
                                    OrderReason::UnknownKind,    OrderReason::UnknownStation,
                                    OrderReason::NotAtStation,   OrderReason::NotDocked,
-                                   OrderReason::InvalidQueueMode, OrderReason::CombatEngaged};
+                                   OrderReason::InvalidQueueMode, OrderReason::CombatEngaged,
+                                   OrderReason::UnknownAnchor};
     for (const OrderReason reason : ALL)
     {
       const char* text = OrderReasonText(reason);
@@ -322,7 +323,7 @@ public:
     world.Reset(2);
     const ShipId station = SpawnAt(world, HullClass::Structure, 0.0f, 0.0f);
     const ShipId ship = SpawnAt(world, HullClass::Corvette, 100.0f, 0.0f);
-    world.SetAnchor(11, station);
+    world.SetAnchor(11, station, {});
 
     Assert::IsTrue(ValidateOrder(world.Validation(), DockOrder({ship}, 11)).accepted,
                    L"this grid's own anchor is dockable");
@@ -340,7 +341,7 @@ public:
     const ShipId station = SpawnAt(world, HullClass::Structure, 0.0f, 0.0f);
     const ShipId inside = SpawnAt(world, HullClass::Interceptor, 4000.0f, 0.0f);
     const ShipId outside = SpawnAt(world, HullClass::Interceptor, 12000.0f, 0.0f);
-    world.SetAnchor(21, station);
+    world.SetAnchor(21, station, {});
 
     // One interceptor's footprint is nothing, so the radius is the flat base.
     Assert::AreEqual(static_cast<float>(DOCK_RADIUS_METRES),
@@ -373,7 +374,7 @@ public:
     World world;
     world.Reset(4);
     const ShipId station = SpawnAt(world, HullClass::Structure, 0.0f, 0.0f);
-    world.SetAnchor(31, station);
+    world.SetAnchor(31, station, {});
 
     OrderSubmit small = DockOrder({}, 31);
     OrderSubmit large = DockOrder({}, 31);
@@ -407,7 +408,7 @@ public:
     world.Reset(5);
     const ShipId station = SpawnAt(world, HullClass::Structure, 0.0f, 0.0f);
     const ShipId ship = SpawnAt(world, HullClass::Corvette, 100.0f, 0.0f);
-    world.SetAnchor(41, station);
+    world.SetAnchor(41, station, {});
 
     OrderSubmit order = DockOrder({ship}, 41);
     order.queueMode = QueueMode::Append;
@@ -430,7 +431,7 @@ public:
     world.Reset(6);
     const ShipId station = SpawnAt(world, HullClass::Structure, 0.0f, 0.0f);
     const ShipId far = SpawnAt(world, HullClass::Corvette, 12000.0f, 0.0f);
-    world.SetAnchor(51, station);
+    world.SetAnchor(51, station, {});
 
     // Nothing selected beats every later complaint.
     OrderSubmit empty = DockOrder({}, 99);
@@ -477,7 +478,7 @@ public:
     const ShipId station = SpawnAt(world, HullClass::Structure, 0.0f, 0.0f);
     const ShipId near = SpawnAt(world, HullClass::Frigate, 3000.0f, -1200.0f);
     const ShipId far = SpawnAt(world, HullClass::Battleship, 9000.0f, 9000.0f);
-    world.SetAnchor(61, station);
+    world.SetAnchor(61, station, {});
 
     const ShipId replicated[] = {far, near, station};
     const ShipMark marks[] = {MarkAt(9000.0f, 9000.0f, HullClass::Battleship),
@@ -2376,10 +2377,10 @@ public:
 
     Assert::IsTrue(OrderKindHasContent(OrderKind::Move));
     Assert::IsTrue(OrderKindHasContent(OrderKind::Dock), L"the station phase built this one");
+    Assert::IsTrue(OrderKindHasContent(OrderKind::Warp), L"and U3a filled in the number ADR-016 published");
     Assert::IsFalse(OrderKindHasContent(OrderKind::Attack));
     Assert::IsFalse(OrderKindHasContent(OrderKind::Stance));
     Assert::IsFalse(OrderKindHasContent(OrderKind::Abilities));
-    Assert::IsFalse(OrderKindHasContent(OrderKind::Warp), L"numbered before it was built, and still is");
   }
 
   TEST_METHOD(AReservedKindIsRefusedRatherThanSimulated)
@@ -2416,14 +2417,15 @@ public:
       else if (OrderKindHasContent(kind))
       {
         /*
-         * Dock. Refused here -- this world is not a station's grid, so the
-         * anchor it names is nobody's -- but refused *for its own reason*,
-         * which is the whole distinction being drawn: a built kind that cannot
-         * be satisfied says why, and a reserved one says it does not exist.
+         * Dock and Warp. Refused here -- this world is not a station's grid and
+         * it can reach nowhere -- but refused *for their own reasons*, which is
+         * the whole distinction being drawn: a built kind that cannot be
+         * satisfied says why, and a reserved one says it does not exist.
          */
         Assert::IsFalse(verdict.accepted);
-        Assert::IsTrue(verdict.reason == OrderReason::UnknownStation,
-                       L"a built kind is refused on its merits, not as unknown");
+        const bool ownReason =
+          verdict.reason == OrderReason::UnknownStation || verdict.reason == OrderReason::UnknownAnchor;
+        Assert::IsTrue(ownReason, L"a built kind is refused on its merits, not as unknown");
       }
       else
       {
@@ -2448,9 +2450,9 @@ public:
     // judged against is derived from the solved formation (ADR-018 D7).
     Assert::AreEqual(std::string_view{"Formation"}, std::string_view{OrderKindParameterName(OrderKind::Dock)});
 
-    // Warp names an anchor rather than choosing from a list. U3a decides
-    // whether that is a dropdown; until then it is not one.
-    Assert::IsNull(OrderKindParameterName(OrderKind::Warp));
+    // And so does Warp: the fleet arrives in a formation, solved at the
+    // anchor's authored warp-in point.
+    Assert::AreEqual(std::string_view{"Formation"}, std::string_view{OrderKindParameterName(OrderKind::Warp)});
   }
 
   TEST_METHOD(TheKindsAreOnTheSchemaAndNumberedFromZero)

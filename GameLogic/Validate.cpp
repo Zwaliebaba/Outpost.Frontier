@@ -127,15 +127,21 @@ OrderVerdict ValidateOrder(const ValidationView& _view, const OrderSubmit& _orde
   {
     return Refuse(OrderReason::TooManyShips);
   }
-  if (_order.kind != OrderKind::Move && _order.kind != OrderKind::Dock)
+  if (!OrderKindHasContent(_order.kind))
   {
     return Refuse(OrderReason::UnknownKind);
   }
 
-  // Dock is Replace-only (ADR-017 §2). The queue holds the legs of one movement
-  // plan, not a program of verbs: "fly these waypoints then dock" is the
-  // client feeding one step at a time, not a program the server runs.
-  if (_order.kind == OrderKind::Dock && _order.queueMode != QueueMode::Replace)
+  /*
+   * Dock and Warp are Replace-only (ADR-017 §2, ADR-016 §8).
+   *
+   * The queue holds the legs of one movement plan, not a program of verbs.
+   * "Fly these waypoints then dock" and "...then warp" are the client feeding
+   * one step at a time, which is a different thing from the server running a
+   * program -- and the difference matters because a queued verb would have to
+   * be re-validated at a moment nobody is watching.
+   */
+  if (_order.kind != OrderKind::Move && _order.queueMode != QueueMode::Replace)
   {
     return Refuse(OrderReason::InvalidQueueMode);
   }
@@ -160,6 +166,17 @@ OrderVerdict ValidateOrder(const ValidationView& _view, const OrderSubmit& _orde
       (_view.stationAnchor == INVALID_ID || _order.anchor != _view.stationAnchor))
   {
     return Refuse(OrderReason::UnknownStation);
+  }
+
+  // And the anchor a warp names has to be one this grid can reach. Beside the
+  // station check rather than after the ship checks, because both answer the
+  // same question -- is the place you named a place? -- and the sequence should
+  // group them.
+  if (_order.kind == OrderKind::Warp &&
+      std::find(_view.reachableAnchors.begin(), _view.reachableAnchors.end(), _order.anchor) ==
+        _view.reachableAnchors.end())
+  {
+    return Refuse(OrderReason::UnknownAnchor);
   }
 
   // Centimetres against a centimetre bound. Converting either side to metres

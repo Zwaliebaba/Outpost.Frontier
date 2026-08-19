@@ -50,7 +50,11 @@ enum class EventKind : std::uint8_t
   /// The parking ring was full and the fleet stayed at the undock point
   /// (ADR-017 §4). Worth telling the player precisely because nothing was
   /// refused: the fleet is fine, it is simply still in the doorway.
-  BerthHeld = 3
+  BerthHeld = 3,
+
+  /// A fleet came out of warp (U3a). The other end of a departure nobody sees
+  /// -- the away-log's "your fleet reached Vesta-3" line.
+  Arrived = 4
 };
 
 /*
