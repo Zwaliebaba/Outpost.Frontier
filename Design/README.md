@@ -24,7 +24,10 @@ owner's scaling-baseline decisions over the five-lens review — the target is a
 shard on a persistent service** — amending ADR-004/005/006/007/008/012/013/014/016/017
 (each carries the note), adding U3c (the second-commander gate) and three named design
 deliverables (the topology ADR, the interest/delta ADR, the UI-architecture ADR), and
-extending the Risk Register with R19–R21.
+extending the Risk Register with R19–R21; **ADR-021** completes ADR-015 §2's avoidance with the
+limb the *other* ship applies — an idle hull steps out of a mover's lane and flies back to its
+berth — and reads ADR-005's `GuidanceMode::Hold` as "stay where you were put" rather than
+"stay where you are".
 
 ## Decisions at a glance
 
@@ -50,6 +53,7 @@ extending the Risk Register with R19–R21.
 | [018](ADR/ADR-018-scaling-baseline.md) | Scaling baseline *(owner decisions over the review)* | **MMO shard (hundreds of commanders), persistent service; durable `PlayerId` + u32 ship ids (staged by the snapshot arithmetic); footprint-derived dock radius; worlds forget — durable state lives at the universe layer; `(applyTick, transferId)` bus order; behaviour joins the fail-closed gate; Release in CI, dxc/SM 6.x; screens are engine surfaces, data-fed** — 19 decisions, a 26-action register the build orders carry |
 | [019](ADR/ADR-019-shard-topology.md) | Shard topology *(deliverable A1 — blocks U2)* | **Three roles in one process today** (SimHost / SessionHost / Directory); the **anchor is the placement unit**, region-affine, never live-migrated; the tick is **shard-global**; transfers are **filed at departure** and ordered `(applyTick, hostId, counter)` with no coordination; **one client connection** through the session front door, so the client wire never learns the topology exists |
 | [020](ADR/ADR-020-ui-architecture.md) | UI architecture *(deliverable A19 — blocks U5 and T3)* | **A surface is a value on a small stack** (re-pushing pops back, so `◀ TACTICAL` and `◀ BACK` are one mechanism); a full-screen surface **skips** the world passes rather than adding one; **input is claimed once by one router** over three independent channels, with the printable-key rule that makes "W" type *or* pan; the screen-data contract is **three shapes, not three methods**, and a **badge class index** crosses the seam, never a colour |
+| [021](ADR/ADR-021-ship-make-way.md) | Ship make-way *(owner-reported defect)* | **A ship with nowhere to be steps out of a mover's lane and flies home** — a displaced target sought through the ordinary envelope, recomputed each tick and never stored; the corridor is tested against the *berth* so the sidestep cannot undo itself; side chosen by turn time, not distance; the occupied destination stays exempt |
 
 ## Coding standard
 
@@ -105,8 +109,8 @@ the Tier-1 diagnostics strip (F1, `client.diagnostics.strip`), the aggregated `s
 CI now runs headless in the shipping binary on every push (schema self-check, wire
 round-trips, a replay-determinism run, then the whole handshake + order + snapshot loop over
 QUIC loopback), 4× MSAA offscreen + resolve, cosmetic banking/hover, and the STALE marker.
-The merged tree — S14 plus ADR-015's collision, and now S15's audio — runs **499 tests green**
-across the four suites on MSVC.
+The merged tree — S14 plus ADR-015's collision and ADR-021's make-way, and now S15's audio —
+runs **518 tests green** across the four suites on MSVC, in Debug and Release alike.
 
 **The half that needed a person and a GPU is done (2026-08-19):** the MVP definition
 demonstrated in a live session, together with the visual items outstanding since the last
@@ -164,13 +168,26 @@ adjacent and the leg expiring by its deadline (the obstructed-footprint item sta
 its failure mode improved), and the authored starting fleet carried a real 6 m overlap between
 the Carrier and Battleship wings' line ends that `Separate` now heals on tick 1 — re-parking
 that layout is the owner's call. Originally verified on a Linux clang cross-build of GameLogic;
-since the merge with S14 the full MSVC build and all four suites (499 tests, collision and S14
-together) have run green locally, with CI's run standing behind it as usual.
+since the merge with S14 the full MSVC build and all four suites (collision and S14 together)
+have run green locally, with CI's run standing behind it as usual.
+
+**And its other half followed: ship make-way (ADR-021, 2026-08-19).** ADR-015 gave the mover
+two ways to cope with traffic and gave traffic no way to cope with the mover, and both of the
+mover's fail closed — the reported symptom was a ship stopping dead behind a parked hull. Now a
+ship that is not under way steps out of the lane and flies back to its berth afterwards. It is
+a displaced *target* rather than a shove, so a sidestep obeys the same envelope as any ordered
+move; it is recomputed every tick and never stored, so nothing new reaches `WorldHash` or the
+wire; and the corridor is measured against the ship's berth rather than its hull, which is what
+stops the sidestep from cancelling itself the moment it starts. Four scenarios in
+`ShipContactTests` cover it, including a six-hull row that clears for a Battleship and settles
+bit-identically across two runs. Two deliberate non-changes: a hull berthed on the mover's own
+destination still keeps its berth (ADR-015 §5's outcome, now pinned by its own test), and
+`Steering` still knows nothing about groups.
 
 **Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
 handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. The
-suite now stands at **499** — 284 client, 130 GameLogic, 75 core, 10 server. Its
+suite now stands at **518** — 297 client, 136 GameLogic, 75 core, 10 server. Its
 visible half — window open, swapchain presenting, heartbeat live — together with the four
 other criteria that need a GPU and a person (five minutes clean under the debug layer,
 PresentMon showing the flip model, a clean exit, and the 60-second tick cadence on an idle

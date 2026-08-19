@@ -105,6 +105,12 @@ std::uint64_t ComputeWorldHash(const World& _world) noexcept
     // proportional to the leg. A replay that diverged on it would advance a leg
     // a tick apart and then diverge on everything.
     _hash = Neuron::HashValue(group.legDeadlineTick, _hash);
+    // Both decide the future, so both are folded: `doneTick` decides the tick
+    // the group leaves the table, and `solvedMemberCount` decides whether the
+    // next ingest re-solves the formation. Two worlds equal in everything else
+    // but differing here would diverge exactly there.
+    _hash = Neuron::HashValue(group.doneTick, _hash);
+    _hash = Neuron::HashValue(group.solvedMemberCount, _hash);
     _hash = Neuron::HashValue(group.memberCount, _hash);
     for (std::uint16_t index = 0; index < group.memberCount; ++index)
     {

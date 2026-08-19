@@ -325,13 +325,13 @@ public:
 
     const OrderGhost pending[] = {MakeGhost(GhostState::Pending, XMFLOAT2{-4000.0f, 0.0f}, XMFLOAT2{4000.0f, 0.0f})};
     UiDrawList dashedList;
-    BuildGhostLanes(pending, {}, view, colours, tuning, 0.0, dashedList);
+    BuildGhostLanes(pending, {}, view, colours, tuning, 0.0, dashedList, dashedList);
     const std::vector<UiQuad> dashes = Segments(dashedList);
     Assert::IsTrue(dashes.size() > 4, L"a pending lane is drawn as many dashes");
 
     const OrderGhost underWay[] = {MakeGhost(GhostState::UnderWay, XMFLOAT2{-4000.0f, 0.0f}, XMFLOAT2{4000.0f, 0.0f})};
     UiDrawList solidList;
-    BuildGhostLanes(underWay, {}, view, colours, tuning, 0.0, solidList);
+    BuildGhostLanes(underWay, {}, view, colours, tuning, 0.0, solidList, solidList);
     const std::vector<UiQuad> underWayDashes = Segments(solidList);
     Assert::IsTrue(underWayDashes.size() > 4, L"and so is an accepted one, so its dashes can march");
 
@@ -352,7 +352,7 @@ public:
     const OrderGhost ghosts[] = {MakeGhost(GhostState::Pending, XMFLOAT2{-3000.0f, -2000.0f}, XMFLOAT2{3000.0f, 2500.0f})};
 
     UiDrawList list;
-    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list, list);
     const std::vector<UiQuad> dashes = Segments(list);
     Assert::IsTrue(dashes.size() > 2);
 
@@ -394,13 +394,13 @@ public:
 
     GhostLaneView wide = MakeView(mapping);
     UiDrawList wideList;
-    BuildGhostLanes(ghosts, {}, wide, OverlayTuning{}, GhostLaneTuning{}, 0.0, wideList);
+    BuildGhostLanes(ghosts, {}, wide, OverlayTuning{}, GhostLaneTuning{}, 0.0, wideList, wideList);
 
     // The same lane through a narrower window into the middle of the screen.
     GhostLaneView narrow = MakeView(mapping);
     narrow.worldRect = UiRect{400.0f, 0.0f, 800.0f, static_cast<float>(VIEWPORT_HEIGHT)};
     UiDrawList narrowList;
-    BuildGhostLanes(ghosts, {}, narrow, OverlayTuning{}, GhostLaneTuning{}, 0.0, narrowList);
+    BuildGhostLanes(ghosts, {}, narrow, OverlayTuning{}, GhostLaneTuning{}, 0.0, narrowList, narrowList);
 
     const std::vector<UiQuad> wideDashes = Segments(wideList);
     const std::vector<UiQuad> narrowDashes = Segments(narrowList);
@@ -452,7 +452,7 @@ public:
         MakeGhost(GhostState::Pending, XMFLOAT2{-19000.0f, 19000.0f}, XMFLOAT2{-19000.0f, 18000.0f})};
 
     UiDrawList list;
-    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list, list);
     Assert::AreEqual<std::size_t>(0, Segments(list).size());
     Assert::AreEqual<std::size_t>(0, list.Runs().size(), L"and no label either");
   }
@@ -463,7 +463,7 @@ public:
     const OrderGhost ghosts[] = {MakeGhost(GhostState::UnderWay, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{3000.0f, 0.0f})};
 
     UiDrawList list;
-    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list, list);
 
     const std::vector<std::string> texts = Texts(list);
     Assert::AreEqual<std::size_t>(2, texts.size());
@@ -503,8 +503,8 @@ public:
 
     UiDrawList nearList;
     UiDrawList farList;
-    BuildGhostLanes(ghosts, {}, nearView, OverlayTuning{}, GhostLaneTuning{}, 0.0, nearList);
-    BuildGhostLanes(ghosts, {}, farView, OverlayTuning{}, GhostLaneTuning{}, 0.0, farList);
+    BuildGhostLanes(ghosts, {}, nearView, OverlayTuning{}, GhostLaneTuning{}, 0.0, nearList, nearList);
+    BuildGhostLanes(ghosts, {}, farView, OverlayTuning{}, GhostLaneTuning{}, 0.0, farList, farList);
 
     const std::vector<std::string> nearTexts = Texts(nearList);
     const std::vector<std::string> farTexts = Texts(farList);
@@ -528,7 +528,7 @@ public:
 
     const auto laneLength = [&](double _now) {
       UiDrawList list;
-      BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, _now, list);
+      BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, _now, list, list);
       const std::vector<UiQuad> dashes = Segments(list);
       if (dashes.empty())
       {
@@ -558,7 +558,7 @@ public:
     const OrderGhost ghosts[] = {MakeChain(GhostState::Pending, XMFLOAT2{-6000.0f, -1000.0f}, waypoints)};
 
     UiDrawList list;
-    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list, list);
     const std::vector<UiQuad> dashes = Segments(list);
     Assert::IsTrue(dashes.size() > 6, L"three legs of dashes");
 
@@ -591,7 +591,7 @@ public:
     const OrderGhost chain[] = {MakeChain(GhostState::UnderWay, XMFLOAT2{-5000.0f, 0.0f}, waypoints)};
 
     UiDrawList list;
-    BuildGhostLanes(chain, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(chain, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list, list);
     const std::vector<std::string> texts = Texts(list);
 
     // Two waypoint labels, then the name, the detail and the leg count.
@@ -603,7 +603,7 @@ public:
     // A single leg keeps S11c's picture: a name and a detail line, nothing else.
     const OrderGhost single[] = {MakeGhost(GhostState::UnderWay, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{3000.0f, 0.0f})};
     UiDrawList plain;
-    BuildGhostLanes(single, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, plain);
+    BuildGhostLanes(single, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, plain, plain);
     Assert::AreEqual<std::size_t>(2, Texts(plain).size(), L"no waypoint label and no leg count for one leg");
   }
 
@@ -622,7 +622,7 @@ public:
     const OrderGhost ghosts[] = {chain};
 
     UiDrawList list;
-    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list, list);
     const std::vector<std::string> texts = Texts(list);
 
     Assert::AreEqual(std::string{"30s"}, texts[0], L"leg one keeps its prediction");
@@ -638,7 +638,7 @@ public:
     const OrderGhost chain[] = {MakeChain(GhostState::UnderWay, XMFLOAT2{0.0f, 0.0f}, waypoints)};
 
     UiDrawList list;
-    BuildGhostLanes(chain, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(chain, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list, list);
     const std::vector<std::string> texts = Texts(list);
 
     // 3 km then 3 km again: six, not the three the last leg alone would give.
@@ -673,7 +673,7 @@ public:
 
     const auto firstLegSpan = [&](double _now) {
       UiDrawList list;
-      BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, still, _now, list);
+      BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, still, _now, list, list);
       const std::vector<UiQuad> dashes = Segments(list);
       float minX = 1e9f;
       float maxX = -1e9f;
@@ -698,14 +698,14 @@ public:
     const GhostLaneView view = MakeView(MakeMapping());
     UiDrawList list;
 
-    BuildGhostLanes({}, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes({}, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list, list);
     Assert::AreEqual<std::size_t>(0, list.Quads().size());
 
     GhostLaneView unsized = view;
     unsized.viewportWidth = 0;
     unsized.viewportHeight = 0;
     const OrderGhost ghosts[] = {MakeGhost(GhostState::Pending, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{3000.0f, 0.0f})};
-    BuildGhostLanes(ghosts, {}, unsized, OverlayTuning{}, GhostLaneTuning{}, 0.0, list);
+    BuildGhostLanes(ghosts, {}, unsized, OverlayTuning{}, GhostLaneTuning{}, 0.0, list, list);
     Assert::AreEqual<std::size_t>(0, list.Quads().size());
   }
 };
@@ -761,7 +761,7 @@ public:
 
     const auto trackedOffset = [&](double _now) {
       UiDrawList list;
-      BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, _now, list);
+      BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, _now, list, list);
       const std::vector<float> offsets = DashOffsets(list);
       Assert::IsTrue(offsets.size() > 2, L"a pending lane dashes");
       return offsets[offsets.size() / 2];
@@ -829,8 +829,8 @@ public:
 
     UiDrawList early;
     UiDrawList later;
-    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, 0.0, early);
-    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, tuning.crawlSecondsPerCycle * 0.25, later);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, 0.0, early, early);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, tuning.crawlSecondsPerCycle * 0.25, later, later);
 
     const std::vector<float> before = DashOffsets(early);
     const std::vector<float> after = DashOffsets(later);
@@ -872,7 +872,7 @@ public:
       camera.SetZoomMetres(_zoomMetres);
 
       UiDrawList list;
-      BuildGhostLanes(ghosts, {}, MakeView(camera.PlaneMappingForNdc()), OverlayTuning{}, tuning, 0.0, list);
+      BuildGhostLanes(ghosts, {}, MakeView(camera.PlaneMappingForNdc()), OverlayTuning{}, tuning, 0.0, list, list);
       const std::vector<float> offsets = DashOffsets(list);
       Assert::IsTrue(offsets.size() > 2, L"a pending lane dashes at every zoom");
       return offsets[1] - offsets[0];
@@ -905,8 +905,8 @@ public:
     const double elapsed = tuning.crawlSecondsPerCycle * 0.25;
     UiDrawList early;
     UiDrawList later;
-    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, 0.0, early);
-    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, elapsed, later);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, 0.0, early, early);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, elapsed, later, later);
 
     const std::vector<float> before = DashOffsets(early);
     const std::vector<float> after = DashOffsets(later);
@@ -940,7 +940,7 @@ public:
       GhostLaneView view = MakeView(MakeMapping());
       view.scale = _scale;
       UiDrawList list;
-      BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, 0.0, list);
+      BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, 0.0, list, list);
       const std::vector<float> offsets = DashOffsets(list);
       Assert::IsTrue(offsets.size() > 2, L"a pending lane dashes");
       return offsets[1] - offsets[0];
@@ -963,8 +963,8 @@ public:
 
     UiDrawList early;
     UiDrawList later;
-    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, 0.0, early);
-    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, tuning.crawlSecondsPerCycle * 0.25, later);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, 0.0, early, early);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, tuning, tuning.crawlSecondsPerCycle * 0.25, later, later);
 
     const std::vector<float> before = DashOffsets(early);
     const std::vector<float> after = DashOffsets(later);
@@ -1004,7 +1004,7 @@ public:
       UiDrawList list;
       GhostLaneTuning still;
       still.crawlSecondsPerCycle = 0.0f; // Geometry, not animation.
-      BuildGhostLanes(ghosts, _entities, view, OverlayTuning{}, still, 0.0, list);
+      BuildGhostLanes(ghosts, _entities, view, OverlayTuning{}, still, 0.0, list, list);
       const std::vector<float> offsets = DashOffsets(list);
       Assert::IsTrue(offsets.size() > 1, L"the lane draws");
       return offsets.back() - offsets.front();
@@ -1025,13 +1025,16 @@ public:
 
     SceneEntity other;
     other.id = 99; // Not the ordering ship.
-    other.planeMetres = XMFLOAT2{4000.0f, 0.0f};
+    // Well clear of the line, so this stays a test about where the lane starts.
+    // On it, the hull mask would legitimately punch a dash out and the counts
+    // below would differ for a reason that has nothing to do with the fallback.
+    other.planeMetres = XMFLOAT2{4000.0f, 3000.0f};
     const SceneEntity entities[] = {other};
 
     UiDrawList withGhostShip;
     UiDrawList withoutAnyShip;
-    BuildGhostLanes(ghosts, entities, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, withGhostShip);
-    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, withoutAnyShip);
+    BuildGhostLanes(ghosts, entities, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, withGhostShip, withGhostShip);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, withoutAnyShip, withoutAnyShip);
 
     const std::vector<float> present = DashOffsets(withGhostShip);
     const std::vector<float> absent = DashOffsets(withoutAnyShip);
@@ -1049,8 +1052,8 @@ public:
 
     UiDrawList early;
     UiDrawList later;
-    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, still, 0.0, early);
-    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, still, 4.7, later);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, still, 0.0, early, early);
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, still, 4.7, later, later);
 
     const std::vector<float> before = DashOffsets(early);
     const std::vector<float> after = DashOffsets(later);

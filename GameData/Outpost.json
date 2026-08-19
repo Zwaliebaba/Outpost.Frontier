@@ -26,7 +26,10 @@
     "connect":  { "host": "127.0.0.1", "port": 7777 },
     "window":   { "width": 1600, "height": 900, "mode": "windowed" },
     "renderer": { "vsync": true, "msaa": 4, "frameCap": 0 },
-    "camera":   { "zoomMetres": 8000, "yawSnapDegrees": 45 },
+    // Where the camera starts, as the ortho half-height in metres. 2667 is a
+    // third of the 8000 this shipped with -- the fleet parked around the
+    // station read as a scatter of specks from that far out.
+    "camera":   { "zoomMetres": 2667, "yawSnapDegrees": 45 },
 
     // The ambient field the fleet sits inside. Every number here is art
     // direction, which is why it is content: the tint and intensity are applied

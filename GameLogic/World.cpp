@@ -2,16 +2,20 @@
 
 #include "World.h"
 
-#include "Eta.h"
-#include "Formation.h"
-
-#include "EntityRecord.h"
-
 #include <algorithm>
 #include <cmath>
 #include <limits>
 
 using namespace DirectX;
+
+/*
+ * The movement half of `World`: the tables, the tick, and the systems that fly
+ * ships -- `Steering`, `Integrate`, `Separate` and the contact model. The order
+ * half -- `SubmitOrder`, the group table and its lifecycle -- is
+ * `WorldOrders.cpp`, and the seam between the two is `Guidance`: a group writes
+ * it, steering reads it, and neither half needs the other's machinery
+ * (ADR-005 §1).
+ */
 
 namespace Game
 {
@@ -81,6 +85,28 @@ constexpr float MIN_TURN_LIMIT_ERROR_RADIANS = 1.0e-4f;
 [[nodiscard]] bool IsAnchored(std::uint8_t _rawClass) noexcept
 {
   return ShipClass(static_cast<HullClass>(_rawClass)).maxSpeedMetresPerSec <= 0.0f;
+}
+
+/// Class top speed for a raw class byte -- what `MakeWayOffset` measures its
+/// lookahead against, because a jammed ship's *actual* speed is zero.
+[[nodiscard]] float MaxSpeedOf(std::uint8_t _rawClass) noexcept
+{
+  return ShipClass(static_cast<HullClass>(_rawClass)).maxSpeedMetresPerSec;
+}
+
+/// Whether this ship is still travelling to where it was told to be. The same
+/// question `Steering` asks to decide whether to fly, asked once more to decide
+/// who may be asked to make way: a ship that has arrived is a ship with nowhere
+/// to be, whether it holds a station or holds where it spawned.
+[[nodiscard]] bool IsUnderway(const Guidance& _guidance, const DirectX::XMFLOAT2& _position) noexcept
+{
+  if (_guidance.mode != GuidanceMode::Seek)
+  {
+    return false;
+  }
+  const float dx = _guidance.targetXMetres - _position.x;
+  const float dy = _guidance.targetYMetres - _position.y;
+  return dx * dx + dy * dy > World::ARRIVAL_TOLERANCE_METRES * World::ARRIVAL_TOLERANCE_METRES;
 }
 
 /// What the traffic around a ship allows it to do this tick (ADR-015 §2).
@@ -215,6 +241,211 @@ struct TrafficSteer
   return steer;
 }
 
+/*
+ * Making way (ADR-021): where a ship with nowhere to be should stand while
+ * someone flies past, as a displacement from the berth it is standing on.
+ *
+ * ADR-015 gave the *mover* two ways to cope with traffic and gave traffic no
+ * way to cope with the mover. That is only half of how a lane clears: braking
+ * and deflection both fail closed -- a hull sitting on the one line a ship must
+ * fly ends with the ship parked against it -- and the ship that could most
+ * cheaply fix it is the one that is not going anywhere. So the idle ship steps
+ * aside, and the step is expressed as a *target*, not a shove: it seeks its
+ * temporary berth through the same envelope, avoidance and arrival machinery as
+ * any ordered move, so nothing here can break a hull's speed or turn limits.
+ *
+ * **Three things make this stable, and each is doing real work.**
+ *
+ * *The corridor is tested against the berth, not the hull.* A ship that stepped
+ * aside is, by construction, no longer in the way -- so a test on its live
+ * position would say "clear" the instant it started moving, and it would drift
+ * back into the lane and out of it and back again. Its berth does not move, so
+ * the answer holds still until the mover has actually gone past.
+ *
+ * *The trigger and the destination are the same number.* A berth further off
+ * the course than `MAKE_WAY_CLEARANCE_FACTOR` is left alone; a berth inside it
+ * is stood aside to exactly that line. The displacement therefore falls to zero
+ * as the berth approaches the boundary, and there is no discontinuity for a
+ * marginal case to oscillate across.
+ *
+ * *A journey shorter than the room being made for it is not a journey.* This is
+ * what stops making way from feeding itself: a ship on its way *back* from a
+ * sidestep looks, to everyone else, exactly like a short-haul mover, and
+ * without this line a cluster of idle ships could take turns clearing lanes for
+ * each other's returns. A real order is orders of magnitude longer than a
+ * sidestep, so nothing anyone actually asked for is refused by it.
+ *
+ * Returning is not a mechanism. When the last mover is past, no blocker is
+ * found, the displacement is zero, the effective target is the berth again, and
+ * the ship flies home under the same seek it stepped aside with.
+ *
+ * Deterministic by the same construction as the rest (ADR-005 §5): slot-order
+ * iteration over positions, classes and guidance -- none of which `Steering`
+ * writes -- plus the ship's own heading, which `Steering` writes only after
+ * asking this; pure table lookups, no clock, no RNG, no `XM*Est`.
+ */
+[[nodiscard]] bool MakeWayOffset(std::uint32_t _slot, std::span<const DirectX::XMFLOAT2> _positions, std::span<const std::uint8_t> _classes,
+                                 std::span<const Guidance> _guidances, float _headingRadians, DirectX::XMFLOAT2& _outOffset) noexcept
+{
+  const Guidance& berth = _guidances[_slot];
+  const float ownRadius = ContactRadiusOf(_classes[_slot]);
+
+  // The nearest mover only, for the reason deflection takes the nearest blocker
+  // only: standing aside from two courses at once stands aside from neither.
+  float nearestAhead = std::numeric_limits<float>::max();
+  float nearestSide = 0.0f;
+  float nearestClearance = 0.0f;
+  float nearestPerpX = 0.0f;
+  float nearestPerpY = 0.0f;
+
+  for (std::uint32_t other = 0; other < _positions.size(); ++other)
+  {
+    if (other == _slot || _guidances[other].mode != GuidanceMode::Seek)
+    {
+      continue;
+    }
+
+    // The course wanted, not the heading flown: the heading is bent by the
+    // avoidance this ship is about to make unnecessary, and a corridor that
+    // moved with the mover's swerve would be a corridor chasing its own tail.
+    const float courseX = _guidances[other].targetXMetres - _positions[other].x;
+    const float courseY = _guidances[other].targetYMetres - _positions[other].y;
+    const float courseLength = std::sqrt(courseX * courseX + courseY * courseY);
+
+    const float contact = ownRadius + ContactRadiusOf(_classes[other]);
+    const float clearance = World::MAKE_WAY_CLEARANCE_FACTOR * contact;
+    if (courseLength <= clearance)
+    {
+      continue; // Arrived, holding, or on a hop shorter than the room asked for.
+    }
+
+    const float dirX = courseX / courseLength;
+    const float dirY = courseY / courseLength;
+
+    const float relX = berth.targetXMetres - _positions[other].x;
+    const float relY = berth.targetYMetres - _positions[other].y;
+
+    const float ahead = relX * dirX + relY * dirY;
+    if (ahead <= 0.0f || ahead >= courseLength)
+    {
+      continue; // Behind the mover, or past the point it stops at anyway.
+    }
+    // Too far up the lane to be worth clearing yet -- and, at a top speed of
+    // zero, always true, which is how an *anchored* hull under orders is
+    // excluded without a branch of its own. A station cannot travel, so its
+    // course reaches nothing and nobody owes it a lane.
+    if (ahead > World::MAKE_WAY_LOOKAHEAD_SECONDS * MaxSpeedOf(_classes[other]))
+    {
+      continue;
+    }
+
+    const float side = dirX * relY - dirY * relX;
+    if (std::fabs(side) >= clearance)
+    {
+      continue; // The berth is already clear of the lane.
+    }
+
+    // Berthed on the mover's destination: there is nowhere better to be, and
+    // stepping aside would only mean stepping back inside it when it parks.
+    // The mover brakes and parks adjacent instead, which is ADR-015 §5's
+    // designed outcome and stays the designed outcome.
+    const float gapX = berth.targetXMetres - _guidances[other].targetXMetres;
+    const float gapY = berth.targetYMetres - _guidances[other].targetYMetres;
+    if (gapX * gapX + gapY * gapY < contact * contact)
+    {
+      continue;
+    }
+
+    if (ahead < nearestAhead)
+    {
+      nearestAhead = ahead;
+      nearestSide = side;
+      nearestClearance = clearance;
+      nearestPerpX = -dirY; // Unit vector toward positive side, i.e. the mover's port.
+      nearestPerpY = dirX;
+    }
+  }
+
+  if (nearestAhead == std::numeric_limits<float>::max())
+  {
+    return false;
+  }
+
+  /*
+   * Which side to stand on: the shorter walk, or the shorter turn?
+   *
+   * Distance alone is the obvious answer and it is the wrong one. Ships cannot
+   * strafe (ADR-005 §2), so a hull asked to step the way it is pointing *away*
+   * from must swing its whole length round first -- a Frigate facing north,
+   * told to clear thirty metres to the south, spends six seconds turning to
+   * cover a distance it would have covered in one. Measured against a fast
+   * mover that is the entire encounter: it finishes turning about when the
+   * traffic it was clearing for has already gone past.
+   *
+   * So both are costed in seconds and the cheaper wins. The comparison is
+   * stable under its own outcome -- once the hull starts turning toward the
+   * side it picked, that side only gets cheaper -- and it stays stable against
+   * the mover, because deflection bends away from whichever side the hull went
+   * (ADR-015 §2), which keeps the berth's own lean pointing the same way. A tie
+   * goes to starboard, the convention deflection breaks its symmetry with.
+   */
+  const ShipClassInfo& own = ShipClass(static_cast<HullClass>(_classes[_slot]));
+  const auto secondsToClear = [&](float _wantedSide) noexcept -> float
+  {
+    const float sign = _wantedSide > 0.0f ? 1.0f : -1.0f;
+    float seconds = 0.0f;
+    if (own.turnRateRadiansPerSec > 0.0f)
+    {
+      const float toSide = std::atan2(sign * nearestPerpY, sign * nearestPerpX);
+      seconds += std::fabs(WrapAngle(toSide - _headingRadians)) / own.turnRateRadiansPerSec;
+    }
+    if (own.maxSpeedMetresPerSec > 0.0f)
+    {
+      seconds += std::fabs(_wantedSide - nearestSide) / own.maxSpeedMetresPerSec;
+    }
+    return seconds;
+  };
+  const float wantedSide = secondsToClear(nearestClearance) < secondsToClear(-nearestClearance) ? nearestClearance : -nearestClearance;
+  const float step = wantedSide - nearestSide;
+  _outOffset = XMFLOAT2{nearestPerpX * step, nearestPerpY * step};
+  return true;
+}
+
+/*
+ * Whether anything is standing in this ship's berth.
+ *
+ * The one condition on flying home. A ship that made way -- or that a passing
+ * hull shouldered off station -- belongs back where it was put, but not badly
+ * enough to fly into someone who has since taken the spot: that would be a
+ * shove dressed up as a homecoming, and `Separate` would spend the rest of the
+ * session pushing the two of them apart.
+ *
+ * It is also what keeps an authored stack settled. Two ships spawned on one
+ * point are separated apart by `Separate` and then both want the same berth
+ * back; each sees the other standing in it and stays put, which is the only
+ * stable answer available when two berths are the same berth.
+ */
+[[nodiscard]] bool BerthIsClear(std::uint32_t _slot, std::span<const DirectX::XMFLOAT2> _positions, std::span<const std::uint8_t> _classes,
+                                const Guidance& _berth) noexcept
+{
+  const float ownRadius = ContactRadiusOf(_classes[_slot]);
+  for (std::uint32_t other = 0; other < _positions.size(); ++other)
+  {
+    if (other == _slot)
+    {
+      continue;
+    }
+    const float dx = _positions[other].x - _berth.targetXMetres;
+    const float dy = _positions[other].y - _berth.targetYMetres;
+    const float contact = ownRadius + ContactRadiusOf(_classes[other]);
+    if (dx * dx + dy * dy < contact * contact)
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
 } // namespace
 
 void World::Reset(std::uint64_t _seed) noexcept
@@ -289,7 +520,6 @@ bool World::Despawn(ShipId _shipId)
   // for it and leave a gap in the formation, and would keep reporting a leg
   // nobody is flying.
   ForgetShipInGroups(_shipId);
-  std::erase_if(m_groups, [](const OrderGroup& _group) { return _group.memberCount == 0; });
 
   // Swap-and-pop: the arrays stay dense, so iteration order stays array order
   // and nothing has to skip holes. The moved ship's id needs its slot fixed,
@@ -353,388 +583,6 @@ void World::Tick(std::uint32_t _tick)
   Separate();
 }
 
-ValidationView World::Validation() const noexcept
-{
-  ValidationView view;
-  view.shipIds = m_ids;
-  view.queuedLegs = 0; // Per-group, and resolved in SubmitOrder where the group is known.
-  return view;
-}
-
-OrderVerdict World::SubmitOrder(const OrderSubmit& _order)
-{
-  // Appending needs to know which group it would append to, and that is the
-  // group the *first* named ship already belongs to. One group per order means
-  // a selection spanning two groups cannot append to both, so the answer is the
-  // first member's -- which is also what the client's ghost is drawn against.
-  ValidationView view = Validation();
-  if (_order.queueMode == QueueMode::Append && _order.shipCount > 0)
-  {
-    for (const OrderGroup& group : m_groups)
-    {
-      const ShipId* found = std::find(group.members, group.members + group.memberCount, _order.shipIds[0]);
-      if (found != group.members + group.memberCount)
-      {
-        view.queuedLegs = group.legCount;
-        break;
-      }
-    }
-  }
-
-  const OrderVerdict verdict = ValidateOrder(view, _order);
-  if (!verdict.accepted)
-  {
-    return verdict;
-  }
-
-  const bool append = _order.queueMode == QueueMode::Append;
-
-  OrderGroup group;
-
-  /*
-   * An append is **not given an id here**, and that is the correction (S12b).
-   *
-   * It used to take the next one, and `IngestOrders` then threw it away when
-   * the append landed on an existing group -- so the ack named an order that
-   * appeared in no snapshot, ever, and the sequence counter skipped a number
-   * per queued waypoint. Zero is already the verdict's "no order" (`World.h`),
-   * and the client learns the real id from the order record the next snapshot
-   * carries, which is a path `OnFeedback` already walks.
-   *
-   * Why the id cannot simply be resolved here: the group an append joins is
-   * found at *ingest*, not at submit, and it has to be. A Replace and an Append
-   * submitted between the same pair of ticks are both pending when the second
-   * one is validated, so at submit the Append can only see the group the
-   * Replace is about to destroy. Resolving early would append to a corpse.
-   */
-  group.serverOrderId = append ? 0 : m_nextOrderId;
-  group.clientOrderSeq = _order.orderSeq;
-  group.formation = _order.formation;
-  group.state = OrderState::Underway;
-  group.memberCount = _order.shipCount;
-  std::copy(_order.shipIds, _order.shipIds + _order.shipCount, group.members);
-
-  // The leg arrives quantised and is converted once, here. Everything downstream
-  // works in metres, and the number it works from is the number that was
-  // validated -- not a second conversion of the player's original click.
-  group.legCount = 1;
-  group.legIndex = 0;
-  group.legs[0].anchorMetres =
-      XMFLOAT2{ClampToPlayArea(Neuron::CentimetresToMetres(_order.target.xCm)),
-               ClampToPlayArea(Neuron::CentimetresToMetres(_order.target.yCm))};
-  group.legs[0].facingRadians = WrapAngle(Neuron::HeadingToRadians(_order.target.facingTurns16));
-  group.legStartTick = m_tick;
-  group.legDeadlineTick = 0; // Sized by ApplyLeg, which is where the stations exist.
-
-  m_pending.push_back(PendingOrder{group, _order.queueMode});
-  if (!append)
-  {
-    ++m_nextOrderId;
-  }
-
-  OrderVerdict accepted;
-  accepted.accepted = true;
-  accepted.reason = OrderReason::Accepted;
-  accepted.serverOrderId = group.serverOrderId;
-  return accepted;
-}
-
-void World::IngestOrders()
-{
-  // Drained in arrival order, and within an order in the order the ships were
-  // listed. Both are part of the replay contract: the same log has to produce
-  // the same assignment every time (ADR-005 §5).
-  for (PendingOrder& pending : m_pending)
-  {
-    OrderGroup& submitted = pending.group;
-    m_lastOrderSeqProcessed = std::max(m_lastOrderSeqProcessed, submitted.clientOrderSeq);
-
-    const bool append = pending.queueMode == QueueMode::Append;
-    if (append)
-    {
-      OrderGroup* existing = nullptr;
-      for (OrderGroup& group : m_groups)
-      {
-        if (std::find(group.members, group.members + group.memberCount, submitted.members[0]) !=
-            group.members + group.memberCount)
-        {
-          existing = &group;
-          break;
-        }
-      }
-      if (existing != nullptr && existing->legCount < MAX_ORDER_LEGS)
-      {
-        // The group keeps its id and its ships; only the plan grew.
-        existing->legs[existing->legCount] = submitted.legs[0];
-        ++existing->legCount;
-        existing->state = OrderState::Underway;
-
-        /*
-         * And it **takes the appending order's sequence** (S12b).
-         *
-         * A group is reported under one `clientOrderSeq`, and the client
-         * matches its ghosts by that. Keeping the original meant the appended
-         * order's sequence appeared in no record ever: the high-water mark
-         * passed it, `OnFeedback` read that as "decided and no longer running",
-         * and the ghost the player had just created retired without a bounce or
-         * a promotion -- the silent disappearance `puck-and-wheel.png` §4
-         * forbids outright.
-         *
-         * Naming the group after the most recent order that shaped it is what
-         * makes the newest ghost the one that gets promoted, and it is also the
-         * ghost that knows about the whole queue.
-         */
-        existing->clientOrderSeq = submitted.clientOrderSeq;
-        continue;
-      }
-
-      // Nothing to append to. Validation passed because there was no group and
-      // therefore no full queue, so this becomes the first leg of a new one --
-      // and *now* it needs an id, which submit deliberately did not give it.
-      submitted.serverOrderId = m_nextOrderId;
-      ++m_nextOrderId;
-    }
-
-    // Replace: the members leave whatever they were doing. A ship may belong to
-    // one group at a time, or two plans would write the same guidance and the
-    // last writer would win by array order.
-    for (std::uint16_t index = 0; index < submitted.memberCount; ++index)
-    {
-      ForgetShipInGroups(submitted.members[index]);
-    }
-    std::erase_if(m_groups, [](const OrderGroup& _group) { return _group.memberCount == 0; });
-
-    submitted.legStartTick = m_tick;
-    submitted.legDeadlineTick = 0; // As above -- sized once the stations are solved.
-    m_groups.push_back(submitted);
-  }
-  m_pending.clear();
-
-  for (OrderGroup& group : m_groups)
-  {
-    if (group.state != OrderState::Done)
-    {
-      ApplyLeg(group);
-    }
-  }
-}
-
-void World::ApplyLeg(OrderGroup& _group)
-{
-  if (_group.legIndex >= _group.legCount)
-  {
-    return;
-  }
-
-  // Only the members that still exist. A group whose ships died mid-leg solves
-  // for the survivors, which is what keeps a formation from leaving a hole
-  // where a casualty was.
-  ShipId living[MAX_SHIPS_PER_ORDER] = {};
-  std::uint32_t livingCount = 0;
-  for (std::uint16_t index = 0; index < _group.memberCount; ++index)
-  {
-    std::uint32_t slot = 0;
-    if (FindSlot(_group.members[index], slot))
-    {
-      living[livingCount] = _group.members[index];
-      ++livingCount;
-    }
-  }
-  if (livingCount == 0)
-  {
-    _group.state = OrderState::Done;
-    return;
-  }
-
-  const OrderGroupLeg& leg = _group.legs[_group.legIndex];
-
-  FormationStation stations[MAX_SHIPS_PER_ORDER] = {};
-  const auto lookup = [](ShipId _shipId, void* _context) -> HullClass
-  {
-    const World& world = *static_cast<const World*>(_context);
-    std::uint32_t slot = 0;
-    if (!world.FindSlot(_shipId, slot))
-    {
-      return HullClass::Interceptor; // Unreachable: the caller filtered to living ships.
-    }
-    return static_cast<HullClass>(world.Classes()[slot]);
-  };
-
-  const std::uint32_t solved = SolveFormation(_group.formation, std::span<const ShipId>{living, livingCount}, lookup, this,
-                                              leg.anchorMetres, leg.facingRadians, std::span<FormationStation>{stations});
-
-  for (std::uint32_t index = 0; index < solved; ++index)
-  {
-    std::uint32_t slot = 0;
-    if (!FindSlot(stations[index].shipId, slot))
-    {
-      continue;
-    }
-    Guidance& guidance = m_guidances[slot];
-    guidance.mode = GuidanceMode::Seek;
-    guidance.targetXMetres = ClampToPlayArea(stations[index].positionMetres.x);
-    guidance.targetYMetres = ClampToPlayArea(stations[index].positionMetres.y);
-    guidance.arrivalFacingRadians = leg.facingRadians;
-  }
-
-  /*
-   * The deadline, set from the leg's own estimate now that the stations are
-   * resolved and `LegEtaSeconds` has something to measure.
-   *
-   * Here rather than where `legStartTick` is set, because the estimate needs
-   * the guidance this function just wrote: before it, a member's remaining
-   * distance is whatever the *previous* leg left behind.
-   *
-   * **Once per leg, and that is the whole reason for the zero check.** This
-   * function runs every tick -- it re-solves the formation as ships die -- so
-   * computing the deadline unconditionally would push it forward every tick and
-   * it would never arrive. A leg that could never complete would then hold its
-   * group forever, which is the exact failure the timeout exists to prevent.
-   */
-  if (_group.legDeadlineTick != 0)
-  {
-    return;
-  }
-
-  const float expected = LegEtaSeconds(_group);
-  if (expected < 0.0f)
-  {
-    // Nothing in the group can move, so no estimate. It still gets a deadline,
-    // because a group that could never advance must not sit in the list
-    // forever holding an order id and a slot in the snapshot.
-    _group.legDeadlineTick = m_tick + LEG_TIMEOUT_MAX_TICKS;
-    return;
-  }
-
-  const float ticks = expected * LEG_TIMEOUT_FACTOR / TICK_SECONDS;
-  const auto bounded = static_cast<std::uint32_t>(std::min(ticks, static_cast<float>(LEG_TIMEOUT_MAX_TICKS)));
-  _group.legDeadlineTick = m_tick + std::min(bounded + LEG_TIMEOUT_GRACE_TICKS, LEG_TIMEOUT_MAX_TICKS);
-}
-
-float World::LegEtaSeconds(const OrderGroup& _group) const noexcept
-{
-  if (_group.state == OrderState::Done || _group.legIndex >= _group.legCount)
-  {
-    return -1.0f; // Nothing under way, so nothing to be due.
-  }
-
-  TravelLeg legs[MAX_SHIPS_PER_ORDER];
-  std::uint32_t count = 0;
-  for (std::uint16_t index = 0; index < _group.memberCount && count < MAX_SHIPS_PER_ORDER; ++index)
-  {
-    std::uint32_t slot = 0;
-    if (!FindSlot(_group.members[index], slot))
-    {
-      continue; // Died mid-leg. The rest of the group still arrives.
-    }
-
-    // Against the ship's own **guidance target** rather than the leg's anchor:
-    // that is the station `ApplyLeg` resolved for it, and the far end of a Line
-    // is most of a kilometre past the anchor.
-    const Guidance& guidance = m_guidances[slot];
-    const float dx = guidance.targetXMetres - m_positions[slot].x;
-    const float dy = guidance.targetYMetres - m_positions[slot].y;
-
-    /*
-     * Speed **along the way it is going**, not speed outright.
-     *
-     * A ship still swinging onto its heading is moving fast in a direction that
-     * does not help, and crediting the full magnitude would promise an arrival
-     * its velocity is not carrying it toward. The projection is negative while
-     * it is pointing away, and the model clamps that to zero -- which is the
-     * honest reading: no progress is being made.
-     */
-    const float distance = std::sqrt(dx * dx + dy * dy);
-    float closing = 0.0f;
-    if (distance > 0.0f)
-    {
-      closing = (m_velocities[slot].x * dx + m_velocities[slot].y * dy) / distance;
-    }
-
-    legs[count] = TravelLeg{static_cast<HullClass>(m_classes[slot]), distance, closing};
-    ++count;
-  }
-  return GroupTravelSeconds(std::span<const TravelLeg>{legs, count});
-}
-
-void World::GroupAdvance()
-{
-  for (OrderGroup& group : m_groups)
-  {
-    if (group.state == OrderState::Done || group.legIndex >= group.legCount)
-    {
-      continue;
-    }
-
-    bool everyoneArrived = true;
-    std::uint32_t living = 0;
-    for (std::uint16_t index = 0; index < group.memberCount; ++index)
-    {
-      std::uint32_t slot = 0;
-      if (!FindSlot(group.members[index], slot))
-      {
-        continue;
-      }
-      ++living;
-
-      const Guidance& guidance = m_guidances[slot];
-      const float dx = guidance.targetXMetres - m_positions[slot].x;
-      const float dy = guidance.targetYMetres - m_positions[slot].y;
-      if (dx * dx + dy * dy > ARRIVAL_TOLERANCE_METRES * ARRIVAL_TOLERANCE_METRES)
-      {
-        everyoneArrived = false;
-        break;
-      }
-    }
-
-    if (living == 0)
-    {
-      group.state = OrderState::Done;
-      continue;
-    }
-
-    // Or the leg ran past its deadline. A straggler behind a station must not
-    // wedge the fleet behind it forever (ADR-005 §2), and the tick index is the
-    // only clock this simulation has. The deadline is the leg's own -- set from
-    // what the leg was estimated to take, not from a constant that fits no
-    // journey (`LEG_TIMEOUT_FACTOR`).
-    const bool timedOut = m_tick >= group.legDeadlineTick;
-    if (!everyoneArrived && !timedOut)
-    {
-      group.state = OrderState::Underway;
-      continue;
-    }
-
-    ++group.legIndex;
-    group.legStartTick = m_tick;
-    group.legDeadlineTick = 0; // A new leg: the next ApplyLeg sizes the deadline to it.
-    if (group.legIndex >= group.legCount)
-    {
-      group.state = OrderState::Done;
-      continue;
-    }
-    group.state = OrderState::Arriving;
-    ApplyLeg(group);
-  }
-}
-
-void World::ForgetShipInGroups(ShipId _shipId) noexcept
-{
-  for (OrderGroup& group : m_groups)
-  {
-    ShipId* found = std::find(group.members, group.members + group.memberCount, _shipId);
-    if (found == group.members + group.memberCount)
-    {
-      continue;
-    }
-    // Shift down rather than swap-and-pop: member order is the order the client
-    // listed them, and a group that reordered itself would reorder the ghost.
-    std::copy(found + 1, group.members + group.memberCount, found);
-    --group.memberCount;
-    group.members[group.memberCount] = INVALID_SHIP_ID;
-  }
-}
-
 void World::Steering()
 {
   /*
@@ -749,6 +597,14 @@ void World::Steering()
    * that same construction is what keeps a formation in flight clear of its own
    * avoidance now that ships flying *between* stations no longer pass through
    * whatever is en route.
+   *
+   * And traffic that is *not* going anywhere gets out of the way (ADR-021).
+   * Braking and deflection are both things the mover does, and both fail closed
+   * -- a hull parked on the one line a ship has to fly ends with the ship
+   * stopped against it. The cheapest fix belongs to the ship with nothing else
+   * to do: it steps out of the lane, and flies back to its berth when the lane
+   * is clear. It does so by seeking a displaced target through this same loop,
+   * so a sidestep obeys the envelope exactly like any ordered move.
    */
   const std::uint32_t count = ShipCount();
   for (std::uint32_t slot = 0; slot < count; ++slot)
@@ -760,7 +616,48 @@ void World::Steering()
     }
     const ShipClassInfo& info = ShipClass(hullClass);
 
-    const Guidance& guidance = m_guidances[slot];
+    /*
+     * Guidance is taken by value because making way may displace it (ADR-021),
+     * and the displacement lasts one tick and is never stored.
+     *
+     * That is deliberate rather than incidental. The berth in `m_guidances` is
+     * the answer to "where does this ship belong", and a sidestep is not a new
+     * answer to that question -- it is a detour from it. Keeping the berth
+     * authoritative is what makes flying home free (no traffic, no
+     * displacement, seek the berth) and what keeps a temporary shuffle out of
+     * the world's hashed state.
+     */
+    Guidance guidance = m_guidances[slot];
+    if (!IsAnchored(m_classes[slot]) && !IsUnderway(guidance, m_positions[slot]))
+    {
+      // Only a ship that is not going anywhere makes way. One under orders has
+      // its own lane to fly, and traffic between the two is ADR-015's business.
+      XMFLOAT2 aside{};
+      if (MakeWayOffset(slot, m_positions, m_classes, m_guidances, m_headings[slot], aside))
+      {
+        guidance.mode = GuidanceMode::Seek;
+        guidance.targetXMetres = ClampToPlayArea(guidance.targetXMetres + aside.x);
+        guidance.targetYMetres = ClampToPlayArea(guidance.targetYMetres + aside.y);
+      }
+      else if (guidance.mode == GuidanceMode::Hold && BerthIsClear(slot, m_positions, m_classes, guidance))
+      {
+        /*
+         * Nothing to make way for, so go home -- and `Hold` is the one mode
+         * that would not, which is why this line exists.
+         *
+         * `Hold` means "stay where you were put", and until making way that was
+         * the same statement as "stay where you are": nothing could displace a
+         * held ship except `Separate`, and a shove is not a journey to undo.
+         * Now a held ship can be asked to step out of a lane, and a ship that
+         * steps aside and then holds *there* has not made way, it has moved
+         * house. Reading the mode as the berth it names -- which for a held
+         * ship is always where it spawned (`Spawn`) -- is what makes the return
+         * leg fall out of the same seek that made the outbound one.
+         */
+        guidance.mode = GuidanceMode::Seek;
+      }
+    }
+
     const XMVECTOR position = XMLoadFloat2(&m_positions[slot]);
     const XMVECTOR target = XMVectorSet(guidance.targetXMetres, guidance.targetYMetres, 0.0f, 0.0f);
     const XMVECTOR toTarget = XMVectorSubtract(target, position);
@@ -777,9 +674,10 @@ void World::Steering()
     {
       desiredHeading = std::atan2(XMVectorGetY(toTarget), XMVectorGetX(toTarget));
 
-      // Only a ship going somewhere scans traffic. A holding ship has no course
-      // to bend and no speed to cap -- and what it cannot do is get out of the
-      // way, which is `Separate`'s problem, not steering's.
+      // Only a ship going somewhere scans traffic: a ship standing still has no
+      // course to bend and no speed to cap. Note that a ship making way *is*
+      // going somewhere by this point -- its displaced berth -- so it avoids
+      // traffic on the way out of the lane like anything else under way.
       const TrafficSteer steer = SteerAroundTraffic(slot, m_positions, m_classes, info, m_headings[slot], SpeedAt(slot),
                                                     guidance, desiredHeading, distance);
       desiredHeading = steer.desiredHeadingRadians;

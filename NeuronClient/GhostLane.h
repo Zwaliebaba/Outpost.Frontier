@@ -209,10 +209,17 @@ void FormatEta(float _seconds, char* _out, std::size_t _capacity) noexcept;
  * at rather than a frame behind it. It is the **render** clock and never the
  * tick: the crawl below is presentation, and nothing here may reach anything
  * hashed.
+ *
+ * The output is split across two lists because the two halves are drawn at
+ * different points in the frame. `_outLanes` takes the dashes and goes into the
+ * **world layer**, before the hulls, so a ship standing on a lane covers it --
+ * occlusion by paint order, with the hull's own silhouette as the shape of the
+ * hole. `_outLabels` takes the ETA text and stays in the HUD proper, on top of
+ * everything: a readout hidden behind a ship is a readout nobody can read.
  */
 void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneEntity> _entities,
                      const GhostLaneView& _view, const OverlayTuning& _colours, const GhostLaneTuning& _tuning,
-                     double _nowSeconds, UiDrawList& _outList);
+                     double _nowSeconds, UiDrawList& _outLanes, UiDrawList& _outLabels);
 
 /*
  * Where in its cycle the dash pattern is, as 0..1.

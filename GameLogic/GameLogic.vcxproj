@@ -30,6 +30,7 @@
     <ClCompile Include="Universe.cpp" />
     <ClCompile Include="UniverseParse.cpp" />
     <ClCompile Include="World.cpp" />
+    <ClCompile Include="WorldOrders.cpp" />
     <ClCompile Include="WorldHash.cpp" />
   </ItemGroup>
   <ItemGroup>

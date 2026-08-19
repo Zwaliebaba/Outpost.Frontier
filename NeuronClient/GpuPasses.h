@@ -64,6 +64,11 @@ struct FrameContext
   /// Null or empty draws nothing, which is what a client with no HUD looks like.
   const UiDrawList* ui = nullptr;
 
+  /// The screen-space marks that belong *under* the hulls -- the ghost's lane.
+  /// Drawn into the world target before the Opaque pass, so the ships paint
+  /// over it. Null is a frame with no order in flight.
+  const UiDrawList* uiWorld = nullptr;
+
   /// The baked glyphs the Ui pass turns text runs into quads against. Null
   /// draws the panels and drops the text, which is a HUD that boots without a
   /// font rather than one that does not boot.
@@ -164,7 +169,16 @@ private:
  */
 struct UiPass
 {
-  void Record(const FrameContext& _context);
+  /*
+   * `_worldLayer` picks which half of the HUD this instance draws.
+   *
+   * False is the HUD proper: `context.ui`, the single-sampled pipeline, on the
+   * resolved back buffer, last. True is the world layer -- `context.uiWorld`,
+   * the multisampled pipeline, into the world target *before* the hulls, so
+   * they paint over it. One pass type rather than two because the work is
+   * identical; two instances because each keeps its own instance buffer.
+   */
+  void Record(const FrameContext& _context, bool _worldLayer = false);
 
   /// What the last Record issued. The panels and the glyphs separately, because
   /// "the HUD drew nothing" and "the HUD drew boxes with no words in them" are
@@ -215,6 +229,9 @@ public:
 
 private:
   ClearPass m_clear;
+  /// The world layer of the HUD, drawn before the hulls so they cover it. Its
+  /// own instance because a `UiPass` owns the instance buffer it uploads.
+  UiPass m_uiWorldLayer;
   OpaquePass m_opaque;
   NebulaPass m_nebula;
   OverlayWorldPass m_overlayWorld;

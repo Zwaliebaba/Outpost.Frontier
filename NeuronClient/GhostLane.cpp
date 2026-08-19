@@ -165,7 +165,7 @@ float DashCrawlPhase(double _nowSeconds, double _periodSeconds) noexcept
 
 void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneEntity> _entities,
                      const GhostLaneView& _view, const OverlayTuning& _colours, const GhostLaneTuning& _tuning,
-                     double _nowSeconds, UiDrawList& _outList)
+                     double _nowSeconds, UiDrawList& _outLanes, UiDrawList& _outLabels)
 {
   if (_ghosts.empty() || _view.viewportWidth == 0 || _view.viewportHeight == 0)
   {
@@ -194,6 +194,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
    * step would read as them meaning different things.
    */
   const float crawl = DashCrawlPhase(_nowSeconds, _tuning.crawlSecondsPerCycle);
+
 
   for (const OrderGhost& ghost : _ghosts)
   {
@@ -289,7 +290,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
           // No scale to dash with -- a view that never said what a pixel is
           // worth. Solid, because a lane that vanished would be worse than one
           // that is merely not marching.
-          _outList.AddSegment(clippedStart.x, clippedStart.y, clippedEnd.x, clippedEnd.y, thickness, colour);
+          _outLanes.AddSegment(clippedStart.x, clippedStart.y, clippedEnd.x, clippedEnd.y, thickness, colour);
         }
         else
         {
@@ -326,6 +327,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
           const float clippedFrom = (clippedStart.x - from.x) * direction.x + (clippedStart.y - from.y) * direction.y;
           const float clippedTo = (clippedEnd.x - from.x) * direction.x + (clippedEnd.y - from.y) * direction.y;
 
+
           const auto firstIndex = static_cast<std::int64_t>(std::floor(clippedFrom / pitch - crawl));
           std::uint32_t drawn = 0;
           for (std::int64_t step = firstIndex; drawn < _tuning.maxDashesPerLane; ++step)
@@ -341,7 +343,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
             {
               continue; // This dash's whole body is outside the visible run.
             }
-            _outList.AddSegment(from.x + direction.x * segmentFrom, from.y + direction.y * segmentFrom,
+            _outLanes.AddSegment(from.x + direction.x * segmentFrom, from.y + direction.y * segmentFrom,
                                 from.x + direction.x * segmentTo, from.y + direction.y * segmentTo, thickness, colour);
             ++drawn;
           }
@@ -373,7 +375,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
         continue;
       }
       const auto width = static_cast<float>(std::strlen(waypoint)) * _view.cellPixels;
-      _outList.AddText(to.x - width * 0.5f, to.y + _tuning.labelGapPixels * scale, _tuning.labelSizeIndex,
+      _outLabels.AddText(to.x - width * 0.5f, to.y + _tuning.labelGapPixels * scale, _tuning.labelSizeIndex,
                        FadeRgba(colour, 0.75f), waypoint);
     }
 
@@ -401,7 +403,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
     if (ghost.preview.label[0] != '\0')
     {
       const auto width = static_cast<float>(std::strlen(ghost.preview.label)) * _view.cellPixels;
-      _outList.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, colour, ghost.preview.label);
+      _outLabels.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, colour, ghost.preview.label);
       line += lineHeight;
     }
 
@@ -436,7 +438,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
       // Dimmer than the name above it: the print draws the command in the
       // ghost's own colour and its numbers a step back, so the eye reads what
       // the order *is* before how far it goes.
-      _outList.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, FadeRgba(colour, 0.65f), detail);
+      _outLabels.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, FadeRgba(colour, 0.65f), detail);
       line += lineHeight;
     }
 
@@ -453,7 +455,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
       char footer[24] = {};
       std::snprintf(footer, sizeof(footer), "%u LEGS", shown);
       const auto width = static_cast<float>(std::strlen(footer)) * _view.cellPixels;
-      _outList.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, FadeRgba(colour, 0.5f), footer);
+      _outLabels.AddText(end.x - width * 0.5f, line, _tuning.labelSizeIndex, FadeRgba(colour, 0.5f), footer);
     }
   }
 }
