@@ -1,6 +1,10 @@
 # ADR-009 — Universe Model: int64×int64 Plane, Systems, Celestials, Stations
 
-**Status:** Accepted · 2026-08-17 (session follow-up, owner directive)
+**Status:** Accepted · 2026-08-17 (session follow-up, owner directive) · extended and partly
+superseded by [ADR-016](ADR-016-procedural-universe-and-warp.md) (2026-08-19): the scale
+figure grows (~300 systems → 2,500 across ~50 regions), §9's no-traversal fence expires,
+§6's hull roster gains an appended `Gate` class, and grid anchors become authored warp
+destinations
 **Depends on:** ADR-001 (planar sim), ADR-004 (wire), ADR-005 (GameLogic structure)
 **Feeds:** Build Order S5/S6 content, strategic map (post-MVP), Dependency Map (GameLogic)
 
@@ -48,15 +52,19 @@ without saying what anchors them. This ADR says it.
    later), **1–2 stations**, 0..N gates (edges to other systems), and any active tactical
    grids. Stations use the `Structure` hull class/mesh — static and radially symmetric, per
    the icon sheet's STATIC glyph rules.
-5. **Ids are data-stable:** `SystemId u16` (300 at launch, 65k headroom), `CelestialId u16`,
-   `StationId u16`, `GateId u16` — assigned in the universe definition, never at runtime;
-   they are the wire and save identifiers.
+5. **Ids are data-stable:** `SystemId u16` (300 at launch — **2,500 as of ADR-016**, still
+   26× headroom), `CelestialId u16`, `StationId u16`, `GateId u16` — assigned in the universe
+   definition, never at runtime; they are the wire and save identifiers.
 6. **Ship roster ruling (supersedes the README "content gap" observation):** the standard
    ship set *is* the `GameData/Meshes` content — Interceptor, Corvette, Frigate, Bomber,
    Miner, Hauler, Carrier, Battleship, plus Structure for stations. The `HullClass` enum
    keeps the icon sheet's 11-value closed taxonomy so wire, icons, and palettes never
    renumber: **Fighter and Cruiser remain reserved ids, defined but unused until content
    exists.**
+   *Amended by ADR-016 §10 (2026-08-19):* the taxonomy grows by **append**, never by
+   insertion — `Gate = 11` joins as the twelfth value for the gate structure on gate grids,
+   with the Structure mesh standing in until `Gate.obj` lands. Appending renumbers nothing,
+   which is the property this clause was protecting; Fighter and Cruiser stay reserved.
 
 ### Data & loading
 7. **`GameData/Universe/`** holds the authored universe definition. *(Format amended by
@@ -92,6 +100,9 @@ without saying what anchors them. This ADR says it.
    there; the station (Structure mesh) is on-grid scenery/landmark. No docking, no gates
    traversal, no second system in MVP — but the MVP boots *from the universe definition*, not
    from a hardcoded scene, so "more universe" is authoring, not engineering.
+   *(The no-traversal fence expired with the MVP: ADR-016 lands gate traversal, in-system
+   warp between authored anchors, and the 2,500-system bake — with Vesta-3 kept as the
+   hand-authored start the generated galaxy grows around.)*
 
 9a. **Celestials are data, not geometry** (owner decision, 2026-08-18, replacing this clause's
    original promise that they "render as distant backdrop").

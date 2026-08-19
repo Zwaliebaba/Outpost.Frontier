@@ -11,8 +11,9 @@
  * authored file carries them explicitly instead of the loader inventing them
  * from array order.
  *
- * u16 throughout: launch is ~300 systems across ~6 regions, and 65k of
- * headroom on each axis is the cheapest possible answer to "will we run out".
+ * u16 throughout: the universe phase bakes ~2,500 systems across ~50 regions
+ * (ADR-016), and 65k of headroom on each axis is the cheapest possible answer
+ * to "will we run out".
  *
  * Plain type aliases rather than strong types, deliberately. A strong id type
  * earns its keep when ids of different kinds get passed to the same function
