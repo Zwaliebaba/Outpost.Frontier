@@ -762,7 +762,7 @@ WorldMeta MakeWorldMeta(const Game::UniverseDef& _universe)
   // Which grid, as opposed to where it is. The client needs a number it can put
   // in a Dock's `anchor` field and in a station command's `station` field
   // (ADR-017 §2, §3); before this it had neither.
-  meta.gridAnchor = anchor.id;
+  meta.gridAnchor = _universe.StartAnchorId();
   meta.anchorX = anchor.origin.x;
   meta.anchorY = anchor.origin.y;
 

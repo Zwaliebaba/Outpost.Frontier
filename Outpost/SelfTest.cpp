@@ -437,7 +437,6 @@ void RunDockingLoop(Checklist& _checks, Neuron::ClientConnection& _client)
    */
   Game::AnchorId rosterStation = Game::INVALID_ID;
   std::vector<Game::RosterEntry> docked;
-  bool rosterSeen = false;
 
   /*
    * One pass over whatever summary frames have arrived, reading them the way a
@@ -449,6 +448,12 @@ void RunDockingLoop(Checklist& _checks, Neuron::ClientConnection& _client)
    */
   const auto readRoster = [&](const auto& _wanted)
   {
+    /*
+     * Local, not a flag that latches. The second wait below asks for a roster
+     * the *first* one would not have satisfied, so a sticky "seen" would make
+     * it return on the stale frame and assert nothing.
+     */
+    bool found = false;
     for (const std::vector<std::uint8_t>& payload : _client.PendingSummaries())
     {
       Neuron::ByteReader reader{payload};
@@ -472,7 +477,7 @@ void RunDockingLoop(Checklist& _checks, Neuron::ClientConnection& _client)
           {
             rosterStation = seenStation;
             docked = seenDocked;
-            rosterSeen = true;
+            found = true;
           }
           break;
         }
@@ -484,7 +489,7 @@ void RunDockingLoop(Checklist& _checks, Neuron::ClientConnection& _client)
       }
     }
     _client.ClearPendingSummaries();
-    return rosterSeen;
+    return found;
   };
 
   const auto holds = [](const std::vector<Game::RosterEntry>& _rows, Game::ShipId _id)
