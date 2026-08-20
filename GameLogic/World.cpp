@@ -471,6 +471,13 @@ void World::Reset(std::uint64_t _seed) noexcept
   m_gateShip = INVALID_SHIP_ID;
   m_reachable.clear();
 
+  // And the field with it. A reset world is nobody's grid, so it is not
+  // standing in anybody's rocks either -- keeping a stale field here would let
+  // a Mine be worked against the site this world used to be.
+  m_economy = nullptr;
+  m_site = SiteField{};
+  m_fieldEpoch = 0;
+
   m_filed.clear();
 
   m_ids.clear();
@@ -483,6 +490,8 @@ void World::Reset(std::uint64_t _seed) noexcept
   m_hulls.clear();
   m_shields.clear();
   m_protectedUntil.clear();
+  m_cargo.clear();
+  m_mining.clear();
 
   m_groups.clear();
   m_pending.clear();
@@ -539,6 +548,13 @@ ShipId World::Spawn(const ShipSpawn& _spawn, ShipId _shipId)
   // doing: it holds no gauges, so there is nothing to come back damaged
   // (ADR-017 §1), and it stamps the window on the way out (§5).
   m_protectedUntil.push_back(_spawn.protectedUntilTick);
+
+  // Empty holds and a cold laser. A ship arrives carrying nothing because
+  // cargo crosses on the transfer record, not on the spawn -- E3 is what gives
+  // a crossing a manifest, and until then a spawned ship starting loaded would
+  // be ore the ledger never gave out.
+  m_cargo.push_back(ShipCargo{});
+  m_mining.push_back(MiningState{});
   return shipId;
 }
 
@@ -583,6 +599,17 @@ void World::SetJump(AnchorId _jumpAnchor, ShipId _gateShip)
   m_gateShip = _gateShip;
 }
 
+void World::SetEconomy(const EconomyDef* _economy) noexcept
+{
+  m_economy = _economy;
+}
+
+void World::SetSite(const SiteField& _field, std::uint32_t _epoch) noexcept
+{
+  m_site = _field;
+  m_fieldEpoch = _epoch;
+}
+
 void World::ReleaseOwner() noexcept
 {
   // The hand-off ADR-007 §7 sanctions, and the only one this game makes: the
@@ -625,6 +652,8 @@ bool World::Despawn(ShipId _shipId)
     m_hulls[slot] = m_hulls[last];
     m_shields[slot] = m_shields[last];
     m_protectedUntil[slot] = m_protectedUntil[last];
+    m_cargo[slot] = m_cargo[last];
+    m_mining[slot] = m_mining[last];
   }
 
   m_slotById[_shipId] = INVALID_SHIP_ID;
@@ -638,6 +667,8 @@ bool World::Despawn(ShipId _shipId)
   m_hulls.pop_back();
   m_shields.pop_back();
   m_protectedUntil.pop_back();
+  m_cargo.pop_back();
+  m_mining.pop_back();
   return true;
 }
 
@@ -672,6 +703,7 @@ void World::Tick(std::uint32_t _tick)
   Steering();
   Integrate();
   Separate();
+  Mining();
 }
 
 void World::Steering()

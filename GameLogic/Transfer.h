@@ -71,7 +71,23 @@ enum class TransferKind : std::uint8_t
 {
   Dock = 0,
   Undock = 1, // T1c.
-  Transit = 2 // U3a.
+  Transit = 2, // U3a.
+
+  /*
+   * A completed mining cycle's debit against the site ledger (ADR-024 §4b, E2).
+   *
+   * A crossing between a *world* and the universe layer, like a dock, and it
+   * rides here for the same reason: the number that has to change is not the
+   * world's, so the world may not change it. The tick credits the ship's hold
+   * from its own copy of the field and files this; the registry applies it to
+   * the ledger between ticks, in the same `(applyTick, transferId)` order every
+   * other record obeys.
+   *
+   * That is what keeps the per-tick path clear of the universe (ADR-009 §2)
+   * without inventing a second mechanism: mining extends the replay contract by
+   * one record family rather than forking it.
+   */
+  MineYield = 3
 };
 
 /*
@@ -113,6 +129,44 @@ struct TransferRequest
 
   std::uint16_t memberCount = 0;
   TransferMember members[MAX_SHIPS_PER_ORDER] = {};
+
+  /*
+   * What one completed cycle took, and **meaningless for every other kind** --
+   * the same arrangement `formation` has, which is meaningless for a dock.
+   *
+   * One record per cycle rather than per tick or per fleet: a cycle is 800
+   * ticks and a field is worked by at most 64 Miners, so this is a handful of
+   * records a minute against a bus that already carries every dock in the
+   * shard. Batching them would buy nothing and would make the ledger's history
+   * coarser than the thing it is a ledger of.
+   */
+  std::uint8_t cluster = 0;
+  OreId ore = OreId::FerroChroma;
+  std::uint32_t units = 0;
+
+  /*
+   * Which epoch's pool those units came out of (ADR-024 §3d).
+   *
+   * Carried rather than looked up at apply time, and the reason is a race that
+   * cannot happen today and would be invisible when it did: a field is never
+   * re-formed under a live grid, so a debit and its ledger always agree -- but
+   * "always" there is a fact about two pieces of code that cannot see each
+   * other, and a record that says which pool it emptied needs no such
+   * agreement. A debit against an epoch that has already been refilled is
+   * dropped rather than eating the new pool.
+   */
+  std::uint32_t epoch = 0;
+
+  /*
+   * Whether that cycle was the one that filled the ship (ADR-024 §4b).
+   *
+   * A flag on the record rather than a second record kind, because it is a fact
+   * *about this cycle* and it is needed exactly where this record is applied:
+   * the event log lives at the universe layer, so the world cannot write "your
+   * Miners filled up at VEI-4 II" and the registry cannot know it without being
+   * told.
+   */
+  bool filledHold = false;
 
   /// Appends, or reports the crossing is full. Returning false rather than
   /// dropping keeps half a fleet from reading as the whole one.

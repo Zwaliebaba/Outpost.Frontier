@@ -142,7 +142,7 @@ public:
    * warp adds a destination rather than a runtime.
    */
   UniverseSimulation(std::uint64_t _contentHash, WorldMeta _worldMeta, const Game::UniverseDef& _universe,
-                     std::uint64_t _sessionSeed)
+                     const Game::EconomyDef& _economy, std::uint64_t _sessionSeed)
     : m_contentHash(_contentHash),
       // Moved rather than copied: `WorldMeta` carries the HUD's display strings
       // as of main's UI slice, so a copy here is three allocations per boot for
@@ -153,7 +153,7 @@ public:
     Game::RegistryConfig config;
     config.sessionSeed = _sessionSeed;
     config.hostId = 0; // ADR-019: three roles, one process, one host.
-    m_registry.Reset(&_universe, config);
+    m_registry.Reset(&_universe, &_economy, config);
 
     // The session holds a viewer on the grid it serves, so the world is never
     // torn down under the wire (ADR-016 §7). U3b generalises this to the
@@ -1133,7 +1133,8 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   // must agree about a litre, but a hold size has no business reshuffling every
   // grid's randomness, and folding it in would make retuning balance silently
   // re-roll the worlds.
-  UniverseSimulation simulation{contentHash, MakeWorldMeta(universe.universe), universe.universe, universe.universeHash};
+  UniverseSimulation simulation{contentHash, MakeWorldMeta(universe.universe), universe.universe, economy.economy,
+                                universe.universeHash};
   simulation.SpawnStartingFleet();
 
   /*

@@ -61,8 +61,34 @@ namespace
   _outOrder = Game::OrderSubmit{};
   _outOrder.orderSeq = _intent.orderSeq;
   _outOrder.kind = static_cast<Game::OrderKind>(_intent.kind);
-  _outOrder.formation = static_cast<Game::FormationId>(_intent.parameter);
   _outOrder.queueMode = _intent.queued ? Game::QueueMode::Append : Game::QueueMode::Replace;
+
+  /*
+   * The intent carries **one** parameter, and which field it lands in is the
+   * kind's business (ADR-014 §2b: the engine offers a number and a word, and
+   * the game decides what the number means).
+   *
+   * For a Mine that number is the ore filter, so the formation stays the
+   * default -- a Line around the worked cluster. The escorts in a mixed order
+   * are still placed by the solve; what they cannot yet be given is a *chosen*
+   * arrangement, because a surface that offers two dropdowns for one command is
+   * E5's mining screen and not this seam's to invent.
+   */
+  if (_outOrder.kind == Game::OrderKind::Mine)
+  {
+    if (!Game::TryOreFilter(static_cast<std::uint8_t>(_intent.parameter), _outOrder.oreFilter))
+    {
+      // Refused rather than clamped to `Any`: a client that asked for an ore
+      // this build has never heard of should not quietly be given a different
+      // one. `InvalidFormation` is the parameter-is-wrong reason the enum has.
+      _outReason = Game::OrderReason::InvalidFormation;
+      return false;
+    }
+  }
+  else
+  {
+    _outOrder.formation = static_cast<Game::FormationId>(_intent.parameter);
+  }
 
   // Quantised once, here, and never again. Everything downstream -- the bounds
   // check, the wire, the server's own validation -- sees these integers.
@@ -351,10 +377,16 @@ void ReplicatedWorldView::SolvePreview(const OrderIntent& _intent, OrderPreview&
    * the bytes and must not re-spell words it is not allowed to know.
    */
   char kindUpper[16] = {};
-  char formationUpper[16] = {};
+  char parameterUpper[16] = {};
   UpperCaseInto(Game::OrderKindName(order.kind), kindUpper, sizeof(kindUpper));
-  UpperCaseInto(Game::FormationName(order.formation), formationUpper, sizeof(formationUpper));
-  std::snprintf(_outPreview.label, sizeof(_outPreview.label), "%s \xE2\x96\xB8 %s", kindUpper, formationUpper);
+  // The second token is whatever the kind *varies by*, not always a formation
+  // -- `MINE - NEBULITE` is the sentence a mining ghost has to read, and a
+  // label that said `MINE - LINE` would be naming the wrong choice back at the
+  // player who just made one.
+  UpperCaseInto(order.kind == Game::OrderKind::Mine ? Game::OreFilterName(order.oreFilter)
+                                                    : Game::FormationName(order.formation),
+                parameterUpper, sizeof(parameterUpper));
+  std::snprintf(_outPreview.label, sizeof(_outPreview.label), "%s \xE2\x96\xB8 %s", kindUpper, parameterUpper);
 }
 
 bool ReplicatedWorldView::EncodeOrder(const OrderIntent& _intent, ByteWriter& _writer)
@@ -422,6 +454,31 @@ std::uint32_t ReplicatedWorldView::OrderOptions(std::uint16_t _kind, std::span<O
       }
       _outOptions[count].parameter = static_cast<std::uint16_t>(stance);
       _outOptions[count].name = Game::StanceName(stance);
+      ++count;
+    }
+    return count;
+  }
+
+  /*
+   * And Mine's parameter is an ore (ADR-024 §4a) -- the first one that is not a
+   * formation or a posture, which is the whole reason this function is a lookup
+   * rather than a constant.
+   *
+   * `Any` is first because it is the default and the value a zeroed intent
+   * carries, so the option the client shows before anyone has chosen is the one
+   * the order would actually be sent with.
+   */
+  if (_kind == static_cast<std::uint16_t>(Game::OrderKind::Mine))
+  {
+    std::uint32_t count = 0;
+    for (const Game::OreFilter filter : Game::ORE_FILTER_IDS)
+    {
+      if (count >= _outOptions.size())
+      {
+        break;
+      }
+      _outOptions[count].parameter = static_cast<std::uint16_t>(filter);
+      _outOptions[count].name = Game::OreFilterName(filter);
       ++count;
     }
     return count;

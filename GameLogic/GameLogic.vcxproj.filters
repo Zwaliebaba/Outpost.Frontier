@@ -20,6 +20,9 @@
     <ClCompile Include="SiteEpoch.cpp">
       <Filter>Economy</Filter>
     </ClCompile>
+    <ClCompile Include="SiteField.cpp">
+      <Filter>Economy</Filter>
+    </ClCompile>
     <ClCompile Include="Eta.cpp">
       <Filter>Orders</Filter>
     </ClCompile>
@@ -55,6 +58,9 @@
     </ClCompile>
     <ClCompile Include="WorldRegistry.cpp">
       <Filter>World</Filter>
+    </ClCompile>
+    <ClCompile Include="WorldMining.cpp">
+      <Filter>Economy</Filter>
     </ClCompile>
     <ClCompile Include="WorldOrders.cpp">
       <Filter>Orders</Filter>
@@ -96,6 +102,9 @@
       <Filter>Economy</Filter>
     </ClInclude>
     <ClInclude Include="SiteEpoch.h">
+      <Filter>Economy</Filter>
+    </ClInclude>
+    <ClInclude Include="SiteField.h">
       <Filter>Economy</Filter>
     </ClInclude>
     <ClInclude Include="FixedAngle.h">

@@ -53,6 +53,42 @@ enum class OreId : std::uint8_t
 
 inline constexpr std::uint8_t ORE_COUNT = 3;
 
+/*
+ * Which ore a Mine order is after (ADR-024 §4a) -- the order's parameter, the
+ * way a Move's is a formation.
+ *
+ * `Any` is zero so a zeroed parameter is "whatever is richest", which is the
+ * same arrangement `FormationId::Line` and `StanceId::Balanced` have: the
+ * default a client that has not asked gets is the one a player would have
+ * chosen anyway.
+ *
+ * It lives beside `OreId` rather than in `Orders.h` because it is a statement
+ * about ores, and a second enumeration of the three would be a taxonomy to keep
+ * in step. `Orders.h` includes this header for it.
+ */
+enum class OreFilter : std::uint8_t
+{
+  Any = 0,
+  FerroChroma = 1,
+  Astracite = 2,
+  Nebulite = 3
+};
+
+/// All of them, in the order a command surface should offer them -- `Any`
+/// first, because it is the default and the one a player reaches for.
+inline constexpr OreFilter ORE_FILTER_IDS[] = {OreFilter::Any, OreFilter::FerroChroma, OreFilter::Astracite,
+                                               OreFilter::Nebulite};
+
+/// What to call one on screen. Never null, like `FormationName`.
+[[nodiscard]] const char* OreFilterName(OreFilter _filter) noexcept;
+
+/// Does this filter accept this ore? `Any` accepts all three.
+[[nodiscard]] bool OreFilterMatches(OreFilter _filter, OreId _ore) noexcept;
+
+/// The filter a byte off the wire names, or false. Checked rather than cast,
+/// because a value outside the enum is reachable from any client.
+[[nodiscard]] bool TryOreFilter(std::uint8_t _raw, OreFilter& _outFilter) noexcept;
+
 /// The five alloys (ADR-024 §6a), in tier order. An alloy id crosses the wire
 /// in a Bay record, so these renumber never.
 enum class AlloyId : std::uint8_t

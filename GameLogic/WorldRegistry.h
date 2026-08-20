@@ -51,10 +51,17 @@ public:
   WorldRegistry(const WorldRegistry&) = delete;
   WorldRegistry& operator=(const WorldRegistry&) = delete;
 
-  /// Points the registry at the baked universe. The universe outlives it -- it
-  /// is read at boot and never changes -- so this keeps a pointer rather than
-  /// a copy of several megabytes.
-  void Reset(const UniverseDef* _universe, const RegistryConfig& _config);
+  /*
+   * Points the registry at the baked content. Both files outlive it -- they are
+   * read at boot and never change -- so this keeps pointers rather than copies
+   * of several megabytes and a balance table.
+   *
+   * The economy may be null, and that is a real configuration rather than a
+   * defensive check: a registry with no economy has no mining fields, no cargo
+   * and no refineries, which is exactly what every slice before E2 ran as and
+   * what a test about warp or docking still wants.
+   */
+  void Reset(const UniverseDef* _universe, const EconomyDef* _economy, const RegistryConfig& _config);
 
   /*
    * The live world for an anchor, spinning it up if it is not live.
@@ -100,6 +107,35 @@ public:
    * and invalidated by the next dock or undock.
    */
   [[nodiscard]] std::span<const RosterEntry> Roster(AnchorId _anchor) const noexcept;
+
+  /*
+   * What is left of a mining field (ADR-024 §3d), or null for a site nobody has
+   * worked this epoch.
+   *
+   * Null is the *pristine* answer and not an absence: a ledger exists only once
+   * something has been taken, so "no ledger" and "the bake's pools, untouched"
+   * are the same statement. That is what keeps the durable set proportional to
+   * what has actually happened rather than to how many fields the bake authored
+   * -- six thousand sites, and storage for the ones being mined.
+   *
+   * Borrowed like the roster, and invalidated by the next debit or spin-up.
+   */
+  [[nodiscard]] const SiteLedger* Ledger(AnchorId _anchor) const noexcept;
+
+  /// All of them, in anchor order -- the order the hash folds them and the
+  /// order ADR-025's journal will write them.
+  [[nodiscard]] std::span<const SiteLedger> Ledgers() const noexcept { return m_siteLedgers; }
+
+  /*
+   * The field a site's grid would be spun up with right now.
+   *
+   * Bake plus ledger, resolved through the current epoch -- the same function
+   * `SpinUp` uses, exposed because "how eaten is that field" is a question the
+   * summaries E3 puts on the wire have to answer for a grid that is not live.
+   * A grid that *is* live is the authority on its own field; this is what the
+   * universe layer knows without one.
+   */
+  [[nodiscard]] SiteField FieldAt(AnchorId _anchor) const;
 
   /*
    * What happened, in order (ADR-018 D19).
@@ -228,6 +264,11 @@ private:
     std::uint32_t viewers = 0;
     std::uint16_t authoredCount = 0;
     std::uint32_t spunUpAtTick = 0;
+
+    /// Which epoch's field this grid was spun up with, on a site. It does not
+    /// move while the grid is live -- that is the whole of "an occupied world
+    /// is never re-formed under the players" (ADR-024 §3d).
+    std::uint32_t fieldEpoch = 0;
   };
 
   /// One station's roster. Sorted into `m_rosters` by anchor id, which is the
@@ -241,6 +282,28 @@ private:
   [[nodiscard]] StationRoster& RosterFor(AnchorId _anchor);
   void ApplyUndock(const TransferRequest& _request);
   void ApplyTransit(const TransferRequest& _request);
+
+  /// Debits a completed cycle against the ledger, creating one for a site that
+  /// has not been worked this epoch (ADR-024 §4b).
+  void ApplyMineYield(const TransferRequest& _request);
+
+  /// Which epoch a site is in *now*. `SpinUp` is the only thing allowed to act
+  /// on the answer; everything else uses the epoch the live grid was built with.
+  [[nodiscard]] std::uint32_t EpochNow(AnchorId _anchor) const noexcept;
+
+  /*
+   * Is this ledger describing a pool that still exists?
+   *
+   * ADR-018 D8's rule, applied to the ledger: a ledger the shard owes a refill
+   * is a memory rather than state -- the pool it counts was replaced at the
+   * epoch boundary -- and folding it would make the session's hash depend on
+   * whether anybody happened to spin the grid up and notice. A field held live
+   * by *ships* is judged against that grid's own epoch, because a worked field
+   * is not re-formed under them; a field held live only by a **viewer** is
+   * judged against the calendar, for the same reason D8 leaves a viewer-only
+   * grid out of the hash entirely.
+   */
+  [[nodiscard]] bool LedgerIsCurrent(const SiteLedger& _ledger) const noexcept;
 
   /// How long a crossing between two anchors takes, in ticks (U3a): a base
   /// plus the universe distance over the slowest member's warp speed, never
@@ -259,12 +322,22 @@ private:
   void ApplyDueTransfers();
   void CollectFiledTransfers();
 
+  /// The ledger for an anchor, made if it is not there. The mutable half of
+  /// `Ledger`, and the only thing that creates one -- which is what keeps a
+  /// pristine field out of the durable set.
+  [[nodiscard]] SiteLedger& LedgerFor(AnchorId _anchor);
+
   [[nodiscard]] LiveWorld* Find(AnchorId _anchor) noexcept;
   [[nodiscard]] const LiveWorld* Find(AnchorId _anchor) const noexcept;
   [[nodiscard]] LiveWorld& SpinUp(const Anchor& _anchor);
+
+  /// The field a site's grid gets: the bake laid out by this epoch's salt, with
+  /// whatever the ledger says has already been taken out of it.
+  [[nodiscard]] SiteField ResolveField(const Anchor& _anchor, std::uint32_t& _outEpoch) const;
   void TearDownIdle();
 
   const UniverseDef* m_universe = nullptr;
+  const EconomyDef* m_economy = nullptr;
   RegistryConfig m_config;
   std::uint32_t m_shardTick = 0;
 
@@ -287,6 +360,14 @@ private:
    */
   std::vector<TransferRecord> m_bus;
   std::vector<StationRoster> m_rosters;
+
+  /*
+   * And the site ledgers beside them (ADR-024 §3d), on exactly the same terms:
+   * durable state that outlives the grids that produced it, sorted by anchor,
+   * folded into `Hash`. "Worlds forget, ledgers do not" is one rule with two
+   * residents now.
+   */
+  std::vector<SiteLedger> m_siteLedgers;
 
   /// Beside them, and unlike them **not** in the hash: an event describes
   /// something the simulation already did, and folding the description in as

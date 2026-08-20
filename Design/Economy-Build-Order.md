@@ -1,6 +1,6 @@
 # Economy Build Order — the Mining and Refining Phase
 
-**Status:** Session output 2026-08-20 · **E1a and E1b are built and green in CI** (run 150, 2026-08-20); the rest is not. The design this plan delivers
+**Status:** Session output 2026-08-20 · **E1a, E1b and E2 are built** — the first two green in CI (run 150, 2026-08-20), E2 green under the Linux cross-build and awaiting the gating toolchain; the rest is not. The design this plan delivers
 is [ADR-024](ADR/ADR-024-mining-economy.md), accepted 2026-08-20 with nine owner rulings;
 where this document and that one disagree, the **ADR wins on *what*** and this one on
 ***when***. Two refinements of the ADR's own delivery sketch are recorded in the sequencing
@@ -304,6 +304,87 @@ would desync a replay, so the test asserts the generator's state is unmoved); th
 parity matrix over all three new reasons; **a watched site does not re-form** — a grid with a
 viewer crosses an epoch boundary and its rocks and pools are unchanged until presence leaves;
 and the replay contract extended over the mining records in the transfer log.
+
+**Built (E2, 2026-08-20).** Mining is in the tick and the ledger is at the universe layer.
+`GameLogic/SiteField.h/.cpp` is the field as the tick sees it — clusters, the ore filter, the
+integer hazard arithmetic, and `SiteLedger`, the durable twin the registry keeps;
+`GameLogic/WorldMining.cpp` is the third translation unit of `World` and runs the `Mining`
+step; `SiteEpoch` gained `ResolveSiteEpoch`, which is what lets the registry resolve a site's
+epoch at spin-up without naming a universe coordinate on the path that builds worlds;
+`WorldRegistry` gained the ledgers, the `MineYield` apply point and the epoch at spin-up; and
+`Tests/GameLogicTests/MiningTests.cpp` is the suite, **38 methods across four classes**.
+
+**The tick's step order gained a sixth name, at the end.** `IngestOrders → GroupAdvance →
+Steering → Integrate → Separate → **Mining**`, and last is the decision rather than the
+leftover slot: a cycle is judged against where a ship *finished* the tick, so "inside the
+field" is a fact about the finished tick rather than about a position two systems were still
+arguing over. A group this step sends to `Done` is retired by the next tick's `GroupAdvance`,
+which is exactly how a completed leg already behaves.
+
+**A Mine order does not end when its leg does — that is when it begins.** Ingest gives the
+order the richest matching cluster and one leg to it; when the fleet arrives, `GroupAdvance`
+leaves the group `Underway` with no leg left instead of completing it, and `Mining` drives it
+from there. That is what made a guard necessary that had been *implied* for fourteen slices:
+the stale-solve pass now skips a group whose `legIndex` has passed its `legCount`, because a
+working Mine order is the first group in this tree that outlives its own plan, and `ApplyLeg`
+would have read past the plan to solve it. It also settles what a casualty does to a mining
+wing — the survivors keep the stations the cluster put them in rather than closing the hole,
+which is "no movement the player did not order" (ruling R5) applied to a fleet already parked.
+
+**No new `OrderState`, and that was a choice with a price attached.** A fourth value would be
+a wire value, a client branch and a schema bump for a distinction `etaSeconds` already draws
+(§4d): a working Mine order reports the *cluster* where a flying one reports the leg, through
+the same `LegEtaSeconds` seam. The ETA is the earlier of the cluster running dry and the
+**last** Miner filling — `max` over the Miners, not `min`, because one full Miner does not end
+the order.
+
+**One number the design did not name had to be settled: `TICKS_PER_SECOND`.** Every duration
+in this phase is authored in seconds and consumed in ticks, and `40 / 0.05f` is the arithmetic
+`GATE_JUMP_TICKS` already exists to avoid — a mining cycle one tick short on one machine is a
+hold that fills a tick early on it. So the integer rate lives beside the field model, and
+`World.h` static-asserts that it agrees with `TICK_SECONDS`, which is what keeps two spellings
+of one rate from drifting.
+
+**Three hazard readings the ADR left to the implementation**, each written down beside the
+code that makes it true. Radiation's slow is computed over the **total** stack rather than
+accumulated per stack, because `3% × hazardScale` floors to 1 % on a grade-I belt and a
+per-stack floor would make the gentlest field bite hardest per stack. Nebula heat sheds **only
+while the laser is off**, which is what makes the authored numbers mean what §3b says: at 34 a
+cycle against a threshold of 100, the third cycle locks the laser out and sixty seconds at two
+a second clears it — and it is also what leaves room for the pacing toggle §3b describes,
+which is E5's screen and not this slice's. Sensor damping is *not* scaled a second time by the
+grade, because the content's five numbers already are the five grades.
+
+**The wire moved, once.** `OrderKind::Mine = 6`, `OrderReason` gains 17–19 (and numbers 20–22
+reserved for E3/E4 so that cluster is one bump and not three), `OrderSubmit` grows a trailing
+`u8 oreFilter` beside the anchor it already wrote for every kind, and the check-order contract
+in `GAME_SCHEMA_TEXT` extends with the parity matrix. The filter is the **one field the
+decoder refuses on** where `kind` and `formation` are cast through: those two have reason codes
+a player reads, and an ore filter has none, because every value it defines is legal everywhere
+— so a byte outside it is a schema disagreement rather than a refusal owed to anyone.
+
+**What this slice deliberately leaves broken, and says so out loud:** ore does not survive a
+crossing. `TransferMember` carries an id, a hull and a wing, so a Miner that docks or warps
+arrives with empty holds. E3 is the slice that gives a crossing a manifest and a station a
+Bay, and half of that arrangement — cargo on the record with nowhere at the station to put it
+— would be worse than none. It is written into `WorldMining.cpp`'s own file comment so nobody
+finds it by surprise.
+
+**What was verified, and how.** All of GameLogic compiles clean under **clang 18 on Linux** —
+the cross-build route ADR-015's collision work was first proven on — with **clang-tidy clean**
+against the repository config, and the seven pre-compile source guards (the clock, the RNG,
+the `XM*Est` ban, `UniversePos`, `UniverseDef`, R2's prefixes and suffixes, repo-wide file-name
+uniqueness, and both project registries) run by hand and green. **The whole `GameLogicTests`
+suite was compiled and run** through a `CppUnitTest` shim and the DirectXMath subset GameLogic
+names — 297 methods across eight files, **0 failures**, including the 38 new ones. Three
+existing `OrderTests` methods needed updating and every one of them is the suite doing its job:
+the kind count is seven, a built kind refused on a world with no field says `NotAtSite`, and
+the check-order string in the schema text moved because two checks were inserted into it.
+
+**What CI has not said yet.** This ran on clang and Linux; the gating toolchain is MSVC on
+Windows, and the numbers that count — the suite total, the replay hash across configurations,
+the self test — come from there. The universe content is untouched by this slice, so
+`universeHash` and `economyHash` are unchanged; `GameSchemaHash` moves, which is the point.
 
 ### E3 — Cargo, the Bay, and the wire cluster · 🏁 G0
 Ships carry manifests; the station roster's record grows one (ADR-017 §1 as amended — cargo is

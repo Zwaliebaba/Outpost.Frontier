@@ -54,7 +54,37 @@ enum class EventKind : std::uint8_t
 
   /// A fleet came out of warp (U3a). The other end of a departure nobody sees
   /// -- the away-log's "your fleet reached Vesta-3" line.
-  Arrived = 4
+  Arrived = 4,
+
+  /*
+   * A Miner's ore hold filled and it stopped (ADR-024 §4b, E2).
+   *
+   * The away-log's "your Miners filled up at VEI-4 II" -- the reconnect print's
+   * promise, kept for industry. One entry per ship rather than per fleet,
+   * because filling is per-ship: the wing does not stop together, and a line
+   * that claimed it did would be describing a different game.
+   */
+  HoldFull = 5,
+
+  /*
+   * A site was worked dry (ADR-024 §3d, E2).
+   *
+   * The *site*, not the cluster: a cluster running out ends one order and is
+   * ordinary, while a field with nothing left in it is the news a mining corp
+   * plans logistics around -- "this system is chewed out until tomorrow".
+   * Emitted at the universe layer, where the ledger that knows it lives.
+   */
+  SiteExhausted = 6,
+
+  /*
+   * Reserved for the refining slices (ADR-024 §8, E4). Numbered now and emitted
+   * by nothing, the way `OrderReason::CombatEngaged` is: the away-log is the
+   * reconnect screen's content, so these values will cross the wire, and an
+   * enum that renumbered when refining arrived would renumber it for a feature
+   * that was always planned.
+   */
+  RefineComplete = 7,  // Reserved: E4.
+  ProjectComplete = 8  // Reserved: E4.
 };
 
 /*

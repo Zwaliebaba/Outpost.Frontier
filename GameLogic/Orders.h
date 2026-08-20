@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EconomyDef.h"
 #include "Ids.h"
 
 #include <cstdint>
@@ -56,13 +57,29 @@ enum class OrderKind : std::uint8_t
   Stance = 2,    // Reserved.
   Abilities = 3, // Reserved.
   Warp = 4,
-  Dock = 5
+  Dock = 5,
+
+  /*
+   * Work a mining field (ADR-024 §4a, build order E2).
+   *
+   * Appended after `Dock` for the reason warp kept 4 while it was reserved: the
+   * numbering is what is on the wire, and tidying it is how a written-down wire
+   * value becomes a lie. The economy phase arrived after the station phase, so
+   * it takes the next number.
+   *
+   * Its parameter is an **ore filter** rather than a formation, which is the
+   * first time a kind's parameter is not one -- `OrderSubmit` carries both,
+   * because a Mine order is still flown in a formation and the escorts in it
+   * take stations around the worked cluster.
+   */
+  Mine = 6
 };
 
 /// All of them, in the order a command surface should offer them -- the print's
 /// own left-to-right. An array for the same reason `FORMATION_IDS` is one.
-inline constexpr OrderKind ORDER_KIND_IDS[] = {OrderKind::Move,      OrderKind::Attack, OrderKind::Stance,
-                                               OrderKind::Abilities, OrderKind::Warp,   OrderKind::Dock};
+inline constexpr OrderKind ORDER_KIND_IDS[] = {OrderKind::Move,  OrderKind::Attack, OrderKind::Stance,
+                                               OrderKind::Abilities, OrderKind::Warp, OrderKind::Dock,
+                                               OrderKind::Mine};
 
 /// Replace the queue or append to it (ADR-004 §7).
 enum class QueueMode : std::uint8_t
@@ -211,7 +228,52 @@ enum class OrderReason : std::uint16_t
    * fleet stands, because §5's spool is what it pays instead of proximity; it
    * is crossing a gate that requires standing at one.
    */
-  NotAtGate = 16
+  NotAtGate = 16,
+
+  /*
+   * The economy phase's three (ADR-024 §8, build order E2). Appended after the
+   * warp pair, which is the cost of that phase landing first and is written
+   * down here so the numbering surprises nobody.
+   *
+   * `NotAtSite` is `NotAtStation` one noun along: the grid you are on has no
+   * field to work. Getting to one is the client's job -- the MINE context
+   * action on a site feeds a Warp and then a Mine, the way the DOCKING chip
+   * already does -- so this is what a Mine ordered anywhere else gets.
+   */
+  NotAtSite = 17,
+
+  /*
+   * Nothing in the order can mine.
+   *
+   * Its own reason rather than `EmptySelection`, because the selection is not
+   * empty: a commander who dragged a box over their escort wing and hit MINE
+   * has made a specific mistake, and "you have no Miners here" is the sentence
+   * that fixes it. Mixed groups are legal and intended (ADR-024 §4a) -- this
+   * refuses only a group with no Miner at all.
+   */
+  NoMinerInOrder = 18,
+
+  /*
+   * Every Miner in the order is already full.
+   *
+   * Refused rather than accepted-and-immediately-done, because a fleet that
+   * cannot mine has nothing to do at a field and an order that completed on its
+   * first tick would read as an order that worked. The fix is a station, not a
+   * retry.
+   */
+  HoldFull = 19,
+
+  /*
+   * Reserved for the refining slices (ADR-024 §8, build order E3/E4).
+   *
+   * Numbered now and returned by nothing, the way `CombatEngaged` is: the wire
+   * cluster E3 lands is one fail-closed bump, and a reason enum that renumbered
+   * when refining arrived would renumber the wire for a feature that was always
+   * planned.
+   */
+  InsufficientMaterials = 20, // Reserved: E3's Bay transfers.
+  RefineryBusy = 21,          // Reserved: E4's job slots.
+  RecipeLocked = 22           // Reserved: E4's tier caps.
 };
 
 /// Human text for a reason, for logs and for the toast the client raises. Never
@@ -283,6 +345,18 @@ struct OrderSubmit
    * structure" gesture fills the same slot whichever verb it resolves to.
    */
   AnchorId anchor = INVALID_ID;
+
+  /*
+   * Which ore a `Mine` is after (ADR-024 §4a). `Any` for every other kind,
+   * which is also what a zeroed field means.
+   *
+   * A second parameter beside `formation` rather than a reuse of it, and the
+   * reason is that a Mine order needs both: the Miners work a cluster and the
+   * escorts take formation stations around them. Smuggling one into the other
+   * is the mistake `PendingOrder`'s own comment records -- a mode is not a leg
+   * index, and a filter is not a formation.
+   */
+  OreFilter oreFilter = OreFilter::Any;
 
   /// Appends an id, or reports the order is full. Returning false rather than
   /// dropping keeps a truncated selection from reading as the whole one.

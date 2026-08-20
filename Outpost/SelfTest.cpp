@@ -335,7 +335,7 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation)
       Game::WorldRegistry registry;
       Game::RegistryConfig config;
       config.sessionSeed = 0x9A7Eu;
-      registry.Reset(&universe, config);
+      registry.Reset(&universe, nullptr, config);
 
       Game::ShipSpawn spawn;
       spawn.hullClass = Game::HullClass::Interceptor;

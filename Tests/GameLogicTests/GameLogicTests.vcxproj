@@ -97,6 +97,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="EconomyParseTests.cpp" />
+    <ClCompile Include="MiningTests.cpp" />
     <ClCompile Include="UniverseTests.cpp" />
     <ClCompile Include="UniverseGenTests.cpp" />
     <ClCompile Include="OrderTests.cpp" />

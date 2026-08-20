@@ -376,7 +376,7 @@ jobs:
           # mechanical rather than remembered: naming it from the tick's own
           # files would put universe-scale arithmetic back on the per-tick path
           # through the one door the list above just opened.
-          foreach ($name in @('World.h', 'World.cpp', 'WorldOrders.cpp'))
+          foreach ($name in @('World.h', 'World.cpp', 'WorldOrders.cpp', 'WorldMining.cpp'))
           {
             $path = Join-Path 'GameLogic' $name
             if ((Test-Path $path) -and ((Get-Content $path -Raw) -match '\bSiteEpoch'))

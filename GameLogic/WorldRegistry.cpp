@@ -4,6 +4,7 @@
 
 #include "Formation.h"
 #include "ShipClass.h"
+#include "SiteEpoch.h"
 #include "UniverseGen.h"
 #include "WorldHash.h"
 
@@ -73,15 +74,17 @@ namespace
 
 } // namespace
 
-void WorldRegistry::Reset(const UniverseDef* _universe, const RegistryConfig& _config)
+void WorldRegistry::Reset(const UniverseDef* _universe, const EconomyDef* _economy, const RegistryConfig& _config)
 {
   m_universe = _universe;
+  m_economy = _economy;
   m_config = _config;
   m_shardTick = 0;
   m_live.clear();
   m_locationByShip.clear();
   m_bus.clear();
   m_rosters.clear();
+  m_siteLedgers.clear();
   m_events.Clear();
   m_nextTransferCounter = 1;
 
@@ -187,6 +190,45 @@ WorldRegistry::LiveWorld& WorldRegistry::SpinUp(const Anchor& _anchor)
    * has no idea where in the galaxy it is.
    */
   entry.world->SetAnchor(_anchor.id, stationShip, ReachableFrom(_anchor.id));
+
+  /*
+   * The economy's numbers, on every grid (ADR-024 §7).
+   *
+   * Not only on sites: cargo is a property of a hull wherever it is standing,
+   * and E3's Bay and E4's refinery are station-side. A world with no economy
+   * simply has no field, no holds and nothing to refine, which is what every
+   * grid was before this slice.
+   */
+  entry.world->SetEconomy(m_economy);
+
+  /*
+   * And the field, on a site (ADR-024 §3d).
+   *
+   * **This is the only place an epoch is allowed to apply.** A grid that is
+   * already live keeps the field it was built with -- rocks do not teleport
+   * under a wing that is working them, and a continuously-worked site keeps its
+   * emptiness until presence leaves. Spin-up is the moment there is nobody to
+   * do it to.
+   */
+  if (_anchor.kind == AnchorKind::Site)
+  {
+    std::uint32_t epoch = 0;
+    const SiteField field = ResolveField(_anchor, epoch);
+    entry.fieldEpoch = epoch;
+    entry.world->SetSite(field, epoch);
+
+    /*
+     * A ledger from a passed epoch counted a pool that no longer exists, and
+     * **dropping the row is the refill**: no ledger means the bake's pools
+     * untouched, which is the same statement this file makes everywhere else.
+     * Doing it here rather than on a timer is what keeps the durable set
+     * proportional to what is being mined instead of to what has ever been.
+     */
+    if (const SiteLedger* ledger = Ledger(_anchor.id); ledger != nullptr && ledger->epochIndex != epoch)
+    {
+      m_siteLedgers.erase(m_siteLedgers.begin() + (ledger - m_siteLedgers.data()));
+    }
+  }
 
   /*
    * And where the gate leads, on a gate's grid (ADR-016 §5, U4).
@@ -384,6 +426,91 @@ WorldRegistry::StationRoster& WorldRegistry::RosterFor(AnchorId _anchor)
   return *m_rosters.insert(at, std::move(created));
 }
 
+SiteLedger& WorldRegistry::LedgerFor(AnchorId _anchor)
+{
+  const auto at = std::lower_bound(m_siteLedgers.begin(), m_siteLedgers.end(), _anchor,
+                                   [](const SiteLedger& _entry, AnchorId _id) { return _entry.anchor < _id; });
+  if (at != m_siteLedgers.end() && at->anchor == _anchor)
+  {
+    return *at;
+  }
+  SiteLedger created;
+  created.anchor = _anchor;
+  return *m_siteLedgers.insert(at, created);
+}
+
+const SiteLedger* WorldRegistry::Ledger(AnchorId _anchor) const noexcept
+{
+  const auto at = std::lower_bound(m_siteLedgers.begin(), m_siteLedgers.end(), _anchor,
+                                   [](const SiteLedger& _entry, AnchorId _id) { return _entry.anchor < _id; });
+  return at != m_siteLedgers.end() && at->anchor == _anchor ? &*at : nullptr;
+}
+
+std::uint32_t WorldRegistry::EpochNow(AnchorId _anchor) const noexcept
+{
+  if (m_economy == nullptr)
+  {
+    return 0;
+  }
+  return SiteEpochIndex(m_shardTick, _anchor, m_economy->sites.regenSeconds * TICKS_PER_SECOND);
+}
+
+bool WorldRegistry::LedgerIsCurrent(const SiteLedger& _ledger) const noexcept
+{
+  const LiveWorld* live = Find(_ledger.anchor);
+  const bool shipless = live != nullptr && live->world->ShipCount() <= live->authoredCount;
+  if (live != nullptr && !(shipless && live->viewers > 0))
+  {
+    // A field with ships standing in it is not re-formed under them, so the
+    // grid's own epoch is the one that counts (ADR-024 §3d).
+    return live->fieldEpoch == _ledger.epochIndex;
+  }
+  // Nobody there, or only a camera. ADR-018 D8: what a viewer holds alive must
+  // not change what the session hashes, so the calendar decides.
+  return EpochNow(_ledger.anchor) == _ledger.epochIndex;
+}
+
+SiteField WorldRegistry::ResolveField(const Anchor& _anchor, std::uint32_t& _outEpoch) const
+{
+  _outEpoch = 0;
+  SiteEpochState epoch;
+  if (m_universe == nullptr || m_economy == nullptr ||
+      !ResolveSiteEpoch(*m_universe, _anchor.id, m_economy->sites, m_shardTick, epoch))
+  {
+    return SiteField{}; // Not a site, and `Exists` says so.
+  }
+  _outEpoch = epoch.epochIndex;
+
+  /*
+   * The bake is the pristine truth and the ledger is the shard's (ADR-024 §3d).
+   *
+   * Laid out by *this* epoch's salt, so a field that has turned over comes back
+   * reshuffled as well as refilled -- the rocks are somewhere else, the bearing
+   * is somewhere else, and yesterday's scouting is stale. Then whatever the
+   * ledger says has been taken is written over it, which is what makes a grid
+   * spun up on a half-eaten field come back half eaten.
+   */
+  SiteField field = BuildSiteField(m_economy->sites, _anchor.site.archetype, _anchor.site.grade,
+                                   _anchor.site.fieldRadiusCm, epoch.placement.layoutSalt, _anchor.site.poolUnits);
+  const SiteLedger* ledger = Ledger(_anchor.id);
+  if (ledger != nullptr && ledger->epochIndex == epoch.epochIndex)
+  {
+    ApplySiteLedger(*ledger, field);
+  }
+  return field;
+}
+
+SiteField WorldRegistry::FieldAt(AnchorId _anchor) const
+{
+  const Anchor* anchor = m_universe == nullptr ? nullptr : m_universe->FindAnchor(_anchor);
+  if (anchor == nullptr || anchor->kind != AnchorKind::Site)
+  {
+    return SiteField{};
+  }
+  std::uint32_t epoch = 0;
+  return ResolveField(*anchor, epoch);
+}
+
 std::span<const RosterEntry> WorldRegistry::Roster(AnchorId _anchor) const noexcept
 {
   const auto at = std::lower_bound(m_rosters.begin(), m_rosters.end(), _anchor,
@@ -444,6 +571,10 @@ void WorldRegistry::ApplyDueTransfers()
     else if (record.what.kind == TransferKind::Transit)
     {
       ApplyTransit(record.what);
+    }
+    else if (record.what.kind == TransferKind::MineYield)
+    {
+      ApplyMineYield(record.what);
     }
   }
   m_bus.erase(m_bus.begin(), m_bus.begin() + static_cast<std::ptrdiff_t>(applied));
@@ -570,6 +701,87 @@ std::uint32_t WorldRegistry::TransitTicks(AnchorId _from, const TransferRequest&
   // than a clamp on a mistake: a transit shorter than it leaves a second host
   // no slack to receive the record in.
   return std::max<std::uint32_t>(TRANSFER_FLOOR_TICKS, static_cast<std::uint32_t>(ticks));
+}
+
+void WorldRegistry::ApplyMineYield(const TransferRequest& _request)
+{
+  const Anchor* anchor = m_universe == nullptr ? nullptr : m_universe->FindAnchor(_request.anchor);
+  if (anchor == nullptr || anchor->kind != AnchorKind::Site || m_economy == nullptr)
+  {
+    return;
+  }
+
+  SiteLedger& ledger = LedgerFor(_request.anchor);
+  if (ledger.clusterCount == 0 || ledger.epochIndex != _request.epoch)
+  {
+    /*
+     * The first cycle worked out of this epoch's pool, so the ledger starts
+     * here -- seeded pristine and then debited, which is what makes "no ledger"
+     * and "untouched" the same statement everywhere else.
+     *
+     * A ledger from a *later* epoch would mean this debit came out of a pool
+     * that has since been replaced. Reseeding it would hand the new field's ore
+     * to a cycle that never touched it, so the record is dropped instead. It
+     * cannot happen while a grid stays live -- which is the point of the epoch
+     * riding on the record rather than being looked up here.
+     */
+    if (ledger.clusterCount != 0 && ledger.epochIndex > _request.epoch)
+    {
+      return;
+    }
+
+    /*
+     * Seeded from **the record's own epoch**, not from the calendar.
+     *
+     * One tick a day, a boundary falls between the tick that files a debit and
+     * the tick that applies it -- and a grid stays on its own epoch while it is
+     * live, so the record is right and "now" is not. Asking for the named epoch
+     * costs a parameter and closes a window that would never have been
+     * reproduced.
+     */
+    SiteEpochState state;
+    if (!ResolveSiteEpochAt(*m_universe, _request.anchor, m_economy->sites, _request.epoch, state))
+    {
+      return;
+    }
+    const SiteField pristine =
+      BuildSiteField(m_economy->sites, anchor->site.archetype, anchor->site.grade, anchor->site.fieldRadiusCm,
+                     state.placement.layoutSalt, anchor->site.poolUnits);
+    if (!pristine.Exists())
+    {
+      return;
+    }
+    ledger.epochIndex = _request.epoch;
+    ledger.layoutSalt = state.placement.layoutSalt;
+    StoreSiteField(pristine, ledger);
+  }
+
+  const auto ore = static_cast<std::uint8_t>(_request.ore);
+  if (_request.cluster >= ledger.clusterCount || ore >= ORE_COUNT)
+  {
+    return;
+  }
+  std::uint32_t& remaining = ledger.remainingUnits[_request.cluster][ore];
+
+  /*
+   * Never below zero, and the clamp is not defensive dressing: the world debits
+   * its own copy from `min(yield, remaining, room)` and this is the same
+   * arithmetic arriving a tick later, so the two agree by construction -- and
+   * "by construction" is exactly the kind of agreement that a future second
+   * writer would break silently. A ledger that went negative would wrap.
+   */
+  remaining -= std::min(remaining, _request.units);
+
+  if (_request.filledHold)
+  {
+    m_events.Emit(m_shardTick, EventKind::HoldFull, _request.anchor, 1);
+  }
+  if (ledger.TotalRemaining() == 0)
+  {
+    // The field, not the cluster: "this system is chewed out until tomorrow" is
+    // the sentence a mining corp plans logistics around (ADR-024 §3d).
+    m_events.Emit(m_shardTick, EventKind::SiteExhausted, _request.anchor, 0);
+  }
 }
 
 void WorldRegistry::ApplyTransit(const TransferRequest& _request)
@@ -1048,6 +1260,35 @@ std::uint64_t WorldRegistry::Hash() const
       hash = Neuron::HashValue(docked.wing, hash);
     }
   }
+  /*
+   * And the site ledgers, on the same terms and with one extra rule
+   * (ADR-024 §3d, ADR-018 D8).
+   *
+   * A ledger the shard owes a refill is skipped -- `LedgerIsCurrent` carries
+   * the argument -- because the pool it counts was replaced at the epoch
+   * boundary and folding it would make the session's hash depend on whether
+   * anybody happened to spin the grid up and notice. What is folded is what a
+   * reload has to reproduce, which is exactly the ledgers that still describe
+   * a pool.
+   */
+  for (const SiteLedger& ledger : m_siteLedgers)
+  {
+    if (!LedgerIsCurrent(ledger))
+    {
+      continue;
+    }
+    hash = Neuron::HashValue(ledger.anchor, hash);
+    hash = Neuron::HashValue(ledger.epochIndex, hash);
+    hash = Neuron::HashValue(ledger.clusterCount, hash);
+    for (std::uint8_t index = 0; index < ledger.clusterCount; ++index)
+    {
+      for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+      {
+        hash = Neuron::HashValue(ledger.remainingUnits[index][ore], hash);
+      }
+    }
+  }
+
   for (const TransferRecord& record : m_bus)
   {
     hash = Neuron::HashValue(record.applyTick, hash);
@@ -1056,6 +1297,14 @@ std::uint64_t WorldRegistry::Hash() const
     hash = Neuron::HashValue(static_cast<std::uint8_t>(record.what.kind), hash);
     hash = Neuron::HashValue(record.what.anchor, hash);
     hash = Neuron::HashValue(static_cast<std::uint8_t>(record.what.formation), hash);
+    // The mining payload, folded for the reason the rest of the record is: a
+    // replay that lost a yield in flight would agree about two ledgers and
+    // disagree about a pool one tick later.
+    hash = Neuron::HashValue(record.what.cluster, hash);
+    hash = Neuron::HashValue(static_cast<std::uint8_t>(record.what.ore), hash);
+    hash = Neuron::HashValue(record.what.units, hash);
+    hash = Neuron::HashValue(record.what.epoch, hash);
+    hash = Neuron::HashValue(static_cast<std::uint8_t>(record.what.filledHold ? 1 : 0), hash);
     for (std::uint16_t index = 0; index < record.what.memberCount; ++index)
     {
       hash = Neuron::HashValue(record.what.members[index].shipId, hash);

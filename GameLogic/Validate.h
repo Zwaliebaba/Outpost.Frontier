@@ -149,6 +149,45 @@ struct ValidationView
    */
   std::int32_t gateXCm = 0;
   std::int32_t gateYCm = 0;
+
+  /*
+   * The mining field on this grid, if there is one (ADR-024 §4a, E2).
+   *
+   * An anchor id and not a field: what `Mine` is judged on is whether there is
+   * one here, and the clusters, the pools and the hazard are simulation state
+   * that the client's half of this function has no copy of. `INVALID_ID` means
+   * this grid has no field -- a station, a gate, a planet, open space -- and
+   * every Mine ordered on it is `NotAtSite`, which is the shape `stationAnchor`
+   * already has for docking.
+   *
+   * A Mine names no destination, so `OrderSubmit::anchor` is not consulted for
+   * it: the field a wing works is the one it is standing in.
+   */
+  AnchorId siteAnchor = INVALID_ID;
+
+  /*
+   * One unit's volume per `OreId`, in litres, and **all zero when the caller
+   * cannot say**.
+   *
+   * Three integers rather than the economy definition, for the reason
+   * `reachableAnchors` is a span of ids rather than the universe: this function
+   * has to round the same way on both machines, so what it gets is the
+   * intersection of what both know -- and content is exactly the sort of thing
+   * one half of a mismatched pair would read differently.
+   */
+  std::uint32_t oreUnitLitres[ORE_COUNT] = {};
+
+  /*
+   * Parallel to `shipIds`: how much room is left in each ship's ore hold.
+   *
+   * Empty unless the caller has it, like `shipMarks` -- and until E3 puts cargo
+   * on the wire the client's view *is* empty, so a client pre-checks a Mine
+   * without the hold check and the authority applies it. That is the designed
+   * asymmetry ADR-005 §4 already names for staleness, written down here because
+   * this is the first check where the two halves differ in what they *can*
+   * know rather than in how fresh it is.
+   */
+  std::span<const std::uint32_t> oreHoldFreeLitres;
 };
 
 /// The verdict, in GameLogic's own terms. `Neuron::OrderVerdict` carries the

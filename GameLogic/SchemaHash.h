@@ -48,7 +48,7 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "OrderStateRecord{u32 serverOrderId,u32 clientOrderSeq,u16 etaSeconds,u8 state,u8 legIndex,u8 legCount,"
     "u8 memberCount}"
     "OrderSubmit{u32 orderSeq,u8 kind,u8 formation,u8 queueMode,u16 shipCount,u16 shipIds[shipCount],"
-    "i32 targetXCm,i32 targetYCm,u16 targetFacingTurns16,u16 anchor}"
+    "i32 targetXCm,i32 targetYCm,u16 targetFacingTurns16,u16 anchor,u8 oreFilter}"
     "StationCommand{u32 orderSeq,u8 verb,u16 station,u8 formation,u8 wing,u16 shipCount,u32 shipIds[shipCount]}"
     // ADR-017 §8 put station commands on the *acked order stream* rather than a
     // stream of their own -- one sequence, one ack, one reason enum -- so both
@@ -72,16 +72,24 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "hull{12 classes,Fighter+Cruiser reserved,Gate=11}"
     "caps{shipsPerOrder=64,ordersPerSnapshot=16,dockRadiusMetres=5000,undockProtectionSeconds=15,"
     "parkingRingMetres=2500|4000,parkingBearings=12,warpBaseSeconds=5,jumpRadiusMetres=2500,gateJumpTicks=400}"
-    "enums{OrderKind:Move=0,Attack=1,Stance=2,Abilities=3,Warp=4,Dock=5;FormationId:Line=0,Wedge=1,Claw=2;"
+    "enums{OrderKind:Move=0,Attack=1,Stance=2,Abilities=3,Warp=4,Dock=5,Mine=6;FormationId:Line=0,Wedge=1,Claw=2;"
     "QueueMode:Replace=0,Append=1;"
     "OrderState:Underway=0,Arriving=1,Done=2;"
     "StationVerb:Undock=0,AssignWing=1;"
     "FleetState:OnGrid=0,Docked=1,InTransit=2;"
     "SummaryKind:StationRoster=0,FleetSummaries=1;"
     "CommandKind:Order=0,Station=1;"
+    // A Mine order's parameter, where every other kind's is a formation
+    // (ADR-024 §4a). In the hash because it is a byte on the wire and because
+    // the decoder *refuses* a value outside it -- two builds that disagreed
+    // about the ore list would call each other's orders malformed rather than
+    // mining the wrong rock, which is the right failure and still a failure
+    // worth refusing at the door instead.
+    "OreFilter:Any=0,FerroChroma=1,Astracite=2,Nebulite=3;"
     "OrderReason:Accepted=0,EmptySelection=1,NotOwned=2,UnknownShip=3,QueueFull=4,OutOfBounds=5,"
     "InvalidFormation=6,TooManyShips=7,UnknownKind=8,UnknownStation=9,NotAtStation=10,NotDocked=11,"
-    "InvalidQueueMode=12,CombatEngaged=13,UnknownAnchor=14,NoPresence=15,NotAtGate=16}"
+    "InvalidQueueMode=12,CombatEngaged=13,UnknownAnchor=14,NoPresence=15,NotAtGate=16,"
+    "NotAtSite=17,NoMinerInOrder=18,HoldFull=19,InsufficientMaterials=20,RefineryBusy=21,RecipeLocked=22}"
 
     /*
      * The **order** the checks run in, not just their names (ADR-018 D9/A21).
@@ -94,7 +102,7 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
      * behaviour that must match belongs.
      */
     "checkOrder{order:EmptySelection,TooManyShips,UnknownKind,InvalidQueueMode,InvalidFormation,QueueFull,"
-    "UnknownStation,UnknownAnchor,OutOfBounds,UnknownShip,NotAtStation,NotAtGate;"
+    "UnknownStation,UnknownAnchor,NotAtSite,OutOfBounds,UnknownShip,NoMinerInOrder,HoldFull,NotAtStation,NotAtGate;"
     "station:EmptySelection,TooManyShips,InvalidFormation,UnknownStation,NotDocked}";
 
 /// Stable across runs and builds by construction: FNV-1a over the text above,

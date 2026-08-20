@@ -83,4 +83,44 @@ struct SitePlacement
 [[nodiscard]] SitePlacement SiteEpochPlacement(const UniversePos& _systemCentre, AnchorId _anchor, const SiteSpec& _site,
                                                std::uint32_t _epochIndex, std::int64_t _warpInStandoffMetres) noexcept;
 
+/// Which epoch a site is in, and where that epoch put it.
+struct SiteEpochState
+{
+  std::uint32_t epochIndex = 0;
+  SitePlacement placement;
+};
+
+/*
+ * The two questions above, asked together about a real anchor.
+ *
+ * A convenience with a purpose: the registry has to resolve a site's epoch at
+ * spin-up, and doing it there would mean naming universe coordinates on the
+ * path that builds worlds. Here it is one call that hands back a salt, a
+ * warp-in point and an epoch index -- none of which is a universe coordinate --
+ * so the runtime gets what it needs and the arithmetic stays on this side of
+ * ADR-009 §2's line.
+ *
+ * False for an anchor that is not a site, or one this universe does not have,
+ * or a site whose system is missing. All three are "there is no field here",
+ * which is exactly what the caller does with the answer.
+ */
+[[nodiscard]] bool ResolveSiteEpoch(const UniverseDef& _universe, AnchorId _anchor, const SitesInfo& _sites,
+                                    std::uint32_t _shardTick, SiteEpochState& _outState) noexcept;
+
+/*
+ * The same answer for a **named** epoch rather than for the current tick.
+ *
+ * Because "which epoch is it now" and "which epoch did this come out of" are
+ * different questions, and the runtime asks both. A debit filed by a live grid
+ * carries the epoch it was taken from, and it has to be applied against *that*
+ * pool -- a boundary crossed between the tick that filed it and the tick that
+ * applies it would otherwise have the ledger seeded from the wrong field and
+ * labelled with the right one.
+ *
+ * One tick a day can cross that boundary, which is exactly the sort of window
+ * that is never reproduced and never explained. It costs a parameter to close.
+ */
+[[nodiscard]] bool ResolveSiteEpochAt(const UniverseDef& _universe, AnchorId _anchor, const SitesInfo& _sites,
+                                      std::uint32_t _epochIndex, SiteEpochState& _outState) noexcept;
+
 } // namespace Game
