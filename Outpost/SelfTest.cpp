@@ -367,6 +367,11 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation)
       awaySpawn.xMetres = 9000.0f;
       const Game::ShipId away = registry.Spawn(here, awaySpawn);
       tooFar.shipCount = 0;
+
+      // Borrowed again rather than kept across the spawn: `Spawn` can spin a
+      // world up, and "borrow, never hold" is the rule that makes a grid on
+      // another machine a change of nothing (ADR-019 §6.1).
+      world = registry.Borrow(here);
       const bool refused = away != Game::INVALID_SHIP_ID && tooFar.AddShip(away) && world != nullptr &&
                            world->SubmitOrder(tooFar).reason == Game::OrderReason::NotAtGate;
       _checks.Record("a fleet across the grid is refused NotAtGate", refused);

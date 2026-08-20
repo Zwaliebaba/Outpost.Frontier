@@ -1056,8 +1056,20 @@ public:
     HullClass parsed = HullClass::Structure;
     Assert::IsTrue(TryShipClass(0, parsed));
     Assert::IsTrue(parsed == HullClass::Interceptor);
+
+    /*
+     * The top of the range, named rather than inferred.
+     *
+     * It said `Structure` until U4 appended `Gate` (ADR-016 §10), and this line
+     * is what noticed -- which is the whole reason it spells the enumerator
+     * instead of comparing `parsed` against `HULL_CLASS_COUNT - 1` cast back to
+     * an enum. That version would pass through any append without a word, and
+     * an append is exactly the change that has to be looked at: the value is a
+     * wire byte, an icon index and a palette index at once.
+     */
     Assert::IsTrue(TryShipClass(HULL_CLASS_COUNT - 1, parsed));
-    Assert::IsTrue(parsed == HullClass::Structure);
+    Assert::IsTrue(parsed == HullClass::Gate);
+
     Assert::IsFalse(TryShipClass(HULL_CLASS_COUNT, parsed), L"an unknown class must be refused, not clamped");
     Assert::IsFalse(TryShipClass(255, parsed));
   }
