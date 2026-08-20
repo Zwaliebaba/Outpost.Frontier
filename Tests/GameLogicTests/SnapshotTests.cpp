@@ -9,6 +9,7 @@
 #include "EntityRecord.h"
 #include "World.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -187,6 +188,60 @@ public:
     // And the worst case -- a full order area on top of that fleet -- is still
     // inside the budget, which is what reserving the area buys.
     Assert::IsTrue(SnapshotBytes(41, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES);
+  }
+
+  TEST_METHOD(AFleetAtTheCapRoundTripsInsideOneDatagram)
+  {
+    /*
+     * H0's criterion, and the one the arithmetic could not give us. The static
+     * asserts and `TheMvpFleetFitsOneDatagram` between them prove that 41 ships
+     * fit and that `MAX_SHIPS_PER_SNAPSHOT + 1` would not; neither of them ever
+     * puts the **cap itself** on the wire.
+     *
+     * That gap matters more after T2 than it did before. The cap fell from 45
+     * to 43 when `EntityRecord` grew its status byte, so the margin between the
+     * MVP's own content and the refusal is now two records -- and a budget with
+     * two records of headroom is one that has to be measured in bytes actually
+     * written, not in a `constexpr` that agrees with itself.
+     *
+     * Round-trip rather than write-and-measure, because a snapshot that fits
+     * and does not decode is not a snapshot that works.
+     */
+    World world;
+    std::vector<ShipId> ids;
+    BuildFlyingWorld(world, static_cast<int>(MAX_SHIPS_PER_SNAPSHOT), ids, 10);
+
+    std::array<std::uint8_t, 2048> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteSnapshot(world, writer), L"a snapshot at exactly the cap must be written, not refused");
+    Assert::IsTrue(writer.BytesWritten() <= Neuron::MAX_DATAGRAM_BYTES - sizeof(std::uint16_t),
+                   L"the cap must fit one datagram once the type word is paid for");
+
+    SnapshotHeader header;
+    std::vector<Neuron::EntityRecord> ships;
+    std::vector<OrderStateRecord> orders;
+    Neuron::ByteReader reader{writer.Written()};
+    Assert::IsTrue(ReadSnapshot(reader, header, ships, orders), L"a snapshot at the cap must decode");
+    Assert::AreEqual<std::uint16_t>(MAX_SHIPS_PER_SNAPSHOT, header.shipCount);
+    Assert::AreEqual<std::size_t>(MAX_SHIPS_PER_SNAPSHOT, ships.size());
+
+    // Every id survives, so "it fit" cannot be true because something was
+    // quietly dropped on the way in.
+    for (const ShipId id : ids)
+    {
+      const auto found = std::find_if(ships.begin(), ships.end(),
+                                      [id](const Neuron::EntityRecord& _record) { return _record.id == id; });
+      Assert::IsTrue(found != ships.end(), L"a ship inside the cap did not survive the round trip");
+    }
+
+    // And one past it is refused, so this is the boundary rather than a number
+    // that happens to work.
+    World over;
+    std::vector<ShipId> overIds;
+    BuildFlyingWorld(over, static_cast<int>(MAX_SHIPS_PER_SNAPSHOT) + 1, overIds, 10);
+    std::array<std::uint8_t, 4096> overBuffer{};
+    Neuron::ByteWriter overWriter{overBuffer};
+    Assert::IsFalse(WriteSnapshot(over, overWriter), L"one ship past the cap must be refused");
   }
 
   TEST_METHOD(AFleetTooBigForOneDatagramIsRefusedRatherThanTruncated)

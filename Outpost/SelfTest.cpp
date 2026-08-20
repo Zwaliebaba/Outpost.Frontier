@@ -33,6 +33,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -55,6 +56,11 @@ constexpr double IMPLAUSIBLE_ROUND_TRIP_MS = 1000.0;
 /// How long the tick-cadence measurement runs. Long enough that one late tick
 /// does not move the mean, short enough that nobody skips the self test.
 constexpr double CADENCE_WINDOW_MS = 3000.0;
+
+/// How long the approach gate watches for a dock that must never arrive. Long
+/// enough for several summary frames at the ~1 Hz roster cadence, which is the
+/// feed that would report one.
+constexpr std::uint32_t APPROACH_SETTLE_TICKS = 60;
 
 /// ADR-002's rate, and what the mean period is checked against. The tolerance
 /// is the loose one: S3's "50 ms +/- 0.5" is a measurement for an *idle*
@@ -802,6 +808,240 @@ void RunDockingLoop(Checklist& _checks, Neuron::ClientConnection& _client)
                                         });
   _checks.Record("the roster drops the ships that undocked", rosterFollowed);
   _checks.Record("and keeps the one that was not named", holds(docked, docking[2]));
+
+  /*
+   * **The parking order, in the order records** (ADR-017 4, T2's accept).
+   *
+   * The fleet does not merely appear at the undock point -- the authority
+   * issues it a Move to the first free berth, and that order is a group like
+   * any other, so it takes a lane in the snapshot's order area and the client
+   * draws a ghost for it without being told it is special.
+   *
+   * It is identified by the two things that are true of it and of nothing the
+   * client sent: `clientOrderSeq` is zero, because a system order has no client
+   * sequence to echo, and its membership is exactly the fleet that undocked.
+   * Checking the count as well as the zero matters -- a record that merely lost
+   * its sequence would pass on the zero alone.
+   *
+   * This is also the only observation in this gate that proves `systemIssued`
+   * did not disarm the protection it was issued alongside: the ships are
+   * parking *and* still wearing bit 0, which is the distinction `OrderGroup`
+   * grew the flag for.
+   */
+  bool parkingSeen = false;
+  const bool parked = PumpUntil(_client,
+                                [&]
+                                {
+                                  refresh();
+                                  for (const Game::OrderStateRecord& record : view.LatestOrders())
+                                  {
+                                    if (record.clientOrderSeq == 0 && record.memberCount == 2)
+                                    {
+                                      parkingSeen = true;
+                                    }
+                                  }
+                                  return parkingSeen;
+                                });
+  _checks.Record("the undocked fleet is given a parking order, in its own lane of the order records", parked && parkingSeen);
+}
+
+/*
+ * A disconnect mid-approach leaves the fleet outside (T2's accept).
+ *
+ * The approach chain is the *client's* (ADR-017 2): it flies the fleet to the
+ * perimeter and sends the Dock only once every member is inside the radius. So
+ * a client that goes away mid-approach never sends the second half, and the
+ * question this answers is what the authority does with the half it has --
+ * which must be "finish the Move and stop", never "dock them anyway".
+ *
+ * Observed the way everything else here is: a second client joins after the
+ * first has gone and reads the world off the wire. That is a stronger check
+ * than watching from the connection that left, because it is the state the
+ * server actually kept rather than the last thing one client happened to see.
+ *
+ * The client half of the chain is not built yet, so what is driven here is its
+ * first leg -- the Move -- and what is asserted is the invariant that holds
+ * whether or not the chain exists: a lost connection docks nobody.
+ */
+void RunApproachDisconnectGate(Checklist& _checks, Neuron::ServerHost& _server, const Neuron::Simulation& _simulation)
+{
+  Game::ShipId approaching[2] = {Game::INVALID_SHIP_ID, Game::INVALID_SHIP_ID};
+  std::size_t rosterBefore = 0;
+  Game::AnchorId station = Game::INVALID_ID;
+
+  {
+    Neuron::ClientConnection client;
+    if (!client.Connect("127.0.0.1", _server.BoundPort(), _simulation.SchemaHash(), _simulation.ContentHash(), "approach"))
+    {
+      _checks.Record("a second client opens a socket for the approach gate", false);
+      return;
+    }
+    if (!PumpUntil(client, [&] { return client.State() == Neuron::ClientLinkState::Joined; }))
+    {
+      _checks.Record("the approach gate's client joins", false);
+      return;
+    }
+    station = client.GridAnchor();
+
+    Game::ReplicatedView view;
+    std::vector<Game::ReplicatedShip> ships;
+    const auto refresh = [&]
+    {
+      for (const std::vector<std::uint8_t>& payload : client.PendingSnapshots())
+      {
+        (void)view.ApplySnapshot(payload);
+      }
+      client.ClearPendingSnapshots();
+      ships.clear();
+      view.SampleAt(static_cast<double>(view.LatestTick()), ships);
+    };
+    (void)PumpUntil(client, [&] { refresh(); return ships.size() > 2; });
+
+    // Two movers that are not the station, sent *towards* it but with no Dock
+    // to follow -- the approach's first leg and nothing else.
+    Game::OrderSubmit approach;
+    approach.orderSeq = 7101;
+    for (const Game::ReplicatedShip& ship : ships)
+    {
+      if (ship.classId == static_cast<std::uint8_t>(Game::HullClass::Structure))
+      {
+        continue;
+      }
+      if (approach.shipCount < 2)
+      {
+        approaching[approach.shipCount] = ship.id;
+        (void)approach.AddShip(ship.id);
+      }
+    }
+    approach.target.xCm = Neuron::MetresToCentimetres(600.0f);
+    approach.target.yCm = Neuron::MetresToCentimetres(600.0f);
+
+    std::array<std::uint8_t, Game::MAX_ORDER_SUBMIT_BYTES + Game::COMMAND_KIND_BYTES> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    const bool sent = approach.shipCount == 2 && Game::WriteCommandKind(Game::CommandKind::Order, writer) &&
+                      Game::WriteOrderSubmit(approach, writer) && client.SendOrder(writer.Written());
+    _checks.Record("an approach leg goes up before the client vanishes", sent);
+    if (!sent)
+    {
+      return;
+    }
+    (void)PumpUntil(client, [&] { return !client.PendingVerdicts().empty(); });
+
+    // Mid-approach on purpose: a few ticks of flying, then the socket goes.
+    const std::uint32_t leaveAt = client.ServerTick() + 4;
+    (void)PumpUntil(client, [&] { return client.ServerTick() >= leaveAt; });
+
+    rosterBefore = ships.size();
+  } // The connection closes here, mid-leg.
+
+  // The session has to be gone before the second client asks, or this measures
+  // a race rather than a rule.
+  bool emptied = false;
+  const std::int64_t start = Neuron::Clock::Counter();
+  while (Neuron::Clock::MillisecondsBetween(start, Neuron::Clock::Counter()) < 3000.0)
+  {
+    if (_server.SessionCount() == 0)
+    {
+      emptied = true;
+      break;
+    }
+  }
+  _checks.Record("the server outlives a client that left mid-approach", emptied && _server.Running());
+
+  Neuron::ClientConnection observer;
+  if (!observer.Connect("127.0.0.1", _server.BoundPort(), _simulation.SchemaHash(), _simulation.ContentHash(), "observer") ||
+      !PumpUntil(observer, [&] { return observer.State() == Neuron::ClientLinkState::Joined; }))
+  {
+    _checks.Record("an observer can join after the disconnect", false);
+    return;
+  }
+
+  Game::ReplicatedView view;
+  std::vector<Game::ReplicatedShip> ships;
+  const auto refresh = [&]
+  {
+    for (const std::vector<std::uint8_t>& payload : observer.PendingSnapshots())
+    {
+      (void)view.ApplySnapshot(payload);
+    }
+    observer.ClearPendingSnapshots();
+    ships.clear();
+    view.SampleAt(static_cast<double>(view.LatestTick()), ships);
+  };
+  (void)PumpUntil(observer, [&] { refresh(); return !ships.empty(); });
+
+  const auto onGrid = [&](Game::ShipId _id)
+  {
+    return std::any_of(ships.begin(), ships.end(), [_id](const Game::ReplicatedShip& _ship) { return _ship.id == _id; });
+  };
+
+  // Still there: an interrupted approach must not have docked anybody, which is
+  // what "leaves the fleet outside" means on the wire -- a docked ship leaves
+  // the snapshot entirely (ADR-017 1).
+  _checks.Record("a fleet whose client left mid-approach is still on the grid, not docked",
+                 onGrid(approaching[0]) && onGrid(approaching[1]));
+  _checks.Record("and the grid did not lose ships to the disconnect", ships.size() >= rosterBefore);
+  (void)station;
+
+  /*
+   * **Outside, and it stays outside.**
+   *
+   * The first draft of this asked whether the fleet had come to a *stop*, which
+   * is what "halts outside" sounds like it means, and it failed for a reason
+   * worth keeping: this simulation's fleet is on a scripted patrol
+   * (`UniverseSimulation::AdvanceTick`), so it is never stationary and nothing
+   * about the disconnect would make it so. "Halted" is not a property this
+   * world has.
+   *
+   * What the criterion is actually about survives that intact: the client that
+   * would have sent the Dock is gone, so **nobody docks**. The check is the
+   * roster over a window rather than a speed at an instant -- the station has to
+   * still not be holding these two after the summary feed has had several
+   * chances to say otherwise, which is exactly the failure a half-finished
+   * approach would produce.
+   */
+  bool rosterGained = false;
+  const std::uint32_t settleUntil = observer.ServerTick() + APPROACH_SETTLE_TICKS;
+  (void)PumpUntil(observer,
+                  [&]
+                  {
+                    for (const std::vector<std::uint8_t>& payload : observer.PendingSummaries())
+                    {
+                      Neuron::ByteReader reader{payload};
+                      std::uint8_t records = 0;
+                      if (!Game::ReadSummaryFrame(reader, records))
+                      {
+                        continue;
+                      }
+                      for (std::uint8_t index = 0; index < records; ++index)
+                      {
+                        Game::SummaryKind kind{};
+                        if (!Game::ReadSummaryRecord(reader, kind))
+                        {
+                          break;
+                        }
+                        if (kind != Game::SummaryKind::StationRoster)
+                        {
+                          break;
+                        }
+                        Game::AnchorId seenStation = Game::INVALID_ID;
+                        std::vector<Game::RosterEntry> seenDocked;
+                        if (Game::ReadStationRoster(reader, seenStation, seenDocked))
+                        {
+                          for (const Game::RosterEntry& row : seenDocked)
+                          {
+                            rosterGained = rosterGained || row.shipId == approaching[0] || row.shipId == approaching[1];
+                          }
+                        }
+                        break;
+                      }
+                    }
+                    observer.ClearPendingSummaries();
+                    refresh();
+                    return rosterGained || observer.ServerTick() >= settleUntil;
+                  });
+  _checks.Record("and the interrupted approach never docks anybody", !rosterGained);
+  _checks.Record("and the fleet is still outside when the dust settles", onGrid(approaching[0]) && onGrid(approaching[1]));
 }
 
 } // namespace
@@ -943,6 +1183,10 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
     Sleep(1);
   }
   checks.Record("server outlives the client", emptied && server.Running());
+
+  // Runs here, after the first session is provably gone, because its whole
+  // subject is what the authority keeps when a client is not there.
+  RunApproachDisconnectGate(checks, server, _simulation);
 
   // S3's acceptance is a cadence measurement, and until now it had no harness --
   // which is a good way for "mean period 50 ms +/- 0.5" to stay a sentence

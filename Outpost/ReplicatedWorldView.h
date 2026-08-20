@@ -65,6 +65,18 @@ public:
 
     /// The universe hash, which is what the handshake fails closed on.
     std::uint64_t contentHash = 0;
+
+    /*
+     * Which anchor the grid this client watches stands on, from the `Welcome`
+     * (ADR-017 §8).
+     *
+     * The client had no way to *name* a station before this existed: it could
+     * be told about one and still had no number to address one with, so a Dock
+     * could be validated and never composed. The composition root supplies it
+     * because the `Welcome` is the engine's message and the anchor's meaning
+     * is the game's.
+     */
+    Game::AnchorId gridAnchor = Game::INVALID_ID;
   };
 
   static constexpr std::uint16_t INVALID_RENDER_CLASS = 0xffffu;
@@ -82,6 +94,8 @@ public:
   [[nodiscard]] std::uint32_t OrderKinds(std::span<Neuron::OrderKindOption> _outKinds) const override;
   [[nodiscard]] std::uint32_t BuildRoster(std::span<const std::uint16_t> _selectedIds,
                                           std::span<Neuron::RosterRow> _outRows) const override;
+  [[nodiscard]] bool ContextActionFor(std::uint16_t _entityId, std::span<const std::uint16_t> _selectedIds,
+                                      Neuron::ContextAction& _outAction) const override;
   void PollOrderFeedback(Neuron::OrderFeedback& _outFeedback) override;
   [[nodiscard]] const char* ReasonText(std::uint16_t _reasonCode) const override;
 
@@ -100,6 +114,18 @@ private:
   /// Reused across frames rather than allocated per frame: this runs once per
   /// frame at whatever rate the display asks for.
   std::vector<Game::ReplicatedShip> m_sampled;
+
+  /*
+   * Which replicated entity is this grid's station, refreshed by each scene
+   * build.
+   *
+   * Found by hull class rather than carried on the wire: a `Structure` on the
+   * grid the `Welcome` anchored is the station, and a field saying so would
+   * cost every ship a byte to describe one entity. `INVALID_SHIP_ID` until a
+   * frame has been built, which is also the honest answer for a grid whose
+   * station has not arrived in a snapshot yet.
+   */
+  mutable Game::ShipId m_stationEntityId = Game::INVALID_SHIP_ID;
 
   /*
    * The ids `ValidateOrder` is given, refilled beside `m_sampled`.

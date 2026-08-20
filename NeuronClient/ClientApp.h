@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ApproachChain.h"
 #include "AudioDevice.h"
 #include "ClearColour.h"
 #include "ClientConfig.h"
@@ -34,6 +35,7 @@
 #include "WorldView.h"
 
 #include <cstdint>
+#include <vector>
 
 /*
  * The client (ADR-007 §1): window, device and frame loop, all on the thread
@@ -104,6 +106,18 @@ private:
   void UpdateSelection();
   void UpdateOrders();
   void CommitOrder(const PuckSample& _sample, double _nowSeconds);
+
+  /*
+   * Starts a context action if the release landed on something that affords
+   * one. Returns true when it did, in which case the ordinary order the gesture
+   * would otherwise have composed is not sent.
+   */
+  [[nodiscard]] bool BeginContextAction(const PuckSample& _sample, double _nowSeconds);
+
+  /// Sends the chained verb once the pre-check stops refusing it -- the same
+  /// function the authority judges with, which is what makes "close enough"
+  /// one definition rather than two (ADR-014 3).
+  void AdvanceApproach(double _nowSeconds);
 
   /// The slot in `m_orderKinds` holding this kind value, or `m_orderKindCount`
   /// when the game never listed it -- the per-kind option tables are indexed by
@@ -200,6 +214,20 @@ private:
   /// made on the server's behalf until it answers (`puck-and-wheel.png` §2, §4).
   OrderPuck m_puck;
   OrderGhostList m_ghosts;
+
+  /*
+   * The chained half of a context action (ADR-017 2): the fleet is flying at
+   * something, and the verb goes the moment the authority would take it.
+   *
+   * One at a time on purpose. A second approach replaces the first, because
+   * two chips promising two different arrivals is a HUD saying something the
+   * player did not ask for.
+   */
+  ApproachChain m_approach;
+
+  /// Scratch for the approach's liveness check, kept rather than made each
+  /// frame: this runs at display rate.
+  std::vector<std::uint16_t> m_liveIds;
 
   /// Reused across frames, like the scene: polled every frame and thrown away.
   OrderFeedback m_orderFeedback;

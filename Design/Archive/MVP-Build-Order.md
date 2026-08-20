@@ -1,11 +1,32 @@
 # MVP Build Order — Vertical Slices
 
-**Status:** Session output 2026-08-17 · **implementation progress appended 2026-08-18 · S14
-landed; play test signed off 2026-08-19 — the MVP is met.** · **This document is closed as a
-plan** (2026-08-20): S1–S15 are all built, and post-MVP work lives in
-[Universe-Build-Order.md](Universe-Build-Order.md) and
-[Station-Build-Order.md](Station-Build-Order.md). What still lands here is a change *inside* a
-slice this document owns — see the two recorded under the MVP sign-off.
+**Status: CLOSED AND ARCHIVED, 2026-08-20.** Session output 2026-08-17 · implementation
+progress appended 2026-08-18 · S14 landed and the play test signed off 2026-08-19 — the MVP is
+met.
+
+**Every slice S1–S15 is built, every acceptance criterion in the table below is ✅, and every
+one of the six open items swept on 2026-08-19 is closed.** The last three closed on 2026-08-20:
+the borderless-fullscreen toggle and the sim-side stall injector were built, the
+station-moves-the-grid demonstration and the audio listening pass were run by the owner, and
+the puck's obstructed-footprint question — open since before the MVP — was answered as
+[ADR-026](../ADR/ADR-026-obstructed-footprints.md) and built in the sim.
+
+**This document is now history rather than a plan.** It is kept because it is the only record
+of what each slice actually put in the tree and what a "done" slice still owed, and it moved
+here so that the live plans are the only build orders in `Design/`.
+
+- **Live work** is [Universe-Build-Order.md](../Universe-Build-Order.md),
+  [Station-Build-Order.md](../Station-Build-Order.md) and
+  [Economy-Build-Order.md](../Economy-Build-Order.md).
+- **The one thing this document owned that is not finished** is ADR-026 §6's advisory puck
+  preview, and it is recorded in that ADR's *Status of the build* rather than here — an
+  archived plan must not be the only place an owed item is written down.
+- **Nothing else is outstanding.** Two items that never belonged to a slice are still recorded
+  where they live: ADR-011 §8's callback ring and external-lane registration, named in S15's
+  notes.
+
+---
+
 Each slice is independently testable, lands green (`Tests/` + `selfTest` where applicable),
 and is sized at "a few days" or less. Order matters — later slices assume earlier ones.
 Milestones: **M0** = the brief's named first milestone; **M1** = first commanded fleet;
@@ -27,16 +48,24 @@ manual checkpoints.
 ## Open items across the whole document (swept 2026-08-19)
 
 Every `**Outstanding:**` line below was re-read against the tree on this date and either closed
-with a strikethrough and a dated note, or left open and sharpened. **Six things are genuinely
-open**, and none of them blocks the MVP or M1 — both are met:
+with a strikethrough and a dated note, or left open and sharpened. Six were genuinely open at
+the sweep. **All six are closed as of 2026-08-20**, which is what let this document be
+archived. Nothing here ever blocked the MVP or M1; both were met before any of it.
 
-| # | Open item | Slice | Why it is still open |
+Item 4 is the one worth reading twice. It was open longer than the corpus has existed as a
+plan, it was a *design* question rather than a build one, and closing it meant taking a
+position the tree could then be held to — [ADR-026](../ADR/ADR-026-obstructed-footprints.md).
+Its sim half is built; its one remaining piece, the advisory puck preview, is recorded in that
+ADR's *Status of the build*, because an archived plan must never be the only place an owed item
+is written down.
+
+| # | Item | Slice | How it closed |
 |---|---|---|---|
-| 1 | **Borderless-fullscreen has no runtime toggle** — the mode is read once at `Window::Create` and Alt+Enter is swallowed without doing anything | S1 | Never built, despite the old note saying "wired". Costs an action, a key and a swapchain resize; nothing has asked for it |
-| 2 | **The station-moves-the-grid demonstration has not been run** — edit `stations[0].position`, restart, watch the anchor follow | S5b | Needs a deliberate content edit; a play test does not perform one |
-| 3 | **No sim-side stall injector** — F10 cuts the client's *feed*, which is indistinguishable from the client's side but does not pause the authority | S7 | Only matters the day something tests the server stalling rather than the link going quiet |
-| 4 | **What the puck should do when a station lands inside a gate or another fleet** | S10 | A design decision nobody has taken; `puck-and-wheel.png` §6 lists it OPEN |
-| 5 | **Nobody has heard the audio** — the manual pass is S15's real acceptance, and the two WAVs are synthesised placeholders | S15 | Landed 2026-08-19; no listening pass since |
+| 1 | ~~**Borderless-fullscreen has no runtime toggle**~~ **Closed 2026-08-20** | S1 | `Window::SetBorderlessFullscreen`, called by the Alt+Enter handler that used to only swallow the chord. Cost neither an action nor a key — the mode is the window's, not the game's — and no second resize path, because the style change sends `WM_SIZE`. `Create` routes its own config through it, so the configured fullscreen and the chord's are the same one at last. Verified by driving a live window |
+| 2 | ~~**The station-moves-the-grid demonstration has not been run**~~ **Closed 2026-08-20** | S5b | Run by the owner: the content edit was made and the logged grid anchor followed it. The grid is a fact about the data, not about the build |
+| 3 | ~~**No sim-side stall injector**~~ **Closed 2026-08-20** | S7 | `ServerHost::InjectStall` stops the sim thread outright — no tick, no poll, no send — so the tick-debt path and `TickOverrun` are reachable on a loopback session that never struggles. A host method rather than a key, because the client holds no reference to the host and ADR-008 is the reason. Tested |
+| 4 | ~~**What the puck should do when a formation slot lands inside a gate, a station or another fleet**~~ **Answered and built in the sim, 2026-08-20 — [ADR-026](../ADR/ADR-026-obstructed-footprints.md), which now owns the one piece left (§6’s advisory preview)** | S10 | **Solve, then slide**: the whole formation moves to the nearest free placement, shape and facing preserved, never refused and never deformed. Free is `FindBerth`'s predicate exactly, extracted so there is one copy and two callers. Two rings from the formation's own extent, fanned from the approach bearing; all 24 taken means fly to the asked point anyway, which demotes ADR-015 §5's outcome to the fallback. Slid **when the leg becomes active**, so a queued leg is judged against the world it will fly in. Built and tested in the sim; the replay hash came through unchanged. **Still owed: the puck’s advisory preview** — the wire carries no leg anchors and buying them costs ~2 ships off a cap with margin one, so the client evaluates the hull half and the ghost reconciles |
+| 5 | ~~**Nobody has heard the audio**~~ **Closed 2026-08-20** | S15 | The listening pass happened and the owner signed it off, which is S15's real acceptance. The two WAVs are still synthesised placeholders — content work, and never what this item was |
 | 6 | ~~**The Debug CI leg does not gate** (`continue-on-error`) while R22 is open, so a green tick certifies **Release only**~~ **Closed 2026-08-20** | — | Risk-Register R22. The green Debug legs the row asked for arrived, the owner closed it, and `continue-on-error` came out of the build job. What survives R22 is a different question, now **R23**: `QuicTransportTests` has flaked on both configurations, and a flaky test that gates is a red build nobody caused |
 
 Two more that belong to no slice and are recorded where they live rather than here: ADR-011 §8's
@@ -69,7 +98,7 @@ machine and passed. Note the scope: they were run against S1–S4's clear-and-pr
 they do not cover the passes S5 added.
 **Outstanding, and sharpened 2026-08-19 — this was not quite the truth.** Resize *is* wired end
 to end (`Window::ConsumeResize` → the frame loop's `HandleResize`, which owns the swapchain) and
-has run in anger since. **The borderless-fullscreen "toggle" was never wired at all**: the mode
+has run in anger since. ~~**The borderless-fullscreen "toggle" was never wired at all**: the mode
 is read once from `client.window.mode` at `Window::Create` and picks `WS_POPUP` over
 `WS_OVERLAPPEDWINDOW` (`Window.cpp:60`), and there is no runtime path to change it — no
 `InputAction`, no entry in the virtual-key table, no method on `Window`. Alt+Enter is
@@ -78,7 +107,34 @@ reason and misleading for another: the comment says the chord "belongs to the cl
 DXGI's own fullscreen handling", which is true, but the client then does nothing with it. So
 the honest state is **config-only borderless, and a chord reserved for a feature that does not
 exist**. Left open rather than built: it costs an action, a key and a swapchain resize, and
-nothing in the MVP or the universe phase has asked for it yet.
+nothing in the MVP or the universe phase has asked for it yet.~~
+**Closed 2026-08-20.** `Window::SetBorderlessFullscreen` is the transition, and Alt+Enter now
+calls it: the handler that existed only to stop DXGI reacting to the chord does the thing the
+chord means. It cost neither an action nor a key in the end — the mode is a property of the
+window and not of the game, so it never reaches `InputMap`, and nothing downstream of
+`InputFrame` learns that it happened. Nor did it cost a swapchain resize: changing the style
+makes Windows send `WM_SIZE`, which is the path `ConsumeResize` → `HandleResize` already owns,
+so there is still exactly one place that resizes back buffers.
+
+Three decisions inside it worth the sentence each. **Borderless means the monitor the window
+is on at the moment of the toggle**, so a window dragged to the second screen goes fullscreen
+there rather than on the one it was born on. **Coming back restores a `WINDOWPLACEMENT`**
+rather than a remembered width and height, because a placement carries the maximised state and
+a rect does not — without it a maximised window returns merely large. And **auto-repeat is
+filtered on `lParam` bit 30**, or a held Alt+Enter toggles once per repeat interval and reads
+as the window flickering.
+
+`Create` now makes the window windowed whatever the configuration says and routes
+`borderlessFullscreen` through the same function, which closes the second half of this item:
+the configured path and the chord were two different fullscreens — the configured one was a
+`WS_POPUP` of the *requested size*, not of the monitor — and now there is one.
+
+**Verified by driving it, not by reading it**, because a window is the one thing this suite
+cannot hold: the client was launched, sent `WM_SYSKEYDOWN`/`VK_RETURN` twice, and its style and
+rect read back each time. Windowed `0x14CF0000` at 1294×758 → fullscreen `0x94000000`
+(`WS_POPUP|WS_VISIBLE`) at 0,0 covering the whole 1536×864 monitor → back to `0x14CF0000` at
+**the same 1294×758 rect it started in**. Both transitions logged, no swapchain complaint,
+exit code 0.
 
 ### S2 — NeuronCore foundations
 `Assert/Log/Time(QPC)/Hash(FNV)/Random(PCG32)`, `ByteReader/Writer`, SPSC/MPSC rings,
@@ -353,11 +409,13 @@ a celestial renderer; reading it as one is what made a design gap look like queu
 Owner decision on 2026-08-18: celestials are data the game reads, not content the frame draws
 (ADR-009 §9a). Parsed, hashed, and loaded identically by both halves is the whole requirement,
 and it is met.
-**Outstanding, and still open as of 2026-08-19 — a play test does not cover this one.** The
+**Outstanding, and still open as of 2026-08-19 — a play test does not cover this one.** ~~The
 demonstration is to edit `stations[0].position` and restart: the logged grid anchor moves with
 it, and a second station added to the array appears at its offset, with nothing rebuilt. That
 is a deliberate content edit, not something looking at a running session performs, so the
-2026-08-19 pass leaves it exactly where it was. It is cheap to run and nobody has run it.
+2026-08-19 pass leaves it exactly where it was. It is cheap to run and nobody has run it.~~
+**Run and closed by the owner, 2026-08-20.** The content edit was made and the anchor followed
+it, which is the claim: the grid is a fact about the data and not about the build.
 
 ### S5d — The Nebula node *(taken out of order, at the owner's request)*
 The reserved `Nebula` slot in ADR-006 §1, built: a CPU-baked periodic field
@@ -609,15 +667,45 @@ debug key that triggers it.~~
 the link up, so the extrapolate-then-freeze path runs on a loopback session that never stalls
 on its own. Signed off with the rest of the play test that day.
 
+**And the other half of that gesture landed 2026-08-20: `ServerHost::InjectStall`.** F10 cuts
+a *client's feed* while the authority ticks on; this stops the authority while the link stays
+bound. The two are indistinguishable from a client and are not the same event, and until now
+only one of them could be produced on demand — so the tick-debt path, `TickOverrun` and the
+catch-up ticks were reachable only by a machine genuinely struggling, which a loopback session
+never is.
+
+The stall is real rather than simulated. The request is an atomic taken at the top of the next
+tick, and the sim thread then simply stops: it does not tick, does not poll the transport and
+does not send for the duration, which is what a hosed server actually looks like from outside.
+It sits *before* `Poll` rather than around `AdvanceTick` deliberately — a server in trouble is
+not one whose simulation is slow, it is one whose **loop** is not running — and the deadline
+arithmetic below it then meets a real debt and takes it seriously, so the overrun counter is
+reached by the same route a genuine hitch reaches it.
+
+**It is a host method and not a key, and that is the ADR-008 answer rather than a shortcut.**
+The client holds no reference to `ServerHost` — not even the one in its own process — so a
+debug key that reached the authority would have had to break exactly the separation hosting
+exists to prove. Whoever owns the host can stall it: `Main`, `selfTest`, or the suite. That
+suits the item's own framing, which said this only matters the day something *tests* the
+server stalling rather than the link going quiet.
+
+`AnInjectedStallStopsTheAuthorityAndIsCountedAsAnOverrun` is that day: a 400 ms stall — past
+the 250 ms debt ceiling on purpose, so the drop-the-debt branch is the one that runs — is
+served exactly once, counted as an overrun, and the host goes on ticking afterwards, because a
+stall is a hitch and not a death. `StallCount()` is what lets the test wait for the stall to
+have happened rather than sleep and hope.
+
 **Read the closure precisely, because F10 is not literally what this row asked for.** The
 criterion said an induced *400 ms sim* stall; F10 is an **indefinite, client-side feed cut**.
 From the client's own side those are the same event — no snapshot arrives, the view extrapolates
 to `MAX_EXTRAPOLATION_TICKS`, freezes, marks stale, and snaps clean on the next one — which is
 the whole of what this row was ever able to observe. What it does *not* reproduce is a server
 that stopped ticking, and it crosses the 250 ms extrapolation cap by how long the toggle is
-held rather than by a bounded stall. **A sim-side stall injector is still unwritten**, and the
+held rather than by a bounded stall. ~~**A sim-side stall injector is still unwritten**, and the
 day something needs to test the *authority* pausing rather than the feed going quiet, that is
-the gap to fill.
+the gap to fill.~~ **Filled 2026-08-20 by `ServerHost::InjectStall`** (S7's note carries it):
+the authority stops for a bounded interval while the link stays bound, which is the other
+event this row could never produce.
 
 Worth keeping the shape of this entry regardless: the item sat open for seven slices not
 because it was hard but because **nothing could produce the condition it described**, and an
@@ -959,7 +1047,7 @@ The slices M1 rests on are S5–S9. Their acceptance criteria, and how each stan
 | Validation parity: identical verdict and reason on quantised inputs | S9 | `GameLogicTests`, a six-case matrix run through both a server view and a client view, checked for being neither all-accepted nor all-refused | ✅ |
 | A refused order bounces rather than vanishing, local and remote alike | S9 | `NeuronClientTests` compares the two ghosts field by field at the same instant | ✅ |
 | **Motion visually smooth at 144 Hz render / 20 Hz snapshots** | S7 | a person, at a machine with a GPU | ✅ **owner-validated 2026-08-18** |
-| Induced 400 ms sim stall extrapolates, freezes, recovers clean | S7 | manual, with a debug key — **the key is F10** (S14), which is why this could finally be staged. It cuts the *feed*, not the sim: identical from the client's side, but a sim-side stall injector remains unwritten (see S7's note) | ✅ **owner-validated 2026-08-19**, with that caveat |
+| Induced 400 ms sim stall extrapolates, freezes, recovers clean | S7 | manual, with a debug key — **the key is F10** (S14), which is why this could finally be staged. It cuts the *feed*, not the sim: identical from the client's side. ~~a sim-side stall injector remains unwritten~~ **`ServerHost::InjectStall` landed 2026-08-20** and stalls the authority itself, tested rather than manual (see S7's note) | ✅ **owner-validated 2026-08-19**, and the caveat is closed |
 | Visual checkpoint vs `tactical-hud.png`; frame time < 2 ms at 41 instances | S5 | manual for the look; the budget is **measured** — the strip's RENDER row reads 1.10–1.62 ms on the 41-instance scene | ✅ **owner-validated 2026-08-19** |
 | **Rings occlude behind a Carrier hull; bars never do** | S8 | manual — `overlay-pass.png`'s rule; the depth-bias pair (`-100`, slope-scaled `-1`) was a guess and is now a measurement | ✅ **owner-validated 2026-08-18** |
 | Overlay marks are legible at fleet scale | S8, S9 | manual — **run once, 2026-08-18, and it failed**: ring thickness scaled with radius and the puck circumscribed the formation. Both fixed, and the second look was taken | ✅ **owner-validated 2026-08-19** |
@@ -1045,10 +1133,68 @@ trailing it, the Claw cupping backward, and the Wedge stepping a whole spacing o
 each fail exactly the tests named for them.
 
 **Outstanding:** the print's own open question — *what the puck should do when a station lands
-inside a gate or another fleet.* `puck-and-wheel.png` §6 lists it under OPEN and **it is still
+inside a gate or another fleet* (a formation **slot**, not a space station). ~~`puck-and-wheel.png` §6 lists it under OPEN and **it is still
 open as of 2026-08-19**: it is a design decision nobody has taken, not a build item, and
 nothing in this slice makes it worse, because stations that do not overlap each other can still
-overlap the world. ~~And the acceptance criterion that needs a person: **a fleet of twelve
+overlap the world.~~
+**Answered 2026-08-20 — owner ruling. It is a build item now, not a question.** The rule is
+**solve, then slide**: the formation is solved at the point the player asked for, and if any
+slot is blocked the *whole* formation moves to the nearest free placement, with the puck
+previewing that placement so nothing is a surprise at arrival. Free is
+`World::FindBerth`'s predicate exactly as written — the solved formation clears every hull on
+the grid by ADR-015's own clearance factor and lands inside no other group's final-leg anchor,
+reading the **pending** order queue as well as live groups, which is what makes two fleets
+ordered to the same spot on the same tick pick different placements with no reserved state to
+store or hash.
+
+Chosen over the two alternatives on the table for reasons worth keeping. **Refusing** the
+order with a `FootprintObstructed` reason would have been the cheapest and would have matched
+how Dock refuses an out-of-radius fleet — but the corpus has twice taken the other position
+(ADR-015 §5: "an order never wedges, it expires"; T1's parking ring: "undocking is never
+refused for clutter — a design position rather than an edge case"), and a Move refused for
+clutter would have made the corpus say two things about one situation. **Displacing only the
+blocked slots** would have kept the destination exact at the cost of the formation's shape — a
+Claw arriving as a dented Claw — and would have needed a per-slot search with its own
+determinism story, where sliding reuses one that is already tested.
+
+**Recorded as [ADR-026](../ADR/ADR-026-obstructed-footprints.md), 2026-08-20**, with three
+further rulings the build needs and the table row does not carry: the slide is computed **when
+a leg becomes active** rather than at submission, so a queued leg is judged against the world
+it will actually fly in; the candidate pattern is **two rings sized from the formation's own
+extent, fanned from the approach bearing**, so a blocked fleet stops short of the obstruction
+instead of overshooting past it; and the puck's preview is **advisory** — the client evaluates
+the hull half of the predicate and the ghost reconciles — because `OrderStateRecord` carries no
+leg anchors and buying them costs about two ships off a cap whose margin is one.
+
+ADR-005 §3a and ADR-015 §5 both named this open and both now point at ADR-026, so the corpus
+no longer disagrees with itself.
+
+**The sim half is built, 2026-08-20.** `World::FindClearPlacement` is the search and
+`World::IsPlacementFree` is the predicate — extracted from `FindBerth` rather than copied, so
+ADR-015's clearance factor has one reader and not two. `ApplyLeg` slides on **first activation
+only**, keyed on `legDeadlineTick == 0`, so a casualty re-solve never moves a fleet's
+destination under it mid-flight. Three tests: an obstructed destination slides and the fleet
+**arrives**, stopping short of the blocker on the side it approached from; a destination with
+all twenty-four candidates taken falls back to flying at the asked point and parking adjacent;
+and two fleets sent to one point end up in different places.
+`AnOccupiedDestinationEndsParkedAdjacentNotInside` became the second of those — it pinned
+exactly the behaviour this ADR demotes to the fallback.
+
+**The build found two rules the design session missed**, both by existing tests going red
+rather than by review, and both now recorded as ADR-026 §2a and §2b. A ship **under orders** is
+traffic and does not block a destination — without that, two fleets told to swap places both
+slide, each because the other is standing on its destination *now*, which is the one case
+ADR-015 exists to make work. And an **unplaced** group's anchor is a request rather than an
+intention — without that, two fleets sent to one point both slide off it, each deferring to a
+claim the other had not staked. `FindBerth` takes neither qualification and keeps its exact
+previous behaviour, because a berth is chosen for a fleet that is *arriving* and its parking
+orders really are still pending when the next fleet scans.
+
+The self test's replay hash came through the whole change **unchanged**
+(`909bf3b4962d0b6a`): a scenario with room in it never slides.
+
+**Still owed: the client's advisory preview** (ADR-026 §6). The puck draws the asked point
+today, so the fleet is placed correctly and the player does not see it coming. ~~And the acceptance criterion that needs a person: **a fleet of twelve
 arriving in Claw matching the print's footprint pattern.**~~ **That one closed with the play
 test.** The geometry was already measured and the separation exact; whether the crescent *reads*
 as the sheet's crescent at tactical zoom was the frame-not-a-number part, and it was looked at.
@@ -1597,9 +1743,9 @@ of 2026-08-19** and stays this document's own tail.
 
 **The two phases now have their own plans and their own progress**, and this document is not
 where to read it: the universe phase (ADR-016,
-[Universe-Build-Order.md](Universe-Build-Order.md)) has U1, U2, U3a, U3b's sim half and U5's
+[Universe-Build-Order.md](../Universe-Build-Order.md)) has U1, U2, U3a, U3b's sim half and U5's
 pure half built; the station phase (ADR-017,
-[Station-Build-Order.md](Station-Build-Order.md)) has all of T1 and T2's identity cluster.
+[Station-Build-Order.md](../Station-Build-Order.md)) has all of T1 and T2's identity cluster.
 Both plans carry a **Built** line per landed slice, which is where the detail lives.
 
 **Two changes did land inside this document's territory, and are recorded here because
@@ -1690,9 +1836,13 @@ are synthesised placeholders** — a hum and a blip — and exist so the graph, 
 listener can be heard working; they are the first thing a sound designer replaces, and only
 `SoundBank.json` changes when they are.
 
-**Outstanding:** the manual half, which is all of it that matters — panning moving the audio
+**Outstanding:** ~~the manual half, which is all of it that matters — panning moving the audio
 frame, zooming out attenuating, and whether the engine bed is pleasant rather than merely
-present. Nobody has heard this yet.
+present. Nobody has heard this yet.~~
+**Heard and signed off by the owner, 2026-08-20.** The listening pass is S15's real acceptance
+and it has now happened, which closes the slice: the numbers said the frame moves and the
+distance curve attenuates, and a person has confirmed both do so audibly. The two WAVs remain
+synthesised placeholders — that was never this item, and replacing them is content work.
 
 ---
 

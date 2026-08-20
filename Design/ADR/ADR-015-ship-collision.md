@@ -5,6 +5,9 @@
 **Supersedes:** ADR-005 §2's "no inter-ship avoidance in MVP" — the scope that clause bought
 is spent. It does **not** close the corpus's "obstructed footprint" open item (ADR-005 §3a);
 §5 below says exactly how much of it this touches.
+**Extended by:** [ADR-026](ADR-026-obstructed-footprints.md) (2026-08-20), which closes that
+item — §5's occupied-destination outcome is kept and **demoted to the fallback**, reached only
+when a fleet has nowhere free to slide to.
 
 ## Context
 
@@ -85,10 +88,12 @@ problem, not a physics one.
 5. **What this deliberately does not do, so nobody mistakes it for covered:**
    - **No pathfinding.** Deflection is local: a wall of parked hulls can still brake a ship
      to a stop short of its station. The leg then ends by its own deadline (ADR-005 §2's
-     straggler rule, unchanged) — an order never wedges, it expires. The "obstructed
+     straggler rule, unchanged) — an order never wedges, it expires. ~~The "obstructed
      footprint" corpus item — stations solved inside a station's or another fleet's space —
-     remains open; what changed is the failure mode: the ship now parks at contact range
-     instead of interpenetrating.
+     remains open;~~ **closed 2026-08-20 by [ADR-026](ADR-026-obstructed-footprints.md):** such
+     a formation now slides whole to the nearest free placement, and this outcome is what
+     happens when there is nowhere to slide to. What changed here is the failure mode: the ship
+     parks at contact range instead of interpenetrating.
    - **No contact damage, no momentum.** Combat will decide what a collision *costs*; this
      decides only that it cannot be occupied space.
    - **No replication change.** Positions were always on the wire; they simply stopped
@@ -140,8 +145,10 @@ the authored radius clears by more than ~111 m, because the ring is 87 % full by
   interpenetrate; still arrive).
 - Arrival semantics kept one asterisk: a target with a hull parked on it is unreachable, and
   the ship parks adjacent while the leg expires by deadline — the designed straggler outcome,
-  now reachable by geometry as well as by speed. The fix for *placing* stations somewhere
-  reachable is the still-open obstructed-footprint item.
+  now reachable by geometry as well as by speed. ~~The fix for *placing* stations somewhere
+  reachable is the still-open obstructed-footprint item.~~ **That fix is
+  [ADR-026](ADR-026-obstructed-footprints.md), 2026-08-20**, and this asterisk is now the
+  behaviour of last resort rather than the behaviour.
 - `GroupAdvance`'s arrival check reads positions after the previous tick's separation, so a
   formation "arrived" is a formation genuinely parked clear — the spacing table's ≥ 4-radius
   rule is what guarantees those two claims agree, and the table test now enforces it.

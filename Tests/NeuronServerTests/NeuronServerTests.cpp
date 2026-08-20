@@ -284,6 +284,55 @@ public:
     Assert::AreEqual(ticks, host.TickCount());
     Assert::AreEqual(simulation.LastTick(), host.TickCount());
   }
+
+  /*
+   * The authority stops, and says so (S7's open item).
+   *
+   * What this pins is the difference the client's F10 cannot make: F10 cuts a
+   * client's feed while the server ticks on, and this stops the server while
+   * the link stays bound. The two look identical from a client and are not the
+   * same event, and until the injector existed only one of them could be
+   * produced on demand.
+   *
+   * The assertions are about the loop, not about wall-clock precision: a
+   * shared runner is not a real-time system. A stall longer than
+   * `MAX_TICK_DEBT_MS` must be *noticed* -- counted as an overrun and the debt
+   * dropped rather than sprinted through -- and the host must go on ticking
+   * afterwards, because a stall is a hitch and not a death.
+   */
+  TEST_METHOD(AnInjectedStallStopsTheAuthorityAndIsCountedAsAnOverrun)
+  {
+    CountingSimulation simulation;
+    ServerHost host;
+    ServerConfig config;
+    config.port = 0;
+    Assert::IsTrue(host.Start(config, simulation));
+
+    // Long enough to be unmistakable and to exceed the 250 ms debt ceiling, so
+    // the drop-the-debt branch is the one that runs.
+    constexpr std::uint32_t STALL_MS = 400;
+    host.InjectStall(STALL_MS);
+
+    const std::int64_t start = Clock::Counter();
+    while (host.StallCount() == 0 && Clock::MillisecondsBetween(start, Clock::Counter()) < 5000.0)
+    {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    Assert::AreEqual<std::uint32_t>(1, host.StallCount(), L"the host never served the stall");
+
+    // Sampled the instant the stall was served, so what follows measures the
+    // loop after it rather than including it.
+    const std::uint32_t ticksAtStall = host.TickCount();
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    host.Stop();
+    host.Join();
+
+    Assert::IsTrue(host.OverrunCount() >= 1, L"a stall past the debt ceiling was not counted as an overrun");
+    Assert::IsTrue(host.TickCount() > ticksAtStall, L"the host did not resume ticking after the stall");
+    Assert::AreEqual<std::uint32_t>(1, host.StallCount(), L"one request produced more than one stall");
+    Assert::AreEqual(simulation.LastTick(), host.TickCount(), L"the simulation and the host disagree about the tick");
+  }
 };
 
 TEST_CLASS(ServerHandshakeTests)

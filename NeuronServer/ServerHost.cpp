@@ -410,6 +410,27 @@ void ServerHost::SimThread()
   {
     timer.WaitUntil(nextDeadline);
 
+    /*
+     * The injected stall, taken before anything else this tick does.
+     *
+     * Here rather than around the tick itself, because a server in trouble is
+     * not one whose simulation is slow -- it is one whose *loop* is not
+     * running. Nothing is polled, nothing is ticked and nothing is sent for
+     * the duration, and the deadline arithmetic below then sees the debt and
+     * takes it seriously, which is the whole point: the overrun counter and
+     * the catch-up path are reached by the same route a real hitch reaches
+     * them.
+     *
+     * Exchanged rather than read, so one request produces one stall.
+     */
+    if (const std::uint32_t stallMs = m_stallRequestMs.exchange(0, std::memory_order_relaxed); stallMs != 0)
+    {
+      NEURON_LOG_WARNING("injected stall: the authority stops for %u ms", stallMs);
+      const auto stallCounts = static_cast<std::int64_t>(static_cast<double>(frequency) * stallMs / 1000.0);
+      timer.WaitUntil(Clock::Counter() + stallCounts);
+      m_stalls.fetch_add(1, std::memory_order_relaxed);
+    }
+
     {
       NEURON_SPAN("Poll");
       PollTransport();

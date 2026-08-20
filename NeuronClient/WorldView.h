@@ -168,6 +168,48 @@ public:
                                                   std::span<RosterRow> _outRows) const = 0;
 
   /*
+   * What acting on this entity would mean, for this selection (ADR-017 2).
+   *
+   * The tactical gesture is "select ships, act on that thing", and the printed
+   * command row stays exactly as printed -- so the verb is not a button and the
+   * engine cannot pick it. It asks here about whatever is under the cursor and
+   * is told a kind to send, a word to draw and an anchor to fill in.
+   *
+   * Answering "nothing" is the common case and is not a failure: most entities
+   * afford nothing to most selections, and a client that treated absence as an
+   * error would have to know which entities are special.
+   *
+   * Defaulted rather than pure, because a game with no context verbs is a real
+   * thing and every client before this one was one.
+   */
+  [[nodiscard]] virtual bool ContextActionFor(std::uint16_t _entityId, std::span<const std::uint16_t> _selectedIds,
+                                              ContextAction& _outAction) const
+  {
+    (void)_entityId;
+    (void)_selectedIds;
+    (void)_outAction;
+    return false;
+  }
+
+  /*
+   * The player's ships that are not in the scene, by where they are
+   * (ADR-017 1).
+   *
+   * Docked ships despawn: they are a roster the authority keeps, not hulls with
+   * positions, so nothing the engine has can list them. This is the one call
+   * that can, and like `BuildRoster` it is the *game* that aggregates -- which
+   * place, what to call it, and which ships count as the player's are all
+   * questions the engine must not answer.
+   *
+   * Returns how many blocks were written, never more than the span holds.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildDockedBlocks(std::span<DockedBlock> _outBlocks) const
+  {
+    (void)_outBlocks;
+    return 0;
+  }
+
+  /*
    * What the authority has decided about orders already sent.
    *
    * Read out of the newest snapshot, which is the game's to parse. The client

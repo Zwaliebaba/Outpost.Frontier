@@ -19,6 +19,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="ApproachChain.cpp" />
     <ClCompile Include="AudioDevice.cpp" />
     <ClCompile Include="AudioListener.cpp" />
     <ClCompile Include="ClearColour.cpp" />
@@ -55,6 +56,7 @@
     <ClCompile Include="WavClip.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="ApproachChain.h" />
     <ClInclude Include="AudioDevice.h" />
     <ClInclude Include="AudioListener.h" />
     <ClInclude Include="DirectXHelper.h" />

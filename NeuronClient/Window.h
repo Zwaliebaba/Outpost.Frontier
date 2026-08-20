@@ -56,6 +56,27 @@ public:
   /// survive, because they are state rather than events.
   [[nodiscard]] InputFrame ConsumeInput() noexcept;
 
+  /*
+   * Borderless fullscreen, at runtime (S1's open item).
+   *
+   * The mode used to be read once at `Create` and never again, while Alt+Enter
+   * was swallowed and did nothing -- so the one gesture every player tries had
+   * a handler whose whole job was to stop DXGI reacting to it. It toggles now,
+   * and `Create` routes its own `borderlessFullscreen` through this same
+   * function so the two paths cannot drift into two different fullscreens.
+   *
+   * Borderless means the monitor the window is *on*, found at the moment of the
+   * toggle: a window dragged to the second screen goes fullscreen there. Coming
+   * back restores the saved placement rather than a remembered width and
+   * height, so a maximised window returns maximised.
+   *
+   * The swapchain is not touched here. The style change makes Windows send
+   * `WM_SIZE`, which is the resize path the frame loop already owns -- one
+   * place that resizes back buffers, not two.
+   */
+  void SetBorderlessFullscreen(bool _fullscreen) noexcept;
+  [[nodiscard]] bool BorderlessFullscreen() const noexcept { return m_borderlessFullscreen; }
+
   [[nodiscard]] HWND Handle() const noexcept { return m_handle; }
   [[nodiscard]] std::uint32_t Width() const noexcept { return m_width; }
   [[nodiscard]] std::uint32_t Height() const noexcept { return m_height; }
@@ -83,6 +104,12 @@ private:
 
   bool m_closeRequested = false;
   bool m_resized = false;
+  bool m_borderlessFullscreen = false;
+
+  /// Where the window was before it went fullscreen. A placement rather than a
+  /// rect because it carries the maximised/restored state as well as the box,
+  /// and losing that is how a maximised window comes back merely large.
+  WINDOWPLACEMENT m_windowedPlacement{};
   bool m_minimised = false;
   bool m_classRegistered = false;
 };

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Formation.h" // `FormationStation`: the placement searches speak in solved stations.
 #include "Ids.h"
 #include "Orders.h"
 #include "SiteField.h"
@@ -560,6 +561,37 @@ public:
                                const DirectX::XMFLOAT2& _undockPointMetres, DirectX::XMFLOAT2& _outBerthMetres,
                                float& _outFacingRadians) const;
 
+  /*
+   * Where this fleet can actually form up, given where it was asked to
+   * (ADR-026 -- **solve, then slide**).
+   *
+   * The point the player named is tried **first**, so a destination with room
+   * in it never moves and this costs one predicate evaluation. If the solved
+   * formation lands in a hull, a gate or another fleet's intention, the *whole*
+   * formation slides to the nearest free placement: shape and facing are
+   * preserved and only the anchor moves. A dented Claw is not what the player
+   * composed.
+   *
+   * The candidate pattern is the parking ring's shape and not its numbers.
+   * `FindBerth` fans around a *station*, at radii a station's doorway
+   * justifies; this fans around a *player's click*, at radii derived from the
+   * formation's own extent -- what "near enough to where I pointed" means
+   * scales with the fleet, and one number cannot serve a three-Interceptor wing
+   * and a sixty-ship line.
+   *
+   * Bearings fan from `_approachBearingRadians`, the direction the fleet is
+   * coming from, so a fleet blocked by something in its path stops **short** of
+   * it. Arriving beyond the obstruction reads as the fleet ignoring the order.
+   *
+   * False means all 24 candidates are taken, and it is **not** a refusal: the
+   * caller flies to the asked point anyway and ADR-015 parks the fleet at
+   * contact range while the leg expires by its deadline (ADR-026 §4). An order
+   * never wedges, and it is never bounced for clutter.
+   */
+  [[nodiscard]] bool FindClearPlacement(std::span<const ShipId> _ships, FormationId _formation, float _facingRadians,
+                                        const DirectX::XMFLOAT2& _askedMetres, float _approachBearingRadians,
+                                        std::uint32_t _ignoreServerOrderId, DirectX::XMFLOAT2& _outAnchorMetres) const;
+
   /// Is this ship still under undock protection at `_tick` (ADR-017 §5)? False
   /// for an unknown ship, which is the same answer as an unprotected one --
   /// the question is about immunity, not existence.
@@ -781,6 +813,27 @@ private:
   /// Solves the current leg's stations and writes them into the members'
   /// guidance. The one place a group touches a ship.
   void ApplyLeg(OrderGroup& _group);
+
+  /*
+   * The freedom test both placement searches share (ADR-026 §2). See its
+   * definition in `WorldOrders.cpp` for what "free" means and why the second
+   * clause reads the pending queue as well as the live groups.
+   */
+  [[nodiscard]] bool IsPlacementFree(std::span<const FormationStation> _stations, HullClass (*_hullClassOf)(ShipId, void*),
+                                     void* _context, std::span<const ShipId> _exclude,
+                                     const DirectX::XMFLOAT2& _candidateMetres, float _boundingMetres,
+                                     std::uint32_t _ignoreServerOrderId, bool _forMovePlacement) const noexcept;
+
+  /*
+   * Is this ship going somewhere? (ADR-026 §2.)
+   *
+   * Membership of a live group or a pending order, **not** `GuidanceMode` --
+   * two fleets ordered to swap places are accepted in the same batch, so at
+   * the moment the first is placed the second has not been given its guidance
+   * yet and still reads as idle. Orders are the thing that is already true by
+   * then.
+   */
+  [[nodiscard]] bool ShipIsUnderOrders(ShipId _shipId) const noexcept;
 
   /// Both `SubmitOrder` and `SubmitSystemOrder`, which differ by one flag and
   /// must not differ by anything else -- a system order that took a shortcut

@@ -370,13 +370,23 @@ Bay, and half of that arrangement — cargo on the record with nowhere at the st
 — would be worse than none. It is written into `WorldMining.cpp`'s own file comment so nobody
 finds it by surprise.
 
+**It merged with ADR-026's placement work, and the interaction is a gift rather than a
+collision.** "Solve, then slide" landed on `main` while this slice was in flight: a leg whose
+solved formation lands in something now slides the *whole* shape to the nearest free anchor. A
+Mine order's leg is the cluster it was sent to, so a wing ordered onto rocks another fleet is
+already working forms up beside them instead of inside them — for free, with nothing in this
+slice aware of it. The line worth writing down is *why* it is free: the Mine branch puts the
+cluster in `legs[0]` and lets the ordinary leg machinery have it, rather than writing guidance
+directly, and that is what left room for a rule nobody had written yet.
+
 **What was verified, and how.** All of GameLogic compiles clean under **clang 18 on Linux** —
 the cross-build route ADR-015's collision work was first proven on — with **clang-tidy clean**
 against the repository config, and the seven pre-compile source guards (the clock, the RNG,
 the `XM*Est` ban, `UniversePos`, `UniverseDef`, R2's prefixes and suffixes, repo-wide file-name
 uniqueness, and both project registries) run by hand and green. **The whole `GameLogicTests`
 suite was compiled and run** through a `CppUnitTest` shim and the DirectXMath subset GameLogic
-names — 297 methods across eight files, **0 failures**, including the 38 new ones. Three
+names — **301 methods across eight files, 0 failures**, including the 38 new ones and
+ADR-026's own, re-run after merging `main`. Three
 existing `OrderTests` methods needed updating and every one of them is the suite doing its job:
 the kind count is seven, a built kind refused on a world with no field says `NotAtSite`, and
 the check-order string in the schema text moved because two checks were inserted into it.

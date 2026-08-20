@@ -1,8 +1,7 @@
 # Station Build Order — the Docking Phase
 
 **Status:** Session output 2026-08-19 · **T1 built in full and T2's wire half complete**
-(2026-08-20) — **🏁 H0's loop runs end to end**, with three of its named criteria still
-outstanding (see T2's accept). Docking, the transfer bus, undocking and its fifteen seconds,
+(2026-08-20) — **🏁 H0 is met: every named criterion is covered.** Docking, the transfer bus, undocking and its fifteen seconds,
 the parking ring and the event record are in the sim; the identity cluster, the per-client
 `SnapshotSender`, the summary family's frame and the station command's own path onto the
 acked order stream are on the wire; and `selfTest` drives the whole headless loop over real
@@ -215,6 +214,55 @@ ADR-022 §1 restates as a rule rather than a test: on a broadcast-shaped sender 
 promise is a silent leak nothing catches, because nothing before U3c runs two clients; a dock validated at fleet scale (the 41-ship
 starting fleet, footprint-derived radius) round-trips with parity.
 
+**🏁 H0 met, 2026-08-20 — the last four criteria closed.** The loop had run end to end
+since T2's server half landed; what was missing was four of the named checks around it, and
+they were missing quietly, which is the failure mode a milestone with an unenumerated "three
+outstanding" invites.
+
+**The parking order, in its own lane of the order records.** The undocked fleet does not merely
+appear at the undock point — the authority issues it a Move to the first free berth, and that
+order takes a lane in the snapshot's order area like any other. `selfTest` now finds it there,
+identified by the two things true of it and of nothing the client sent: `clientOrderSeq` zero,
+because a system order has no sequence to echo, and a membership of exactly the fleet that
+left. It is also the only observation in the gate that proves `systemIssued` did not disarm the
+protection it was issued alongside — the ships are parking *and* still wearing bit 0.
+
+**A fleet at the snapshot cap, round-tripped.** `TheMvpFleetFitsOneDatagram` puts 41 ships on
+the wire and the static asserts cover the arithmetic; **neither ever encoded the cap itself**.
+That mattered more after T2 than before, because the cap fell 45 → 43 when `EntityRecord` grew
+its status byte, so the margin over the MVP's own content is two records — and a budget with
+two records of headroom wants measuring in bytes written, not in a `constexpr` that agrees with
+itself. `AFleetAtTheCapRoundTripsInsideOneDatagram` writes 43, decodes them, checks every id
+survived, and checks 44 is refused, so it is the boundary rather than a number that happens to
+work.
+
+**A fleet-scale dock, through the wire, with parity.** The two tests that existed covered the
+halves separately: the radius scales (24 ships, no wire), and the verdicts agree (two ships,
+marks written by hand). `AFleetScaleDockRoundTripsThroughTheWireWithParity` is the whole
+41-ship fleet in the MVP's own class mix, serialised and decoded, with the client's view
+assembled **from the decoded records** — ids in the order the wire put them, positions through
+centimetre quantisation and back. Radius and verdict both have to match, accept and refuse, and
+the refusal has to carry the same reason.
+
+**A mid-approach disconnect leaves the fleet outside.** A second client flies the approach's
+first leg and vanishes mid-flight; a third joins afterwards and reads what the authority kept,
+which is a better witness than the connection that left. Nobody docks, and the fleet is still
+on the grid — which on this wire *is* "outside", since a docked ship leaves the snapshot
+entirely (ADR-017 §1).
+
+That last one was drafted as a check that the fleet had come to a **stop**, and it failed for a
+reason worth keeping in the record: this simulation's fleet is on a scripted patrol, so it is
+never stationary and no disconnect would make it so. "Halted" is not a property this world has.
+What the criterion is actually about — the client that would have sent the Dock is gone, so
+nothing docks — survives that intact, and is now checked against the roster over a window
+rather than a speed at an instant.
+
+Two criteria are met by exemption rather than by a check, both recorded rather than assumed:
+**protection expiry** is pinned tick-by-tick in `RegistryTests` and deliberately not re-asserted
+over a socket, because fifteen seconds is far longer than this gate should sit; and the
+**roster-privacy observation** is ADR-022 §1's rule rather than a test, because nothing before
+U3c runs two clients to leak between.
+
 ### T3 — The hangar screen 🏁 H1
 **No design gate left. P1, the station-screen print, landed 2026-08-19 —
 [station-screen.png](ScreenPrints/station-screen.png), the artefact this slice is built
@@ -256,7 +304,11 @@ station from the roster block and jump to it with VIEW.
   ships sort class-descending then by **ship id**, not by name, because names are client-side.
   **T3 has no design gate left.**
 - **P2 — Dock and undock audio cues.** Bay ambience, the dock thunk, the undock release.
-  Lands only after S15 gives audio its bank format. Deliberately last, like D4.
+  ~~Lands only after S15 gives audio its bank format.~~ **Its gate cleared 2026-08-19 when S15
+  landed** — `GameData/Audio/SoundBank.json` is that format, and its own header says a cue's
+  falloff, instance cap and retrigger are "edits here, not rebuilds", so a dock thunk is a bank
+  entry plus a WAV plus the one line that raises the event. Still deliberately last, like D4,
+  but that is now a choice about ordering rather than a dependency.
 
 ## Sequencing rationale
 

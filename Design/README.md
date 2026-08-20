@@ -24,7 +24,9 @@ owner's scaling-baseline decisions over the five-lens review — the target is a
 shard on a persistent service** — amending ADR-004/005/006/007/008/012/013/014/016/017
 (each carries the note), adding U3c (the second-commander gate) and three named design
 deliverables (the topology ADR, the interest/delta ADR, the UI-architecture ADR), and
-extending the Risk Register with R19–R21; **ADR-021** completes ADR-015 §2's avoidance with the
+extending the Risk Register with R19–R21; **ADR-026** closes the corpus's oldest open item, the
+obstructed footprint ADR-005 §3a named before the MVP and ADR-015 §5 left standing — a blocked
+formation slides whole rather than being refused or deformed; **ADR-021** completes ADR-015 §2's avoidance with the
 limb the *other* ship applies — an idle hull steps out of a mover's lane and flies back to its
 berth — and reads ADR-005's `GuidanceMode::Hold` as "stay where you were put" rather than
 "stay where you are"; **ADR-022** delivers the interest/delta deliverable and amends ADR-003 §1
@@ -77,6 +79,7 @@ and delta, this is why.
 | [023](ADR/ADR-023-remote-play.md) | Remote play *(deliverable A22 — blocks first remote deployment)* | **A two-pin key compiled into the build, never a config value**; `Listen`/`Connect` take descriptors and the validation policy is *derived from the address*, so "no validation off-loopback" is unrepresentable rather than discouraged; the token step lives in the front door and the game never sees it; four abuse rules, each closing something in the tree today |
 | [024](ADR/ADR-024-mining-economy.md) | Mining economy *(economy design session — **accepted** 2026-08-20, nine owner rulings recorded across two review rounds)* | **Three ores across 2–3 `Site` anchors per system** (ADR-016 §3's reserved kind cashed in) that **re-form on a daily epoch** — bearing on an authored orbit ring, warp-in, layout, pools — banded by the existing security value with hazards staged pre/post-combat; a fleet `Mine` order with deterministic cycles and a durable site ledger (worlds forget, ledgers do not); every economy number in hash-guarded content (`Economy.json`, ADR-012 §D13), movement staying compiled; per-station Bays, manual transfer, deterministic ME refining with communal station-tier upgrades — Nova-Steel refinable only outside High-Sec; **persistence becomes due**: an engine-owned journal + snapshot at the universe layer, its ADR a named deliverable blocking implementation |
 | [025](ADR/ADR-025-persistence.md) | Persistence *(deliverable D-P1 — **accepted** 2026-08-20; clears E2's gate)* | **An engine-owned append-only journal plus a periodic snapshot**, serialised on Sim and written on its own lane; the durable line is **identity and location, never intention** — a fleet reloads at rest with an empty queue; records are **outcomes, not commands**, so the journal is explicitly *not* the replay log; a separate **`DurableHash()`** proves the reload because the replay hash folds transient state; the load guards on `universeHash` **only**, so retuning balance never invalidates a shard; a **named one-second** durability window on hard kill and nothing on a clean stop; SQL staged to the service layer |
+| [026](ADR/ADR-026-obstructed-footprints.md) | Obstructed footprints *(closes the corpus's oldest open item — **accepted** 2026-08-20, four owner rulings)* | **Solve, then slide**: a formation whose solved stations land in a hull, a gate or another fleet moves **whole** to the nearest free placement, shape and facing preserved — never deformed, never refused. Free is `FindBerth`'s predicate exactly (ADR-015's clearance factor + no other group's final-leg anchor, **pending orders included**), extracted so there is one copy and two callers. Two rings sized from the formation's own extent, fanned from the **approach** bearing so a blocked fleet stops short rather than overshooting; all 24 taken means fly to the asked point anyway, which **demotes ADR-015 §5's occupied-destination outcome to the fallback**. Placed when the leg becomes **active**, not at submission, so a queued leg is judged against the world it will actually fly in. The puck's preview is **advisory and allowed to differ** — the one such place in the game, safe because §4 means nothing can bounce — since `OrderStateRecord` carries no leg anchors and buying them costs ~2 ships off a cap with margin one |
 
 ## Coding standard
 
@@ -97,9 +100,11 @@ moves between the trees without a rename pass. Three things it changed in these 
   time model, frame/tick anatomy, deliberate omissions, corpus alignment.
 - [Dependency-Map.md](Dependency-Map.md) — allowed edges, per-project public surface
   (header-level), the session's dependency rulings.
-- [MVP-Build-Order.md](MVP-Build-Order.md) — S1–S15 vertical slices (S2b, S5b, S5c and S5d were
-  added by later directives) with acceptance criteria and a **Built** line per landed slice;
-  milestones M0 (heartbeat) / M1 (first commanded fleet) / MVP.
+- [Archive/MVP-Build-Order.md](Archive/MVP-Build-Order.md) — **closed and archived 2026-08-20.**
+  S1–S15 vertical slices (S2b, S5b, S5c and S5d were added by later directives) with
+  acceptance criteria and a **Built** line per landed slice; milestones M0 (heartbeat) / M1
+  (first commanded fleet) / MVP. Every slice built, every criterion ✅, every swept open item
+  closed — it is kept as the record of what each slice put in the tree, not as a plan.
 - [Universe-Build-Order.md](Universe-Build-Order.md) — the post-MVP universe phase: U1–U6
   slices delivering ADR-016 (bake, anchors, warp, gates, strategic map, system view), plus
   the named content deliverables (system-view print, `Gate.obj`); milestones W0 (first warp)
@@ -109,8 +114,8 @@ moves between the trees without a rename pass. Three things it changed in these 
   work.
 - [Station-Build-Order.md](Station-Build-Order.md) — the docking phase: T1–T3 slices
   delivering ADR-017 (roster + transfer bus in the sim, the wire and tactical surfaces,
-  the hangar screen), interleaved **after U2, before U3a**; milestones H0 (the headless
-  loop) / H1 (the hangar loop); deliverables P1 (station-screen print, **delivered** — its
+  the hangar screen), interleaved **after U2, before U3a**; milestones **H0 (the headless
+  loop) — met 2026-08-20, every named criterion covered** / H1 (the hangar loop); deliverables P1 (station-screen print, **delivered** — its
   open questions answered as ADR-017 §6a) and P2 (dock/undock audio, gated on S15). **T1 is
   built in all three halves, and T2 has its identity cluster on the wire and its per-client
   sender**; T2's client half is not built, and T3 has no design gate left.
@@ -123,13 +128,20 @@ moves between the trees without a rename pass. Three things it changed in these 
   REFINERY prints (block E5), icons, the site field's visual treatment, and audio last.
   **Nothing is built yet.** It splits the E1 the ADR sketched and moves the screens out of E4,
   both recorded in its sequencing rationale.
+- [Archive/](Archive/) — corpus documents that are **finished rather than wrong**. A plan moves
+  here when every slice in it is built and every open item it tracked is closed; it stays
+  readable and linked because it is the record of what was built and why, and it leaves
+  `Design/` so that the build orders still at the top level are the live ones. Nothing here is
+  the only home of an owed item — anything still outstanding is rehomed to a live document
+  before its plan is archived.
 - [Risk-Register.md](Risk-Register.md) — R1–R26 with designed-in mitigations + standing spikes.
   R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised and
   closed**, and R23 — a gating test that flakes — is the one question that did not close
   with it. **R24 and R25 arrived with ADR-024** — the economy's two: faucet-without-sink
   inflation, and High-Sec site contention — and **R26 with ADR-025**, the one persistence
   brings: a torn journal or a refused load taking a shard's state with it.
-- [Scaling-Readiness-Review.md](Scaling-Readiness-Review.md) — five-lens review of the MVP
+- [Archive/Scaling-Readiness-Review.md](Archive/Scaling-Readiness-Review.md) — **archived
+  2026-08-20.** Five-lens review of the MVP
   and this corpus for scaling readiness (2026-08-19, **advisory**): consolidated findings
   (`UX-/NET-/CPP-/UI-/SIM-`), a decision list sequenced against the build orders, and the
   fourteen questions the owner answered the same day — **the answers are normative as
@@ -142,14 +154,16 @@ moves between the trees without a rename pass. Three things it changed in these 
   `StationRoster` addressed per viewer through the summary family's own frame — which is
   what U3b's client half, T2's roster privacy and U3c were all standing behind. **Five
   remain: A15, A16, A18, A20 and A25**, each landing with U3b, T2, U5 or U3c rather than
-  waiting on a decision.
+  waiting on a decision. The review moved to the archive once the register had absorbed all of
+  it: it decided nothing, and nothing it tracks is homed only there.
 
 ## Implementation state (2026-08-20)
 
 **Every MVP slice is in the tree: S1 through S14** (with the inserted S2b, S5b, S5c and S5d),
 green in CI, **and the post-MVP audio slice S15 with them**. The per-slice detail — what was
-built, and what a "done" slice still owes — lives in [MVP-Build-Order.md](MVP-Build-Order.md);
-it is not repeated here.
+built, and what a "done" slice still owed — lives in
+[Archive/MVP-Build-Order.md](Archive/MVP-Build-Order.md), closed and archived 2026-08-20; it is
+not repeated here.
 
 **The economy phase is designed, accepted, and its first two slices are in the tree
 (ADR-024, ADR-025, 2026-08-20).** A third design session settled mining and refining: three
@@ -220,7 +234,7 @@ gate in the station phase is now cleared** and what is left of it is screen work
 **Three things landed on 2026-08-20, none of them a slice.** R22 closed and the Debug leg went
 back to gating, leaving R23 behind it. The build stopped relying on a hand-maintained
 deployment: `Outpost.vcxproj` gained a `CopyGameData` target, so content and `Outpost.json`
-arrive beside the executable and a fresh clone can press F5 — the MVP-Build-Order note that
+arrive beside the executable and a fresh clone can press F5 — the build-order note that
 recorded that gap is closed. And the boot fleet was re-parked on the owner's call, closing the
 one item ADR-015 left open (see the ship-collision entry below). The next move is **A13**, the
 per-client `SnapshotSender`.
@@ -252,8 +266,8 @@ the client a second after connecting and left a live window showing nothing. 477
 green headless `selfTest` ran through it without noticing, because the suites that drive the
 same call pass and the race only bites at frame cadence. The fix reads the stats outside the
 lock, and exposed a second bug beside it: both send paths read `send->buffer.Length` after
-handing the buffer to msquic, which may free it inline. Both are in the tree; MVP-Build-Order
-carries the detail.
+handing the buffer to msquic, which may free it inline. Both are in the tree;
+[Archive/MVP-Build-Order.md](Archive/MVP-Build-Order.md) carries the detail.
 
 **Audio landed the same day (S15, ADR-011).** The XAudio2 graph — mastering voice, five
 submixes, pooled source voices — sits behind one pimpl the way msquic does, with four
@@ -347,8 +361,9 @@ tangential deflection inside Steering, and a fifth tick system (`Separate`) reso
 overlap positionally, with stations as immovable terrain. Eight `ShipContactTests` scenarios
 plus a converging-crowd replay test joined `GameLogicTests`; nothing on the wire changed. Two
 things worth knowing: a target with a hull parked on it now ends with the mover parked
-adjacent and the leg expiring by its deadline (the obstructed-footprint item stays open, only
-its failure mode improved), and the authored starting fleet carried a real 6 m overlap between
+adjacent and the leg expiring by its deadline (the obstructed-footprint item stayed open, only
+its failure mode improved — **closed 2026-08-20 by [ADR-026](ADR/ADR-026-obstructed-footprints.md)**,
+which makes that outcome the fallback rather than the rule), and the authored starting fleet carried a real 6 m overlap between
 the Carrier and Battleship wings' line ends that `Separate` now heals on tick 1 — **re-parked
 2026-08-20 on the owner's call**: the ring deals its slots widest-with-narrowest rather than in
 table order, which moves the tightest cross-wing pair from −5.9 m to +90.3 m and leaves ship
@@ -416,7 +431,7 @@ suite now stands at **650** — it was 593 before the economy phase, and the gro
 GameLogic's (`EconomyParseTests`, `UniverseSiteTests`' twelve, and E2's `MiningTests` with 38
 more that the gating toolchain has yet to count). GameLogic is
 where the growth is, and that is the universe, station and economy phases arriving: it has gone
-from 136 to 297 without a single one of those tests needing a device. Its
+from 136 to 301 without a single one of those tests needing a device. Its
 visible half — window open, swapchain presenting, heartbeat live — together with the four
 other criteria that need a GPU and a person (five minutes clean under the debug layer,
 PresentMon showing the flip model, a clean exit, and the 60-second tick cadence on an idle

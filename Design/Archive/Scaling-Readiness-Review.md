@@ -1,15 +1,22 @@
 # Scaling-Readiness Review — five lenses over the MVP and the design corpus
 
-**Status:** Review output 2026-08-19 · **advisory, not normative.** This document decides
-nothing: the ADRs remain the authority, and every recommendation below is a proposal for the
-owner to accept, amend, or decline. **Decided 2026-08-19:** the owner answered all fourteen
-questions the same day; the answers are recorded in
-[ADR-018](ADR/ADR-018-scaling-baseline.md), whose action register (A1–A26) supersedes the
-decision list below wherever they differ. **As of 2026-08-20 the register is the live record
-and this document is history:** twenty of the twenty-six actions are struck through — A11 only
-partly, since the sim's own ship ids stay `u16` until the delta cluster widens the record — and
-the six that are not (**A13, A15, A16, A18, A20, A25**) are each named against the slice that
-carries them. Read the register for status; read this for the reasoning that produced it. Headline answers: **MMO shard (hundreds of
+**Status: ARCHIVED, 2026-08-20.** Review output 2026-08-19 · **advisory, not normative — this
+document decided nothing.** The ADRs were the authority throughout, and every recommendation
+below was a proposal for the owner to accept, amend, or decline.
+
+**It did its whole job on the day it was written.** The owner answered all fourteen questions
+on 2026-08-19, and those answers are normative as
+[ADR-018](../ADR/ADR-018-scaling-baseline.md), whose action register **A1–A26 supersedes the
+decision list below wherever they differ**. Twenty-one of the twenty-six actions are struck
+through in that register; A11 is partly done by design, since the sim's own ship ids stay
+`u16` until the delta cluster widens the record ([ADR-022](../ADR/ADR-022-interest-and-delta.md));
+and the five still open (**A15, A16, A18, A20, A25**) are each parked against the slice that
+carries them — U3b, T2, U5 and U3c — rather than waiting on a decision.
+
+**So there is nothing here to close, and nothing here is the only home of an owed item.**
+Read [ADR-018](../ADR/ADR-018-scaling-baseline.md)'s register for status; read this for the
+reasoning that produced it, the file:line evidence behind each finding, and the five full
+reviews in Appendices A–E. Headline answers: **MMO shard (hundreds of
 commanders), persistent service**; two-client gate right after U3b; 1,024 stays normative;
 `PlayerId` now; **u32 ship ids everywhere, staged**; footprint-derived dock radius; worlds
 forget; strict behaviour gate; official service first (pinned key, Win11/Server 2022+
@@ -611,7 +618,7 @@ The MVP's UI layer is exactly what R9 prescribed and it held: pooled quads + tex
 
 ### Sound for scale — do not churn
 
-- **Text stays text until the pass; the HUD's words are asserted device-free** — this is what lets 263 client tests cover every future screen's content (NeuronClient/UiDrawList.h:9–31; ADR-006 §10a; MVP-Build-Order.md:960–965).
+- **Text stays text until the pass; the HUD's words are asserted device-free** — this is what lets 263 client tests cover every future screen's content (NeuronClient/UiDrawList.h:9–31; ADR-006 §10a; Archive/MVP-Build-Order.md, S11's HUD notes).
 - **Layout and hit-test in one place, chrome gets first refusal on the pointer** — the one convention that generalises to every widget (NeuronClient/CommandRow.h:22–29; ADR-006 §10b; ClientApp.cpp:361–387, 439–445).
 - **One Ui instance stream, oriented quad added as a class not a feature** — the pass vocabulary already expresses the map's links, lanes and arcs with no new GPU work (ADR-006 §8c; UiDrawList.h:98–111, 142–158; R9's own close-out, Risk-Register.md:23).
 - **The seam feeds all HUD vocabulary as data** — kinds, options, roster rows, reason text; the two-game-engine property survived six method additions and is the proven pattern for U/T screens (NeuronClient/WorldView.h; ADR-014 §2c; Dependency-Map.md:116).

@@ -184,4 +184,8 @@ much determinism to buy, at what float-handling cost.
   parity guarantee is unaffected: it is the same function, reached through an interface.
 - No avoidance/pathfinding in MVP: open-space plane, station-seeking only. Obstacle avoidance
   (the corpus's "obstructed footprint" open item) lands later inside Steering without
-  structural change.
+  structural change. **Both halves of that are now settled:** avoidance landed in
+  [ADR-015](ADR-015-ship-collision.md) and [ADR-021](ADR-021-ship-make-way.md), and the
+  obstructed-footprint item itself is closed by
+  [ADR-026](ADR-026-obstructed-footprints.md) — a solved formation that lands in something
+  slides whole to the nearest free placement, and an order still never wedges.

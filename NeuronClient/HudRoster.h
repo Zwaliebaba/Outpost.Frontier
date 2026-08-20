@@ -61,4 +61,37 @@ struct RosterRow
  */
 inline constexpr std::uint32_t MAX_ROSTER_ROWS = 16;
 
+/*
+ * One block of the player's ships that are somewhere the scene cannot show
+ * them (`station-screen.png`, ADR-017 1).
+ *
+ * A docked ship is not a hull with a position -- it is a row in a roster the
+ * authority keeps, so it is absent from the scene entirely and the panel that
+ * lists wings has nothing to list it as. This is the other list: a place, how
+ * many of yours are in it, and a way to address it.
+ *
+ * The engine draws a name, a count and a button, and learns nothing else. It
+ * does not know the place is a station, that being there is called *docked*, or
+ * that the button will one day open a hangar; a game on these libraries could
+ * mean a garrison, a hangar bay or a port with the same three fields and the
+ * same panel.
+ */
+struct DockedBlock
+{
+  /// What to draw. Points at storage the world view owns, like `RosterRow::name`.
+  const char* name = nullptr;
+
+  /// How many of the player's ships are there.
+  std::uint16_t shipCount = 0;
+
+  /// What a click hands back to the game -- the anchor the block is about. The
+  /// engine echoes it and never reads it.
+  std::uint16_t anchor = 0;
+};
+
+/// How many such blocks a client will ask for. One commander's ships can be
+/// spread over several stations at once, and a fleet spread over more than this
+/// wants the hangar screen rather than a longer list.
+inline constexpr std::uint32_t MAX_DOCKED_BLOCKS = 8;
+
 } // namespace Neuron

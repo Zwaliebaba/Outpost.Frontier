@@ -711,7 +711,125 @@ void ClientApp::UpdateOrders()
   }
   m_puck.Cancel();
 
+  // "Select ships, act on that thing" comes first, because the same gesture
+  // means both and only the game can tell them apart (ADR-017 2). A release
+  // over something that affords a verb is that verb; anywhere else it is the
+  // move it has always been.
+  if (BeginContextAction(sample, nowSeconds))
+  {
+    return;
+  }
+
   CommitOrder(sample, nowSeconds);
+}
+
+bool ClientApp::BeginContextAction(const PuckSample& _sample, double _nowSeconds)
+{
+  // What is under the cursor, by the same pick the selection uses -- so the
+  // thing acted on is the thing that would have been clicked, and a player
+  // cannot act on something they could not have selected.
+  const std::uint16_t hit = PickPoint(m_scene.entities, _sample.targetMetres, INVALID_ENTITY_ID);
+  if (hit == INVALID_ENTITY_ID)
+  {
+    return false;
+  }
+
+  ContextAction action;
+  if (!m_worldView->ContextActionFor(hit, m_selection.Ids(), action) || !action.available)
+  {
+    return false;
+  }
+
+  if (!m_approach.Begin(action, m_selection.Ids()))
+  {
+    return false; // More ships than one order can carry; the move stands instead.
+  }
+
+  /*
+   * The approach leg: a move at the thing itself.
+   *
+   * Not at a computed perimeter point, and that is worth the sentence. The
+   * authority already refuses to put a formation inside a hull and slides it to
+   * the nearest free placement (ADR-026), so aiming at the station *is* aiming
+   * at its perimeter -- and a perimeter this side computed would be a second
+   * piece of geometry to keep in step with the first.
+   */
+  PuckSample approach = _sample;
+  for (const SceneEntity& entity : m_scene.entities)
+  {
+    if (entity.id == hit)
+    {
+      approach.targetMetres = entity.planeMetres;
+      break;
+    }
+  }
+  approach.facingRadians = TravelFacingRadians(m_scene.entities, m_selection.Ids(), approach.targetMetres, 0.0f);
+  approach.queued = false; // A chained verb replaces the plan; it does not join one.
+
+  const std::uint32_t seq = m_nextOrderSeq;
+  CommitOrder(approach, _nowSeconds);
+  m_approach.NoteApproachSent(seq);
+
+  NEURON_LOG_INFO("%s: approaching entity %u", action.label, hit);
+  return true;
+}
+
+void ClientApp::AdvanceApproach(double _nowSeconds)
+{
+  if (!m_approach.Active())
+  {
+    return;
+  }
+
+  // A member that despawned is one the chained order can no longer name, and
+  // the authority would refuse the whole thing for it.
+  m_liveIds.clear();
+  for (const SceneEntity& entity : m_scene.entities)
+  {
+    m_liveIds.push_back(entity.id);
+  }
+  m_approach.NoteWorld(m_liveIds);
+  if (!m_approach.Active())
+  {
+    NEURON_LOG_INFO("approach cancelled: a member left the world");
+    return;
+  }
+
+  /*
+   * The readiness test, and it is not a distance.
+   *
+   * The order is composed exactly as it will be sent and handed to the game's
+   * own pre-check. While that refuses, the fleet is still on its way; the frame
+   * it accepts, the verb goes. There is no second definition of "close enough"
+   * on this side to drift from the authority's, which is ADR-014 3's parity
+   * rule earning its keep twice.
+   */
+  const std::span<const std::uint16_t> ships = m_approach.Ships();
+  OrderIntent intent;
+  intent.kind = m_approach.Kind();
+  intent.anchor = m_approach.Anchor();
+  intent.entityIds = ships.data();
+  intent.entityCount = static_cast<std::uint32_t>(ships.size());
+  intent.orderSeq = m_nextOrderSeq;
+
+  if (!m_worldView->PreCheck(intent).accepted)
+  {
+    return; // Still flying.
+  }
+
+  ++m_nextOrderSeq;
+  std::array<std::uint8_t, MAX_DATAGRAM_BYTES> payload{};
+  ByteWriter writer{payload};
+  if (!m_worldView->EncodeOrder(intent, writer) || !writer.Ok() || !m_connection.SendOrder(writer.Written()))
+  {
+    NEURON_LOG_WARNING("the chained order could not be sent");
+    m_approach.Cancel();
+    return;
+  }
+
+  NEURON_LOG_INFO("chained order %u sent: the fleet is in range", intent.orderSeq);
+  m_approach.Cancel();
+  (void)_nowSeconds;
 }
 
 void ClientApp::CommitOrder(const PuckSample& _sample, double _nowSeconds)
