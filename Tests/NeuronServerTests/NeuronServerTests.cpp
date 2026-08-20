@@ -56,9 +56,10 @@ public:
    * `RefuseSnapshots` makes every write fail the way a grid past the datagram
    * cap does -- the loud refusal ADR-022 §6 keeps until the delta slice.
    */
-  [[nodiscard]] bool WriteSnapshot(PlayerId _viewer, std::uint32_t _tick, ByteWriter& _writer) override
+  [[nodiscard]] bool WriteSnapshot(PlayerId _viewer, std::uint16_t _grid, std::uint32_t _tick, ByteWriter& _writer) override
   {
     m_lastViewer.store(_viewer, std::memory_order_relaxed);
+    m_lastGrid.store(_grid, std::memory_order_relaxed);
     if (m_refuseSnapshots.load(std::memory_order_relaxed))
     {
       return false;
@@ -67,9 +68,29 @@ public:
     _writer.WriteUInt32(SNAPSHOT_MARKER);
     _writer.WriteUInt32(m_lastAcceptedSeq.load(std::memory_order_relaxed));
     _writer.WriteUInt32(_viewer);
+    _writer.WriteUInt32(_grid);
     ++m_snapshotsWritten;
     return _writer.Ok();
   }
+
+  /*
+   * One grid is viewable and everything else is not, which is the smallest
+   * shape that can tell an enforced gate from an ignored one. The refusal
+   * carries a number of this test's own choosing, exactly as the order
+   * refusals do -- the engine passes it through without knowing what it says.
+   */
+  static constexpr std::uint16_t VIEWABLE_GRID = 8317;
+  static constexpr std::uint16_t FORBIDDEN_GRID = 999;
+  static constexpr std::uint16_t NO_PRESENCE_REASON = 4343;
+
+  [[nodiscard]] std::uint16_t MayView(PlayerId, std::uint16_t _grid) override
+  {
+    ++m_viewChecks;
+    return _grid == VIEWABLE_GRID ? std::uint16_t{0} : NO_PRESENCE_REASON;
+  }
+
+  [[nodiscard]] std::uint16_t LastGrid() const noexcept { return m_lastGrid.load(std::memory_order_relaxed); }
+  [[nodiscard]] std::uint32_t ViewChecks() const noexcept { return m_viewChecks.load(std::memory_order_relaxed); }
 
   /*
    * A summary frame carrying nothing but the viewer it was written for.
@@ -146,7 +167,7 @@ public:
   /// and `gridAnchor` — which grid, as opposed to where it is — rides with them.
   [[nodiscard]] WorldMeta World() const override
   {
-    return WorldMeta{42, 8317, -4200000000ll, 1750000000ll, "Testfall-9", "Proving Grounds 0.0", "SEC -1.0"};
+    return WorldMeta{42, VIEWABLE_GRID, -4200000000ll, 1750000000ll, "Testfall-9", "Proving Grounds 0.0", "SEC -1.0"};
   }
 
   [[nodiscard]] std::uint32_t Ticks() const noexcept { return m_ticks.load(std::memory_order_relaxed); }
@@ -162,6 +183,8 @@ private:
   std::atomic<std::uint32_t> m_nextOrderId{0};
   std::atomic<std::uint32_t> m_summariesWritten{0};
   std::atomic<PlayerId> m_lastViewer{INVALID_PLAYER_ID};
+  std::atomic<std::uint16_t> m_lastGrid{0};
+  std::atomic<std::uint32_t> m_viewChecks{0};
   std::atomic<bool> m_refuseSnapshots{false};
 };
 
@@ -569,6 +592,117 @@ public:
     // having.
     Assert::IsTrue(snapshotsSeen > summariesSeen * 4,
                    L"summaries arrived at anything like the snapshot rate; the ~1 Hz cadence is not being applied");
+
+    host.Stop();
+    host.Join();
+  }
+
+  /*
+   * A view request is answered, gated by the game, and enforced by the engine
+   * (ADR-016 §4, §7 — U3b).
+   *
+   * The three claims worth separating, because a broken gate can satisfy two of
+   * them: that the *game* is asked (`ViewChecks` climbs), that a refusal is
+   * carried back with the game's own reason code intact, and that a refused
+   * request **leaves the feed where it was** rather than half-moving it. The
+   * last is the one a naive implementation gets wrong — setting the view first
+   * and validating after leaves a client watching a grid it was just told it
+   * could not have.
+   */
+  TEST_METHOD(AViewRequestIsGatedByTheGameAndEnforcedByTheEngine)
+  {
+    CountingSimulation simulation;
+    ServerHost host;
+    ServerConfig config;
+    config.port = 0;
+    Assert::IsTrue(host.Start(config, simulation));
+
+    QuicTransport client;
+    const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
+    Assert::IsTrue(link != INVALID_CONNECTION);
+
+    std::array<std::uint8_t, 256> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::Hello);
+    Write(writer, Hello{PROTOCOL_VERSION, simulation.SchemaHash(), simulation.ContentHash(), "harness"});
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, writer.Written()));
+
+    bool joined = false;
+    std::vector<ViewChanged> answers;
+    std::uint32_t snapshotGrid = 0;
+    const auto drain = [&]
+    {
+      TransportEvent event;
+      while (client.NextEvent(event))
+      {
+        if (event.type != TransportEvent::Type::Message)
+        {
+          continue;
+        }
+        ByteReader reader{event.payload};
+        const WireType type = ReadWireType(reader);
+        if (type == WireType::Welcome)
+        {
+          joined = true;
+        }
+        else if (type == WireType::ViewChanged)
+        {
+          ViewChanged changed;
+          if (Read(reader, changed))
+          {
+            answers.push_back(changed);
+          }
+        }
+        else if (type == WireType::Snapshot)
+        {
+          (void)reader.ReadUInt32(); // tick
+          (void)reader.ReadUInt32(); // marker
+          (void)reader.ReadUInt32(); // last accepted order
+          (void)reader.ReadUInt32(); // viewer
+          const std::uint32_t grid = reader.ReadUInt32();
+          if (reader.Ok())
+          {
+            snapshotGrid = grid;
+          }
+        }
+      }
+    };
+
+    Assert::IsTrue(WaitUntil(client, [&] { drain(); return joined && snapshotGrid != 0; }));
+    Assert::AreEqual<std::uint32_t>(CountingSimulation::VIEWABLE_GRID, snapshotGrid,
+                                    L"a session opens on the simulation's own grid");
+
+    // A grid the game refuses.
+    ByteWriter refuseWriter{buffer};
+    WriteWireType(refuseWriter, WireType::ViewRequest);
+    Write(refuseWriter, ViewRequest{CountingSimulation::FORBIDDEN_GRID});
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, refuseWriter.Written()));
+
+    Assert::IsTrue(WaitUntil(client, [&] { drain(); return !answers.empty(); }));
+    Assert::IsFalse(answers[0].accepted, L"the game refused and the engine agreed");
+    Assert::AreEqual<std::uint16_t>(CountingSimulation::FORBIDDEN_GRID, answers[0].gridAnchor,
+                                    L"the grid is echoed, so a client with two in flight knows which was refused");
+    Assert::AreEqual<std::uint16_t>(CountingSimulation::NO_PRESENCE_REASON, answers[0].reasonCode,
+                                    L"the game's own reason came back unread");
+    Assert::IsTrue(simulation.ViewChecks() > 0, L"the game was actually asked");
+
+    // And the feed did not move. Several more snapshots have to arrive for this
+    // to mean anything, so wait for them rather than sampling once.
+    snapshotGrid = 0;
+    Assert::IsTrue(WaitUntil(client, [&] { drain(); return snapshotGrid != 0; }));
+    Assert::AreEqual<std::uint32_t>(CountingSimulation::VIEWABLE_GRID, snapshotGrid,
+                                    L"a refused request moved the feed anyway");
+
+    // The grid it is allowed to have is accepted, and the same request path works.
+    answers.clear();
+    ByteWriter allowWriter{buffer};
+    WriteWireType(allowWriter, WireType::ViewRequest);
+    Write(allowWriter, ViewRequest{CountingSimulation::VIEWABLE_GRID});
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, allowWriter.Written()));
+
+    Assert::IsTrue(WaitUntil(client, [&] { drain(); return !answers.empty(); }));
+    Assert::IsTrue(answers[0].accepted, L"the grid the game allows was refused");
+    Assert::AreEqual<std::uint16_t>(0, answers[0].reasonCode, L"an accepted view carries no reason");
 
     host.Stop();
     host.Join();

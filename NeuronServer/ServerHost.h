@@ -38,11 +38,11 @@ namespace Neuron
  */
 struct SessionInfo
 {
-  SessionInfo(std::uint32_t _clientId, PlayerId _playerId, ConnectionId _connection)
+  SessionInfo(std::uint32_t _clientId, PlayerId _playerId, ConnectionId _connection, std::uint16_t _grid)
     : clientId(_clientId),
       playerId(_playerId),
       connection(_connection),
-      sender(_playerId, _connection)
+      sender(_playerId, _connection, _grid)
   {
   }
 

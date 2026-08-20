@@ -99,7 +99,33 @@ enum class WireType : std::uint16_t
    * `default`), and what actually fails a mismatch closed is the *game* schema
    * hash -- the frame's format is `GAME_SCHEMA_TEXT`'s, not this library's.
    */
-  Summary = 11
+  Summary = 11,
+
+  /*
+   * "Show me that grid" (ADR-016 §4, §7 — U3b), client to server.
+   *
+   * Reliable and ordered, because a view switch is a thing the player did once
+   * and must not lose: a dropped request leaves them watching the world they
+   * asked to leave, with nothing on screen saying why.
+   *
+   * The engine carries a **world id** and no more, which is the same neutral
+   * thing `Welcome` already carries — "which world", never "which solar
+   * system" (Dependency Map ruling 4). Whether the viewer is *allowed* to see
+   * it is game policy and crosses the seam as a question, not as a rule this
+   * library knows.
+   */
+  ViewRequest = 12,
+
+  /*
+   * The answer, server to client. Sent for every request, accepted or not, and
+   * unprompted when the server moves a viewer itself — a grid torn down under
+   * them, or a fleet arriving somewhere they were following.
+   *
+   * `reasonCode` is the game's enum, passed through unread exactly as
+   * `OrderAck`'s is (ADR-014 §3): a refusal the player reads has to say the
+   * same words whichever half refused it.
+   */
+  ViewChanged = 13
 };
 
 /// Why a server turned a client away. On the wire, so the values are fixed.
@@ -230,6 +256,37 @@ struct Welcome
   std::uint64_t resumeToken = 0;
 };
 
+/*
+ * Which grid a client is asking to watch.
+ *
+ * One field, and it stays one: everything else about a view — where the camera
+ * is, what is selected, how far it is zoomed — is client state the server has
+ * no business holding (ADR-016 §7). What the server needs is the answer to
+ * "which world do I serialise for this viewer", and that is this number.
+ */
+struct ViewRequest
+{
+  std::uint16_t gridAnchor = 0;
+};
+
+/*
+ * What the server did about it.
+ *
+ * `accepted` and a `reasonCode` rather than a bare bool, for `OrderAck`'s
+ * reason: the player is owed the *same* refusal wording from the client's
+ * pre-check and from the authority, and a bool cannot carry one. Zero is
+ * accepted, and the non-zero values are the game's to define.
+ *
+ * The grid is echoed even on a refusal, so a client that had two requests in
+ * flight can tell which one this answers.
+ */
+struct ViewChanged
+{
+  std::uint16_t gridAnchor = 0;
+  std::uint16_t reasonCode = 0;
+  bool accepted = false;
+};
+
 struct UpdateRequired
 {
   std::uint64_t serverSchemaHash = 0;
@@ -290,6 +347,8 @@ void Write(ByteWriter& _writer, const Ping& _message) noexcept;
 void Write(ByteWriter& _writer, const Pong& _message) noexcept;
 void Write(ByteWriter& _writer, const OrderAck& _message) noexcept;
 void Write(ByteWriter& _writer, const Goodbye& _message) noexcept;
+void Write(ByteWriter& _writer, const ViewRequest& _message) noexcept;
+void Write(ByteWriter& _writer, const ViewChanged& _message) noexcept;
 
 [[nodiscard]] bool Read(ByteReader& _reader, Hello& _outMessage) noexcept;
 [[nodiscard]] bool Read(ByteReader& _reader, Welcome& _outMessage) noexcept;
@@ -299,6 +358,8 @@ void Write(ByteWriter& _writer, const Goodbye& _message) noexcept;
 [[nodiscard]] bool Read(ByteReader& _reader, Pong& _outMessage) noexcept;
 [[nodiscard]] bool Read(ByteReader& _reader, OrderAck& _outMessage) noexcept;
 [[nodiscard]] bool Read(ByteReader& _reader, Goodbye& _outMessage) noexcept;
+[[nodiscard]] bool Read(ByteReader& _reader, ViewRequest& _outMessage) noexcept;
+[[nodiscard]] bool Read(ByteReader& _reader, ViewChanged& _outMessage) noexcept;
 
 /*
  * The schema hash covers this file's message layout. Any field added, removed
@@ -330,7 +391,12 @@ inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,
                                                      // Type word only, again: one type for ADR-016 §6's whole
                                                      // summary family, and which member a payload carries is a
                                                      // byte inside the game's own schema.
-                                                     "Summary{u16 type,opaque payload}";
+                                                     "Summary{u16 type,opaque payload}"
+                                                     // Fully described here: a world id and a verdict are numbers
+                                                     // this library defines the shape of, even though what makes a
+                                                     // view legal is the game's (ADR-016 §7).
+                                                     "ViewRequest{u16 gridAnchor}"
+                                                     "ViewChanged{u16 gridAnchor,u16 reasonCode,u8 accepted}";
 
 [[nodiscard]] std::uint64_t CoreSchemaHash() noexcept;
 

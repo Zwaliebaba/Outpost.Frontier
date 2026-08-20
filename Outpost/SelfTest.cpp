@@ -330,6 +330,86 @@ template <typename Predicate> bool PumpUntil(Neuron::ClientConnection& _client, 
 }
 
 /*
+ * The view gate over the real loopback (ADR-016 §4, §7 — U3b).
+ *
+ * One grid exists in this scenario, so what can be proved here is the *path*
+ * rather than a switch: that a request reaches the authority, that the game is
+ * the one deciding, that a refusal comes back carrying the game's own reason,
+ * and that the client's own grid is a view it is allowed to have. The switch
+ * itself needs two grids with presence on both, which is U3c's scenario.
+ *
+ * Worth running anyway, and in the shipping binary: every one of those pieces
+ * is new wire, and this is the one place they are exercised end to end rather
+ * than against a stub.
+ */
+void RunViewGate(Checklist& _checks, Neuron::ClientConnection& _client)
+{
+  const std::uint16_t here = _client.GridAnchor();
+  if (here == Game::INVALID_ID)
+  {
+    return; // Already reported by the docking loop's first check.
+  }
+
+  const auto answerFor = [&](std::uint16_t _grid, Neuron::ViewChanged& _out)
+  {
+    _client.ClearPendingViewChanges();
+    if (!_client.RequestView(_grid))
+    {
+      return false;
+    }
+    bool found = false;
+    (void)PumpUntil(_client,
+                    [&]
+                    {
+                      for (const Neuron::ViewChanged& changed : _client.PendingViewChanges())
+                      {
+                        if (changed.gridAnchor == _grid)
+                        {
+                          _out = changed;
+                          found = true;
+                        }
+                      }
+                      _client.ClearPendingViewChanges();
+                      return found;
+                    });
+    return found;
+  };
+
+  Neuron::ViewChanged mine{};
+  _checks.Record("a view request for the grid we are on is answered", answerFor(here, mine));
+  _checks.Record("and accepted, because our fleet is there", mine.accepted && mine.reasonCode == 0);
+
+  /*
+   * An anchor the commander has nothing on. `INVALID_ID + 1` is not a real
+   * anchor in the bake either, so this exercises both halves of the gate at
+   * once -- no world to show, and nothing of ours to show it for.
+   */
+  Neuron::ViewChanged elsewhere{};
+  const std::uint16_t nowhere = 0xfffeu;
+  _checks.Record("a view request for a grid we are not on is answered", answerFor(nowhere, elsewhere));
+  _checks.Record("and refused", !elsewhere.accepted && elsewhere.reasonCode != 0);
+  _checks.Record("with a reason the game named, not the engine",
+                 elsewhere.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::UnknownAnchor) ||
+                   elsewhere.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::NoPresence));
+
+  // And the feed stayed where it was: the snapshots still decode, which they
+  // would not if the server had moved this viewer to a grid that is not there.
+  Game::ReplicatedView view;
+  bool applied = false;
+  (void)PumpUntil(_client,
+                  [&]
+                  {
+                    for (const std::vector<std::uint8_t>& payload : _client.PendingSnapshots())
+                    {
+                      applied = view.ApplySnapshot(payload) || applied;
+                    }
+                    _client.ClearPendingSnapshots();
+                    return applied;
+                  });
+  _checks.Record("a refused view left the feed on the grid we had", applied && view.Grid() == here);
+}
+
+/*
  * H0's loop, over the real loopback (Station Build Order, T2's accept).
  *
  * Everything ADR-017 promises about docking, driven the way a client drives it
@@ -713,6 +793,7 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
         }
       }
 
+      RunViewGate(checks, client);
       RunDockingLoop(checks, client);
 
       const Neuron::TransportStats stats = client.Stats();

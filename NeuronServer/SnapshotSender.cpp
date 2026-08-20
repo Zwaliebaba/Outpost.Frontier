@@ -15,7 +15,7 @@ bool SnapshotSender::Send(Simulation& _simulation, Transport& _transport, std::u
   ByteWriter writer{m_buffer};
   WriteWireType(writer, WireType::Snapshot);
 
-  if (!_simulation.WriteSnapshot(m_viewer, _tick, writer) || !writer.Ok())
+  if (!_simulation.WriteSnapshot(m_viewer, m_grid, _tick, writer) || !writer.Ok())
   {
     ++m_overCap;
     NEURON_COUNTER("SnapshotDropped", 1);
@@ -37,6 +37,17 @@ bool SnapshotSender::Send(Simulation& _simulation, Transport& _transport, std::u
   // tick's freshness is worth more than a roster that is about to be sent
   // again anyway.
   SendSummaries(_simulation, _transport, _tick);
+  return true;
+}
+
+bool SnapshotSender::RequestView(Simulation& _simulation, std::uint16_t _grid, std::uint16_t& _outReasonCode)
+{
+  _outReasonCode = _simulation.MayView(m_viewer, _grid);
+  if (_outReasonCode != 0)
+  {
+    return false; // The feed stays exactly where it was.
+  }
+  m_grid = _grid;
   return true;
 }
 

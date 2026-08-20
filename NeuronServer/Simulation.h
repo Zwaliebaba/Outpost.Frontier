@@ -106,7 +106,30 @@ public:
    * refusal with priority truncation; until that slice lands it stays exactly
    * as loud as it is.
    */
-  [[nodiscard]] virtual bool WriteSnapshot(PlayerId _viewer, std::uint32_t _tick, ByteWriter& _writer) = 0;
+  [[nodiscard]] virtual bool WriteSnapshot(PlayerId _viewer, std::uint16_t _grid, std::uint32_t _tick, ByteWriter& _writer) = 0;
+
+  /*
+   * May this viewer watch that grid? (ADR-016 §7 — U3b.)
+   *
+   * Returns zero for yes and the game's own reason code for no, which is
+   * `OrderAck`'s arrangement and exists for the same reason: the refusal a
+   * player reads must be the same words whichever half produced it.
+   *
+   * The engine asks rather than decides, and the split is ADR-014's usual one.
+   * *Whether* a view is legal is game semantics -- ADR-016 §7 gates it on
+   * presence, ADR-017 §7 counts docked ships as presence, and both of those are
+   * facts about ships the engine may not know. *Enforcing* the answer is the
+   * session role's job, which is this library's.
+   *
+   * Defaulted to "yes" rather than pure, for `World()`'s reason: a simulation
+   * with one grid has nothing to gate, and `NullSimulation` is one.
+   */
+  [[nodiscard]] virtual std::uint16_t MayView(PlayerId _viewer, std::uint16_t _grid)
+  {
+    (void)_viewer;
+    (void)_grid;
+    return 0;
+  }
 
   /*
    * Serializes what one viewer is owed at the **summary cadence** -- the slow,
@@ -158,7 +181,7 @@ class NullSimulation final : public Simulation
 {
 public:
   void AdvanceTick(std::uint32_t _tick) override { m_lastTick = _tick; }
-  [[nodiscard]] bool WriteSnapshot(PlayerId, std::uint32_t, ByteWriter&) override { return false; }
+  [[nodiscard]] bool WriteSnapshot(PlayerId, std::uint16_t, std::uint32_t, ByteWriter&) override { return false; }
 
   [[nodiscard]] OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t>) override
   {

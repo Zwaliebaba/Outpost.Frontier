@@ -184,7 +184,15 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
      */
     const PlayerId playerId = SOLE_PLAYER_ID;
 
-    SessionInfo& session = m_sessions.emplace_back(m_nextClientId++, playerId, _event.connection);
+    /*
+     * The grid a session opens on: the simulation's own (ADR-009 §8's
+     * `worldMeta`). A client that has not asked for a view yet watches the world
+     * the server would have shown it anyway, so there is no state in which a
+     * session exists with no grid and nothing to send it.
+     */
+    const WorldMeta world = m_simulation->World();
+
+    SessionInfo& session = m_sessions.emplace_back(m_nextClientId++, playerId, _event.connection, world.gridAnchor);
     session.handshakeComplete = true;
     m_sessionCount.store(static_cast<std::uint32_t>(m_sessions.size()), std::memory_order_relaxed);
 
@@ -197,7 +205,6 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
 
     // Where the world is, so a client in another process can place a position
     // before any snapshot arrives (ADR-009 §8).
-    const WorldMeta world = m_simulation->World();
     welcome.worldId = world.worldId;
     welcome.gridAnchor = world.gridAnchor;
     welcome.anchorX = world.anchorX;
@@ -220,6 +227,42 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     SendTo(_event.connection, TransportChannel::Control, writer);
 
     NEURON_LOG_INFO("client %u joined as '%s'", session.clientId, hello.playerName.empty() ? "(unnamed)" : hello.playerName.c_str());
+    return;
+  }
+
+  case WireType::ViewRequest:
+  {
+    /*
+     * "Show me that grid" (ADR-016 §4, §7).
+     *
+     * The engine's whole part: find the session, ask the game whether this
+     * viewer may watch that world, and say what happened. It never learns why
+     * the answer was no -- the reason code is the game's number travelling
+     * through unread, exactly as `OrderAck`'s does (ADR-014 §3).
+     */
+    SessionInfo* session = FindSession(_event.connection);
+    if (session == nullptr || !session->handshakeComplete)
+    {
+      // Before the handshake there is no viewer to move and no session to
+      // answer on. Dropped rather than answered, like a pre-handshake order.
+      return;
+    }
+
+    ViewRequest request;
+    if (!Read(reader, request))
+    {
+      NEURON_LOG_WARNING("malformed view request from client %u", session->clientId);
+      return;
+    }
+
+    std::uint16_t reasonCode = 0;
+    const bool accepted = session->sender.RequestView(*m_simulation, request.gridAnchor, reasonCode);
+
+    std::array<std::uint8_t, 64> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::ViewChanged);
+    Write(writer, ViewChanged{request.gridAnchor, reasonCode, accepted});
+    SendTo(session->connection, TransportChannel::Control, writer);
     return;
   }
 

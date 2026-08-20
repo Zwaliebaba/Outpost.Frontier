@@ -255,11 +255,34 @@ on its grid — that is the snapshot's business, and a summary that tried would 
 source of truth. And a station standing on its own grid is not a fleet: authored occupants are
 subtracted, or every station in the universe would read as a parked one-ship fleet.
 
-**Still owed by U3b:** everything on screen — view subscription, the grid-switch notice,
-auto-follow, roster location blocks, warp ghosts, the settle over the interpolation refill.
-The per-client `SnapshotSender` those and T2's roster privacy both needed **landed
-2026-08-20 with A13**, and the summaries already go out on it, so what is left of this slice
-is renderer work rather than session work.
+**Built (U3b's wire half, 2026-08-20).** Per-grid snapshots, the view request and the
+grid-switch notice — the three wire pieces the previous note filed under "on screen" and
+which were not screen work at all.
+
+`SnapshotHeader` carries `gridAnchor`, and `ReplicatedView` drops its history when that
+number changes. That is **the smear guard**, and the failure it prevents needs only two
+ordinary facts: ids are allocated per registry, so two grids can each hold a ship 1, and the
+view interpolates between its last two frames. Together, unguarded, a switch walks every hull
+from where it stood on the grid you left to where a ship of the same id stands on the grid you
+arrived at. The check runs **before** the staleness test, because a frame from elsewhere is
+never stale — checked after, a switch to a world whose tick was lower would be dropped as old
+news and the player would keep watching the world they left. Two header bytes, and no ships:
+the cap arithmetic had the slack, asserted so the next field finds out.
+
+`ViewRequest`/`ViewChanged` are reliable and ordered, because a switch is something the player
+did once. The gate is ADR-014's usual split: `Simulation::MayView` decides — presence, which
+is a fact about where ships are and which ADR-017 §7 already folded docked ships into — and
+the session role enforces. A refusal **leaves the feed exactly where it was**, which is the
+half a naive implementation gets wrong by switching first and validating after. `NoPresence`
+is its own reason rather than a reused one, because the refusal is a sentence the player
+reads and `NotAtStation` would name a different problem with a different action.
+
+**Still owed by U3b:** the screen — auto-follow, roster location blocks with IN WARP and
+off-grid states, warp ghosts, the ~200 ms settle over the interpolation refill — plus A15's
+RTT-parameterised acceptance, A16's presence edges and A18's toast rows. The wire underneath
+all of it is in the tree, and `selfTest` drives the view gate end to end in the shipping
+binary. **What it cannot yet prove is a switch:** that needs two grids with presence on both,
+which is U3c's scenario and not this one's.
 
 ### U3c — The second-commander gate *(ADR-018 A25, new)*
 Two real clients against one shard: distinct `PlayerId`s, each commanding its own fleets on

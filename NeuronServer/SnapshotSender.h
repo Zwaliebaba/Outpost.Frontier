@@ -50,9 +50,10 @@ class SnapshotSender
 {
 public:
   SnapshotSender() = default;
-  SnapshotSender(PlayerId _viewer, ConnectionId _connection) noexcept
+  SnapshotSender(PlayerId _viewer, ConnectionId _connection, std::uint16_t _grid) noexcept
     : m_viewer(_viewer),
-      m_connection(_connection)
+      m_connection(_connection),
+      m_grid(_grid)
   {
   }
 
@@ -76,6 +77,27 @@ public:
   [[nodiscard]] std::uint32_t SummariesSent() const noexcept
   {
     return m_summariesSent;
+  }
+
+  /*
+   * Points this feed at another grid, if the game allows it (ADR-016 §7).
+   *
+   * The verdict comes from the simulation and the enforcement stays here, which
+   * is the seam's usual division: whether a view is legal is a fact about where
+   * a commander's ships are, and the engine may not know that.
+   *
+   * A refused request leaves the feed exactly where it was. That is the honest
+   * outcome and it is why `ViewChanged` echoes the grid: a client with two
+   * requests in flight learns which one was turned down, and does not have to
+   * infer its own view state from the next snapshot to arrive.
+   */
+  [[nodiscard]] bool RequestView(Simulation& _simulation, std::uint16_t _grid, std::uint16_t& _outReasonCode);
+
+  /// Which grid this viewer is watching. The snapshot's header carries the same
+  /// number, which is what lets the client tell a switch from a new frame.
+  [[nodiscard]] std::uint16_t Grid() const noexcept
+  {
+    return m_grid;
   }
 
   /// Who this feed serves (ADR-018 D5). The durable player, never the
@@ -118,6 +140,10 @@ private:
 
   PlayerId m_viewer = INVALID_PLAYER_ID;
   ConnectionId m_connection = INVALID_CONNECTION;
+
+  /// The grid this viewer watches. Session state and nowhere else: the sim tier
+  /// has no viewers (ADR-022 §1), so nothing about a camera reaches `World`.
+  std::uint16_t m_grid = 0;
 
   std::uint32_t m_sent = 0;
   std::uint32_t m_summariesSent = 0;

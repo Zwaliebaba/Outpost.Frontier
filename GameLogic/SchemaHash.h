@@ -81,7 +81,7 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "CommandKind:Order=0,Station=1;"
     "OrderReason:Accepted=0,EmptySelection=1,NotOwned=2,UnknownShip=3,QueueFull=4,OutOfBounds=5,"
     "InvalidFormation=6,TooManyShips=7,UnknownKind=8,UnknownStation=9,NotAtStation=10,NotDocked=11,"
-    "InvalidQueueMode=12,CombatEngaged=13,UnknownAnchor=14}"
+    "InvalidQueueMode=12,CombatEngaged=13,UnknownAnchor=14,NoPresence=15}"
 
     /*
      * The **order** the checks run in, not just their names (ADR-018 D9/A21).

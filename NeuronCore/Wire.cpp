@@ -86,6 +86,32 @@ bool Read(ByteReader& _reader, Welcome& _outMessage) noexcept
   return _reader.Ok();
 }
 
+void Write(ByteWriter& _writer, const ViewRequest& _message) noexcept
+{
+  _writer.WriteUInt16(_message.gridAnchor);
+}
+
+bool Read(ByteReader& _reader, ViewRequest& _outMessage) noexcept
+{
+  _outMessage.gridAnchor = _reader.ReadUInt16();
+  return _reader.Ok();
+}
+
+void Write(ByteWriter& _writer, const ViewChanged& _message) noexcept
+{
+  _writer.WriteUInt16(_message.gridAnchor);
+  _writer.WriteUInt16(_message.reasonCode);
+  _writer.WriteBool(_message.accepted);
+}
+
+bool Read(ByteReader& _reader, ViewChanged& _outMessage) noexcept
+{
+  _outMessage.gridAnchor = _reader.ReadUInt16();
+  _outMessage.reasonCode = _reader.ReadUInt16();
+  _outMessage.accepted = _reader.ReadBool();
+  return _reader.Ok();
+}
+
 void Write(ByteWriter& _writer, const UpdateRequired& _message) noexcept
 {
   _writer.WriteUInt64(_message.serverSchemaHash);
