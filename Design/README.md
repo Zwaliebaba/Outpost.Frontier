@@ -40,7 +40,8 @@ balance content, `Economy.json`), answers ADR-016's named mined-out-fields and w
 questions (a durable site ledger; bounded, non-durable wrecks), grows ADR-017 §1's roster
 record with a per-ship cargo manifest, activates ADR-017 §6's CARGO and REFINERY tabs, and
 ends ADR-017's "no persistence" note — the universe layer's durable state gains a journal
-(ADR-024 §7a).
+(ADR-024 §7a) — whose format, cadence and recovery are **ADR-025**, which spends
+ADR-017's "no persistence" note outright.
 
 **A numbering note.** The interest/delta and remote-play deliverables were written as ADR-021
 and ADR-022 and **renumbered to 022 and 023** when they met ship make-way, which had taken 021
@@ -75,6 +76,7 @@ and delta, this is why.
 | [022](ADR/ADR-022-interest-and-delta.md) | Interest & delta *(deliverable A14 — gates shared grids)* | **Culling and delta live in the session role alone**; `SnapshotAck` against a ring of **views as sent**, not world states; keyframes on a new reliable `Bulk` channel because a view switch is a mid-session join; the game **ranks** relevance and the engine **truncates** it; **owned and selected are never culled** and `culledCount` says what is missing; truncate, never refuse; ownership costs **no byte** — two spare `statusBits` carry the relationship |
 | [023](ADR/ADR-023-remote-play.md) | Remote play *(deliverable A22 — blocks first remote deployment)* | **A two-pin key compiled into the build, never a config value**; `Listen`/`Connect` take descriptors and the validation policy is *derived from the address*, so "no validation off-loopback" is unrepresentable rather than discouraged; the token step lives in the front door and the game never sees it; four abuse rules, each closing something in the tree today |
 | [024](ADR/ADR-024-mining-economy.md) | Mining economy *(economy design session — **accepted** 2026-08-20, nine owner rulings recorded across two review rounds)* | **Three ores across 2–3 `Site` anchors per system** (ADR-016 §3's reserved kind cashed in) that **re-form on a daily epoch** — bearing on an authored orbit ring, warp-in, layout, pools — banded by the existing security value with hazards staged pre/post-combat; a fleet `Mine` order with deterministic cycles and a durable site ledger (worlds forget, ledgers do not); every economy number in hash-guarded content (`Economy.json`, ADR-012 §D13), movement staying compiled; per-station Bays, manual transfer, deterministic ME refining with communal station-tier upgrades — Nova-Steel refinable only outside High-Sec; **persistence becomes due**: an engine-owned journal + snapshot at the universe layer, its ADR a named deliverable blocking implementation |
+| [025](ADR/ADR-025-persistence.md) | Persistence *(deliverable D-P1 — **proposed**, blocks E2)* | **An engine-owned append-only journal plus a periodic snapshot**, serialised on Sim and written on its own lane; the durable line is **identity and location, never intention** — a fleet reloads at rest with an empty queue; records are **outcomes, not commands**, so the journal is explicitly *not* the replay log; a separate **`DurableHash()`** proves the reload because the replay hash folds transient state; the load guards on `universeHash` **only**, so retuning balance never invalidates a shard; a **named one-second** durability window on hard kill and nothing on a clean stop; SQL staged to the service layer |
 
 ## Coding standard
 

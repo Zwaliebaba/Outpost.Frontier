@@ -692,7 +692,8 @@ so it takes the owner's explicit approval under the standing rule, granted case-
 there and not here.
 
 The design itself — journal format, snapshot cadence, crash recovery, the reload-proof
-hash — is **its own ADR and a named deliverable blocking E2** (the ADR-019 pattern: this
+hash — is **[ADR-025](ADR-025-persistence.md), delivered 2026-08-20**, and a named deliverable
+blocking E2 (the ADR-019 pattern: this
 document decides the shape and the venue, not the file format). *(This section first said
 "blocking E1", and that was corrected on 2026-08-20 when
 [Economy-Build-Order.md](../Economy-Build-Order.md) was written against it: E1's halves are a

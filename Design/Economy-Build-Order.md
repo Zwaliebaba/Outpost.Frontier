@@ -256,12 +256,16 @@ pocket's dampening legible as a thing happening to *you* rather than a number in
 
 ## Content & design deliverables (not slices — tracked so they cannot be quietly dropped)
 
-- **D-P1 — The persistence ADR.** Journal format, snapshot cadence, crash recovery, and the
-  reload-proof hash, for the engine-owned append-only journal ADR-024 §7a rules on. **It blocks
-  E2**, not E1 — ADR-024 §7a says "blocks E1", and that is corrected here and in the ADR
-  itself: E1a is a read-only content file and E1b is authored content, so neither has durable
-  state to persist. The first durable thing in this phase is E2's site ledger. Written in
-  parallel with E1a; nothing waits on it before E2.
+- ~~**D-P1 — The persistence ADR.**~~ **Delivered 2026-08-20 (proposed, awaiting owner
+  review):** [ADR-025](ADR/ADR-025-persistence.md). Journal format, snapshot cadence, crash
+  recovery and the reload proof, for the engine-owned journal ADR-024 §7a ruled on. **It blocks
+  E2**, not E1 — ADR-024 §7a said "blocks E1", corrected there and here: E1a is a read-only
+  content file and E1b is authored content, so neither has durable state to persist; the first
+  durable thing in this phase is E2's site ledger. Three of its rulings reach into E2 directly:
+  the durable line is **identity and location, never intention** (so a reloaded fleet holds
+  position with an empty queue); the ledger's proof is a separate **`DurableHash()`**, not
+  `WorldRegistry::Hash()`, which folds the order queues E2 is about to write; and journal
+  records are **outcomes**, so E2 files "this pool is now N" rather than "a cycle completed".
 - **D-P2 — The CARGO tab print.** The hull-and-Bay transfer surface, in the P1 pattern:
   designed and agreed **before E5 builds**, because retrofitting a screen design after the
   screen exists is how the corpus stops being the governing artefact.

@@ -372,8 +372,9 @@ dense order with no RNG draw; parking is as replayable as steering.
   safe and absolutely private. Both are stated costs of §1, accepted.
 - **No persistence.** The roster is the obvious save anchor — the RESUME card's "Docked at
   Vesta-3" becomes literally true when a save file exists — but no save file exists, and
-  this ADR does not create one. *([ADR-024 §7a](ADR-024-mining-economy.md) creates it: an
-  engine-owned journal plus snapshot at the universe layer.)*
+  this ADR does not create one. *([ADR-024 §7a](ADR-024-mining-economy.md) creates it and
+  [ADR-025](ADR-025-persistence.md) designs it: an engine-owned journal plus snapshot at the
+  universe layer, with the roster among the first things it writes down.)*
 - **No AI commander.** A disconnect mid-approach halts outside the station (§2), the same
   gap ADR-016 §8 accepted, closed by the same future feature.
 - **No in-space wing reassignment** (§6) and **no per-class dock ceremony** — a Carrier
