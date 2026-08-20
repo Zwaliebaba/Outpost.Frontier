@@ -224,9 +224,54 @@ public:
    * starts answering "which grid is this player watching", the call site above
    * it does not change.
    */
-  [[nodiscard]] bool WriteSnapshot(PlayerId, std::uint32_t, ByteWriter& _writer) override
+  [[nodiscard]] bool WriteSnapshot(PlayerId, std::uint16_t _grid, std::uint32_t, ByteWriter& _writer) override
   {
-    return Game::WriteSnapshot(ServedWorld(), _writer);
+    /*
+     * The grid the *viewer* asked for, not the one the session started on
+     * (ADR-016 §4). The session role decides which anchor this is and has
+     * already gated it through `MayView`; borrowing it here is what makes the
+     * decision real.
+     *
+     * Borrowed and never stored, like every other use (ADR-019 §6.1). A grid
+     * that has torn down under a viewer since the request answers `nullptr`,
+     * and that is a refusal rather than a crash: no snapshot goes out, the
+     * sender counts it, and the presence-edge rules that decide where the
+     * viewer lands instead are A16's, not this function's.
+     */
+    Game::World* world = m_registry.Borrow(static_cast<Game::AnchorId>(_grid));
+    return world != nullptr && Game::WriteSnapshot(*world, _writer);
+  }
+
+  /*
+   * Whether this commander may watch that grid (ADR-016 §7).
+   *
+   * Presence-gated, and presence is *having ships there* -- standing on the
+   * grid or docked at its station, which ADR-017 §7 folded into the same
+   * answer. The registry knows both, so the whole rule is one question asked of
+   * the thing that keeps the ship-to-location index.
+   *
+   * `UnknownAnchor` for a grid that is not live: an anchor nobody is on has no
+   * world to show, and saying so with the order family's own reason keeps the
+   * refusal in the vocabulary the player already reads. Presence for one
+   * commander is presence for the only commander today -- when there are two,
+   * this filters on `_viewer` and the shape does not change (ADR-018 D5).
+   */
+  [[nodiscard]] std::uint16_t MayView(PlayerId, std::uint16_t _grid) override
+  {
+    const auto anchor = static_cast<Game::AnchorId>(_grid);
+    if (m_registry.Borrow(anchor) == nullptr)
+    {
+      return static_cast<std::uint16_t>(Game::OrderReason::UnknownAnchor);
+    }
+    for (const Game::ShipId ship : m_patrolShips)
+    {
+      Game::AnchorId where = Game::INVALID_ID;
+      if (m_registry.LocationOf(ship, where) && where == anchor)
+      {
+        return 0;
+      }
+    }
+    return static_cast<std::uint16_t>(Game::OrderReason::NoPresence);
   }
 
   /*
@@ -762,7 +807,7 @@ WorldMeta MakeWorldMeta(const Game::UniverseDef& _universe)
   // Which grid, as opposed to where it is. The client needs a number it can put
   // in a Dock's `anchor` field and in a station command's `station` field
   // (ADR-017 §2, §3); before this it had neither.
-  meta.gridAnchor = anchor.id;
+  meta.gridAnchor = _universe.StartAnchorId();
   meta.anchorX = anchor.origin.x;
   meta.anchorY = anchor.origin.y;
 

@@ -184,7 +184,19 @@ enum class OrderReason : std::uint16_t
   /// The anchor a `Warp` named is not one this grid can reach (U3a). After the
   /// station phase's five, which is the cost of that phase landing first and
   /// was written down when it did.
-  UnknownAnchor = 14
+  UnknownAnchor = 14,
+
+  /*
+   * The commander has nothing at the grid they asked to watch (ADR-016 §7,
+   * U3b's view gate).
+   *
+   * Its own value rather than a reused one, because the reason is the sentence
+   * the player reads: `NotAtStation` would tell someone asking to look at a
+   * system that their fleet is in the wrong place to dock, which is a different
+   * complaint about a different action. A refusal that names the wrong problem
+   * costs more than an enumerator does.
+   */
+  NoPresence = 15
 };
 
 /// Human text for a reason, for logs and for the toast the client raises. Never

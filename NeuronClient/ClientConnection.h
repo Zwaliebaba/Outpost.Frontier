@@ -96,6 +96,18 @@ public:
   {
     return m_gridAnchor;
   }
+
+  /// Asks to watch another grid (ADR-016 §4). Reliable, because a view switch
+  /// is something the player did once: a dropped request leaves them watching
+  /// the world they asked to leave with nothing saying why. The answer arrives
+  /// as a `ViewChanged`, accepted or not.
+  [[nodiscard]] bool RequestView(std::uint16_t _gridAnchor);
+
+  /// View answers since the last drain, oldest first. Held rather than applied,
+  /// because what a refusal *means* on screen is the game's business and this
+  /// library has no opinion about it.
+  [[nodiscard]] std::span<const ViewChanged> PendingViewChanges() const noexcept { return m_pendingViewChanges; }
+  void ClearPendingViewChanges() noexcept { m_pendingViewChanges.clear(); }
   [[nodiscard]] std::int64_t AnchorX() const noexcept
   {
     return m_anchorX;
@@ -241,6 +253,7 @@ private:
   std::uint64_t m_orderAckCount = 0;
   std::uint16_t m_worldId = 0;
   std::uint16_t m_gridAnchor = 0;
+  std::vector<ViewChanged> m_pendingViewChanges;
   std::int64_t m_anchorX = 0;
   std::int64_t m_anchorY = 0;
   std::string m_worldName;

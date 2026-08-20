@@ -98,6 +98,26 @@ void ClientConnection::SendPing()
   ++m_pingCount;
 }
 
+bool ClientConnection::RequestView(std::uint16_t _gridAnchor)
+{
+  if (m_state != ClientLinkState::Joined || m_transport == nullptr)
+  {
+    return false;
+  }
+
+  std::array<std::uint8_t, 64> buffer{};
+  ByteWriter writer{buffer};
+  WriteWireType(writer, WireType::ViewRequest);
+  Write(writer, ViewRequest{_gridAnchor});
+  if (!writer.Ok())
+  {
+    return false;
+  }
+  // Control, like an order: reliable and ordered, because two switches in
+  // flight must arrive in the sequence the player made them.
+  return m_transport->Send(m_connection, TransportChannel::Control, writer.Written());
+}
+
 bool ClientConnection::SendOrder(std::span<const std::uint8_t> _payload)
 {
   if (m_state != ClientLinkState::Joined || m_transport == nullptr || _payload.empty())
@@ -211,6 +231,19 @@ void ClientConnection::HandleMessage(const TransportEvent& _event)
       ++m_snapshotOverflowCount;
     }
     m_pendingSnapshots.emplace_back(payload.begin(), payload.end());
+    return;
+  }
+
+  case WireType::ViewChanged:
+  {
+    ViewChanged changed;
+    if (!Read(reader, changed))
+    {
+      return;
+    }
+    // Held, not acted on: the engine moves the bytes and the game decides what
+    // a refused view looks like to the player (ADR-014 §5).
+    m_pendingViewChanges.push_back(changed);
     return;
   }
 

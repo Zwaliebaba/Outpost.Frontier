@@ -42,7 +42,7 @@ namespace Game
  * a percentage would refuse each other here instead of drawing different bars.
  */
 inline constexpr std::string_view GAME_SCHEMA_TEXT =
-    "SnapshotHeader{u32 tick,u32 baselineTick,u16 shipCount,u16 orderCount,u32 lastOrderSeqProcessed}"
+    "SnapshotHeader{u32 tick,u32 baselineTick,u16 gridAnchor,u16 shipCount,u16 orderCount,u32 lastOrderSeqProcessed}"
     "ShipRecord=EntityRecord{u16 id,u8 typeId,u8 groupId,i32 posXCm,i32 posYCm,"
     "i16 velXCmPerSec,i16 velYCmPerSec,u16 headingTurns16,u8 gaugeA,u8 gaugeB,u8 statusBits}"
     "OrderStateRecord{u32 serverOrderId,u32 clientOrderSeq,u16 etaSeconds,u8 state,u8 legIndex,u8 legCount,"
@@ -81,7 +81,7 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "CommandKind:Order=0,Station=1;"
     "OrderReason:Accepted=0,EmptySelection=1,NotOwned=2,UnknownShip=3,QueueFull=4,OutOfBounds=5,"
     "InvalidFormation=6,TooManyShips=7,UnknownKind=8,UnknownStation=9,NotAtStation=10,NotDocked=11,"
-    "InvalidQueueMode=12,CombatEngaged=13,UnknownAnchor=14}"
+    "InvalidQueueMode=12,CombatEngaged=13,UnknownAnchor=14,NoPresence=15}"
 
     /*
      * The **order** the checks run in, not just their names (ADR-018 D9/A21).

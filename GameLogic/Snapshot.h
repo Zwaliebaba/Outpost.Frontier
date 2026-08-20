@@ -42,7 +42,7 @@
 namespace Game
 {
 
-/// `{tick, baselineTick, shipCount, orderCount, lastOrderSeqProcessed}`.
+/// `{tick, baselineTick, gridAnchor, shipCount, orderCount, lastOrderSeqProcessed}`.
 struct SnapshotHeader
 {
   std::uint32_t tick = 0;
@@ -51,6 +51,24 @@ struct SnapshotHeader
   /// it yet, and it is on the wire from the first snapshot so that adding
   /// deltas is a behaviour change rather than a schema change.
   std::uint32_t baselineTick = 0;
+
+  /*
+   * Which grid these ships are standing on (ADR-016 §6, U3b) -- **the smear
+   * guard**.
+   *
+   * A session hosts many grids and a client views one at a time (ADR-016 §4),
+   * so the moment a view can switch, "a snapshot" stops being self-evidently
+   * about the same world as the last one. Without this field a client that
+   * switched grids would interpolate the ship it *was* watching towards a ship
+   * that merely shares its id on the grid it is watching now, and the hulls
+   * would smear across the gap between two worlds. That is not a rendering
+   * artefact to tune away: the two records describe different ships.
+   *
+   * It costs two bytes of the header and, as the static assert below records,
+   * **no ships at all** -- 43 records still fit, because the cap had that much
+   * slack. A field that changes no budget is the cheapest moment to add one.
+   */
+  AnchorId gridAnchor = INVALID_ID;
 
   std::uint16_t shipCount = 0;
 
@@ -63,7 +81,7 @@ struct SnapshotHeader
   std::uint32_t lastOrderSeqProcessed = 0;
 };
 
-inline constexpr std::size_t SNAPSHOT_HEADER_BYTES = 16;
+inline constexpr std::size_t SNAPSHOT_HEADER_BYTES = 18;
 
 /*
  * How many ships fit in one datagram.
@@ -182,6 +200,10 @@ inline constexpr std::uint16_t MAX_SHIPS_PER_SNAPSHOT = static_cast<std::uint16_
 // is reserved whether or not any order is flying, which is what keeps the ship
 // cap from moving under the client.
 static_assert(SnapshotBytes(41, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES, "the MVP fleet must fit one datagram");
+// U3b's `gridAnchor` widened the header by two bytes and moved the cap by none:
+// the arithmetic had that much slack. Asserted rather than remembered, because
+// the next field to land here may not be free and this is where it finds out.
+static_assert(MAX_SHIPS_PER_SNAPSHOT == 43, "the header grew without costing a ship; if this fires, the cap moved");
 static_assert(MAX_SHIPS_PER_SNAPSHOT >= 41, "the MVP fleet must fit one datagram");
 static_assert(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES,
               "the cap must be a cap");
