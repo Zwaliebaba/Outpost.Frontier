@@ -8,8 +8,9 @@ namespace Neuron
 {
 
 std::uint32_t BuildCommandRow(std::span<const OrderKindOption> _kinds, std::uint16_t _selectedKind,
-                              std::span<const OrderOption> _options, std::uint32_t _optionIndex, const UiRect& _row,
-                              float _scale, const CommandRowTuning& _tuning, std::span<CommandButton> _outButtons)
+                              std::span<const OrderOption> _options, std::uint32_t _optionIndex,
+                              const CommandContext& _context, const UiRect& _row, float _scale,
+                              const CommandRowTuning& _tuning, std::span<CommandButton> _outButtons)
 {
   const float scale = _scale > 0.0f ? _scale : 1.0f;
   const float width = _tuning.buttonWidth * scale;
@@ -48,10 +49,10 @@ std::uint32_t BuildCommandRow(std::span<const OrderKindOption> _kinds, std::uint
     parameter.payload = _kind.kind;
     parameter.opensPicker = true;
 
-    // Enabled only when there is something to cycle *to*. One option is a
-    // constant, not a choice, and a button that visibly does nothing when
-    // pressed is worse than one that is visibly not for pressing.
-    parameter.enabled = _kind.available && _options.size() > 1;
+    // The same predicate, plus something to cycle *to*: one option is a
+    // constant rather than a choice, and a button that visibly does nothing
+    // when pressed is worse than one that is visibly not for pressing.
+    parameter.enabled = _kind.available && _context.hasSelection && _options.size() > 1;
     if (_optionIndex < _options.size())
     {
       parameter.value = _options[_optionIndex].name;
@@ -96,8 +97,12 @@ std::uint32_t BuildCommandRow(std::span<const OrderKindOption> _kinds, std::uint
     button.label = kind.name;
     button.action = CommandAction::SelectKind;
     button.payload = kind.kind;
-    button.enabled = kind.available;
-    button.active = selected && kind.available;
+    // The one predicate, for every verb: the game says it has content, and the
+    // player has given it something to act on.
+    button.enabled = kind.available && _context.hasSelection;
+    // A fill means "this mode is engaged", so it implies enabled -- with an
+    // empty selection nothing is filled, because there is no mode to be in.
+    button.active = selected && button.enabled;
     // A command with a named parameter and no content cannot execute: the only
     // thing selecting it does is open its picker, and the caret says so. An
     // available command's picker is its separate parameter chip.

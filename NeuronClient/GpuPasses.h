@@ -60,6 +60,24 @@ struct FrameContext
   std::uint32_t viewportHeight = 0;
   float clearColour[4] = {0.0f, 0.0f, 0.0f, 1.0f};
 
+  /*
+   * The band of the target the world may rasterise into -- `UiLayout::world`,
+   * verbatim, and the whole of ADR-006's "chrome always occludes world" made
+   * mechanical.
+   *
+   * **A scissor, not a viewport.** The world passes keep the full-target
+   * viewport so the projection, `PlaneMappingForNdc` and picking all stay in
+   * one screen space; the scissor only decides which of those pixels survive.
+   * Shrinking the viewport instead would re-centre the camera inside the band
+   * and put every pick a few hundred pixels off the ship it was aimed at.
+   *
+   * It comes from the same `ResolveUiLayout` call the chrome is drawn from, so
+   * the two cannot disagree at any scale or window size -- which is the point.
+   * A zero-area rect draws no world at all, which is exactly what a window too
+   * small for its own chrome should look like.
+   */
+  UiRect worldRect;
+
   /// The frame's HUD, built by the client into screen-space quads and text runs.
   /// Null or empty draws nothing, which is what a client with no HUD looks like.
   const UiDrawList* ui = nullptr;

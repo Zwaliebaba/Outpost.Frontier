@@ -105,6 +105,48 @@ public:
     Assert::IsTrue(layout.topBar.height <= 60.0f, L"nor taller");
   }
 
+  TEST_METHOD(NoChromeZoneShareAPixelWithTheWorldAtAnyScaleOrSize)
+  {
+    /*
+     * The invariant the world's scissor is cut from.
+     *
+     * ADR-006's "chrome always occludes world" used to hold only because the
+     * panels were dark: the world rasterised across the whole target and the
+     * chrome sat on it at 88% opacity, so a ship behind the context bar read
+     * through as a ghost of itself. `ClearPass` now scissors the world passes
+     * to `UiLayout::world`, which makes this arithmetic the thing that keeps
+     * them apart -- and it has to hold at every scale the control offers and
+     * every window a player can drag, not just at the one the print was drawn
+     * at.
+     */
+    const float scales[] = {0.8f, 1.0f, 1.6f};
+    const std::uint32_t sizes[][2] = {{1600, 900}, {1280, 720}, {2560, 1440}, {1024, 768}};
+
+    for (const float scale : scales)
+    {
+      for (const auto& size : sizes)
+      {
+        const UiLayout layout = Layout(size[0], size[1], scale);
+        const UiRect chrome[] = {layout.topBar, layout.roster, layout.abilityRack, layout.contextBar, layout.commandRow};
+
+        for (const UiRect& zone : chrome)
+        {
+          // Half-open rects, so touching edges are not an overlap: the world's
+          // bottom *is* the context bar's top and neither owns that row twice.
+          const bool disjoint = layout.world.Right() <= zone.x || zone.Right() <= layout.world.x ||
+                                layout.world.Bottom() <= zone.y || zone.Bottom() <= layout.world.y;
+          Assert::IsTrue(disjoint, L"a chrome zone overlapped the world it is supposed to border");
+        }
+
+        // And the world stays inside the window, so the scissor cut from it can
+        // never name a pixel the target does not have.
+        Assert::IsTrue(layout.world.x >= 0.0f && layout.world.y >= 0.0f);
+        Assert::IsTrue(layout.world.Right() <= static_cast<float>(size[0]));
+        Assert::IsTrue(layout.world.Bottom() <= static_cast<float>(size[1]));
+      }
+    }
+  }
+
   TEST_METHOD(ToastsStackUpwardFromTheContextBarAndNeverCoverIt)
   {
     /*

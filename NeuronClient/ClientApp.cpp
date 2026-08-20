@@ -457,10 +457,16 @@ void ClientApp::UpdateHud()
       selectedSlot < m_orderKindCount
           ? std::span<const OrderOption>{m_kindOptions[selectedSlot], m_kindOptionCounts[selectedSlot]}
           : std::span<const OrderOption>{};
+  // The one thing that decides whether a verb is live, read off the selection
+  // this frame -- local UI state and nothing else, so cutting the feed cannot
+  // leave the row claiming a fleet that is no longer there.
+  CommandContext commandContext;
+  commandContext.hasSelection = !m_selection.Ids().empty();
+
   m_commandButtonCount =
       BuildCommandRow(std::span<const OrderKindOption>{m_orderKinds, m_orderKindCount}, m_selectedKind,
                       selectedOptions, selectedSlot < m_orderKindCount ? m_kindOptionIndex[selectedSlot] : 0,
-                      m_uiLayout.commandRow, m_uiLayout.scale, m_commandTuning, m_commandButtons);
+                      commandContext, m_uiLayout.commandRow, m_uiLayout.scale, m_commandTuning, m_commandButtons);
 
   /*
    * The `▥ MENU` chip and, when open, its list -- laid out here so the rect a
@@ -1074,8 +1080,10 @@ void ClientApp::BuildHud()
   }
 
   float right = m_menuButtonRect.x - cell;
+  // Right-to-left, so a separator claims its own cell and a cell of air on
+  // each side before the next item pens further left.
   const auto rightSeparator = [&] {
-    right -= cell;
+    right -= 2.0f * cell;
     m_ui.AddText(right, textY, m_uiTuning.bodySizeIndex, m_palette.phosphorGhost, "|");
     right -= cell;
   };
@@ -1463,16 +1471,31 @@ void ClientApp::BuildHud()
     const float chipHeightPx = hasButtons ? m_commandButtons[0].rect.height : m_commandTuning.buttonHeight * layout.scale;
     const float gap = m_commandTuning.buttonGap * layout.scale;
 
+    /*
+     * The same predicate the verbs use. QUEUE modifies an order, so it needs
+     * the same subject a verb does; undo needs an order to take back instead,
+     * which is why it is the one chip the selection does not gate.
+     *
+     * `ORDER_REVOKE_WIRED` is false because there is no revoke path: the
+     * protocol has `OrderSubmit` and `OrderAck` and nothing that retracts
+     * (ADR-004 §7). Drawing the chip live while pressing it did nothing would
+     * be the same lie as an armed verb with no selection, so the predicate is
+     * written out and pinned -- when the message lands, this is one word.
+     */
+    constexpr bool ORDER_REVOKE_WIRED = false;
+    const bool queueEnabled = !m_selection.Ids().empty();
+    const bool undoEnabled = ORDER_REVOKE_WIRED && m_ghosts.PendingCount() > 0;
+
     // 48x48 at 1.0x -- the U2 touch floor, the same square the verbs clamp to.
     const UiRect undoRect{layout.commandRow.Right() - m_commandTuning.paddingX * layout.scale - chipHeightPx, chipTop,
                           chipHeightPx, chipHeightPx};
     if (undoRect.x > lastButtonRight + gap)
     {
-      m_ui.AddBorder(undoRect, 1.0f * layout.scale, AtHalfAlpha(m_palette.border));
+      m_ui.AddBorder(undoRect, 1.0f * layout.scale, undoEnabled ? m_palette.border : AtHalfAlpha(m_palette.border));
       const char* undoGlyph = "\xE2\x8E\x8C"; // U+238C.
       const float glyphWidth = static_cast<float>(TextCellCount(undoGlyph)) * cell;
       m_ui.AddText(undoRect.x + (undoRect.width - glyphWidth) * 0.5f, undoRect.y + (undoRect.height - bodyPx) * 0.5f,
-                   m_uiTuning.bodySizeIndex, m_palette.phosphorDead, undoGlyph);
+                   m_uiTuning.bodySizeIndex, undoEnabled ? m_palette.phosphor : m_palette.phosphorDead, undoGlyph);
     }
 
     const char* queueLabel = "+ QUEUE";
@@ -1481,11 +1504,11 @@ void ClientApp::BuildHud()
     const UiRect chipRect{undoRect.x - gap - chipWidth, chipTop, chipWidth, chipHeightPx};
     if (chipRect.x > lastButtonRight + gap)
     {
-      m_ui.AddBorder(chipRect, 1.0f * layout.scale, m_palette.caution);
+      const std::uint32_t queueColour = queueEnabled ? m_palette.caution : m_palette.phosphorDead;
+      m_ui.AddBorder(chipRect, 1.0f * layout.scale, queueEnabled ? m_palette.caution : AtHalfAlpha(m_palette.border));
       const float labelWidth = static_cast<float>(TextCellCount(queueLabel)) * cell;
       m_ui.AddText(chipRect.x + (chipRect.width - labelWidth) * 0.5f,
-                   chipRect.y + (chipRect.height - bodyPx) * 0.5f, m_uiTuning.bodySizeIndex, m_palette.caution,
-                   queueLabel);
+                   chipRect.y + (chipRect.height - bodyPx) * 0.5f, m_uiTuning.bodySizeIndex, queueColour, queueLabel);
     }
   }
 
@@ -1717,6 +1740,10 @@ void ClientApp::RenderFrame()
   context.textureTable = m_textureTable;
   context.viewportWidth = m_swapChain.Width();
   context.viewportHeight = m_swapChain.Height();
+  // The band the world is allowed to rasterise into, from the same resolved
+  // zones the chrome is drawn from -- one answer, so "chrome always occludes
+  // world" holds at every UI scale and window size rather than by coincidence.
+  context.worldRect = m_uiLayout.world;
   context.clearColour[0] = colour.red;
   context.clearColour[1] = colour.green;
   context.clearColour[2] = colour.blue;

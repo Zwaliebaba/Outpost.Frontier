@@ -69,8 +69,15 @@ struct CommandButton
   /// parameter button whose command has no options.
   bool enabled = false;
 
-  /// The command the puck is currently set to. Exactly one command button is
-  /// this, and the parameter button never is.
+  /*
+   * The verb whose input mode is currently engaged -- the command the puck will
+   * issue -- and the only button that gets the filled treatment.
+   *
+   * **Never merely "enabled".** A fill says *you are in this mode*, so it
+   * implies `enabled`: with nothing selected there is no mode to be in and no
+   * button is filled. The parameter button is never this either; it names a
+   * value rather than a mode.
+   */
   bool active = false;
 
   /*
@@ -85,6 +92,34 @@ struct CommandButton
    * separate parameter chip, and the verb itself is immediate.
    */
   bool opensPicker = false;
+};
+
+/*
+ * What the row needs to know beyond the game's own command list, for the one
+ * predicate that decides whether a verb is live.
+ *
+ * **A verb with no subject is a lie about what a tap will do.** Availability
+ * alone was not enough: with nothing selected the row still offered a filled
+ * MOVE and a full-strength FORMATION, both of which would have done nothing to
+ * nobody. Enablement is therefore `available && hasSelection` for every button
+ * -- one line, applied uniformly, rather than a case per verb.
+ *
+ * `available` is still the game's half of it and still gates content (ADR-014
+ * §2b: a command this build cannot simulate stays greyed whatever is selected).
+ *
+ * TODO: ATTACK wants a narrower predicate than the selection -- *a hostile
+ * target context exists*, meaning at least one entity in the interest set the
+ * selection is permitted to engage. That is not decidable client-side today:
+ * `SceneEntity` carries no relationship field, so the client cannot tell a
+ * hostile hull from an allied one (the renderer's `teamColorId` is a material
+ * channel, not a stance). Until a relationship crosses the seam, ATTACK is
+ * gated by the selection like the others and by `available`, which is false for
+ * it in this build regardless.
+ */
+struct CommandContext
+{
+  /// Whether the player has anything selected for a verb to act on.
+  bool hasSelection = false;
 };
 
 /// Sizes at scale 1.0, read off the print.
@@ -133,8 +168,8 @@ inline constexpr std::uint32_t MAX_COMMAND_BUTTONS = MAX_ORDER_KINDS + 1;
  */
 [[nodiscard]] std::uint32_t BuildCommandRow(std::span<const OrderKindOption> _kinds, std::uint16_t _selectedKind,
                                             std::span<const OrderOption> _options, std::uint32_t _optionIndex,
-                                            const UiRect& _row, float _scale, const CommandRowTuning& _tuning,
-                                            std::span<CommandButton> _outButtons);
+                                            const CommandContext& _context, const UiRect& _row, float _scale,
+                                            const CommandRowTuning& _tuning, std::span<CommandButton> _outButtons);
 
 /*
  * Which button a click at these pixels landed on, or null.

@@ -41,6 +41,12 @@ const OrderOption FORMATIONS[] = {
     OrderOption{2, "Claw"},
 };
 
+/// The two ends of the enablement predicate. Most tests here are about layout
+/// and availability, so they run with a selection -- the state a player is in
+/// whenever the row is worth looking at.
+constexpr CommandContext SELECTED{true};
+constexpr CommandContext EMPTY{false};
+
 /// A row the size the print draws, with room for every button.
 [[nodiscard]] UiRect WideRow()
 {
@@ -84,7 +90,7 @@ public:
   {
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const std::uint32_t count =
-        BuildCommandRow(KINDS, 0, FORMATIONS, 2, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+        BuildCommandRow(KINDS, 0, FORMATIONS, 2, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
 
     // Four commands plus one parameter button.
     Assert::AreEqual<std::uint32_t>(5, count);
@@ -107,7 +113,7 @@ public:
      */
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const std::uint32_t count =
-        BuildCommandRow(KINDS, 0, FORMATIONS, 0, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+        BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
     Assert::AreEqual<std::uint32_t>(5, count);
     Assert::AreEqual(std::string{"Move"}, std::string{buttons[0].label});
     Assert::AreEqual(std::string{"Attack"}, std::string{buttons[1].label});
@@ -125,7 +131,7 @@ public:
      */
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const std::uint32_t count =
-        BuildCommandRow(KINDS, 0, FORMATIONS, 0, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+        BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
     const std::span<const CommandButton> laid{buttons, count};
 
     Assert::IsFalse(Required(laid, "Move").opensPicker);
@@ -144,7 +150,7 @@ public:
      */
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const std::uint32_t count =
-        BuildCommandRow(KINDS, 0, FORMATIONS, 0, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+        BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
     const std::span<const CommandButton> laid{buttons, count};
 
     Assert::IsTrue(Required(laid, "Move").enabled);
@@ -164,13 +170,58 @@ public:
     Assert::IsFalse(Required(laid, "Formation").active, L"a parameter is not a command and is never the active one");
   }
 
+  TEST_METHOD(AnEmptySelectionDisablesEveryVerb)
+  {
+    /*
+     * A verb with no subject is a lie about what a tap will do. The summary row
+     * says NO SELECTION and the row has to agree: every button greyed, the hit
+     * test refusing all of them, and -- the part that was actually wrong -- no
+     * filled MOVE, because a fill claims an input mode nobody is in.
+     */
+    CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
+    const std::uint32_t count =
+        BuildCommandRow(KINDS, 0, FORMATIONS, 0, EMPTY, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+    const std::span<const CommandButton> laid{buttons, count};
+
+    Assert::IsTrue(count > 0, L"the row keeps its shape; only its buttons go dead");
+    for (const CommandButton& button : laid)
+    {
+      Assert::IsFalse(button.enabled, L"nothing is enabled without something to act on");
+      Assert::IsFalse(button.active, L"and nothing is filled, because no mode is engaged");
+      Assert::IsNull(HitCommandRow(laid, button.rect.x + 4.0f, button.rect.y + 4.0f), L"and none of them takes a tap");
+    }
+  }
+
+  TEST_METHOD(SelectingAWingEnablesTheVerbsTheGameHasContentFor)
+  {
+    // The other half of the predicate: the selection turns on what `available`
+    // already allowed, and turns on nothing it did not.
+    CommandButton empty[MAX_COMMAND_BUTTONS] = {};
+    CommandButton selected[MAX_COMMAND_BUTTONS] = {};
+    const std::uint32_t emptyCount =
+        BuildCommandRow(KINDS, 0, FORMATIONS, 0, EMPTY, WideRow(), 1.0f, CommandRowTuning{}, empty);
+    const std::uint32_t selectedCount =
+        BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, selected);
+
+    Assert::AreEqual(emptyCount, selectedCount, L"the row is the same shape either way");
+    const std::span<const CommandButton> laid{selected, selectedCount};
+    Assert::IsTrue(Required(laid, "Move").enabled);
+    Assert::IsTrue(Required(laid, "Formation").enabled);
+    Assert::IsTrue(Required(laid, "Move").active, L"the armed command is the mode, once there is a fleet in it");
+
+    // A reserved command stays greyed: a selection is not content.
+    Assert::IsFalse(Required(laid, "Attack").enabled);
+    Assert::IsFalse(Required(laid, "Stance").enabled);
+    Assert::IsFalse(Required(laid, "Abilities").enabled);
+  }
+
   TEST_METHOD(TheParameterButtonCarriesTheCurrentChoice)
   {
     // `FORMATION` over `Claw` -- the print's dropdown, showing what is chosen
     // rather than only what could be.
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const std::uint32_t count =
-        BuildCommandRow(KINDS, 0, FORMATIONS, 2, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+        BuildCommandRow(KINDS, 0, FORMATIONS, 2, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
     const std::span<const CommandButton> laid{buttons, count};
     const CommandButton& formation = Required(laid, "Formation");
     Assert::IsNotNull(formation.value);
@@ -184,7 +235,7 @@ public:
     // visibly not for pressing.
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const OrderOption single[] = {OrderOption{0, "Line"}};
-    const std::uint32_t count = BuildCommandRow(KINDS, 0, single, 0, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+    const std::uint32_t count = BuildCommandRow(KINDS, 0, single, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
     const CommandButton& formation = Required(std::span<const CommandButton>{buttons, count}, "Formation");
     Assert::IsFalse(formation.enabled);
     Assert::AreEqual(std::string{"Line"}, std::string{formation.value}, L"but it still says what is in force");
@@ -197,7 +248,7 @@ public:
     // selection wherever it goes.
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const std::uint32_t count =
-        BuildCommandRow(KINDS, 2, FORMATIONS, 0, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+        BuildCommandRow(KINDS, 2, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
     Assert::AreEqual<std::uint32_t>(5, count);
     Assert::AreEqual(std::string{"Stance"}, std::string{buttons[2].label});
     Assert::AreEqual(std::string{"Stance"}, std::string{buttons[3].label}, L"the parameter shares its command's word");
@@ -213,7 +264,7 @@ public:
     // still a button, so there must not be one.
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const std::uint32_t count =
-        BuildCommandRow(KINDS, 1, FORMATIONS, 0, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+        BuildCommandRow(KINDS, 1, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
     Assert::AreEqual<std::uint32_t>(4, count, L"four commands and no parameter button");
     for (std::uint32_t index = 0; index < count; ++index)
     {
@@ -230,7 +281,7 @@ public:
      */
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const UiRect narrow{0.0f, 836.0f, 320.0f, 64.0f};
-    const std::uint32_t count = BuildCommandRow(KINDS, 0, FORMATIONS, 0, narrow, 1.0f, CommandRowTuning{}, buttons);
+    const std::uint32_t count = BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, narrow, 1.0f, CommandRowTuning{}, buttons);
 
     Assert::IsTrue(count > 0 && count < 5);
     for (std::uint32_t index = 0; index < count; ++index)
@@ -248,8 +299,8 @@ public:
     // scales and below it it refuses -- see the floor test beside this one.
     CommandButton normal[MAX_COMMAND_BUTTONS] = {};
     CommandButton large[MAX_COMMAND_BUTTONS] = {};
-    (void)BuildCommandRow(KINDS, 0, FORMATIONS, 0, WideRow(), 1.0f, CommandRowTuning{}, normal);
-    (void)BuildCommandRow(KINDS, 0, FORMATIONS, 0, WideRow(), 1.6f, CommandRowTuning{}, large);
+    (void)BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, normal);
+    (void)BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.6f, CommandRowTuning{}, large);
 
     Assert::AreEqual(large[0].rect.width, normal[0].rect.width * 1.6f, 0.01f);
     Assert::AreEqual(large[0].rect.height, normal[0].rect.height * 1.6f, 0.01f);
@@ -265,7 +316,7 @@ public:
      */
     CommandButton small[MAX_COMMAND_BUTTONS] = {};
     const UiRect row{0.0f, 848.8f, 1600.0f, 64.0f * 0.8f};
-    const std::uint32_t count = BuildCommandRow(KINDS, 0, FORMATIONS, 0, row, 0.8f, CommandRowTuning{}, small);
+    const std::uint32_t count = BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, row, 0.8f, CommandRowTuning{}, small);
     Assert::IsTrue(count > 0);
 
     for (std::uint32_t index = 0; index < count; ++index)
@@ -280,10 +331,10 @@ public:
   TEST_METHOD(NothingIsLaidOutWithoutCommandsOrRoom)
   {
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
-    Assert::AreEqual<std::uint32_t>(0, BuildCommandRow({}, 0, FORMATIONS, 0, WideRow(), 1.0f, CommandRowTuning{}, buttons));
+    Assert::AreEqual<std::uint32_t>(0, BuildCommandRow({}, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons));
     Assert::AreEqual<std::uint32_t>(
-        0, BuildCommandRow(KINDS, 0, FORMATIONS, 0, UiRect{}, 1.0f, CommandRowTuning{}, buttons));
-    Assert::AreEqual<std::uint32_t>(0, BuildCommandRow(KINDS, 0, FORMATIONS, 0, WideRow(), 1.0f, CommandRowTuning{},
+        0, BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, UiRect{}, 1.0f, CommandRowTuning{}, buttons));
+    Assert::AreEqual<std::uint32_t>(0, BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{},
                                                        std::span<CommandButton>{}));
   }
 };
@@ -295,7 +346,7 @@ public:
   {
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const std::uint32_t count =
-        BuildCommandRow(KINDS, 0, FORMATIONS, 0, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+        BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
     const std::span<const CommandButton> laid{buttons, count};
 
     const CommandButton& move = Required(laid, "Move");
@@ -322,7 +373,7 @@ public:
      */
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const std::uint32_t count =
-        BuildCommandRow(KINDS, 0, FORMATIONS, 0, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+        BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
     const std::span<const CommandButton> laid{buttons, count};
 
     const CommandButton& attack = Required(laid, "Attack");
@@ -333,7 +384,7 @@ public:
   {
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const std::uint32_t count =
-        BuildCommandRow(KINDS, 0, FORMATIONS, 0, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+        BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
     const std::span<const CommandButton> laid{buttons, count};
 
     // In the gap between the first two.
@@ -360,7 +411,7 @@ public:
 
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const std::uint32_t count =
-        BuildCommandRow(KINDS, 0, FORMATIONS, 0, layout.commandRow, layout.scale, CommandRowTuning{}, buttons);
+        BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, layout.commandRow, layout.scale, CommandRowTuning{}, buttons);
     Assert::IsTrue(count > 0);
 
     for (std::uint32_t index = 0; index < count; ++index)

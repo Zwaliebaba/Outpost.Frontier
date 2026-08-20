@@ -366,5 +366,4 @@ FodyWeavers.xsd
 !GameData/**
 
 # Logging files
-Outpost.log
 GameData/Outpost.log

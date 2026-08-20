@@ -378,9 +378,15 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
       {
         continue;
       }
+      // Hangs below the waypoint, so containing the waypoint is not enough --
+      // the same spill the footprint's own label had.
+      const float waypointY = to.y + _tuning.labelGapPixels * scale;
+      if (waypointY + _tuning.labelLineHeightPixels * scale > _view.worldRect.Bottom())
+      {
+        continue;
+      }
       const auto width = static_cast<float>(std::strlen(waypoint)) * _view.cellPixels;
-      _outLabels.AddText(to.x - width * 0.5f, to.y + _tuning.labelGapPixels * scale, _tuning.detailSizeIndex,
-                       FadeRgba(colour, 0.75f), waypoint);
+      _outLabels.AddText(to.x - width * 0.5f, waypointY, _tuning.detailSizeIndex, FadeRgba(colour, 0.75f), waypoint);
     }
 
     /*
@@ -404,7 +410,22 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
     const float lineHeight = _tuning.labelLineHeightPixels * scale;
     float line = top;
 
-    if (ghost.preview.label[0] != '\0')
+    /*
+     * A label line is drawn only if it fits inside the world zone.
+     *
+     * The footprint being on screen is not enough: the lines hang *below* it,
+     * so a puck near the bottom of the band put `2.1 KM - ETA 19S` across the
+     * context bar -- world content over chrome, which ADR-006 forbids outright.
+     * The labels are in the Ui layer and composite *after* the panels, so no
+     * scissor upstream can catch them; the zone has to be honoured here.
+     *
+     * Per line rather than for the block, so a label that half fits loses only
+     * the lines that do not -- the order's name survives and its numbers drop,
+     * which is the right half to keep.
+     */
+    const auto lineFits = [&](float _y) { return _y >= _view.worldRect.y && _y + lineHeight <= _view.worldRect.Bottom(); };
+
+    if (ghost.preview.label[0] != '\0' && lineFits(line))
     {
       // Cells, not bytes: the label carries a UTF-8 token separator, and
       // `strlen` would over-measure it by two columns.
@@ -438,7 +459,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
 
     char detail[48] = {};
     FormatLaneDetail(journeyMetres, lastEta, detail, sizeof(detail));
-    if (detail[0] != '\0')
+    if (detail[0] != '\0' && lineFits(line))
     {
       const auto width = static_cast<float>(TextCellCount(detail)) * _view.cellPixels;
       // Dimmer and a size smaller than the name above it: the print draws the
@@ -455,7 +476,7 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
      * number that is true; the client's own until then. They differ for exactly
      * one round trip, which is the window the chain is a guess in.
      */
-    if (legs > 1 || ghost.legCount > 1)
+    if ((legs > 1 || ghost.legCount > 1) && lineFits(line))
     {
       const std::uint32_t shown = ghost.legCount > 0 ? ghost.legCount : legs;
       char footer[24] = {};

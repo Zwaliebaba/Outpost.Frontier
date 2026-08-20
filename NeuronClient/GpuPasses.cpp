@@ -12,30 +12,80 @@
 #include "Telemetry.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace Neuron
 {
 
+D3D12_RECT FullTargetScissor(const FrameContext& _context) noexcept
+{
+  D3D12_RECT scissor{};
+  scissor.right = static_cast<LONG>(_context.viewportWidth);
+  scissor.bottom = static_cast<LONG>(_context.viewportHeight);
+  return scissor;
+}
+
+/*
+ * `FrameContext::worldRect` as a scissor, clamped to the target.
+ *
+ * Rounded outward on the left and top and inward on the right and bottom, so
+ * the world can never claim a pixel the chrome believes is its own -- the
+ * asymmetry is the point: a half-pixel of world under the context bar's top
+ * edge is exactly the artefact this exists to remove.
+ */
+D3D12_RECT WorldScissor(const FrameContext& _context) noexcept
+{
+  const D3D12_RECT target = FullTargetScissor(_context);
+  const UiRect& world = _context.worldRect;
+
+  D3D12_RECT scissor{};
+  scissor.left = std::clamp(static_cast<LONG>(std::ceil(world.x)), target.left, target.right);
+  scissor.top = std::clamp(static_cast<LONG>(std::ceil(world.y)), target.top, target.bottom);
+  scissor.right = std::clamp(static_cast<LONG>(std::floor(world.Right())), scissor.left, target.right);
+  scissor.bottom = std::clamp(static_cast<LONG>(std::floor(world.Bottom())), scissor.top, target.bottom);
+  return scissor;
+}
+
 void ClearPass::Record(const FrameContext& _context) const
 {
+  /*
+   * The full-target viewport, and it stays that way for every world pass: the
+   * camera's projection, `PlaneMappingForNdc` and picking are all expressed in
+   * the whole window's pixels, and narrowing the viewport here would move the
+   * world under the cursor without moving the cursor.
+   */
   D3D12_VIEWPORT viewport{};
   viewport.Width = static_cast<float>(_context.viewportWidth);
   viewport.Height = static_cast<float>(_context.viewportHeight);
   viewport.MinDepth = 0.0f;
   viewport.MaxDepth = 1.0f;
 
-  D3D12_RECT scissor{};
-  scissor.right = static_cast<LONG>(_context.viewportWidth);
-  scissor.bottom = static_cast<LONG>(_context.viewportHeight);
+  const D3D12_RECT full = FullTargetScissor(_context);
 
   _context.commandList->RSSetViewports(1, &viewport);
-  _context.commandList->RSSetScissorRects(1, &scissor);
+  _context.commandList->RSSetScissorRects(1, &full);
   _context.commandList->OMSetRenderTargets(1, &_context.renderTargetView, FALSE, &_context.depthStencilView);
 
+  // Cleared across the whole target, chrome zones included: the panels are
+  // translucent by design (`HudPalette::panel`, 12% reads through), so what is
+  // *behind* them has to be the clear colour rather than last frame's fleet.
   _context.commandList->ClearRenderTargetView(_context.renderTargetView, _context.clearColour, 0, nullptr);
   // 1.0 because the projection is LESS-tested and near maps to 0 (ADR-006 §3a),
   // and because it is the value the depth buffer's fast-clear was created with.
   _context.commandList->ClearDepthStencilView(_context.depthStencilView, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+
+  /*
+   * Then the world's own band, for every pass that follows this one.
+   *
+   * ADR-006's "chrome always occludes world" used to be true only by luck: the
+   * world rasterised across the entire target and the panels merely sat on top
+   * of it at 88% opacity, so a ship behind the context bar read through as a
+   * ghost of itself. Set once here rather than per pass because the scissor is
+   * command-list state and the world passes are a contiguous run -- `UiPass`
+   * restores the full target when the chrome's turn comes.
+   */
+  const D3D12_RECT world = WorldScissor(_context);
+  _context.commandList->RSSetScissorRects(1, &world);
 }
 
 void OpaquePass::Record(const FrameContext& _context)
@@ -309,6 +359,22 @@ void UiPass::Record(const FrameContext& _context, bool _worldLayer)
   m_panelCount = 0;
   m_glyphCount = 0;
   m_instances.clear();
+
+  /*
+   * The chrome draws over the whole window, so the world band `ClearPass` left
+   * in the scissor has to be given back first -- the roster, the ability rack
+   * and both bars live entirely outside it, and inheriting the world's scissor
+   * would clip the HUD to the hole it is supposed to be framing.
+   *
+   * The world layer is the other half of this pass and keeps the world's
+   * scissor: its lane is world content drawn under the hulls, and it stops at
+   * the same edge everything else in the world does.
+   */
+  if (!_worldLayer)
+  {
+    const D3D12_RECT full = FullTargetScissor(_context);
+    _context.commandList->RSSetScissorRects(1, &full);
+  }
 
   const UiDrawList* list = _worldLayer ? _context.uiWorld : _context.ui;
   ID3D12PipelineState* pipeline =
