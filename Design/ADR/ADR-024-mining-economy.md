@@ -2,10 +2,11 @@
 
 **Status:** Proposed · 2026-08-20 (economy design session — **for owner review**; this is a
 design document, no code rides with it, and every number in it is a reference tuning the
-envelope suites will assert the *shape* of, not the value) · **the six questions the review
-was owed are ruled** (owner rulings, 2026-08-20 — the final section records each with its
-reason; every proposal stood, so no body number moved). Acceptance of the whole waits on the
-owner's full read-through, and these rulings are normative the day it flips.
+envelope suites will assert the *shape* of, not the value) · **nine owner rulings recorded**
+(2026-08-20, two rounds — the final section holds each with its reason: the six questions
+this document left open, then three review comments; **R7 re-forms sites on the epoch**
+(§3a, §3d) and **R9 adds §7a, persistence**). Acceptance of the whole waits on the owner's
+full read-through, and these rulings are normative the day it flips.
 **Depends on:** ADR-002 (tick), ADR-005 (orders, group validation, determinism), ADR-009
 (universe model), ADR-012 (JSON, content hashing, the §D13 balance-becomes-data hook),
 ADR-014 (seam), ADR-015 (contact), ADR-016 (anchors, the reserved `Site` kind, the universe
@@ -18,8 +19,9 @@ starts baking them; ADR-016's deliberate-gaps list — "mined-out fields" gets i
 site ledger, §3) and "wrecks" gets its policy (bounded and non-durable, §5); ADR-017 §1 —
 the station roster's "and nothing else" grows a per-ship cargo manifest; ADR-017 §6 — the
 station surface's tab family activates **CARGO** and **REFINERY** beside HANGAR;
-ADR-012 §D13 — the "when balance wants to be data" hook is cashed in: the economy tables are
-the first hash-guarded balance content.
+ADR-017's "no persistence" note — ended: the universe layer's durable state gets its
+journal (§7a); ADR-012 §D13 — the "when balance wants to be data" hook is cashed in: the
+economy tables are the first hash-guarded balance content.
 
 ## Context
 
@@ -145,18 +147,32 @@ internally consistent on this point and is adopted verbatim.
 
 ### 3. Sites — where ore lives
 
-#### 3a. A site is an anchor
+#### 3a. A site is an anchor — position derived, never pinned *(amended by R7)*
 
-`AnchorKind::Site` stops being reserved. A site is a baked anchor row like any other —
-origin on the system disc between the planet orbits, warp-in point at the field's edge
-(2 km standoff), authored facing, zero occupants — plus a **site block**:
+`AnchorKind::Site` stops being reserved. A site is a baked anchor row with zero occupants,
+and **the one anchor whose position the bake does not pin**: the bake authors an **orbit
+ring** — a radius on the system disc between the planet orbits — and the site's bearing on
+that ring is re-derived each epoch (§3d) by the same integer placement arithmetic the bake
+itself uses, evaluated at `(anchorId, epochIndex)`. Deterministic on both halves, no
+re-bake, no content push; the strategic and system maps compute today's position from the
+same pure function. The warp-in point sits at the field's edge (2 km standoff) on the
+epoch's approach vector, its facing derived with it. The baked **site block**:
 
 - `archetype` — `ferrousField` | `irradiatedBelt` | `nebulaPocket`
 - `grade` — I–V (§3d): how rich, how hazardous
+- `orbitRingRadius` — where on the disc the field rides; the *bearing* is the epoch's
 - `fieldRadiusCm` — the rock field's extent (8–15 km; bake invariant: field plus warp-in
-  standoff sits inside the 40 km grid bound, the same invariant warp-in points obey)
-- `layoutSeed` — the deterministic rock-field layout (§4c)
+  standoff sits inside the 40 km grid bound — origin-independent, so it holds for every
+  bearing by construction)
+- `layoutSeed` — the deterministic rock-field layout (§4c), reshuffled per epoch
 - per-ore starting pool, in units, from the archetype × grade tables below
+
+**Arrival scatter is the anti-camp tool that actually bites.** Under anchor-only warp an
+ambusher reaches today's site the same way a miner does — by clicking it — so no amount of
+relocation closes the warp-in door. What dilutes it: sites author a **wide
+`arrivalSpreadRadius`** (an arc of the field's edge rather than a point), and ADR-018
+D18's deterministic per-order offsets scatter same-tick arrivals across it, so a camper
+covers a fraction of the possible arrivals instead of all of them.
 
 **The id price, stated:** 2,500 systems × 2–3 sites ≈ **6,250 new `AnchorId`s** on top of
 today's 18,618, against the u16 window `Ids.h` prices at ~20,000 used of 65,535. Sites fit
@@ -251,13 +267,23 @@ bake + ledger and reconstructs the field mid-eaten; a teardown forgets nothing t
 matters, because the world never owned the number. Worlds forget, ledgers do not
 (ADR-018 D2, applied).
 
-**Regeneration is an epoch, not a trickle.** Every site refills to its full pool on a
-fixed cycle — `SITE_REGEN_SECONDS = 86,400`, one day — at a per-site offset staggered
-deterministically from its anchor id, so the shard's fields do not all reset at one
-minute and the refill is a single ledger write rather than a per-tick drip. Between
-epochs, what is gone is gone: "this system is chewed out until tomorrow" is information
-a mining corp plans logistics around, and a roaming-anomaly layer (fields that *move*)
-is left to the future content system that would own it.
+**Regeneration is an epoch, and the epoch re-forms the field** *(extended by R7)*. Every
+site, on a fixed cycle — `SITE_REGEN_SECONDS = 86,400`, one day, at a per-site offset
+staggered deterministically from its anchor id — gets three things re-derived at once: its
+**pool refills**, its **bearing on the orbit ring rotates** (new position, new warp-in
+vector, new facing), and its **rock layout reshuffles**. The field re-forms overnight:
+yesterday's scouting is stale, a camp costs live presence rather than knowledge, and any
+future free-positioning tool — probes, bookmarks, interdiction — never gets a fixed
+target. Ambush itself deliberately survives all of this; it is the risk pillar the wreck
+rule depends on. What dies is the *set-and-forget* camp that knowledge alone used to buy.
+
+**Epoch state applies when the site's world next spins up.** An occupied world is never
+re-formed under the players — the "never torn down under the player's camera" rule,
+applied to geology — so rocks never teleport mid-cycle and a continuously-worked field
+keeps its current state, and its emptiness, until presence leaves. Between epochs, what
+is gone is gone: "this system is chewed out until tomorrow" is information a mining corp
+plans logistics around. Roaming anomalies — *extra* transient fields that appear and
+wander as content — stay with the future system that would own them.
 
 **Visibility:** archetype and grade are bake content — the strategic map and system view
 may show them to everyone, like security. The *remaining pool* is presence-gated like
@@ -321,7 +347,7 @@ Three exits, all per-ship and all visible:
 **No asteroid is a ship-table entity.** The sim tracks the site at
 (site, ore, cluster) granularity; the client derives the visible rock field — positions,
 sizes, how cracked-open each cluster looks — as a pure function of
-`(layoutSeed, pool remaining)`, the same both-halves-derive discipline as
+`(layoutSeed, epochIndex, pool remaining)`, the same both-halves-derive discipline as
 `SolveFormation`. Rocks do not collide (a field is a place you fly *into*, and ADR-015
 stays a ship-vs-ship and ship-vs-station rule), do not tick, and cost **zero snapshot
 bytes and zero ids**.
@@ -402,7 +428,8 @@ docked, is absolutely safe; ore in a Bay is safer than that.
 #### 5c. Docking, the Bay, and the manual transfer
 
 The **Station Bay** is a per-`(PlayerId, station)` ledger at the universe layer — beside
-the roster, in the registry hash, durable, private, uncapped. Uncapped for the hangar's
+the roster, in the registry hash, durable (through §7a's journal — the save file ADR-017
+said did not exist yet), private, uncapped. Uncapped for the hangar's
 own stated reason: a cap is a strategic knob with no economy pressure behind it yet, and
 it is named here so a future scarcity design is a decision rather than a discovery.
 
@@ -642,6 +669,33 @@ economy assertions in the class-table style — shapes, not values: rarer ore is
 mine and denser in value, every alloy compresses, higher tiers strictly dominate, refund
 never reaches the batch it refunds.
 
+### 7a. Persistence — the save file this economy makes due *(owner ruling R9)*
+
+ADR-017 named its own gap: *"the roster is the obvious save anchor … but no save file
+exists, and this ADR does not create one."* Bays, site ledgers, refine jobs and project
+contributions end the deferral — an economy whose state evaporates on restart is not a
+persistent service, it is a demo. The ruling: the universe layer's durable state persists
+through an **engine-owned append-only journal plus periodic snapshot** — tick-stamped
+records in the transfer log's own shape, written **off the Sim thread**, compacted to a
+snapshot on a cadence, replayed at boot, with the registry hash proving a reload
+reproduced the state it claims to. Deterministic, replay-shaped, headless-testable, zero
+external dependencies.
+
+A SQL instance was considered and **staged, not rejected**. The shard's durable state is
+single-writer and key-addressed — a journal serves it at a fraction of the operational
+surface (no second service beside the shard, no client library, no migration machinery
+against the tick) — while ad-hoc queries are where a database earns its keep, and those
+live at the **service layer**: market order books, the Directory role, web tooling,
+analytics. That is SQL's named entry point when those arrive. Embedded SQLite sits
+between (crash-safe WAL in one vendored file, no server) and remains available to the
+persistence ADR if its crash-recovery arithmetic favours it — it is an external library,
+so it takes the owner's explicit approval under the standing rule, granted case-by-case
+there and not here.
+
+The design itself — journal format, snapshot cadence, crash recovery, the reload-proof
+hash — is **its own ADR and a named deliverable blocking E1** (the ADR-019 pattern: this
+document decides the shape and the venue, not the file format).
+
 ### 8. The wire and the schema, enumerated once
 
 One clustered fail-closed bump when the phase's wire half lands, in the ADR-017 §8
@@ -709,8 +763,9 @@ so retuning starts from the invariants rather than the values.
   so their absence is a decision; each is a small design with a real abuse surface
   (free floating containers, combat resupply, value-density collapse) deserving its own
   paragraph when wanted.
-- **No roaming anomalies / moving sites.** The 2–3 baked sites are the whole map of a
-  system's ore until a content system owns wandering riches (§3d).
+- **No roaming anomalies.** The 2–3 baked sites are a system's whole ore map — they
+  re-form on the epoch (§3a, §3d) but never multiply, vanish, or wander as content;
+  *extra* transient rich fields wait for the content system that would own them.
 
 ## Alternatives rejected
 
@@ -755,7 +810,8 @@ so retuning starts from the invariants rather than the values.
 - **Named deliverables:** the **CARGO** and **REFINERY** tab prints (the P1 pattern —
   designed and agreed before their slices build); ore/alloy icons; the site field's
   visual treatment (the Nebula pass parameter set for pockets; rock meshes or impostors
-  for fields).
+  for fields); and **the persistence ADR** (§7a — journal format, snapshot cadence, crash
+  recovery, the reload-proof hash; **blocks E1**).
 - **New constants join the envelope suite's guardianship** as table data: cycle seconds,
   unit volumes, hold litres, pool sizes, regen epoch, refund percentages — with
   shape-assertions per §7.
@@ -770,12 +826,16 @@ so retuning starts from the invariants rather than the values.
 - ADR-016 §3/§4-gaps, ADR-017 §1/§6 and ADR-012 §D13 take amendment notes pointing here
   **if accepted**; the README's supersession list grows its line at the same moment.
 
-## The six the review left open, answered *(owner rulings, 2026-08-20)*
+## The review's rulings *(owner, 2026-08-20)*
 
-The questions were put to the owner the same day, each with a recommendation, and all six
-were ruled. Every proposal stood, so no number in the body moved — what changed is that each
-of these is now a **decision with its reason recorded** rather than a default that survived
-by silence, which is the difference the P1 §3 → ADR-017 §6a pattern exists to make.
+Nine rulings, in two rounds the same day. First, the six questions this document left
+open, each put to the owner with a recommendation — all six followed the proposals, so no
+body number moved; what changed is that each is now a **decision with its reason
+recorded** rather than a default that survived by silence, which is the difference the
+P1 §3 → ADR-017 §6a pattern exists to make. Then three **review comments** — moving
+sites, the data/code boundary, and a database — were put back the same way and ruled as
+R7–R9 below; two of those changed the document (§3a/§3d re-form on the epoch, and §7a
+exists).
 
 **R1 — The wreck split is a flat 50/50, in every band** (§1d, §5b stand as written). One
 number, no banded loot table; the victim always loses more than the attacker gains, so
@@ -807,3 +867,32 @@ safe.
 ~86 to a T3 is a first real corp project — reachable, not trivial. Halving (faster
 bootstrap) and doubling (rarer T3s) were both declined; the costs are table data in
 `Economy.json` either way, so retuning after real play is an edit, not a redesign.
+
+**R7 — Sites re-form on the epoch** (§3a and §3d amended). The daily regen epoch
+re-derives a site's bearing on its authored orbit ring, its warp-in point and facing, and
+its rock layout, alongside the pool refill — applied when the site's world next spins up,
+never under a live grid. Full daily relocation was declined on the warp model's own
+arithmetic: ships warp to anchors, never to coordinates, so an attacker reaches today's
+site the same way a miner does — by clicking it — and relocation does not close the
+ambush door; **arrival scatter does** (a wide site `arrivalSpreadRadius` plus ADR-018
+D18's deterministic per-order offsets), while a field that teleports across its system
+spends map identity and fiction to buy nothing scatter had not already bought. What the
+rotation does buy is real: scouting goes stale daily, a camp costs live presence rather
+than knowledge, and any future free-positioning tool never gets a fixed target — while
+ambush itself survives, because it is the risk pillar the wreck rule depends on.
+
+**R8 — The data/code boundary stands: economy is data, movement stays compiled** (§7 as
+written — the comment confirmed a decision already taken). Every price index, volume,
+hold, recipe, timer and weight is authored in `Economy.json` and none of it lives in
+code. The movement envelope (speed, turn, warp, radii) keeps `ShipClass.cpp`'s compiled
+table and its determinism rationale, with §D13's hash-guarded road expressly open to it
+later if balance iteration demands.
+
+**R9 — Persistence is an engine-owned journal plus snapshot** (§7a, new — and ADR-017's
+"no save file exists" era ends with it). The economy's Bays, ledgers, jobs and projects
+must survive a restart, so persistence stops being deferred and becomes a named
+deliverable: its own ADR, blocking E1. A SQL instance was staged rather than rejected —
+the shard's single-writer, key-addressed state is journal-shaped, and SQL's entry point
+is the service layer (market order books, the Directory role, web tooling) when those
+arrive; embedded SQLite stays available to the persistence ADR under the external-library
+rule.
