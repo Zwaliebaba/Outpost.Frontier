@@ -207,9 +207,17 @@ public:
     m_registry.Tick(_tick);
   }
 
-  /// The tick argument is the loop's; the world knows its own and they are the
-  /// same number. Writing the world's is the one that cannot drift.
-  [[nodiscard]] bool WriteSnapshot(std::uint32_t, ByteWriter& _writer) override
+  /*
+   * The tick argument is the loop's; the world knows its own and they are the
+   * same number. Writing the world's is the one that cannot drift.
+   *
+   * The viewer is unread, and that is the honest state of things rather than an
+   * oversight: there is one grid, everyone on it sees all of it, and ADR-022's
+   * ranking hook is scheduled after U3c. What the seam already carries is *who
+   * is asking*, so the day this answers differently per player it is this
+   * function that changes and nothing above it.
+   */
+  [[nodiscard]] bool WriteSnapshot(std::uint32_t, PlayerId, ByteWriter& _writer) override
   {
     return Game::WriteSnapshot(ServedWorld(), _writer);
   }

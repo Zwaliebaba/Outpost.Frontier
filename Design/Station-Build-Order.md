@@ -4,9 +4,11 @@
 the wire** (2026-08-20). Docking, the transfer bus, undocking and its fifteen seconds, the
 parking ring and the event record are in the sim; `PlayerId` and the reserved resume token are
 on `Hello`/`Welcome`, and the schema text carries the verdict-affecting constants and the
-check-order sequence (D9/A21). **What T2 still owes is its client half and its per-client
-`SnapshotSender`** — the first is screen work, the second is what U3c waits on. T3 is still
-gated on P1. The design it delivers is
+check-order sequence (D9/A21). **T2's per-client `SnapshotSender` is built** (2026-08-20) —
+the piece U3c waits on, and the shape ADR-022 §1 requires everything after it to inherit.
+**What T2 still owes is the station family's ingest and emission and its whole client half.**
+**T3 is no longer gated: P1 is delivered** (2026-08-20), so the hangar is buildable the moment
+T2 lands. The design it delivers is
 [ADR-017](ADR/ADR-017-station-docking.md); where this document and that one disagree, the
 ADR wins on *what* and this one on *when*.
 
@@ -188,9 +190,48 @@ ADR-022 §1 restates as a rule rather than a test: on a broadcast-shaped sender 
 promise is a silent leak nothing catches, because nothing before U3c runs two clients; a dock validated at fleet scale (the 41-ship
 starting fleet, footprint-derived radius) round-trips with parity.
 
+**Built (T2, the per-client sender, 2026-08-20).** `NeuronServer/SnapshotSender.h/.cpp`:
+one per session, made with the session, replacing `ServerHost::BroadcastSnapshot`. The name
+had been **reserved** in both file registries since ADR-013 with the note "today `ServerHost`
+serialises once and fans the same bytes out"; it is a file now, and that sentence is no
+longer true anywhere.
+
+Built before anything it enables, which is the point. ADR-022 §1 states the rule the way a
+rule has to be stated when nothing can test it yet — *relevance is a property of a viewer,
+and the sim tier has no viewers* — and the shape it forbids is the cheap one: "broadcast the
+bytes we already made" does not grow into "encode against what **this** client last acked".
+Every piece T2 has left leans on this being right first: ADR-017 §1's roster is private to
+its owner, and on a broadcast sender that promise is a leak nothing catches, because nothing
+before U3c runs two clients.
+
+The seam grew the viewer with it: `Simulation::WriteSnapshot(tick, viewer, writer)`, asked
+**once per client** rather than once per tick. `UniverseSimulation` ignores the argument and
+says so in as many words — there is one grid, everyone on it sees all of it, and ADR-022 §4's
+ranking hook is scheduled after U3c. What matters is that a `Simulation` can no longer answer
+the same bytes to everyone *by signature*, so the day relevance lands it is that function that
+changes and nothing above it. `SessionInfo` carries a `PlayerId` minted at the handshake
+(ADR-018 D5) and the sender is keyed on it rather than on the connection, so what ADR-022 §2b
+eventually retains per viewer outlives the socket by construction.
+
+The over-cap refusal moved with the serialisation and became **per client**: counted, and
+logged naming which client and which player saw the world stop. One viewer's refusal no longer
+skips the others — stopping the loop would turn one over-cap grid into everybody's outage,
+which is the failure ADR-022 §6 exists to retire and not one to spread in the meantime.
+
+The test is the one that keeps the shape: `EverySessionIsServedItsOwnSerialisation` joins two
+clients over the real loopback and asserts **the simulation was asked to write at least as
+many snapshots as the two clients received**. Under a broadcast host that count sits at about
+half, so the assertion fails on the shape rather than on a symptom — which is what it is for,
+since the roster and the delta path that depend on it are not here yet to notice a regression.
+
+**Still owed by T2:** the station family's ingest and emission — `StationCommand` on the acked
+order stream and `StationRoster` through this sender — and the whole client half.
+
 ### T3 — The hangar screen 🏁 H1
-**Prerequisite: P1, the station-screen print — designed and agreed before this slice
-builds. Gate (ADR-018) cleared: the UI-architecture ADR is delivered —
+**Both gates cleared. P1, the station-screen print, is delivered and owner-confirmed
+(2026-08-20) — [station-screen.png](ScreenPrints/station-screen.png), the artefact this
+slice is built against and checked against. Gate (ADR-018): the UI-architecture ADR is
+delivered —
 [ADR-020](ADR/ADR-020-ui-architecture.md) — so the hangar inherits the surface stack, the
 input router, focus and text editing for wing renames (atlas-charset policy, D15.1),
 the scrolling list, and the composer's retained-state lifetime as a rule rather than a
@@ -211,9 +252,10 @@ station from the roster block and jump to it with VIEW.
 
 ## Content & design deliverables (not slices — tracked so they cannot be quietly dropped)
 
-- **P1 — The station-screen print.** The hangar is a new full-screen surface and must not
-  be invented ad hoc at T3. Owner-reviewed like every print. Required elements listed in
-  ADR-017 §6.
+- **P1 — The station-screen print. Delivered 2026-08-20** —
+  [station-screen.png](ScreenPrints/station-screen.png), owner-reviewed like every print,
+  carrying ADR-017 §6's required elements. The hangar is a new full-screen surface and was
+  not to be invented ad hoc at T3; it no longer can be.
 - **P2 — Dock and undock audio cues.** Bay ambience, the dock thunk, the undock release.
   Lands only after S15 gives audio its bank format. Deliberately last, like D4.
 

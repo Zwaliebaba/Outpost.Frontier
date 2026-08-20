@@ -2,6 +2,7 @@
 
 #include "ServerConfig.h"
 #include "Simulation.h"
+#include "SnapshotSender.h"
 #include "Transport.h"
 
 #include <atomic>
@@ -29,9 +30,20 @@ namespace Neuron
 struct SessionInfo
 {
   std::uint32_t clientId = 0;
+
+  /// Who is on the other end, as opposed to which socket they arrived on
+  /// (ADR-018 D5). Everything player-keyed reads this one; `clientId` names a
+  /// connection and dies with it.
+  PlayerId playerId = INVALID_PLAYER_ID;
+
   ConnectionId connection = INVALID_CONNECTION;
   bool handshakeComplete = false;
   std::uint32_t lastPingTick = 0;
+
+  /// This session's state stream. One per client from its first line
+  /// (ADR-022 §1) -- see `SnapshotSender` for why that is a rule and not a
+  /// preference.
+  SnapshotSender snapshots;
 };
 
 class ServerHost
@@ -97,10 +109,16 @@ private:
   void HandleMessage(const TransportEvent& _event);
   void SendTo(ConnectionId _connection, TransportChannel _channel, const class ByteWriter& _writer);
 
-  /// Asks the simulation for a snapshot and sends it to every joined session.
-  /// One serialisation, many sends: the payload is identical for all of them
-  /// until interest management makes it per-client (ADR-004 §6).
-  void BroadcastSnapshot(std::uint32_t _tick);
+  /*
+   * Gives every joined session its own snapshot for this tick.
+   *
+   * One serialisation **per client**, not one for all of them (ADR-022 §1,
+   * ADR-018 A13). At one grid and one viewer that is the same bytes and the
+   * same cost; the difference is that culling, per-viewer rosters and
+   * delta-against-acked-baseline have a place to land that does not require
+   * unpicking a broadcast first.
+   */
+  void SendSnapshots(std::uint32_t _tick);
   [[nodiscard]] SessionInfo* FindSession(ConnectionId _connection);
 
   ServerConfig m_config;

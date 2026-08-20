@@ -5,6 +5,9 @@
     <ClCompile Include="ServerHost.cpp">
       <Filter>Host</Filter>
     </ClCompile>
+    <ClCompile Include="SnapshotSender.cpp">
+      <Filter>Host</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -12,6 +15,9 @@
       <Filter>Host</Filter>
     </ClInclude>
     <ClInclude Include="ServerConfig.h">
+      <Filter>Host</Filter>
+    </ClInclude>
+    <ClInclude Include="SnapshotSender.h">
       <Filter>Host</Filter>
     </ClInclude>
     <ClInclude Include="Simulation.h">

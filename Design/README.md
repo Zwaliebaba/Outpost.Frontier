@@ -98,8 +98,8 @@ moves between the trees without a rename pass. Three things it changed in these 
 - [Station-Build-Order.md](Station-Build-Order.md) — the docking phase: T1–T3 slices
   delivering ADR-017 (roster + transfer bus in the sim, the wire and tactical surfaces,
   the hangar screen), interleaved **after U2, before U3a**; milestones H0 (the headless
-  loop) / H1 (the hangar loop); deliverables P1 (station-screen print, blocks T3) and P2
-  (dock/undock audio). No slice started.
+  loop) / H1 (the hangar loop); deliverables P1 (station-screen print, **delivered**) and P2
+  (dock/undock audio, gated on S15). T1 built in full; T2's identity cluster is on the wire.
 - [Risk-Register.md](Risk-Register.md) — R1–R14 with designed-in mitigations + standing spikes.
   R6 and R14 are marked realised, with what actually happened.
 - [Scaling-Readiness-Review.md](Scaling-Readiness-Review.md) — five-lens review of the MVP
@@ -193,10 +193,13 @@ and before U3a — it introduces the transfer bus warp inherited.
 transfer bus, undocking with its fifteen seconds, the parking ring and the event record are
 in the sim; `PlayerId` and the reserved resume token are on `Hello`/`Welcome`, and the schema
 text grew the verdict-affecting constants and the check-order sequence (ADR-018 D9/A21).
-**T2's client half is not built** — the DOCK context action, the approach chain, the fades,
-the shimmer and the DOCKED roster blocks are all screen work — and neither is its per-client
-`SnapshotSender`, which is the piece U3c waits on. T3, the hangar screen, is still gated on
-the station-screen print (P1), its one missing design artifact.
+**T2's per-client `SnapshotSender` is built** (2026-08-20): one per session, the seam's
+`WriteSnapshot` now names its viewer, and a two-client test asserts the host serialises per
+client rather than fanning one payload out — the shape ADR-022 §1 requires, and the piece
+U3c waits on. **T2's client half is not built** — the DOCK context action, the approach
+chain, the fades, the shimmer and the DOCKED roster blocks are all screen work — and neither
+is the station family's ingest and emission. **T3, the hangar screen, is no longer gated** —
+the station-screen print (P1) is delivered and owner-confirmed — so it waits on T2 alone.
 
 **The first post-MVP feature is in the tree: ship collision (ADR-015, 2026-08-18).** Ships no
 longer fly through each other — per-class contact radii in the class table, braking and

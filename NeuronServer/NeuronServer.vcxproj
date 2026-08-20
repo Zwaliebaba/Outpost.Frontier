@@ -20,6 +20,7 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="ServerHost.cpp" />
+    <ClCompile Include="SnapshotSender.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="NeuronServer.h" />
@@ -27,6 +28,7 @@
     <ClInclude Include="ServerConfig.h" />
     <ClInclude Include="ServerHost.h" />
     <ClInclude Include="Simulation.h" />
+    <ClInclude Include="SnapshotSender.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\NeuronCore\NeuronCore.vcxproj">

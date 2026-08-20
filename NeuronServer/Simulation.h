@@ -2,6 +2,7 @@
 
 #include "ByteWriter.h"
 #include "OrderIntent.h"
+#include "Wire.h" // For `PlayerId`: who a snapshot is *for* (ADR-018 D5).
 
 #include <cstdint>
 #include <span>
@@ -71,8 +72,17 @@ public:
    * being optional. A bool rather than a silent short write, because a
    * truncated snapshot is worse than a missing one: the client would read the
    * absent ships as despawned and resurrect them on the next tick.
+   *
+   * **It is asked once per viewer, not once per tick** (ADR-022 §1, ADR-018
+   * A13). `_viewer` is who the bytes are for, and a simulation is free to
+   * ignore it -- today's does, because there is one grid and no culling. The
+   * parameter is here anyway because the alternative is a seam change on the
+   * day relevance arrives, and because a `Simulation` that answered the same
+   * bytes to everyone by *signature* could never grow ADR-022 §4's ranking
+   * hook. Who the answer is for is the engine's to say; what the answer
+   * contains stays the game's (ADR-014).
    */
-  [[nodiscard]] virtual bool WriteSnapshot(std::uint32_t _tick, ByteWriter& _writer) = 0;
+  [[nodiscard]] virtual bool WriteSnapshot(std::uint32_t _tick, PlayerId _viewer, ByteWriter& _writer) = 0;
 
   /// Validates and applies one order payload. Returning a verdict rather than a
   /// bool keeps the refusal reason with the decision that produced it.
@@ -101,7 +111,7 @@ class NullSimulation final : public Simulation
 {
 public:
   void AdvanceTick(std::uint32_t _tick) override { m_lastTick = _tick; }
-  [[nodiscard]] bool WriteSnapshot(std::uint32_t, ByteWriter&) override { return false; }
+  [[nodiscard]] bool WriteSnapshot(std::uint32_t, PlayerId, ByteWriter&) override { return false; }
 
   [[nodiscard]] OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t>) override
   {

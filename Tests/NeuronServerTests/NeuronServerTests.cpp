@@ -47,8 +47,11 @@ public:
   /// carried the simulation's bytes and not the engine's idea of them. The
   /// last accepted order rides along, which is what "state in the next
   /// snapshot" means for a simulation with no world.
-  [[nodiscard]] bool WriteSnapshot(std::uint32_t _tick, ByteWriter& _writer) override
+  [[nodiscard]] bool WriteSnapshot(std::uint32_t _tick, PlayerId _viewer, ByteWriter& _writer) override
   {
+    // Recorded so a test can assert the host asked *per viewer* rather than
+    // once for the room (ADR-022 §1).
+    m_lastViewer.store(_viewer, std::memory_order_relaxed);
     _writer.WriteUInt32(_tick);
     _writer.WriteUInt32(SNAPSHOT_MARKER);
     _writer.WriteUInt32(m_lastAcceptedSeq.load(std::memory_order_relaxed));
@@ -58,6 +61,7 @@ public:
 
   static constexpr std::uint32_t SNAPSHOT_MARKER = 0xfeedbeefu;
   [[nodiscard]] std::uint32_t SnapshotsWritten() const noexcept { return m_snapshotsWritten.load(std::memory_order_relaxed); }
+  [[nodiscard]] PlayerId LastViewer() const noexcept { return m_lastViewer.load(std::memory_order_relaxed); }
 
   /*
    * An order format this test invented, which is exactly the point.
@@ -115,6 +119,7 @@ public:
 private:
   std::atomic<std::uint32_t> m_ticks{0};
   std::atomic<std::uint32_t> m_snapshotsWritten{0};
+  std::atomic<PlayerId> m_lastViewer{INVALID_PLAYER_ID};
   std::atomic<std::uint32_t> m_lastTick{0};
   std::atomic<std::uint32_t> m_ordersSeen{0};
   std::atomic<std::uint32_t> m_lastOrderClientId{0};
@@ -329,7 +334,7 @@ public:
    * something of its own devising -- a snapshot it framed but did not get from
    * the game would still be the right size.
    */
-  TEST_METHOD(BroadcastsTheSimulationsOwnBytesToAJoinedClient)
+  TEST_METHOD(SendsTheSimulationsOwnBytesToAJoinedClient)
   {
     CountingSimulation simulation;
     ServerHost host;
@@ -390,11 +395,101 @@ public:
                                           return joined && snapshotsSeen >= 2;
                                         });
 
-    Assert::IsTrue(sawSnapshots, L"the server never broadcast a snapshot to a joined client");
+    Assert::IsTrue(sawSnapshots, L"the server never sent a snapshot to a joined client");
     Assert::AreEqual(CountingSimulation::SNAPSHOT_MARKER, marker, L"the payload was not the simulation's");
     Assert::IsTrue(snapshotTick > 0, L"a snapshot was sent for a tick the world never ran");
     Assert::IsTrue(snapshotTick <= host.TickCount(), L"a snapshot ran ahead of the tick counter");
     Assert::IsTrue(simulation.SnapshotsWritten() >= snapshotsSeen, L"more snapshots arrived than were written");
+    Assert::AreEqual<std::uint32_t>(0, host.SnapshotFailureCount());
+
+    host.Stop();
+    host.Join();
+  }
+
+  /*
+   * Two clients, two serialisations (ADR-022 §1, ADR-018 A13).
+   *
+   * The rule this pins is not "snapshots arrive" -- the test above covers that
+   * -- but *where the bytes are made*. A broadcast-shaped host serialises once
+   * per tick and sends the result twice, so the count of snapshots the
+   * simulation was asked to write would sit at about half the count the two
+   * clients received. Per client, writes can never be fewer than sends.
+   *
+   * It is written now, before anything culls, because this is the assertion
+   * that stops the shape regressing: ADR-017 §1's private roster and ADR-022's
+   * per-viewer delta both rest on it, and neither is here yet to notice.
+   */
+  TEST_METHOD(EverySessionIsServedItsOwnSerialisation)
+  {
+    CountingSimulation simulation;
+    ServerHost host;
+    ServerConfig config;
+    config.port = 0;
+    Assert::IsTrue(host.Start(config, simulation));
+
+    QuicTransport first;
+    QuicTransport second;
+    const ConnectionId firstLink = first.Connect("127.0.0.1", host.BoundPort());
+    const ConnectionId secondLink = second.Connect("127.0.0.1", host.BoundPort());
+    Assert::IsTrue(firstLink != INVALID_CONNECTION, L"the first client could not open a link");
+    Assert::IsTrue(secondLink != INVALID_CONNECTION, L"the second client could not open a link");
+
+    std::array<std::uint8_t, 256> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::Hello);
+    Write(writer, Hello{PROTOCOL_VERSION, simulation.SchemaHash(), simulation.ContentHash(), "harness"});
+    Assert::IsTrue(first.Send(firstLink, TransportChannel::Control, writer.Written()));
+    Assert::IsTrue(second.Send(secondLink, TransportChannel::Control, writer.Written()));
+
+    bool firstJoined = false;
+    bool secondJoined = false;
+    std::uint32_t firstSnapshots = 0;
+    std::uint32_t secondSnapshots = 0;
+
+    const auto drain = [](QuicTransport& _transport, bool& _joined, std::uint32_t& _snapshots)
+    {
+      TransportEvent event;
+      while (_transport.NextEvent(event))
+      {
+        if (event.type != TransportEvent::Type::Message)
+        {
+          continue;
+        }
+        ByteReader reader{event.payload};
+        const WireType type = ReadWireType(reader);
+        if (type == WireType::Welcome)
+        {
+          _joined = true;
+        }
+        else if (type == WireType::Snapshot)
+        {
+          ++_snapshots;
+        }
+      }
+    };
+
+    // Three each, so the comparison below has enough ticks in it to separate
+    // "one serialisation sent twice" from "two serialisations".
+    constexpr std::uint32_t ENOUGH = 3;
+    const std::int64_t start = Clock::Counter();
+    while (Clock::MillisecondsBetween(start, Clock::Counter()) < 5000.0)
+    {
+      first.Poll();
+      second.Poll();
+      drain(first, firstJoined, firstSnapshots);
+      drain(second, secondJoined, secondSnapshots);
+      if (firstJoined && secondJoined && firstSnapshots >= ENOUGH && secondSnapshots >= ENOUGH)
+      {
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    Assert::IsTrue(firstJoined && secondJoined, L"both clients did not join");
+    Assert::IsTrue(firstSnapshots >= ENOUGH && secondSnapshots >= ENOUGH, L"both clients were not served snapshots");
+    Assert::IsTrue(simulation.SnapshotsWritten() >= firstSnapshots + secondSnapshots,
+                   L"more snapshots arrived than were serialised, so one serialisation was sent to more than one client");
+    Assert::AreEqual<PlayerId>(SOLE_PLAYER_ID, simulation.LastViewer(), L"the simulation was not told who the snapshot was for");
     Assert::AreEqual<std::uint32_t>(0, host.SnapshotFailureCount());
 
     host.Stop();

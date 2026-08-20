@@ -107,10 +107,10 @@ Allowed deps: **NeuronCore only** (ADR-014). It hosts *a* simulation, not *this*
 
 | Area | Files | Notes |
 |---|---|---|
-| Seam | `Simulation.h` (`AdvanceTick`, `ApplyOrderBytes`, `WriteSnapshot`, `SchemaHash`, `ContentHash`) | Engine-declared, GameLogic-implemented, exe-injected (ADR-014 §2) |
+| Seam | `Simulation.h` (`AdvanceTick`, `ApplyOrderBytes`, `WriteSnapshot(tick, viewer, writer)`, `SchemaHash`, `ContentHash`) | Engine-declared, GameLogic-implemented, exe-injected (ADR-014 §2). `WriteSnapshot` names its **viewer**: it is asked once per client rather than once per tick (ADR-022 §1), so the day relevance ranks per player the seam does not move |
 | Host | `ServerHost.h` (`Start/Stop/Join`, takes a `Simulation&`) `ServerConfig.h` (plain struct, assembled by the exe) | The future OutpostServer.exe API, verbatim (ADR-008) |
 | Sessions | *(planned)* `Session.h` (per-connection state, handshake, order seq/ack bookkeeping) | Session *table*; empty server keeps ticking. Still a struct inside `ServerHost.cpp` — it earns a file when a second thing needs it |
-| Replication | *(planned)* `SnapshotSender.h` (emit → datagram per client) | Per-client path; interest/delta land here later. Today `ServerHost` serialises once and fans the same bytes out, which is correct while every client sees the whole world |
+| Replication | `SnapshotSender.h` (one per session: serialise → datagram, for **this** client) | The per-client path ADR-018 A13 and ADR-022 §1 both require, built at T2 rather than deferred: "broadcast the bytes we already made" does not grow into "encode against what this client last acked". Ranking, culling and the baseline ring land in this object later; today it writes the same full snapshot per viewer and counts its own refusals |
 
 ### NeuronClient — the player's machine (static lib)
 Allowed deps: **NeuronCore only**, plus the Windows SDK (D3D12, DXGI, DirectXMath, DirectWrite
