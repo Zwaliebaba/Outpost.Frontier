@@ -100,6 +100,66 @@ const Anchor* UniverseDef::FindAnchor(AnchorId _id) const noexcept
   return nullptr;
 }
 
+AnchorId UniverseDef::PairedGateAnchor(AnchorId _gateAnchor) const noexcept
+{
+  const Anchor* here = FindAnchor(_gateAnchor);
+  if (here == nullptr || here->kind != AnchorKind::Gate)
+  {
+    return INVALID_ID;
+  }
+
+  // The gate this anchor belongs to, and the system it leads to. `owner` is a
+  // `GateId` because the anchor's kind says so -- the id spaces are per-system
+  // and independent, which is the whole reason `owner` is scoped by kind.
+  const SolarSystem* system = FindSystem(here->system);
+  if (system == nullptr)
+  {
+    return INVALID_ID;
+  }
+  const Gate* gate = nullptr;
+  for (const Gate& candidate : system->gates)
+  {
+    if (candidate.id == here->owner)
+    {
+      gate = &candidate;
+      break;
+    }
+  }
+  if (gate == nullptr)
+  {
+    return INVALID_ID;
+  }
+
+  /*
+   * The far side is the gate that leads back, and it is unique: the bake emits
+   * one record per system per edge and never links a pair twice, so "the gate
+   * in `toSystem` whose `toSystem` is this system" names exactly one. Matching
+   * on the return edge rather than on a stored pair id is what keeps a gate
+   * from having to carry a number that could disagree with the topology it is
+   * part of.
+   */
+  const SolarSystem* far = FindSystem(gate->toSystem);
+  if (far == nullptr)
+  {
+    return INVALID_ID;
+  }
+  for (const Gate& candidate : far->gates)
+  {
+    if (candidate.toSystem != system->id)
+    {
+      continue;
+    }
+    for (const Anchor& anchor : far->anchors)
+    {
+      if (anchor.kind == AnchorKind::Gate && anchor.owner == candidate.id)
+      {
+        return anchor.id;
+      }
+    }
+  }
+  return INVALID_ID;
+}
+
 GridAnchor UniverseDef::StartAnchor() const noexcept
 {
   const Station* station = FindStation(start.system, start.station);
@@ -217,6 +277,21 @@ std::uint64_t ComputeUniverseHash(const UniverseDef& _universe)
       hash = HashValue(anchor.undockFacingTurns16, hash);
       hash = HashValue(anchor.occupantIdBase, hash);
       hash = HashValue(anchor.occupantCount, hash);
+
+      // The site block, folded unconditionally rather than only for sites: it
+      // is zeroed on every other kind, so hashing it costs nothing and cannot
+      // be forgotten the day a fourth kind carries one. A pool that changed
+      // without moving `universeHash` would be two halves quietly disagreeing
+      // about how much ore a field holds.
+      hash = HashValue(static_cast<std::uint8_t>(anchor.site.archetype), hash);
+      hash = HashValue(anchor.site.grade, hash);
+      hash = HashValue(anchor.site.orbitRingRadiusMetres, hash);
+      hash = HashValue(anchor.site.fieldRadiusCm, hash);
+      hash = HashValue(anchor.site.layoutSeed, hash);
+      for (const std::uint32_t pool : anchor.site.poolUnits)
+      {
+        hash = HashValue(pool, hash);
+      }
     }
   }
 

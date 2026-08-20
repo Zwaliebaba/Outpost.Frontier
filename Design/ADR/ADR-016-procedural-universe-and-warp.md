@@ -9,10 +9,17 @@ target is an MMO shard and a topology ADR blocks U2 (D1); §3 arrival contention
 deterministic per-order offsets (D18); §4 gains registry-owned ship-id allocation (D6a),
 the `(applyTick, transferId)` total order (D17), the empty-world quiescence invariant and
 hash-domain rule (D8), and the world-isolation invariant (D1a); §7's presence edges defined
-and marked revocable (D16); per-commander event record joins the universe layer (D19)
+and marked revocable (D16); per-commander event record joins the universe layer (D19) · **extended 2026-08-20 by §9a**
+(owner rulings on `strategic-map.png` §4's decision list: §8 confirmed, the history scrubber
+reserved as a rail, intel-ping provenance deferred with a trigger, landscape-only stated as an
+envelope property)
 · §4 further amended by [ADR-019](ADR-019-shard-topology.md) (2026-08-19): the registry
 becomes host-aware (`HostForAnchor`) and **the world's tick becomes shard-global** rather
-than a per-world counter; §5's transit durations gain a `TRANSFER_FLOOR_TICKS` floor
+than a per-world counter; §5's transit durations gain a `TRANSFER_FLOOR_TICKS` floor ·
+**further amended 2026-08-20 by [ADR-024](ADR-024-mining-economy.md)**: §3's reserved
+`Site` kind is cashed in — sites bake with an authored orbit ring and an epoch-derived
+bearing — and the deliberate-gaps list's "mined-out fields" and "wrecks" questions are
+answered (a durable site ledger at the universe layer; bounded, non-durable wrecks)
 **Depends on:** ADR-001 (plane, grids), ADR-002 (tick), ADR-004 (wire), ADR-005 (orders,
 determinism), ADR-009 (universe model), ADR-012 (JSON), ADR-014 (seam), ADR-015 (contact)
 **Supersedes:** the corpus scale figure F13 (~300 systems across ~6 regions → **2,500 across
@@ -86,17 +93,20 @@ symmetric, ids and names unique, every station orbiting a planet, 1–2 stations
 security in range, cluster separation (the map's requirement made measurable), starter
 systems valid, every anchor's warp-in point inside its grid bound. A `GameLogicTests` suite
 holds all of it against the committed file. Scale costs are measured, not guessed: ~2,500
-systems ≈ 3–5 MB of JSON parsed at boot by both halves; U1's acceptance records the number,
+systems ≈ 3–5 MB of JSON parsed at boot by both halves; U1's acceptance records the number, *(and the estimate was low twice over: U1 measured **14.2 MB**, and E1b's site anchors took the committed file to **18.93 MB** — still inside the threshold, which is why the fallback is still reserved rather than spent)*,
 and per-region files are the reserved fallback if it disappoints.
 
 ### 3. Anchors — warp destinations are authored, never coordinates
 
 A **grid anchor** becomes a first-class authored record:
-`{ kind : Station | Planet | Gate | Site(reserved), owner id, grid origin : UniversePos,
+`{ kind : Station | Planet | Gate | Site *(reserved then; baked by E1b)*, owner id, grid origin : UniversePos,
 warp-in point : local offset, warp-in facing }`. Ships warp **to anchors only** — never to
 arbitrary space. That single rule bounds the number of grids a system can ever host, makes
 "where can I go?" a finite, pickable list for the UI, and gives future content its extension
 point: mining fields and PVE encounters are new `Site` anchor rows, zero new architecture.
+*(Cashed in by [ADR-024](ADR-024-mining-economy.md), 2026-08-20 — with one property this
+sentence did not anticipate: a site is the one anchor whose position the bake does not pin;
+its bearing on an authored orbit ring is re-derived each daily epoch.)*
 
 Placement rules: a station's grid **doubles as its planet's primary anchor** — "warp to
 Kessler" and "warp to the Anchorage" land on the same grid, warp-in at a few kilometres'
@@ -239,6 +249,64 @@ closes, not here.
   departure/arrival treatment (no new render pass — the Ui/overlay vocabulary suffices);
   warp ghosts and refusal toasts through the existing surfaces.
 
+### 9a. The rest of the print's OPEN list *(owner rulings, 2026-08-20)*
+
+`strategic-map.png` §4 marks four items **NEEDS A DECISION**. §8 answered the first when this
+ADR was written; the other three were still open, and U5 was about to lay out a screen against
+them. They are answered here, beside §9, so the slice builds against decisions rather than
+around gaps.
+
+**9a.1 — Route execution: §8 stands, and one thing has changed under it.** The print's "one
+real question" is already decided — the map plans, the client feeds, one order per completed
+hop — and re-reading it changed nothing. What has changed is where its accepted cost gets
+*reported*. §8 priced "a disconnected player's fleet halts at the next gate" and pointed at a
+future AI commander to close the gap; since then ADR-018 D19's per-commander **event record**
+landed, and the reconnect away-log is one of its four designed consumers. So the halt is now a
+thing the game can *say* — "your fleet stopped at KIL-7 while you were away" — rather than
+something the player discovers by looking. That does not close the gap, and it is not meant
+to: it makes the gap honest, which is the difference between a designed limitation and a bug.
+U4 emits the halt into the record when it builds the route feeder. **The print's §3 note is
+answered by §8; nothing in the tree needs to change to make it true.**
+
+**9a.2 — The history scrubber is a reserved rail, not a built feature and not a cut one.**
+§9 already lists it among the stubs; what §4 asked, and §9 did not answer, is whether the rail
+keeps its space. It does. The reasoning is that the irreversible thing here is the **layout**,
+not the feature: the print makes the scrubber a permanent bottom rail and calls it the
+screen's second axis, so adding one to a finished screen re-lays the screen out, while
+removing a reserved one reclaims its space cleanly. Reserving it is therefore the cheap
+direction and cutting it is the expensive one, which is the opposite of how a cut list reads.
+
+R5's tier-4 estimate is also, read carefully, an estimate for **content rather than for the
+rail**: the scrubber replays a strategic stream of sovereignty and activity history, and none
+of that exists or is designed. Committing to build the scrubber now would be committing to
+build that. So the rail is drawn, inert and labelled, and **build-or-cut is decided when the
+strategic stream exists** — not before, and not by U5.
+
+**9a.3 — Intel ping provenance is deferred, with a named trigger.** Who saw a ping, how stale
+it is, and whether an ally can spoof one are questions about a scanning system, an intel
+system and an alliance system, none of which exist. Deciding a trust model before there is
+anything to trust is inventing a security model to go with it — the reasoning ADR-018 D5 used
+to leave `resumeToken` reserved and zero, and the reasoning §6 used to defer the summary
+family's paging. Nothing is blocked either way: U5 ships the overlay as a visible stub.
+
+The trigger, so this is a deferral and not a silence: **the first information one commander
+can see because another commander reported it.** That is the moment a ping acquires a source,
+and the moment provenance stops being hypothetical. Until then the overlay shows nothing and
+promises nothing.
+
+**9a.4 — Landscape only. Portrait is not a per-screen property.** The print is right that the
+map is the one screen that reads like a document rather than a viewport, and it is still no.
+The tactical view is an ortho camera at 30° against ADR-006's 2:1 ring spec — a
+landscape-shaped frame — and ADR-020 makes a surface a value on a stack the player pushes and
+pops. One portrait-capable surface in that stack is a navigation model whose screens disagree
+about aspect, and the disagreement lands exactly on the transition the player makes most.
+
+So the ruling is about *where the decision lives* as much as what it is: aspect is a property
+of the **display envelope**, not of a screen, and if a couch or handheld target ever arrives it
+is answered once for every surface. It belongs with the DPI-to-scale rule and the stated
+minimum client area that the scaling review (UI-4) already records as undocumented — the same
+envelope U5 would otherwise be laying zone tables against blind.
+
 ### 10. The gate hull
 
 Gates on their grids follow the one pattern the tree has for static presence: **a ship-table
@@ -251,11 +319,30 @@ radially symmetric ring/portal in the shared five-material palette. Until the ar
 Structure mesh stands in: the Fighter/Cruiser precedent, run in reverse — a named content
 gap, not a design gap.
 
+**Amended 2026-08-20 (U4): the art landed, as `Stargate.obj`.** The stand-in was never used —
+the mesh arrived with the slice — so the name is the only thing that moved, and it moved
+because the artist's file is what the content list loads. A ring/portal as specified: 1,888
+vertices, 1,144 triangles, 168 m of silhouette on the plane against the station's 253, which
+is where the class's pick and contact radii now come from. The class's numbers were set from
+the mesh rather than the other way round, which is the order that keeps art from having to
+live with a guess.
+
+It cost one conformance edit, and it is the case the five-material rule exists to catch. The
+export carried a *sixth* material, `aperture`, for the two faces of the portal disc — with the
+accent colour to the last digit and a `d 0.2` this renderer does not read (ADR-006 §5 shades
+albedo plus a light term). `ParseObjMesh` refuses an unknown material by design, so the mesh
+would have failed at boot with a diagnostic rather than drawn wrong; the two faces were
+authored onto `accent` instead, which is the same pixels. **The icon is still owed** — the
+STATIC-family tactical icon and the map glyph are U4's client half, and the mesh landing does
+not close them.
+
 ### What this deliberately does not do, so nobody mistakes it for covered
 
 - **No grid persistence.** A torn-down world forgets everything but its authored occupants.
   The policy question (wrecks, mined-out fields) arrives with the content that needs it —
-  `Site` anchors — and is named here so it is a decision then, not an accident.
+  `Site` anchors — and is named here so it is a decision then, not an accident. *(It is a
+  decision now: [ADR-024](ADR-024-mining-economy.md) — mined-out state lives in a durable
+  site ledger at the universe layer, and wrecks are bounded and non-durable.)*
 - **No intel / fog of war.** Presence-gated viewing is the placeholder posture; the INTEL
   PINGS overlay owns the real design later.
 - **No combat interaction with warp.** Interdiction, scramble, in-warp damage — all waiting

@@ -115,8 +115,40 @@ struct ValidationView
    *
    * Empty means nowhere, which is what a grid outside any system is, and every
    * `Warp` from it is `UnknownAnchor`.
+   *
+   * It holds the jump destination too, when this grid has one, so that
+   * `UnknownAnchor` keeps meaning exactly "not from here" and nothing else has
+   * to be consulted to decide whether a destination exists.
    */
   std::span<const AnchorId> reachableAnchors;
+
+  /*
+   * The one destination in that list that is reached by *jumping* (ADR-016 §5,
+   * U4), and `INVALID_ID` on a grid that is not a gate's.
+   *
+   * One id and not a second span, because a grid is anchored on one thing: a
+   * gate's grid holds that gate, and a gate leads to exactly one other gate.
+   * The same shape `stationAnchor` has, for the same reason -- "is the place
+   * you named this grid's?" is a comparison, not a search.
+   *
+   * What it selects is the *rule*, not the destination: a `Warp` naming this is
+   * judged on where the fleet is standing, and every other reachable anchor is
+   * not. That is the whole difference between a warp and a jump at this layer.
+   */
+  AnchorId jumpAnchor = INVALID_ID;
+
+  /*
+   * Where the gate structure is, in the wire's centimetres, in the grid's local
+   * frame. Meaningless when `jumpAnchor` is `INVALID_ID`.
+   *
+   * Carried rather than assumed to be the grid centre for the reason the
+   * station's position is: it *is* the centre today, because the anchor's
+   * origin is the structure's universe position, but that is a fact about how
+   * the bake places things and a validator that hard-coded it would be judging
+   * distance against an assumption instead of against the world.
+   */
+  std::int32_t gateXCm = 0;
+  std::int32_t gateYCm = 0;
 };
 
 /// The verdict, in GameLogic's own terms. `Neuron::OrderVerdict` carries the
@@ -182,6 +214,35 @@ inline constexpr std::int64_t DOCK_RADIUS_METRES = 5000;
  * ships is judged against the flat number rather than against zero.
  */
 [[nodiscard]] float DockRadiusMetres(const ValidationView& _view, const OrderSubmit& _order) noexcept;
+
+/*
+ * How close a fleet must be to a gate to jump through it (ADR-016 §5), in
+ * metres.
+ *
+ * Flat, where the dock radius is footprint-derived, and the difference is what
+ * the two rules are for. Docking is an *arrival*: the fleet has to be gathered
+ * at the structure, so a fleet whose own formation is wider than the radius
+ * could never satisfy it and ADR-018 D7 scales the circle to the fleet. A jump
+ * is a *departure* through something the fleet is standing beside, and the
+ * question is whether it is at the gate rather than whether it is assembled --
+ * the spool it then pays is what gathers it.
+ *
+ * 2,500 m is set from the bake rather than from taste: a gate's warp-in point
+ * is 1,200 m out, so a fleet that warped here to make the hop is already inside
+ * with room, which is what makes a routed crossing two orders instead of two
+ * orders and a crawl. It is comfortably outside the gate's own 135 m contact
+ * radius, so nothing has to fly into the structure to qualify. Like
+ * `DOCK_RADIUS_METRES` it is a validation bound and rides in the schema text
+ * (ADR-018 D9), so retuning it is a compatibility event rather than a table
+ * edit.
+ *
+ * Deliberately *not* scaled by the fleet's footprint: the 41-ship starting
+ * fleet spans 19.2 km in a Battleship line, so a footprint-derived jump radius
+ * would let a fleet jump from most of the grid -- and standing at the gate is
+ * the whole content of the rule that later gameplay (camping, interdiction)
+ * hangs off.
+ */
+inline constexpr std::int64_t JUMP_RADIUS_METRES = 2500;
 
 [[nodiscard]] OrderVerdict ValidateOrder(const ValidationView& _view, const OrderSubmit& _order) noexcept;
 

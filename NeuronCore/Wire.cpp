@@ -50,6 +50,9 @@ void Write(ByteWriter& _writer, const Welcome& _message) noexcept
   _writer.WriteUInt64(_message.schemaHash);
   _writer.WriteUInt64(_message.contentHash);
   _writer.WriteUInt16(_message.worldId);
+  // Which grid, beside where it is: a client that cannot name its anchor cannot
+  // compose a Dock or a station command (ADR-017 §2, §3).
+  _writer.WriteUInt16(_message.gridAnchor);
   // Signed and full-width: the universe plane runs to +/-9.2e18 metres
   // (ADR-009 §1), so anything narrower would silently fold it.
   _writer.WriteInt64(_message.anchorX);
@@ -72,6 +75,7 @@ bool Read(ByteReader& _reader, Welcome& _outMessage) noexcept
   _outMessage.schemaHash = _reader.ReadUInt64();
   _outMessage.contentHash = _reader.ReadUInt64();
   _outMessage.worldId = _reader.ReadUInt16();
+  _outMessage.gridAnchor = _reader.ReadUInt16();
   _outMessage.anchorX = _reader.ReadInt64();
   _outMessage.anchorY = _reader.ReadInt64();
   _outMessage.worldName = std::string(_reader.ReadText());
@@ -79,6 +83,32 @@ bool Read(ByteReader& _reader, Welcome& _outMessage) noexcept
   _outMessage.worldBadge = std::string(_reader.ReadText());
   _outMessage.playerId = _reader.ReadUInt32();
   _outMessage.resumeToken = _reader.ReadUInt64();
+  return _reader.Ok();
+}
+
+void Write(ByteWriter& _writer, const ViewRequest& _message) noexcept
+{
+  _writer.WriteUInt16(_message.gridAnchor);
+}
+
+bool Read(ByteReader& _reader, ViewRequest& _outMessage) noexcept
+{
+  _outMessage.gridAnchor = _reader.ReadUInt16();
+  return _reader.Ok();
+}
+
+void Write(ByteWriter& _writer, const ViewChanged& _message) noexcept
+{
+  _writer.WriteUInt16(_message.gridAnchor);
+  _writer.WriteUInt16(_message.reasonCode);
+  _writer.WriteBool(_message.accepted);
+}
+
+bool Read(ByteReader& _reader, ViewChanged& _outMessage) noexcept
+{
+  _outMessage.gridAnchor = _reader.ReadUInt16();
+  _outMessage.reasonCode = _reader.ReadUInt16();
+  _outMessage.accepted = _reader.ReadBool();
   return _reader.Ok();
 }
 

@@ -13,12 +13,18 @@
  * grow to cover it. When balance wants to be data (post-MVP), it arrives with a
  * hash, not before.
  *
- * **The taxonomy is closed at eleven and ordered by the icon sheet**
+ * **The taxonomy was closed at eleven and ordered by the icon sheet**
  * (`tactical-icon-system.png`, ADR-009 §6). Two of them -- `Fighter` and
  * `Cruiser` -- have no mesh in `GameData/Meshes` and no content behind them.
  * They keep their ids anyway: the enum is a wire value, an icon index and a
  * palette index, and inserting a class later would renumber every one of those
  * at once. A reserved id costs a row in a table; a renumber costs a migration.
+ *
+ * **`Gate` is the twelfth, appended by U4** (ADR-016 §10). That closure exists
+ * so wire values, icons and palettes never *renumber*, and appending renumbers
+ * nothing -- which is why the clause is amended rather than violated. A gate on
+ * its grid is the pattern stations proved: a ship-table entry that never moves,
+ * so one movement path serves both instead of two.
  *
  * Note that a `HullClass` is **not** a render classId. The renderer's ids are
  * the order of the mesh list in `Outpost.json`, smallest hull to largest, and
@@ -41,10 +47,11 @@ enum class HullClass : std::uint8_t
   Carrier = 7,
   Hauler = 8,
   Miner = 9,
-  Structure = 10
+  Structure = 10,
+  Gate = 11
 };
 
-inline constexpr std::uint8_t HULL_CLASS_COUNT = 11;
+inline constexpr std::uint8_t HULL_CLASS_COUNT = 12;
 
 /*
  * What the simulation needs to move one of these and keep two of them apart
@@ -96,9 +103,10 @@ struct ShipClassInfo
    * across, so these are large numbers rather than small ones -- 1.5e9 m/s
    * crosses one astronomical unit in about a hundred seconds.
    *
-   * Zero for `Structure`, which never goes anywhere. A fleet's transit is timed
-   * by its *slowest* member, so a structure in a warp order would freeze it --
-   * which is one more reason a station is not a thing you can select into one.
+   * Zero for `Structure` and for `Gate`, neither of which goes anywhere. A
+   * fleet's transit is timed by its *slowest* member, so a structure in a warp
+   * order would freeze it -- which is one more reason a station is not a thing
+   * you can select into one, and a gate is not either.
    */
   float warpSpeedMetresPerSec = 0.0f;
   float spoolSeconds = 0.0f;
@@ -120,7 +128,8 @@ struct ShipClassInfo
  * `Structure` is in here with zero speed and zero acceleration on purpose: a
  * station is a ship-table entry that never moves, which keeps one movement
  * path rather than two and means a station can be selected, targeted and
- * replicated by the same code as everything else.
+ * replicated by the same code as everything else. `Gate` sits beside it on the
+ * same precedent (ADR-016 §10), and the two differ only in what they are for.
  */
 [[nodiscard]] const ShipClassInfo& ShipClass(HullClass _hullClass) noexcept;
 

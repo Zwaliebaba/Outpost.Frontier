@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EconomyDef.h"
 #include "Ids.h"
 
 #include <DirectXMath.h>
@@ -81,7 +82,10 @@ enum class AnchorKind : std::uint8_t
   Station = 0,
   Planet = 1,
   Gate = 2,
-  Site = 3 // Reserved: no content, never baked.
+  /// A mining field (ADR-024 §3a). Reserved and unbaked until E1b, which is
+  /// why the value was chosen then rather than appended now: cashing in a
+  /// reserved id renumbers nothing, and that is the whole reason it was held.
+  Site = 3
 };
 
 enum class CelestialKind : std::uint8_t
@@ -134,6 +138,48 @@ struct Gate
  * the Anchorage" land on the same grid, because the busy place should be one
  * place.
  */
+/*
+ * What a `Site` anchor is, beyond being a place (ADR-024 §3a).
+ *
+ * Zeroed on every other kind, the way `undockPoint` is zeroed off stations.
+ *
+ * **The bake authors the ring, not the bearing.** A site rides an orbit ring on
+ * the system disc, and where on that ring it sits is re-derived every epoch by
+ * `SiteEpochPlacement` (ADR-024 §3d, ruling R7) -- so the field re-forms
+ * overnight, scouting goes stale, and a camp costs live presence rather than
+ * knowledge. The anchor's `origin`, `warpInPoint` and `warpInFacingTurns16`
+ * therefore hold the **epoch-0** placement: a real, valid position, so anything
+ * reading the file without knowing epochs exist still sees a sane universe, and
+ * the runtime asks the function for today's.
+ */
+struct SiteSpec
+{
+  SiteArchetype archetype = SiteArchetype::FerrousField;
+
+  /// 1..5, and **0 on a non-site anchor** -- which is what "is this a site?"
+  /// is answered by everywhere except the parser, where `kind` is.
+  std::uint8_t grade = 0;
+
+  /// Where on the system disc the field rides, in metres from the star. The
+  /// bearing is the epoch's; this is the part that is content.
+  std::int64_t orbitRingRadiusMetres = 0;
+
+  /// The rock field's extent from the anchor origin. Bounded so that the field,
+  /// its warp-in standoff and the arrival spread all sit inside
+  /// `GRID_HALF_EXTENT_METRES` -- an invariant that holds for *every* epoch
+  /// bearing by construction, because none of those three is a function of it.
+  std::int32_t fieldRadiusCm = 0;
+
+  /// Seeds the cluster layout the client derives and the sim counts against
+  /// (ADR-024 §4c). Salted by the epoch, so the field reshuffles with it.
+  std::uint32_t layoutSeed = 0;
+
+  /// The pristine pool, per ore, in units. What has been taken since the last
+  /// epoch lives in the site ledger at the universe layer, never here: this
+  /// file is the bake's truth and the ledger is the shard's (ADR-024 §3d).
+  std::uint32_t poolUnits[ORE_COUNT] = {};
+};
+
 struct Anchor
 {
   AnchorId id = INVALID_ID;
@@ -183,6 +229,15 @@ struct Anchor
    */
   std::uint32_t occupantIdBase = 0;
   std::uint16_t occupantCount = 0;
+
+  /*
+   * Sites only, and zero elsewhere (ADR-024 §3a).
+   *
+   * A site authors **no occupants at all**, which is why it takes no id block
+   * above: rocks are not entities (ADR-024 §4c), so ~6,250 new anchors cost
+   * nothing in the occupant window U4 already measured into refusal.
+   */
+  SiteSpec site;
 };
 
 /*
@@ -269,6 +324,21 @@ struct UniverseDef
   /// whole universe -- unlike celestial/station/gate ids, which are per-system
   /// -- because a warp order carries one number and nothing else.
   [[nodiscard]] const Anchor* FindAnchor(AnchorId _id) const noexcept;
+
+  /*
+   * Where a gate leads, as the anchor a jump arrives at (ADR-016 §5, U4).
+   *
+   * `INVALID_ID` for an anchor that is not a gate's, and for a gate whose pair
+   * is missing -- which authored content cannot produce, since the bake places
+   * gates as symmetric pairs and the parser refuses an edge to a system that
+   * does not exist, but which a hand-written file could, and a jump to nowhere
+   * must be a refusal rather than a crossing.
+   *
+   * Here rather than in the registry because it is a question about the
+   * universe: the topology is content, and a runtime that answered it from its
+   * own bookkeeping would be keeping a second copy of the map.
+   */
+  [[nodiscard]] AnchorId PairedGateAnchor(AnchorId _gateAnchor) const noexcept;
 
   /// The grid anchor a session starts at: the start station's position
   /// (ADR-009 §9). Invalid system id when the start cannot be resolved.

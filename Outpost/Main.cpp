@@ -6,15 +6,19 @@
 #include "SelfTest.h"
 #include "UniverseBake.h"
 #include "ShaderTable.h"
+#include "EconomyLoad.h"
 #include "UniverseLoad.h"
 
 // GameLogic, reached only from here: the executable is the one project
 // entitled to know both halves (ADR-014 §1).
+#include "FleetSummary.h"
 #include "OrderMessages.h"
 #include "Orders.h"
 #include "SchemaHash.h"
 #include "ShipClass.h"
 #include "Snapshot.h"
+#include "StationMessages.h"
+#include "SummaryMessages.h"
 #include "World.h"
 #include "WorldRegistry.h"
 
@@ -31,9 +35,12 @@
 
 #include <DirectXMath.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <iterator>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
@@ -95,6 +102,7 @@ void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigP
   NEURON_LOG_INFO("server: port %u, max sessions %u", static_cast<unsigned>(_config.server.port),
                   static_cast<unsigned>(_config.server.maxSessions));
   NEURON_LOG_INFO("universe: %s", _config.universeDefinition.c_str());
+  NEURON_LOG_INFO("economy: %s", _config.economyDefinition.c_str());
   const std::string meshDirectory = Outpost::ResolveContentPath(_config.content.meshDirectory);
   if (meshDirectory.empty())
   {
@@ -133,9 +141,9 @@ public:
    * the point of doing it now: the shape lands while it costs nothing, so U3a's
    * warp adds a destination rather than a runtime.
    */
-  UniverseSimulation(std::uint64_t _universeHash, WorldMeta _worldMeta, const Game::UniverseDef& _universe,
+  UniverseSimulation(std::uint64_t _contentHash, WorldMeta _worldMeta, const Game::UniverseDef& _universe,
                      std::uint64_t _sessionSeed)
-    : m_universeHash(_universeHash),
+    : m_contentHash(_contentHash),
       // Moved rather than copied: `WorldMeta` carries the HUD's display strings
       // as of main's UI slice, so a copy here is three allocations per boot for
       // nothing.
@@ -211,15 +219,155 @@ public:
    * The tick argument is the loop's; the world knows its own and they are the
    * same number. Writing the world's is the one that cannot drift.
    *
-   * The viewer is unread, and that is the honest state of things rather than an
-   * oversight: there is one grid, everyone on it sees all of it, and ADR-022's
-   * ranking hook is scheduled after U3c. What the seam already carries is *who
-   * is asking*, so the day this answers differently per player it is this
-   * function that changes and nothing above it.
+   * The viewer is ignored, and ignoring it is the honest answer today: there is
+   * one grid and one commander, so every viewer is owed the same bytes. It is
+   * in the signature because the *seam* is what U3b's per-grid views and
+   * ADR-022's culling both arrive through (ADR-018 A13) -- when this method
+   * starts answering "which grid is this player watching", the call site above
+   * it does not change.
    */
-  [[nodiscard]] bool WriteSnapshot(std::uint32_t, PlayerId, ByteWriter& _writer) override
+  [[nodiscard]] bool WriteSnapshot(PlayerId, std::uint16_t _grid, std::uint32_t, ByteWriter& _writer) override
   {
-    return Game::WriteSnapshot(ServedWorld(), _writer);
+    /*
+     * The grid the *viewer* asked for, not the one the session started on
+     * (ADR-016 §4). The session role decides which anchor this is and has
+     * already gated it through `MayView`; borrowing it here is what makes the
+     * decision real.
+     *
+     * Borrowed and never stored, like every other use (ADR-019 §6.1). A grid
+     * that has torn down under a viewer since the request answers `nullptr`,
+     * and that is a refusal rather than a crash: no snapshot goes out, the
+     * sender counts it, and the presence-edge rules that decide where the
+     * viewer lands instead are A16's, not this function's.
+     */
+    Game::World* world = m_registry.Borrow(static_cast<Game::AnchorId>(_grid));
+    return world != nullptr && Game::WriteSnapshot(*world, _writer);
+  }
+
+  /*
+   * Whether this commander may watch that grid (ADR-016 §7).
+   *
+   * Presence-gated, and presence is *having ships there* -- standing on the
+   * grid or docked at its station, which ADR-017 §7 folded into the same
+   * answer. The registry knows both, so the whole rule is one question asked of
+   * the thing that keeps the ship-to-location index.
+   *
+   * `UnknownAnchor` for a grid that is not live: an anchor nobody is on has no
+   * world to show, and saying so with the order family's own reason keeps the
+   * refusal in the vocabulary the player already reads. Presence for one
+   * commander is presence for the only commander today -- when there are two,
+   * this filters on `_viewer` and the shape does not change (ADR-018 D5).
+   */
+  [[nodiscard]] std::uint16_t MayView(PlayerId, std::uint16_t _grid) override
+  {
+    const auto anchor = static_cast<Game::AnchorId>(_grid);
+    if (m_registry.Borrow(anchor) == nullptr)
+    {
+      return static_cast<std::uint16_t>(Game::OrderReason::UnknownAnchor);
+    }
+    for (const Game::ShipId ship : m_patrolShips)
+    {
+      Game::AnchorId where = Game::INVALID_ID;
+      if (m_registry.LocationOf(ship, where) && where == anchor)
+      {
+        return 0;
+      }
+    }
+    return static_cast<std::uint16_t>(Game::OrderReason::NoPresence);
+  }
+
+  /*
+   * What this commander is owed at the summary cadence (ADR-016 §6, A13).
+   *
+   * Two members of the family answer together, and they answer *about each
+   * other*: `Summaries()` says where the commander's ships are, and every row
+   * that says `Docked` names a station whose roster says which ships those are.
+   * So the docked rows are also the enumeration of the rosters worth sending --
+   * no separate walk, and a frame that cannot disagree with itself.
+   *
+   * **Per viewer is the whole point** (ADR-017 §1). Today the registry answers
+   * for the one commander there is, so the filter is the identity function and
+   * the privacy rule costs nothing; what matters is that the *question* is
+   * asked per viewer, because on the broadcast sender this replaced, a roster
+   * reaching everyone would have been a leak nothing could catch until U3c
+   * first ran two clients.
+   *
+   * Fleet summaries go in first and rosters fill what is left. That order is a
+   * decision rather than an accident: "where is everything" is small, always
+   * useful and the answer the strategic surfaces read, while a roster is one
+   * station's detail. What does not fit is dropped and **counted**, because
+   * paging the family is ADR-016 §6's own problem to solve -- the same sentence
+   * `WriteStationRoster` already uses about a hangar outgrowing one message --
+   * and a drop nobody counted is a hangar screen that is quietly short.
+   */
+  [[nodiscard]] bool WriteSummaries(PlayerId _viewer, std::uint32_t, ByteWriter& _writer) override
+  {
+    const std::vector<Game::FleetSummary> summaries = m_registry.Summaries();
+    if (summaries.empty())
+    {
+      return false; // Nothing to say. An empty frame is a message with no content.
+    }
+
+    // Measure before writing anything, the way `WriteSnapshot` does: a frame
+    // whose header promised records it could not fit reads as truncated.
+    std::size_t budget = _writer.BytesRemaining();
+    if (budget < Game::SUMMARY_FRAME_HEADER_BYTES)
+    {
+      return false;
+    }
+    budget -= Game::SUMMARY_FRAME_HEADER_BYTES;
+
+    const std::size_t summariesBytes = Game::SUMMARY_RECORD_HEADER_BYTES + Game::FleetSummariesBytes(summaries.size());
+    if (summariesBytes > budget)
+    {
+      return false;
+    }
+    budget -= summariesBytes;
+
+    std::vector<Game::AnchorId> rosters;
+    std::uint32_t dropped = 0;
+    for (const Game::FleetSummary& row : summaries)
+    {
+      if (row.state != Game::FleetState::Docked)
+      {
+        continue;
+      }
+      const std::span<const Game::RosterEntry> docked = m_registry.Roster(row.anchor);
+      const std::size_t bytes = Game::SUMMARY_RECORD_HEADER_BYTES + Game::StationRosterBytes(docked.size());
+      if (bytes > budget || rosters.size() + 1 >= Game::MAX_SUMMARY_RECORDS)
+      {
+        ++dropped;
+        continue;
+      }
+      budget -= bytes;
+      rosters.push_back(row.anchor);
+    }
+
+    if (dropped > 0 && !m_summaryDropLogged)
+    {
+      m_summaryDropLogged = true;
+      NEURON_LOG_WARNING("player %u: %u station roster(s) did not fit one summary frame; the family needs paging (ADR-016 §6)",
+                         _viewer, dropped);
+    }
+
+    const auto records = static_cast<std::uint8_t>(rosters.size() + 1);
+    if (!Game::BeginSummaryFrame(records, _writer))
+    {
+      return false;
+    }
+    if (!Game::BeginSummaryRecord(Game::SummaryKind::FleetSummaries, _writer) || !Game::WriteFleetSummaries(summaries, _writer))
+    {
+      return false;
+    }
+    for (const Game::AnchorId anchor : rosters)
+    {
+      if (!Game::BeginSummaryRecord(Game::SummaryKind::StationRoster, _writer) ||
+          !Game::WriteStationRoster(anchor, m_registry.Roster(anchor), _writer))
+      {
+        return false;
+      }
+    }
+    return _writer.Ok();
   }
 
   /*
@@ -240,13 +388,32 @@ public:
   {
     Neuron::ByteReader reader{_payload};
 
+    /*
+     * Which of the two messages this stream carries (ADR-017 §8).
+     *
+     * A station command shares the order stream -- one sequence counter, one
+     * `OrderAck`, one reason enum -- so the kind byte is the first thing read
+     * and the *only* thing that could say which decoder to run. Both payloads
+     * open with `u32 orderSeq` and then a byte whose value spaces overlap, so
+     * guessing from the body would read an Undock as a Move.
+     */
+    Game::CommandKind kind = Game::CommandKind::Order;
+    if (!Game::ReadCommandKind(reader, kind))
+    {
+      NEURON_LOG_WARNING("order payload names no command kind (%zu bytes)", _payload.size());
+      return Malformed();
+    }
+
+    if (kind == Game::CommandKind::Station)
+    {
+      return ApplyStationCommand(reader, _payload.size());
+    }
+
     Game::OrderSubmit order;
     if (!Game::ReadOrderSubmit(reader, order))
     {
       NEURON_LOG_WARNING("malformed order payload (%zu bytes)", _payload.size());
-      OrderVerdict malformed;
-      malformed.reasonCode = static_cast<std::uint16_t>(Game::OrderReason::UnknownKind);
-      return malformed;
+      return Malformed();
     }
 
     const Game::OrderVerdict decided = ServedWorld().SubmitOrder(order);
@@ -259,14 +426,68 @@ public:
     return verdict;
   }
 
+  /*
+   * The station half of the acked stream (ADR-017 §3, §6).
+   *
+   * The whole verb goes through `WorldRegistry::SubmitStationCommand`, which
+   * runs the *same* `ValidateStationCommand` the client's pre-check runs over
+   * its replicated `RosterView` -- the station surfaces' half of ADR-014 §3's
+   * bounce parity, bought the way the order side bought it: one function, two
+   * callers, no forked rules.
+   *
+   * A station command is universe-layer work and never a world's: an Undock
+   * files a transfer against the registry and an AssignWing writes a roster row,
+   * and neither touches the grid this session happens to be serving. That is
+   * why this does not go through `ServedWorld()`.
+   */
+  [[nodiscard]] OrderVerdict ApplyStationCommand(Neuron::ByteReader& _reader, std::size_t _payloadBytes)
+  {
+    Game::StationCommand command;
+    if (!Game::ReadStationCommand(_reader, command))
+    {
+      NEURON_LOG_WARNING("malformed station command (%zu bytes)", _payloadBytes);
+      return Malformed();
+    }
+
+    const Game::OrderVerdict decided = m_registry.SubmitStationCommand(command);
+
+    OrderVerdict verdict;
+    verdict.accepted = decided.accepted;
+    verdict.reasonCode = static_cast<std::uint16_t>(decided.reason);
+    verdict.serverOrderId = decided.serverOrderId;
+    // The client's own counter, shared with orders, which is what lets one ack
+    // stream serve both without a ghost being confused with a command.
+    verdict.orderSeq = command.orderSeq;
+    return verdict;
+  }
+
+  /*
+   * A payload the decoder would not take.
+   *
+   * `UnknownKind` and an `orderSeq` of zero, which is deliberate on both
+   * counts: there is no sequence to echo when the bytes did not parse, and the
+   * client's ghost then falls back on the snapshot's `lastOrderSeqProcessed`,
+   * which will never mention it.
+   */
+  [[nodiscard]] static OrderVerdict Malformed() noexcept
+  {
+    OrderVerdict malformed;
+    malformed.reasonCode = static_cast<std::uint16_t>(Game::OrderReason::UnknownKind);
+    return malformed;
+  }
+
   [[nodiscard]] std::uint64_t SchemaHash() const override
   {
     return Game::GameSchemaHash();
   }
 
+  /// The universe and the economy, mixed (ADR-024 §7). One number because the
+  /// handshake carries one; both halves state what they read rather than being
+  /// told, so a client whose litres drifted is refused at the door exactly as
+  /// one whose systems drifted is.
   [[nodiscard]] std::uint64_t ContentHash() const override
   {
-    return m_universeHash;
+    return m_contentHash;
   }
 
   [[nodiscard]] WorldMeta World() const override
@@ -300,7 +521,7 @@ public:
   void HandOff() noexcept { m_registry.HandOff(); }
 
 private:
-  std::uint64_t m_universeHash = 0;
+  std::uint64_t m_contentHash = 0;
   WorldMeta m_worldMeta;
 
   Game::WorldRegistry m_registry;
@@ -310,6 +531,11 @@ private:
   /// a `Structure` a waypoint is harmless -- it has no speed -- but listing it
   /// would imply it might move.
   std::vector<Game::ShipId> m_patrolShips;
+
+  /// Said once, not once a second: a summary frame that cannot hold every
+  /// roster will not hold them next second either, and a warning at 1 Hz is a
+  /// log nobody reads the rest of.
+  bool m_summaryDropLogged = false;
 };
 
 /*
@@ -352,6 +578,142 @@ constexpr FleetWing STARTING_FLEET[] = {
     {Game::HullClass::Carrier, "MARROW"},    {Game::HullClass::Battleship, "ECHO"},
 };
 
+constexpr std::size_t WING_COUNT = std::size(STARTING_FLEET);
+constexpr std::uint32_t SHIPS_PER_WING = 5;
+
+/// The tangential room a wing takes up on the ring: its line from end to end,
+/// plus a hull radius at each end, which is what has to clear its neighbour.
+[[nodiscard]] float WingWidthMetres(const FleetWing& _wing)
+{
+  const Game::ShipClassInfo& info = Game::ShipClass(_wing.hullClass);
+  return static_cast<float>(SHIPS_PER_WING - 1) * info.formationSpacingMetres + 2.0f * info.collisionRadiusMetres;
+}
+
+/*
+ * Which slot on the ring each wing parks in, indexed by its place in the table
+ * above.
+ *
+ * The wings used to take the slots in table order, which put the two widest
+ * next to each other and parked the fleet in an invalid state: MARROW's line
+ * end and ECHO's sat 221 m apart against a 227 m contact, and `Separate` healed
+ * the 6 m on tick 1 (ADR-015 §5, which left the re-park to the scenario owner).
+ * The overlap was the visible end of the real fault, which is that the ring
+ * divides evenly among wings that are not evenly sized: a Battleship wing is
+ * 1,920 m end to end and an Interceptor wing 280 m, and 45 degrees was handed
+ * to both. The table happened to run smallest hull to largest, so the two
+ * capitals landed adjacent -- the worst arrangement of the eight.
+ *
+ * So the ring is dealt widest-with-narrowest: the widest wing takes a slot, the
+ * narrowest takes the next, and so on inward, which leaves every capital
+ * flanked by two of the smallest wings there are. At the authored radius that
+ * turns a 6 m overlap into 90 m of clearance, and the tightest pair stops being
+ * a pair of capitals.
+ *
+ * Derived rather than authored on purpose. An order hand-picked today is an
+ * arrangement the next person breaks by adding the reserved Fighter and Cruiser
+ * wings or by retuning one spacing in the class table -- which is exactly how
+ * this defect arrived. Widening the ring does not substitute for it: the wing
+ * lines are chords, so past a point they cross rather than separate, and this
+ * overlap gets *worse* between 1,400 m and 1,800 m.
+ */
+[[nodiscard]] std::array<std::size_t, WING_COUNT> WingRingSlots()
+{
+  std::array<std::size_t, WING_COUNT> byWidth{};
+  for (std::size_t index = 0; index < WING_COUNT; ++index)
+  {
+    byWidth[index] = index;
+  }
+
+  std::sort(byWidth.begin(), byWidth.end(),
+            [](std::size_t _a, std::size_t _b)
+            {
+              const float widthA = WingWidthMetres(STARTING_FLEET[_a]);
+              const float widthB = WingWidthMetres(STARTING_FLEET[_b]);
+              // Table position breaks the tie, so this is a total order and two wings of
+              // equal width cannot trade slots between runs. The fleet feeds the world
+              // hash; a layout that sorted unstably would be a replay that disagreed with
+              // itself for no reason anyone could see.
+              return widthA != widthB ? widthA > widthB : _a < _b;
+            });
+
+  std::array<std::size_t, WING_COUNT> slotOf{};
+  std::size_t widest = 0;
+  std::size_t narrowest = WING_COUNT;
+  for (std::size_t slot = 0; widest < narrowest; ++slot)
+  {
+    // Even slots take the next-widest wing and odd slots the next-narrowest,
+    // which is the alternation: the two ends of the sorted list meet as
+    // neighbours, so a capital never stands beside another capital.
+    const std::size_t wing = (slot % 2 == 0) ? byWidth[widest++] : byWidth[--narrowest];
+    slotOf[wing] = slot;
+  }
+  return slotOf;
+}
+
+/// One parked hull, kept only as long as it takes to measure the layout.
+struct ParkedHull
+{
+  float xMetres = 0.0f;
+  float yMetres = 0.0f;
+  float radiusMetres = 0.0f;
+  std::size_t wing = 0;
+  const char* wingName = "";
+};
+
+/*
+ * Measure the parked fleet, and put the number in the log.
+ *
+ * ADR-015 §5's phrasing about the overlap it found is the reason this exists:
+ * "invisible until something measured it". `Separate` is a repair, so authored
+ * content that parks two hulls inside each other reads as a fleet that shuffles
+ * on tick 1 rather than as content that is wrong -- which is a defect that
+ * hides in a working game. Measuring it every boot costs 780 pairs, once.
+ *
+ * Cross-wing pairs only. Two ships in one wing stand a formation spacing apart
+ * against radii of at most a quarter of it, so their clearance is half the
+ * spacing by construction and the class table's own test already holds that
+ * bound. What this reports is the number the *ring* controls.
+ */
+void ReportParkedFleet(const std::vector<ParkedHull>& _parked)
+{
+  float tightest = std::numeric_limits<float>::max();
+  const ParkedHull* nearestA = nullptr;
+  const ParkedHull* nearestB = nullptr;
+
+  for (std::size_t a = 0; a + 1 < _parked.size(); ++a)
+  {
+    for (std::size_t b = a + 1; b < _parked.size(); ++b)
+    {
+      if (_parked[a].wing == _parked[b].wing)
+      {
+        continue;
+      }
+
+      const float dx = _parked[a].xMetres - _parked[b].xMetres;
+      const float dy = _parked[a].yMetres - _parked[b].yMetres;
+      const float clearance = std::sqrt(dx * dx + dy * dy) - (_parked[a].radiusMetres + _parked[b].radiusMetres);
+
+      if (clearance < 0.0f)
+      {
+        NEURON_LOG_WARNING("parked fleet: %s and %s overlap by %.1f m; Separate will heal it on tick 1", _parked[a].wingName,
+                           _parked[b].wingName, -clearance);
+      }
+      if (clearance < tightest)
+      {
+        tightest = clearance;
+        nearestA = &_parked[a];
+        nearestB = &_parked[b];
+      }
+    }
+  }
+
+  if (nearestA != nullptr && nearestB != nullptr)
+  {
+    NEURON_LOG_INFO("parked fleet: %zu hulls, tightest cross-wing clearance %.1f m (%s to %s)", _parked.size(), tightest,
+                    nearestA->wingName, nearestB->wingName);
+  }
+}
+
 /// The names as the world view wants them: indexed by `WingId`, so index 0 is
 /// `INVALID_WING_ID` and is a placeholder nothing draws.
 [[nodiscard]] std::vector<std::string> WingNames()
@@ -381,13 +743,22 @@ void UniverseSimulation::SpawnStartingFleet()
    * transfer) and what records where the ship went, and a spawn that did one
    * without the other would leave the fleet out of "where are my ships".
    */
+  // Where each wing stands. Read here rather than folded into the loop because
+  // the ring order and the table order are two different things now: the table
+  // still decides `WingId`, the call sign and the roster row, so ids and names
+  // are exactly what they were before the re-park.
+  const std::array<std::size_t, WING_COUNT> ringSlot = WingRingSlots();
+
+  std::vector<ParkedHull> parked;
+  parked.reserve(WING_COUNT * SHIPS_PER_WING);
+
   std::uint32_t wing = 0;
   for (const FleetWing& entry : STARTING_FLEET)
   {
     const Game::HullClass hullClass = entry.hullClass;
-    constexpr std::uint32_t SHIPS_PER_WING = 5;
-    const float wingAngle = (static_cast<float>(wing) / static_cast<float>(std::size(STARTING_FLEET))) * DirectX::XM_2PI;
-    const float spacing = Game::ShipClass(hullClass).formationSpacingMetres;
+    const float wingAngle = (static_cast<float>(ringSlot[wing]) / static_cast<float>(WING_COUNT)) * DirectX::XM_2PI;
+    const Game::ShipClassInfo& info = Game::ShipClass(hullClass);
+    const float spacing = info.formationSpacingMetres;
 
     for (std::uint32_t index = 0; index < SHIPS_PER_WING; ++index)
     {
@@ -407,10 +778,13 @@ void UniverseSimulation::SpawnStartingFleet()
       if (id != Game::INVALID_SHIP_ID)
       {
         m_patrolShips.push_back(id);
+        parked.push_back({spawn.xMetres, spawn.yMetres, info.collisionRadiusMetres, wing, entry.name});
       }
     }
     ++wing;
   }
+
+  ReportParkedFleet(parked);
 }
 
 /*
@@ -436,6 +810,10 @@ WorldMeta MakeWorldMeta(const Game::UniverseDef& _universe)
 
   WorldMeta meta;
   meta.worldId = anchor.system;
+  // Which grid, as opposed to where it is. The client needs a number it can put
+  // in a Dock's `anchor` field and in a station command's `station` field
+  // (ADR-017 §2, §3); before this it had neither.
+  meta.gridAnchor = _universe.StartAnchorId();
   meta.anchorX = anchor.origin.x;
   meta.anchorY = anchor.origin.y;
 
@@ -471,13 +849,17 @@ void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
  * largest. Neither side should learn the other's, so the translation lives
  * here, in the only project entitled to know both.
  *
- * The content hash is the universe hash. Both halves load the identical file
- * and each states what it read rather than being told (ADR-009 §8) -- in
- * `mode: "client"` that is the whole safety property, because a client whose
- * content drifted is refused at the door instead of rendering a world nobody
- * is simulating.
+ * The content hash is the universe and the economy mixed (ADR-024 §7). Both
+ * halves load the identical files and each states what it read rather than
+ * being told (ADR-009 §8) -- in `mode: "client"` that is the whole safety
+ * property, because a client whose content drifted is refused at the door
+ * instead of rendering a world nobody is simulating. Mixing rather than adding
+ * a second wire field is what makes the economy free to guard; its price is
+ * that the number cannot say *which* file differs, which is why the boot log
+ * states both separately.
  */
-Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _config, const Outpost::UniverseLoadResult& _universe)
+Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _config, const Outpost::UniverseLoadResult& _universe,
+                                                     std::uint64_t _contentHash)
 {
   // The mesh list, by name, is the renderer's classId order. Matching on the
   // authored file name rather than on position means reordering the list in
@@ -491,12 +873,12 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
     {Game::HullClass::Corvette, "Corvette.obj"},       {Game::HullClass::Frigate, "Frigate.obj"},
     {Game::HullClass::Hauler, "Hauler.obj"},           {Game::HullClass::Miner, "Miner.obj"},
     {Game::HullClass::Carrier, "Carrier.obj"},         {Game::HullClass::Battleship, "Battleship.obj"},
-    {Game::HullClass::Structure, "Structure.obj"},
+    {Game::HullClass::Structure, "Structure.obj"}, {Game::HullClass::Gate, "Stargate.obj"},
   };
 
   Outpost::ReplicatedWorldView::Desc desc;
   desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, Outpost::ReplicatedWorldView::INVALID_RENDER_CLASS);
-  desc.contentHash = _universe.universeHash;
+  desc.contentHash = _contentHash;
   desc.wingNames = WingNames();
 
   for (const auto& mapping : MESH_FOR_HULL)
@@ -703,14 +1085,55 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
                   Clock::MillisecondsBetween(universeStart, Clock::Counter()));
   LogResolvedUniverse(universe);
 
+  /*
+   * The economy, beside the universe and guarded the same way (ADR-024 §7).
+   *
+   * Timed for the same reason the universe is, though this file is kilobytes
+   * rather than megabytes: the number that matters is the one a boot reports,
+   * not the one anybody expected, and CI re-takes it on every push.
+   */
+  const std::int64_t economyStart = Clock::Counter();
+  Outpost::EconomyLoadResult economy;
+  std::vector<std::string> economyErrors;
+  if (!Outpost::LoadEconomy(config.economyDefinition, economy, economyErrors))
+  {
+    Outpost::ConfigDiagnostics economyDiagnostics;
+    economyDiagnostics.errors = economyErrors;
+    for (const std::string& error : economyErrors)
+      NEURON_LOG_ERROR("%s", error.c_str());
+    ReportStartupFailure(economyDiagnostics);
+    Log::Shutdown();
+    return 1;
+  }
+  NEURON_LOG_INFO("economy: read, parsed and hashed in %.0f ms from %s",
+                  Clock::MillisecondsBetween(economyStart, Clock::Counter()), economy.path.c_str());
+
+  /*
+   * One number for the handshake, two in the log.
+   *
+   * The wire carries a single `contentHash`, so the economy rides into the
+   * fail-closed check with no new field and no schema bump -- and the cost of
+   * mixing is that the number cannot name the file that differs. Hence both
+   * hashes, stated separately, right here: when a client is refused, this line
+   * is what tells an operator which half drifted.
+   */
+  const std::uint64_t contentHash = Game::MixContentHashes(universe.universeHash, economy.economyHash);
+  NEURON_LOG_INFO("content: universe %016llx, economy %016llx, mixed %016llx",
+                  static_cast<unsigned long long>(universe.universeHash), static_cast<unsigned long long>(economy.economyHash),
+                  static_cast<unsigned long long>(contentHash));
+
   // GameLogic implements Simulation and the composition root injects it
   // (ADR-014 §2). Until it does (S5c), the server hosts one that advances
   // nothing but knows its content hash and where its world is anchored -- which
   // is enough to prove the loop, the sessions, the wire and the handshake.
-  // The session seed is the content hash: same universe, same session, same
-  // worlds -- and a content change is a different session by construction,
-  // which is the honest relationship between the two.
-  UniverseSimulation simulation{universe.universeHash, MakeWorldMeta(universe.universe), universe.universe, universe.universeHash};
+  // The session seed is the **universe** hash, while the hash the wire carries
+  // is the mixed one: same universe, same session, same worlds -- and a
+  // universe change is a different session by construction. The economy is
+  // deliberately not in the seed. It guards the handshake because both halves
+  // must agree about a litre, but a hold size has no business reshuffling every
+  // grid's randomness, and folding it in would make retuning balance silently
+  // re-roll the worlds.
+  UniverseSimulation simulation{contentHash, MakeWorldMeta(universe.universe), universe.universe, universe.universeHash};
   simulation.SpawnStartingFleet();
 
   /*
@@ -771,7 +1194,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
       // a world view by reference and never learns what is behind it; hosting
       // exercises exactly the handshake a separate client would, because both
       // sides state their own hashes rather than sharing a variable.
-      Outpost::ReplicatedWorldView worldView{MakeWorldViewDesc(config, universe)};
+      Outpost::ReplicatedWorldView worldView{MakeWorldViewDesc(config, universe, contentHash)};
 
       ClientApp client;
       // The shader table is a temporary and the client keeps it, which is safe

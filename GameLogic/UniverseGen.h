@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EconomyDef.h"
 #include "Ids.h"
 #include "Universe.h"
 
@@ -98,11 +99,34 @@ inline constexpr std::uint8_t MAX_GATES_PER_SYSTEM = 4;
  */
 inline constexpr std::int64_t STATION_WARP_IN_STANDOFF_METRES = 3'000;
 inline constexpr std::int64_t BARE_WARP_IN_STANDOFF_METRES = 5'000;
+
+/*
+ * The gate number is load-bearing the same way the station's is, against
+ * `JUMP_RADIUS_METRES` instead of the dock radius (ADR-016 §5, U4).
+ *
+ * "Warp-in lands inside that radius, so the common case chains seamlessly": a
+ * fleet that warps to a gate is already close enough to jump, and a route hop
+ * is two orders rather than two orders and a crawl. 1,200 m sits well inside
+ * the 2,500 m jump radius and well outside the 150 m the gate itself occupies,
+ * and the bake invariant suite asserts both ends.
+ */
 inline constexpr std::int64_t GATE_WARP_IN_STANDOFF_METRES = 1'200;
 
 /// ADR-017 §3: ~800 m off the structure, facing outward, clear of the
 /// `Structure` contact radius so an undocking fleet never spawns in contact.
 inline constexpr std::int64_t STATION_UNDOCK_STANDOFF_METRES = 800;
+
+/*
+ * Where a site's orbit ring may sit, as a percentage of the gap between the two
+ * planet orbits it rides between (ADR-024 §3a).
+ *
+ * The midpoint, rather than a roll: the *bearing* is what varies, every epoch,
+ * and varying the radius as well would buy nothing a player could perceive
+ * while making a field's distance from its star another number to reproduce.
+ * Outside the last planet there is no gap to halve, so the ring takes a fixed
+ * step beyond it instead.
+ */
+inline constexpr std::int64_t SITE_RING_BEYOND_LAST_PLANET_PCT = 140;
 
 /// The room ADR-018 D18's deterministic per-order arrival offsets get to spread
 /// in. Baked so that answering hub contention never needs an anchor-schema
@@ -120,14 +144,42 @@ inline constexpr std::int64_t ARRIVAL_SPREAD_RADIUS_METRES = 1'200;
  * **Blocks go only to anchors that author something, and the arithmetic is why.**
  * `ShipId` is u16 until the delta cluster widens it (D6), and the committed
  * universe has ~18,600 anchors: a block for every one of them would put
- * authored ids past 65,535 before a single ship had been built. Only station
- * anchors author anything today (~3,350 of them), and gates will when U4 gives
- * them an entity, so blocks are handed out in bake order to the anchors that
- * need them. That fits the u16 era with room and needs no re-bake when the
- * widening lands -- the field is already u32, because a baked id is not a wire
- * value.
+ * authored ids past 65,535 before a single ship had been built. So blocks are
+ * handed out in bake order to the anchors that need them, and the field is
+ * already u32 because a baked id is not a wire value.
+ *
+ * **The block is two, and U4 is what measured it.** It was eight while station
+ * anchors were the only ones authoring: ~3,350 of them fit the authored window
+ * with room to spare. Then gates got their entity (ADR-016 §10) and the same
+ * arithmetic stopped working -- ~6,000 gate anchors at eight ids each is 48,000
+ * on its own, and the authored space is not 65,535 but the 32,767 below
+ * `DYNAMIC_SHIP_ID_BASE`. Two is what the *worst case* allows rather than what
+ * the committed content happens to need: a system authors at most two stations
+ * and `MAX_GATES_PER_SYSTEM` gates, so 2,500 systems ask for about
+ * 2,500 x 6 x 2 = 30,000 ids at the cap -- inside the window, where eight is
+ * not. (The committed universe uses 18,712 of them: 3,356 station anchors and
+ * 6,000 gate anchors, 57 % of the space, with the gate degree topping out at
+ * the cap of four.)
+ *
+ * "About", because the degree cap is allowed to bend: a system whose every
+ * earlier neighbour is full takes a fifth gate rather than being left
+ * unreachable, which is connectivity winning over tidiness where the edges are
+ * built. That is precisely why the arithmetic is *checked* at the end of the
+ * bake instead of being asserted from these constants.
+ *
+ * Shrinking it costs less than it looks. The room a block buys is the room to
+ * add an occupant *without moving anybody else's id*, which matters for a save
+ * file and not for a generated one: this content is re-baked from the recipe,
+ * and a re-bake re-assigns every base anyway. What the block still buys is that
+ * an anchor's occupants are contiguous and cannot run into the next anchor's,
+ * and one spare is enough for that to stay checkable.
+ *
+ * The bake refuses rather than wrapping if a recipe ever does exhaust it --
+ * `GenerateUniverse` returns false, which the bake mode reports as "the recipe
+ * cannot be satisfied". A silent wrap would give two anchors the same occupant
+ * ids and the collision would surface as two grids disagreeing about a ship.
  */
-inline constexpr std::uint32_t ANCHOR_ID_BLOCK = 8;
+inline constexpr std::uint32_t ANCHOR_ID_BLOCK = 2;
 
 /// Authored ids start here; dynamic ids start at `DYNAMIC_SHIP_ID_BASE`. The
 /// two spaces are partitioned rather than interleaved so that "is this ship
@@ -144,8 +196,15 @@ inline constexpr std::uint32_t DYNAMIC_SHIP_ID_BASE = 32768;
  *
  * Deterministic in the strong sense the accept asks for: the same config
  * produces the same `UniverseDef`, field for field, on any build.
+ *
+ * **`_sites` is the economy's site block** (ADR-024 §7's division of custody:
+ * the bake consumes `sites`, the runtime consumes the rest). It is a parameter
+ * rather than a field of the config because it is *content read from another
+ * file* rather than part of this universe's recipe -- passing it explicitly is
+ * what keeps one set of numbers in one place, which is the whole point of E1a
+ * having moved them out of code.
  */
-[[nodiscard]] bool GenerateUniverse(const UniverseGenConfig& _config, UniverseDef& _outUniverse);
+[[nodiscard]] bool GenerateUniverse(const UniverseGenConfig& _config, const SitesInfo& _sites, UniverseDef& _outUniverse);
 
 /// Serialises a generated universe to the canonical JSON the game reads back.
 /// Round-trips through `ParseUniverse` exactly; that is a bake invariant, not

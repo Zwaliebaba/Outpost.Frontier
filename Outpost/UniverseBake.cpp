@@ -3,6 +3,7 @@
 #include "UniverseBake.h"
 
 #include "ConfigLoad.h"
+#include "EconomyLoad.h"
 
 #include "UniverseGen.h"
 #include "UniverseParse.h"
@@ -23,9 +24,29 @@ int RunBake(const AppConfig& _config)
   NEURON_LOG_INFO("bake: seed %llu, %u systems across %u regions", static_cast<unsigned long long>(recipe.seed),
                   static_cast<unsigned>(recipe.systemCount), static_cast<unsigned>(recipe.regionCount));
 
+  /*
+   * The bake consumes the economy's site block (ADR-024 §7's division of
+   * custody), so it loads `Economy.json` before it generates anything. A bake
+   * that could not read it would otherwise produce a universe with no mining
+   * fields in it and say nothing -- content missing quietly is the failure the
+   * whole hash-guarded posture exists to prevent.
+   */
+  EconomyLoadResult economy;
+  std::vector<std::string> economyErrors;
+  if (!LoadEconomy(_config.economyDefinition, economy, economyErrors))
+  {
+    for (const std::string& error : economyErrors)
+    {
+      NEURON_LOG_ERROR("bake: %s", error.c_str());
+    }
+    return 1;
+  }
+  NEURON_LOG_INFO("bake: economyHash %016llx from %s", static_cast<unsigned long long>(economy.economyHash),
+                  economy.path.c_str());
+
   const std::int64_t generateStart = Neuron::Clock::Counter();
   Game::UniverseDef universe;
-  if (!Game::GenerateUniverse(recipe, universe))
+  if (!Game::GenerateUniverse(recipe, economy.economy.sites, universe))
   {
     NEURON_LOG_ERROR("bake: the recipe cannot be satisfied");
     return 1;

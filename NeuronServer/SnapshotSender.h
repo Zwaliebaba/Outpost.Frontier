@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Simulation.h"
 #include "Transport.h"
 #include "Wire.h"
 
@@ -8,97 +7,155 @@
 #include <cstdint>
 
 /*
- * One client's state stream (ADR-022 §1, ADR-018 A13).
+ * One client's state feed (ADR-018 A13, ADR-022 §1).
  *
- * **There is one of these per client, from its first line.** That is the whole
- * reason the object exists, and it is a rule rather than a preference: ADR-022
- * puts interest and delta in the session role because *relevance is a property
- * of a viewer, and the sim tier has no viewers*. A sender that serialised once
- * and sent the same bytes to everyone would be exactly the shape that decision
- * forbids -- and it would be load-bearing by the time the delta slice arrived,
- * because "broadcast the bytes we already made" is not a path that grows into
- * "encode against what *this* client last acked". So the object that serialises
- * is the object that knows a client, starting now, while there is only ever one
- * of them and the shape costs nothing to hold.
+ * The rule this file exists to obey is a single sentence from ADR-022 §1: *the
+ * object that serialises is the object that knows a client.* There is
+ * deliberately no "broadcast the bytes we already made" path to grow out of
+ * later, because every replication decision after this one -- interest,
+ * deltas, keyframes, per-grid views, per-viewer rosters -- is a decision about
+ * a *viewer*, and a sender that had to be retrofitted with one would have to
+ * be retrofitted at every one of those call sites at once.
  *
- * What that buys before any of ADR-022 is built:
+ * Today the bytes are the same for every client, so this buys nothing at
+ * runtime and the cost is one serialisation per client instead of one per
+ * tick. That trade is the whole point: it is paid now, while there is one
+ * client and the price is zero, rather than on the day two clients must be
+ * shown different worlds.
  *
- * - **`StationRoster` has somewhere correct to live.** ADR-017 §1 makes a
- *   roster private to its owner. On a broadcast-shaped sender that promise is a
- *   silent leak nothing catches, because nothing on the roadmap before U3c runs
- *   two clients (ADR-022 §1). Addressed per viewer, it is a wire fact from the
- *   first message instead of a test nobody can write yet.
- * - **The over-cap refusal is a per-client event.** It is counted and logged
- *   naming *which* client saw the world stop moving -- the designed behaviour
- *   until ADR-022 §6 replaces refusal with priority truncation.
+ * What is per client and lives here: the buffer, the counters, and the viewer
+ * this feed serves. What ADR-022 will add here: the ring of views as sent
+ * (§2b), the last acked tick, and the keyframe path (§3).
  *
- * What it deliberately does **not** do yet: rank, cull, or delta-encode.
- * `Simulation::WriteSnapshot` still writes the whole grid, the viewer is passed
- * and not yet read, and `baselineTick` is still zero on the wire. The retained
- * per-client baseline ring of ADR-022 §2b belongs in this object when that
- * slice lands; until then this is the same full snapshot it always was, sent
- * from a place that can grow one.
- *
- * Threading: owned by the sim thread with the session it belongs to, and
- * touched by nothing else. The counters are plain integers for that reason.
+ * Sim thread only. A sender is touched from the tick loop and from nowhere
+ * else, which is what lets the buffer be a member rather than a stack array
+ * (ADR-007 §2).
  */
 
 namespace Neuron
 {
 
-class ByteWriter;
+class Simulation;
 
-/// What this client's tick came to. `Refused` means the simulation could not
-/// fit the snapshot, which is a client seeing nothing move rather than a client
-/// seeing a stale frame -- worth distinguishing at the call site.
-enum class SnapshotSendResult : std::uint8_t
-{
-  Sent,
-  Refused,
-};
+/*
+ * How often a viewer's summary frame goes out (ADR-016 §6, ADR-017 §1: "~1 Hz").
+ *
+ * Twenty ticks at ADR-002's fixed 20 Hz. The number is the engine's rather than
+ * the game's because cadence is a link decision and not a game rule -- the same
+ * split ADR-022 §4 draws between ranking and truncating.
+ */
+inline constexpr std::uint32_t SUMMARY_INTERVAL_TICKS = 20;
 
 class SnapshotSender
 {
 public:
   SnapshotSender() = default;
-  SnapshotSender(ConnectionId _connection, std::uint32_t _clientId, PlayerId _viewer) noexcept
-    : m_connection(_connection), m_clientId(_clientId), m_viewer(_viewer)
+  SnapshotSender(PlayerId _viewer, ConnectionId _connection, std::uint16_t _grid) noexcept
+    : m_viewer(_viewer),
+      m_connection(_connection),
+      m_grid(_grid)
   {
   }
 
   /*
-   * Serialises this tick for this viewer and sends it.
+   * Serialises this viewer's snapshot and sends it.
    *
-   * Unreliable and unordered on purpose: full snapshots are idempotent, so a
-   * lost one costs a tick of freshness and a resent one would arrive after the
-   * snapshot that superseded it (ADR-004 §6).
+   * Returns false when the simulation would not write one, which at today's
+   * scale means this viewer's grid outgrew a datagram -- the loud refusal
+   * ADR-022 §6 keeps in place until the delta slice replaces it with priority
+   * truncation. Nothing is sent in that case: a truncated snapshot is worse
+   * than a missing one, because the client reads the absent ships as despawned
+   * and resurrects them on the next tick.
+   *
+   * The refusal is counted here rather than only at the host, because "which
+   * client is over cap" is a question a single global counter cannot answer
+   * and a per-grid, per-viewer world is exactly where it gets asked.
    */
-  SnapshotSendResult Send(Simulation& _simulation, Transport& _transport, std::uint32_t _tick);
+  [[nodiscard]] bool Send(Simulation& _simulation, Transport& _transport, std::uint32_t _tick);
 
-  [[nodiscard]] ConnectionId Connection() const noexcept { return m_connection; }
-  [[nodiscard]] PlayerId Viewer() const noexcept { return m_viewer; }
-
-  /// Snapshots this client received, and ticks it did not. The pair is per
-  /// client because the failure is: one viewer over the cap does not stop the
-  /// world for the rest of them.
-  [[nodiscard]] std::uint32_t SentCount() const noexcept { return m_sent; }
-  [[nodiscard]] std::uint32_t RefusedCount() const noexcept { return m_refused; }
-
-private:
-  ConnectionId m_connection = INVALID_CONNECTION;
-  std::uint32_t m_clientId = 0;
-  PlayerId m_viewer = INVALID_PLAYER_ID;
-
-  std::uint32_t m_sent = 0;
-  std::uint32_t m_refused = 0;
+  /// Summary frames actually put on the wire for this viewer.
+  [[nodiscard]] std::uint32_t SummariesSent() const noexcept
+  {
+    return m_summariesSent;
+  }
 
   /*
-   * The buffer is a member rather than a local, and that is not about the
-   * stack. A snapshot is *this client's* bytes now, and ADR-022 §2b's baseline
-   * ring -- the views this sender actually transmitted -- is the state that
-   * makes delta-under-culling safe. It hangs off this object when it arrives;
-   * the buffer is the first tenant.
+   * Points this feed at another grid, if the game allows it (ADR-016 §7).
+   *
+   * The verdict comes from the simulation and the enforcement stays here, which
+   * is the seam's usual division: whether a view is legal is a fact about where
+   * a commander's ships are, and the engine may not know that.
+   *
+   * A refused request leaves the feed exactly where it was. That is the honest
+   * outcome and it is why `ViewChanged` echoes the grid: a client with two
+   * requests in flight learns which one was turned down, and does not have to
+   * infer its own view state from the next snapshot to arrive.
    */
+  [[nodiscard]] bool RequestView(Simulation& _simulation, std::uint16_t _grid, std::uint16_t& _outReasonCode);
+
+  /// Which grid this viewer is watching. The snapshot's header carries the same
+  /// number, which is what lets the client tell a switch from a new frame.
+  [[nodiscard]] std::uint16_t Grid() const noexcept
+  {
+    return m_grid;
+  }
+
+  /// Who this feed serves (ADR-018 D5). The durable player, never the
+  /// connection: everything replication keys on outlives a socket.
+  [[nodiscard]] PlayerId Viewer() const noexcept
+  {
+    return m_viewer;
+  }
+  [[nodiscard]] ConnectionId Connection() const noexcept
+  {
+    return m_connection;
+  }
+
+  [[nodiscard]] std::uint32_t SentCount() const noexcept
+  {
+    return m_sent;
+  }
+  /// Ticks this viewer was owed a snapshot and did not get one.
+  [[nodiscard]] std::uint32_t OverCapCount() const noexcept
+  {
+    return m_overCap;
+  }
+
+private:
+  /*
+   * Sends this viewer's summary frame when one is due (ADR-016 §6).
+   *
+   * Staggered by the viewer's own id rather than fired for everyone on the same
+   * tick. At one commander that is indistinguishable; at the shard ADR-018 D1
+   * targets it is the difference between a flat trickle and a spike once a
+   * second in which every session serialises at once, and it costs a modulo.
+   *
+   * Unreliable, like the snapshot and for the opposite of ADR-022 §3c's reason:
+   * a keyframe takes a reliable stream because everything after it is a delta
+   * against it, while a lost summary costs a second of staleness on a screen
+   * that is about to be told again. Putting it on `Control` would park a roster
+   * in front of the player's orders.
+   */
+  void SendSummaries(Simulation& _simulation, Transport& _transport, std::uint32_t _tick);
+
+  PlayerId m_viewer = INVALID_PLAYER_ID;
+  ConnectionId m_connection = INVALID_CONNECTION;
+
+  /// The grid this viewer watches. Session state and nowhere else: the sim tier
+  /// has no viewers (ADR-022 §1), so nothing about a camera reaches `World`.
+  std::uint16_t m_grid = 0;
+
+  std::uint32_t m_sent = 0;
+  std::uint32_t m_summariesSent = 0;
+  std::uint32_t m_overCap = 0;
+
+  /// Logged once per client rather than once per process: with two viewers,
+  /// "a snapshot did not fit" that names neither is a line that sends the next
+  /// person to the wrong grid.
+  bool m_overCapLogged = false;
+
+  /// This client's own scratch. Not shared, and not a stack array: the day a
+  /// sender retains the view it sent (ADR-022 §2b) this is where that lives.
   std::array<std::uint8_t, MAX_DATAGRAM_BYTES> m_buffer{};
 };
 

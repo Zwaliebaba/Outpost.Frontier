@@ -272,6 +272,16 @@ public:
     Assert::IsTrue(GAME_SCHEMA_TEXT.find("shipsPerOrder=64") != std::string_view::npos);
     Assert::AreEqual<std::uint32_t>(64, MAX_SHIPS_PER_ORDER, L"the schema string and the cap must not drift apart");
     Assert::AreEqual<std::uint16_t>(16, MAX_ORDERS_PER_SNAPSHOT);
+
+    /*
+     * The hull count, which is on the wire as a `typeId` byte and as the icon
+     * and palette index the byte selects. U4 appended the twelfth (ADR-016
+     * §10), and a build that grew the taxonomy must not match one that did not:
+     * the older build would spawn nothing for the value and draw nothing where
+     * a gate is.
+     */
+    Assert::IsTrue(GAME_SCHEMA_TEXT.find("hull{12 classes") != std::string_view::npos);
+    Assert::AreEqual<std::uint8_t>(12, HULL_CLASS_COUNT, L"the schema string and the taxonomy must not drift apart");
   }
 };
 
@@ -438,6 +448,76 @@ public:
     // Halfway the short way is 180 degrees, not 0.
     const float halfway = std::fabs(sampled[0].headingRadians);
     Assert::IsTrue(halfway > 175.0f * XM_PI / 180.0f, L"the heading took the long way round");
+  }
+
+  /*
+   * The smear guard (U3b): a snapshot from another grid resets the view.
+   *
+   * The failure it prevents needs two things to be true at once, and both are
+   * ordinary: ship ids are allocated per registry, so two grids can each hold a
+   * ship 1; and the view interpolates between the two most recent frames. Put
+   * together without a guard, a view switch walks every hull from where it
+   * stood on the grid the player left to where a ship of the same id happens to
+   * stand on the grid they arrived at. That is not a rendering artefact — the
+   * two records describe different ships — which is why the answer is to drop
+   * the history rather than to smooth the transition.
+   */
+  TEST_METHOD(ASnapshotFromAnotherGridResetsTheViewInsteadOfInterpolatingIntoIt)
+  {
+    World alpha;
+    World beta;
+    alpha.SetAnchor(11, INVALID_SHIP_ID, {});
+    beta.SetAnchor(42, INVALID_SHIP_ID, {});
+
+    ShipSpawn west;
+    west.hullClass = HullClass::Frigate;
+    west.xMetres = -5000.0f;
+    ShipSpawn east;
+    east.hullClass = HullClass::Frigate;
+    east.xMetres = 5000.0f;
+
+    // The same id on both grids, which is legal and is the point.
+    Assert::AreEqual<std::uint32_t>(1, alpha.Spawn(west, 1));
+    Assert::AreEqual<std::uint32_t>(1, beta.Spawn(east, 1));
+
+    const auto snapshotOf = [](World& _world)
+    {
+      std::array<std::uint8_t, 2048> buffer{};
+      Neuron::ByteWriter writer{buffer};
+      Assert::IsTrue(WriteSnapshot(_world, writer));
+      return std::vector<std::uint8_t>{writer.Written().begin(), writer.Written().end()};
+    };
+
+    ReplicatedView view;
+    Assert::IsTrue(view.Grid() == INVALID_ID, L"a fresh view is on no grid");
+
+    // Enough frames that the view has a pair to interpolate between.
+    Assert::IsTrue(view.ApplySnapshot(snapshotOf(alpha)));
+    for (std::uint32_t tick = 1; tick <= 3; ++tick)
+    {
+      alpha.Tick(tick);
+      Assert::IsTrue(view.ApplySnapshot(snapshotOf(alpha)));
+    }
+    Assert::AreEqual<std::uint32_t>(11, view.Grid());
+    Assert::IsTrue(view.SnapshotCount() > 1, L"history to smear through, if it were going to");
+
+    /*
+     * Beta's tick is *lower* than alpha's by now, so this also pins the
+     * ordering: the grid check has to run before the staleness check, or the
+     * switch would be dropped as old news and the player would keep watching
+     * the world they left.
+     */
+    Assert::IsTrue(view.ApplySnapshot(snapshotOf(beta)));
+    Assert::AreEqual<std::uint32_t>(42, view.Grid());
+    Assert::AreEqual<std::size_t>(1, view.SnapshotCount(), L"the old grid's history was dropped, not extended");
+
+    std::vector<ReplicatedShip> sampled;
+    view.SampleAt(static_cast<double>(view.LatestTick()), sampled);
+    Assert::IsFalse(sampled.empty());
+    for (const ReplicatedShip& ship : sampled)
+    {
+      Assert::IsTrue(ship.positionMetres.x > 0.0f, L"a hull was sampled part-way between two grids");
+    }
   }
 
   TEST_METHOD(AStaleSnapshotDoesNotOverwriteANewerOne)

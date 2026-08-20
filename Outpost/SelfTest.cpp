@@ -10,12 +10,19 @@
 #include "ServerHost.h"
 #include "Simulation.h"
 
+#include "FleetSummary.h"
 #include "OrderMessages.h"
 #include "ReplicatedView.h"
 #include "SchemaHash.h"
 #include "Snapshot.h"
+#include "Station.h"
+#include "StationMessages.h"
+#include "SummaryMessages.h"
+#include "Universe.h"
+#include "UniverseGen.h"
 #include "World.h"
 #include "WorldHash.h"
+#include "WorldRegistry.h"
 
 #include "ByteReader.h"
 #include "ByteWriter.h"
@@ -24,6 +31,7 @@
 #include "Log.h"
 #include "Telemetry.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <vector>
@@ -178,15 +186,20 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation)
     order.target.yCm = 654321;
     order.target.facingTurns16 = 0x1234;
 
-    std::array<std::uint8_t, Game::MAX_ORDER_SUBMIT_BYTES> buffer{};
+    // The kind byte is part of the payload now (ADR-017 §8), so the round trip
+    // has to carry it: writing it and then reading the body straight back would
+    // be a check that passes only because it skipped the field under test.
+    std::array<std::uint8_t, Game::COMMAND_KIND_BYTES + Game::MAX_ORDER_SUBMIT_BYTES> buffer{};
     Neuron::ByteWriter writer{buffer};
-    bool ok = Game::WriteOrderSubmit(order, writer);
+    bool ok = Game::WriteCommandKind(Game::CommandKind::Order, writer) && Game::WriteOrderSubmit(order, writer);
 
     Game::OrderSubmit read;
     if (ok)
     {
       Neuron::ByteReader reader{writer.Written()};
-      ok = Game::ReadOrderSubmit(reader, read);
+      Game::CommandKind kind = Game::CommandKind::Station;
+      ok = Game::ReadCommandKind(reader, kind) && kind == Game::CommandKind::Order && Game::ReadOrderSubmit(reader, read) &&
+           reader.FullyConsumed();
     }
     ok = ok && read.orderSeq == order.orderSeq && read.kind == order.kind && read.formation == order.formation &&
          read.queueMode == order.queueMode && read.shipCount == order.shipCount && read.shipIds[0] == 3 && read.shipIds[1] == 9 &&
@@ -270,6 +283,114 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation)
   }
 
   /*
+   * A fleet crosses a gate, in this binary (U4, ADR-016 §5).
+   *
+   * Device-free and off the wire, which is not a shortcut but the only way the
+   * shipping binary can carry this check at all: a jump is `GATE_JUMP_TICKS`
+   * long by design -- twenty seconds at 20 Hz -- so driving one over the real
+   * loopback would add twenty seconds of wall clock to a gate that runs on
+   * every push, in two configurations, to prove a wire path the dock and the
+   * view request already exercise. Ticked here as fast as the CPU allows, the
+   * whole crossing costs microseconds.
+   *
+   * A universe of its own rather than the loaded one: twelve systems bake in
+   * no time, and a check that depended on where the committed content happens
+   * to put a gate would be a check about content.
+   */
+  {
+    Game::UniverseGenConfig recipe;
+    recipe.regionCount = 2;
+    recipe.constellationsPerRegion = 2;
+    recipe.systemCount = 12;
+
+    Game::UniverseDef universe;
+    // No site content: this checks gate topology, and a universe without
+    // mining fields is the cheaper one to bake for it (UniverseGen's guard).
+    bool ok = Game::GenerateUniverse(recipe, Game::SitesInfo{}, universe);
+
+    // The first gate with a far side, and the anchor on the other end of it.
+    Game::AnchorId here = Game::INVALID_ID;
+    Game::AnchorId there = Game::INVALID_ID;
+    for (const Game::SolarSystem& system : universe.systems)
+    {
+      for (const Game::Anchor& anchor : system.anchors)
+      {
+        if (here != Game::INVALID_ID || anchor.kind != Game::AnchorKind::Gate)
+        {
+          continue;
+        }
+        const Game::AnchorId paired = universe.PairedGateAnchor(anchor.id);
+        if (paired != Game::INVALID_ID)
+        {
+          here = anchor.id;
+          there = paired;
+        }
+      }
+    }
+    ok = ok && here != Game::INVALID_ID && there != Game::INVALID_ID;
+    _checks.Record("the bake pairs a gate with one that leads back", ok);
+
+    if (ok)
+    {
+      Game::WorldRegistry registry;
+      Game::RegistryConfig config;
+      config.sessionSeed = 0x9A7Eu;
+      registry.Reset(&universe, config);
+
+      Game::ShipSpawn spawn;
+      spawn.hullClass = Game::HullClass::Interceptor;
+      spawn.wing = 1;
+      spawn.xMetres = 800.0f; // Inside the jump radius, where a warp-in lands.
+      const Game::ShipId ship = registry.Spawn(here, spawn);
+
+      // The gate itself is on that grid, spawned from the anchor's own block.
+      const Game::World* gateGrid = registry.Peek(here);
+      const bool gateStands =
+        gateGrid != nullptr &&
+        std::any_of(gateGrid->Classes().begin(), gateGrid->Classes().end(),
+                    [](std::uint8_t _class) { return _class == static_cast<std::uint8_t>(Game::HullClass::Gate); });
+      _checks.Record("a gate grid holds its gate", gateStands);
+
+      Game::OrderSubmit jump;
+      jump.orderSeq = 6001;
+      jump.kind = Game::OrderKind::Warp;
+      jump.anchor = there;
+      bool submitted = ship != Game::INVALID_SHIP_ID && jump.AddShip(ship);
+
+      Game::World* world = registry.Borrow(here);
+      submitted = submitted && world != nullptr && world->SubmitOrder(jump).accepted;
+      _checks.Record("a fleet at the gate is allowed through it", submitted);
+
+      // The refusal beside it, from the same grid: standing across the grid is
+      // `NotAtGate` and nothing else, which is the sentence the player reads.
+      Game::OrderSubmit tooFar = jump;
+      tooFar.orderSeq = 6002;
+      Game::ShipSpawn awaySpawn = spawn;
+      awaySpawn.xMetres = 9000.0f;
+      const Game::ShipId away = registry.Spawn(here, awaySpawn);
+      tooFar.shipCount = 0;
+
+      // Borrowed again rather than kept across the spawn: `Spawn` can spin a
+      // world up, and "borrow, never hold" is the rule that makes a grid on
+      // another machine a change of nothing (ADR-019 §6.1).
+      world = registry.Borrow(here);
+      const bool refused = away != Game::INVALID_SHIP_ID && tooFar.AddShip(away) && world != nullptr &&
+                           world->SubmitOrder(tooFar).reason == Game::OrderReason::NotAtGate;
+      _checks.Record("a fleet across the grid is refused NotAtGate", refused);
+
+      std::uint32_t tick = 0;
+      bool arrived = false;
+      for (std::uint32_t step = 0; step < 2000 && !arrived; ++step)
+      {
+        registry.Tick(++tick);
+        Game::AnchorId where = Game::INVALID_ID;
+        arrived = registry.LocationOf(ship, where) && where == there;
+      }
+      _checks.Record("the crossing lands the fleet in the system on the far side", arrived);
+    }
+  }
+
+  /*
    * R10's tick-budget soak (ADR-018 A4, D1c). Last of the device-free checks
    * because it is by far the slowest, and here rather than in a test suite for
    * the reason D11 gives: the perf numbers that mean anything are Release ones,
@@ -318,6 +439,369 @@ template <typename Predicate> bool PumpUntil(Neuron::ClientConnection& _client, 
     Sleep(1);
   }
   return false;
+}
+
+/*
+ * The view gate over the real loopback (ADR-016 §4, §7 — U3b).
+ *
+ * One grid exists in this scenario, so what can be proved here is the *path*
+ * rather than a switch: that a request reaches the authority, that the game is
+ * the one deciding, that a refusal comes back carrying the game's own reason,
+ * and that the client's own grid is a view it is allowed to have. The switch
+ * itself needs two grids with presence on both, which is U3c's scenario.
+ *
+ * Worth running anyway, and in the shipping binary: every one of those pieces
+ * is new wire, and this is the one place they are exercised end to end rather
+ * than against a stub.
+ */
+void RunViewGate(Checklist& _checks, Neuron::ClientConnection& _client)
+{
+  const std::uint16_t here = _client.GridAnchor();
+  if (here == Game::INVALID_ID)
+  {
+    return; // Already reported by the docking loop's first check.
+  }
+
+  const auto answerFor = [&](std::uint16_t _grid, Neuron::ViewChanged& _out)
+  {
+    _client.ClearPendingViewChanges();
+    if (!_client.RequestView(_grid))
+    {
+      return false;
+    }
+    bool found = false;
+    (void)PumpUntil(_client,
+                    [&]
+                    {
+                      for (const Neuron::ViewChanged& changed : _client.PendingViewChanges())
+                      {
+                        if (changed.gridAnchor == _grid)
+                        {
+                          _out = changed;
+                          found = true;
+                        }
+                      }
+                      _client.ClearPendingViewChanges();
+                      return found;
+                    });
+    return found;
+  };
+
+  Neuron::ViewChanged mine{};
+  _checks.Record("a view request for the grid we are on is answered", answerFor(here, mine));
+  _checks.Record("and accepted, because our fleet is there", mine.accepted && mine.reasonCode == 0);
+
+  /*
+   * An anchor the commander has nothing on. `INVALID_ID + 1` is not a real
+   * anchor in the bake either, so this exercises both halves of the gate at
+   * once -- no world to show, and nothing of ours to show it for.
+   */
+  Neuron::ViewChanged elsewhere{};
+  const std::uint16_t nowhere = 0xfffeu;
+  _checks.Record("a view request for a grid we are not on is answered", answerFor(nowhere, elsewhere));
+  _checks.Record("and refused", !elsewhere.accepted && elsewhere.reasonCode != 0);
+  _checks.Record("with a reason the game named, not the engine",
+                 elsewhere.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::UnknownAnchor) ||
+                   elsewhere.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::NoPresence));
+
+  // And the feed stayed where it was: the snapshots still decode, which they
+  // would not if the server had moved this viewer to a grid that is not there.
+  Game::ReplicatedView view;
+  bool applied = false;
+  (void)PumpUntil(_client,
+                  [&]
+                  {
+                    for (const std::vector<std::uint8_t>& payload : _client.PendingSnapshots())
+                    {
+                      applied = view.ApplySnapshot(payload) || applied;
+                    }
+                    _client.ClearPendingSnapshots();
+                    return applied;
+                  });
+  _checks.Record("a refused view left the feed on the grid we had", applied && view.Grid() == here);
+}
+
+/*
+ * H0's loop, over the real loopback (Station Build Order, T2's accept).
+ *
+ * Everything ADR-017 promises about docking, driven the way a client drives it
+ * and observed the way a client observes it: the fleet leaves the snapshot when
+ * it docks, the roster says where it went, an undock brings a subset back at the
+ * authored point wearing the protection bit, and the protection expires on its
+ * own. Nothing here reaches into the simulation -- it is all bytes over a
+ * socket, because a headless loop that peeked would prove the sim and not the
+ * wire.
+ *
+ * The station's anchor comes from the `Welcome`, which is the whole reason
+ * `gridAnchor` is on it: before that field a client could be *told* about a
+ * station and still had no number to address one with.
+ */
+void RunDockingLoop(Checklist& _checks, Neuron::ClientConnection& _client)
+{
+  const Game::AnchorId station = _client.GridAnchor();
+  _checks.Record("the welcome names the grid's anchor", station != Game::INVALID_ID);
+  if (station == Game::INVALID_ID)
+  {
+    return; // Nothing downstream can be composed without it.
+  }
+
+  // The freshest view of the fleet, drained the way the frame loop drains it.
+  Game::ReplicatedView view;
+  std::vector<Game::ReplicatedShip> ships;
+  const auto refresh = [&]
+  {
+    for (const std::vector<std::uint8_t>& payload : _client.PendingSnapshots())
+    {
+      (void)view.ApplySnapshot(payload);
+    }
+    _client.ClearPendingSnapshots();
+    ships.clear();
+    view.SampleAt(static_cast<double>(view.LatestTick()), ships);
+  };
+
+  (void)PumpUntil(_client,
+                  [&]
+                  {
+                    refresh();
+                    return ships.size() > 2;
+                  });
+  const std::size_t beforeDock = ships.size();
+
+  /*
+   * Three ships of the parked fleet, which are inside the dock radius by
+   * construction: the starting fleet parks 1.4 km out and the radius is
+   * `max(5 km, footprint + margin)` (ADR-018 D7).
+   *
+   * The station itself is skipped -- it is a `Structure` on the same grid, it
+   * has no speed, and docking a station at itself is not a thing the validator
+   * should have to have an opinion about.
+   */
+  Game::OrderSubmit dock;
+  dock.orderSeq = 5001;
+  dock.kind = Game::OrderKind::Dock;
+  dock.anchor = station;
+  std::vector<Game::ShipId> docking;
+  for (const Game::ReplicatedShip& ship : ships)
+  {
+    if (docking.size() >= 3 || ship.classId == static_cast<std::uint8_t>(Game::HullClass::Structure))
+    {
+      continue;
+    }
+    if (dock.AddShip(ship.id))
+    {
+      docking.push_back(ship.id);
+    }
+  }
+
+  std::array<std::uint8_t, Game::MAX_ORDER_SUBMIT_BYTES + Game::COMMAND_KIND_BYTES> dockBuffer{};
+  Neuron::ByteWriter dockWriter{dockBuffer};
+  const bool dockSent = docking.size() == 3 && Game::WriteCommandKind(Game::CommandKind::Order, dockWriter) &&
+                        Game::WriteOrderSubmit(dock, dockWriter) && _client.SendOrder(dockWriter.Written());
+  _checks.Record("a dock order goes up the reliable channel", dockSent);
+  if (!dockSent)
+  {
+    return;
+  }
+
+  bool dockAccepted = false;
+  (void)PumpUntil(_client,
+                  [&]
+                  {
+                    for (const Neuron::OrderVerdict& verdict : _client.PendingVerdicts())
+                    {
+                      dockAccepted = dockAccepted || (verdict.orderSeq == dock.orderSeq && verdict.accepted);
+                    }
+                    _client.ClearPendingVerdicts();
+                    return dockAccepted;
+                  });
+  _checks.Record("the authority accepts the dock", dockAccepted);
+
+  // Docked ships are an off-grid roster (ADR-017 §1), so they stop being in the
+  // snapshot at all -- which is the whole reason a roster costs no snapshot
+  // bytes and no tick time.
+  const bool leftTheGrid = PumpUntil(_client,
+                                     [&]
+                                     {
+                                       refresh();
+                                       return ships.size() + docking.size() <= beforeDock;
+                                     });
+  _checks.Record("the docked ships leave the snapshot", leftTheGrid);
+
+  /*
+   * And arrive on the roster, which is the summary family's first resident
+   * (ADR-016 §6). Read the way a client reads one: a frame, a kind byte, then
+   * the body -- the engine carried it without knowing any of that.
+   */
+  Game::AnchorId rosterStation = Game::INVALID_ID;
+  std::vector<Game::RosterEntry> docked;
+
+  /*
+   * One pass over whatever summary frames have arrived, reading them the way a
+   * client reads them: a frame, a kind byte, then a body the engine carried
+   * without knowing any of it. `_wanted` lets the caller wait for the roster it
+   * expects rather than the first one that turns up, which matters after the
+   * undock -- the frame in flight when the command lands still describes the
+   * hangar as it was.
+   */
+  const auto readRoster = [&](const auto& _wanted)
+  {
+    /*
+     * Local, not a flag that latches. The second wait below asks for a roster
+     * the *first* one would not have satisfied, so a sticky "seen" would make
+     * it return on the stale frame and assert nothing.
+     */
+    bool found = false;
+    for (const std::vector<std::uint8_t>& payload : _client.PendingSummaries())
+    {
+      Neuron::ByteReader reader{payload};
+      std::uint8_t records = 0;
+      if (!Game::ReadSummaryFrame(reader, records))
+      {
+        continue;
+      }
+      for (std::uint8_t index = 0; index < records; ++index)
+      {
+        Game::SummaryKind kind{};
+        if (!Game::ReadSummaryRecord(reader, kind))
+        {
+          break;
+        }
+        if (kind == Game::SummaryKind::StationRoster)
+        {
+          Game::AnchorId seenStation = Game::INVALID_ID;
+          std::vector<Game::RosterEntry> seenDocked;
+          if (Game::ReadStationRoster(reader, seenStation, seenDocked) && _wanted(seenDocked))
+          {
+            rosterStation = seenStation;
+            docked = seenDocked;
+            found = true;
+          }
+          break;
+        }
+        std::vector<Game::FleetSummary> summaries;
+        if (!Game::ReadFleetSummaries(reader, summaries))
+        {
+          break;
+        }
+      }
+    }
+    _client.ClearPendingSummaries();
+    return found;
+  };
+
+  const auto holds = [](const std::vector<Game::RosterEntry>& _rows, Game::ShipId _id)
+  {
+    for (const Game::RosterEntry& row : _rows)
+    {
+      if (row.shipId == _id)
+      {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const bool rosterArrived =
+    PumpUntil(_client, [&] { return readRoster([&](const std::vector<Game::RosterEntry>& _rows) { return !_rows.empty(); }); });
+  _checks.Record("the roster arrives on the summary feed", rosterArrived && rosterStation == station);
+  _checks.Record("and holds every ship that docked", holds(docked, docking[0]) && holds(docked, docking[1]) && holds(docked, docking[2]));
+
+  /*
+   * Undock a subset -- two of the three -- as a station command on the same
+   * acked stream the orders use (ADR-017 §8). This is the message that had no
+   * wire path at all before this slice.
+   */
+  Game::StationCommand undock;
+  undock.orderSeq = 5002;
+  undock.verb = Game::StationVerb::Undock;
+  undock.station = station;
+  undock.formation = Game::FormationId::Line;
+  (void)undock.AddShip(docking[0]);
+  (void)undock.AddShip(docking[1]);
+
+  std::array<std::uint8_t, Game::MAX_STATION_COMMAND_BYTES + Game::COMMAND_KIND_BYTES> undockBuffer{};
+  Neuron::ByteWriter undockWriter{undockBuffer};
+  const bool undockSent = Game::WriteCommandKind(Game::CommandKind::Station, undockWriter) &&
+                          Game::WriteStationCommand(undock, undockWriter) && _client.SendOrder(undockWriter.Written());
+  _checks.Record("an undock goes up the same acked stream as an order", undockSent);
+  if (!undockSent)
+  {
+    return;
+  }
+
+  bool undockAccepted = false;
+  (void)PumpUntil(_client,
+                  [&]
+                  {
+                    for (const Neuron::OrderVerdict& verdict : _client.PendingVerdicts())
+                    {
+                      undockAccepted = undockAccepted || (verdict.orderSeq == undock.orderSeq && verdict.accepted);
+                    }
+                    _client.ClearPendingVerdicts();
+                    return undockAccepted;
+                  });
+  _checks.Record("the authority accepts the undock and acks it on the order stream", undockAccepted);
+
+  /*
+   * The undocked pair comes back wearing bit 0 (ADR-017 §5) -- the shimmer the
+   * client draws, replicated as one bit of `statusBits` and costing no field of
+   * its own.
+   */
+  bool protectedSeen = false;
+  const bool respawned = PumpUntil(_client,
+                                   [&]
+                                   {
+                                     refresh();
+                                     std::size_t back = 0;
+                                     for (const Game::ReplicatedShip& ship : ships)
+                                     {
+                                       if (ship.id != docking[0] && ship.id != docking[1])
+                                       {
+                                         continue;
+                                       }
+                                       ++back;
+                                       protectedSeen = protectedSeen || (ship.statusBits & Game::SHIP_STATUS_PROTECTED) != 0;
+                                     }
+                                     return back == 2;
+                                   });
+  _checks.Record("the undocked ships are back on the grid, with their own ids", respawned);
+  _checks.Record("and arrive protected (statusBits bit 0)", protectedSeen);
+
+  /*
+   * The bit is *per ship*, not a mood the grid is in.
+   *
+   * The station has stood on this grid the whole time and has never undocked,
+   * so it must not be wearing the shimmer. Without this the check above would
+   * pass just as happily against a build that set bit 0 on every record, which
+   * is exactly the kind of blanket that a one-fleet test never notices.
+   *
+   * The fifteen-second expiry itself is not asserted here: it is far longer
+   * than this gate should sit, and `RegistryTests` already pins it tick by tick
+   * without needing a socket.
+   */
+  bool anyUnprotected = false;
+  for (const Game::ReplicatedShip& ship : ships)
+  {
+    if (ship.id != docking[0] && ship.id != docking[1])
+    {
+      anyUnprotected = anyUnprotected || (ship.statusBits & Game::SHIP_STATUS_PROTECTED) == 0;
+    }
+  }
+  _checks.Record("and the ships that did not undock are not wearing it", anyUnprotected);
+
+  /*
+   * The roster keeps what the undock did not name (ADR-017 §3): an undock is a
+   * subset operation, so the third ship is still docked and the two that left
+   * are gone from the hangar rather than duplicated into it.
+   */
+  const bool rosterFollowed = PumpUntil(_client,
+                                        [&]
+                                        {
+                                          return readRoster([&](const std::vector<Game::RosterEntry>& _rows)
+                                                            { return !holds(_rows, docking[0]) && !holds(_rows, docking[1]); });
+                                        });
+  _checks.Record("the roster drops the ships that undocked", rosterFollowed);
+  _checks.Record("and keeps the one that was not named", holds(docked, docking[2]));
 }
 
 } // namespace
@@ -404,7 +888,8 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
 
           std::array<std::uint8_t, Game::MAX_ORDER_SUBMIT_BYTES> orderBuffer{};
           Neuron::ByteWriter orderWriter{orderBuffer};
-          const bool sent = Game::WriteOrderSubmit(order, orderWriter) && client.SendOrder(orderWriter.Written());
+          const bool sent = Game::WriteCommandKind(Game::CommandKind::Order, orderWriter) && Game::WriteOrderSubmit(order, orderWriter) &&
+                            client.SendOrder(orderWriter.Written());
           checks.Record("an order goes up the reliable channel", sent);
 
           if (sent)
@@ -419,6 +904,9 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
           }
         }
       }
+
+      RunViewGate(checks, client);
+      RunDockingLoop(checks, client);
 
       const Neuron::TransportStats stats = client.Stats();
       checks.Record("no datagram was dropped", stats.datagramsDropped == 0);

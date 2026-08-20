@@ -1,0 +1,246 @@
+// Outpost: Frontier -- the economy definition (ADR-024 §7, build order E1a).
+//
+// AUTHORED content, not generated: unlike Universe/Frontier.json there is no
+// bake behind this file, and editing it is how the economy is tuned. It is
+// hash-guarded exactly as the universe is -- `economyHash` is folded into the
+// handshake's content hash, so a client whose litres differ from the server's
+// is refused at the door rather than discovering the disagreement when a hold
+// fills at a different moment on each machine.
+//
+// **Integers only.** Litres, seconds, units and whole percentages -- never a
+// fraction, never a rate written as a decimal. Cargo arithmetic has to be
+// exact, hashable and identical on both halves, which is the same reason
+// universe positions are integer metres (ADR-012 §C7).
+//
+// **The taxonomies are closed; the numbers are content.** Ore, alloy and
+// archetype ids are enums in `EconomyDef.h` because each is a wire value and an
+// array index -- the `HullClass` precedent (ADR-009 §6). This file authors what
+// they are worth, not which ones exist: an id here that the enum does not know
+// is a diagnostic, not a fourth ore.
+{
+  // ------------------------------------------------------------------ ores
+  // valueIndexPct is a tuning anchor for the future market, not a price:
+  // inverse effective mining rate (1.0 / 1.5 / 2.0) times an access-risk
+  // multiplier for how much of the supply sits in shootable space.
+  "ores": [
+    { "id": "ferroChroma", "name": "Ferro-Chroma", "unitVolumeLitres": 300, "valueIndexPct": 100 },
+    { "id": "astracite",   "name": "Astracite",    "unitVolumeLitres": 200, "valueIndexPct": 220 },
+    { "id": "nebulite",    "name": "Nebulite",     "unitVolumeLitres": 250, "valueIndexPct": 300 }
+  ],
+
+  // ---------------------------------------------------------------- alloys
+  // Every alloy compresses its ore to roughly two thirds of the volume
+  // (1.45-1.56x), which is what makes refining near the source and hauling
+  // alloys home the efficient move -- and the alloy convoy the richest target
+  // per litre in the game. The envelope suite asserts the compression, not the
+  // ratio.
+  //
+  // `fuelPerJob` is reserved at zero (ADR-024 §6d): specialised station fuel is
+  // the right long-term sink, and fuel before a currency is a resource with no
+  // faucet. The field exists so the market phase is a data patch rather than a
+  // schema bump.
+  "alloys": [
+    {
+      "id": "ferrocitePlates", "name": "Ferrocite Plates", "tier": 1,
+      "unitVolumeLitres": 400, "refineSeconds": 30, "fuelPerJob": 0,
+      "inputs": [ { "ore": "ferroChroma", "units": 2 } ]
+    },
+    {
+      "id": "astraGlass", "name": "Astra-Glass", "tier": 1,
+      "unitVolumeLitres": 300, "refineSeconds": 45, "fuelPerJob": 0,
+      "inputs": [ { "ore": "astracite", "units": 1 },
+                  { "ore": "nebulite", "units": 1 } ]
+    },
+    {
+      "id": "chromiteConduit", "name": "Chromite Conduit", "tier": 2,
+      "unitVolumeLitres": 550, "refineSeconds": 90, "fuelPerJob": 0,
+      "inputs": [ { "ore": "ferroChroma", "units": 1 },
+                  { "ore": "nebulite", "units": 2 } ]
+    },
+    {
+      "id": "quantumMatrix", "name": "Quantum Matrix", "tier": 2,
+      "unitVolumeLitres": 450, "refineSeconds": 120, "fuelPerJob": 0,
+      "inputs": [ { "ore": "astracite", "units": 2 },
+                  { "ore": "ferroChroma", "units": 1 } ]
+    },
+    {
+      "id": "novaSteel", "name": "Nova-Steel", "tier": 3,
+      "unitVolumeLitres": 1000, "refineSeconds": 300, "fuelPerJob": 0,
+      "inputs": [ { "ore": "astracite", "units": 2 },
+                  { "ore": "ferroChroma", "units": 2 },
+                  { "ore": "nebulite", "units": 2 } ]
+    }
+  ],
+
+  // ----------------------------------------------------------------- cargo
+  // Keyed by `HullClass` name. A hull absent here carries nothing, which is
+  // how Structure and Gate (stations store in Bays, not hulls) and the two
+  // reserved ids (Fighter, Cruiser) are spelled -- by omission rather than by
+  // a row of zeroes.
+  //
+  // `oreHoldLitres` exists only where a hull mines. The Miner's general hold is
+  // deliberately a glovebox: a Miner hauls badly *by configuration*, which is
+  // the Hauler's employment contract. 120,000 L is 22 minutes of Ferro-Chroma
+  // cycling and ~50 on the rare ores -- the session's heartbeat -- and one
+  // Hauler carries three and a third Miner-loads, which is the convoy ratio.
+  "cargo": {
+    "Miner":       { "oreHoldLitres": 120000, "generalHoldLitres": 6000 },
+    "Hauler":      { "generalHoldLitres": 400000 },
+    "Carrier":     { "generalHoldLitres": 90000 },
+    "Battleship":  { "generalHoldLitres": 24000 },
+    "Frigate":     { "generalHoldLitres": 8000 },
+    "Corvette":    { "generalHoldLitres": 5000 },
+    "Bomber":      { "generalHoldLitres": 3000 },
+    "Interceptor": { "generalHoldLitres": 1500 }
+  },
+
+  // ---------------------------------------------------------------- mining
+  // Yield is hardness, not luck: a completed cycle produces exactly this, or
+  // what is left of the cluster. No draw is taken, because an RNG draw in the
+  // per-tick path is how a replay stops reproducing (ADR-005).
+  "mining": {
+    "cycleSeconds": 40,
+    "unitsPerCycle": { "ferroChroma": 12, "astracite": 8, "nebulite": 6 }
+  },
+
+  // ----------------------------------------------------------------- sites
+  "sites": {
+    // One day. Every site refills, re-bears on its orbit ring and reshuffles
+    // its rock layout on this cycle, staggered per site from its anchor id so
+    // the shard's fields do not all reset on one minute (ADR-024 §3d, R7).
+    "regenSeconds": 86400,
+
+    // The field's geometry. `arrivalSpreadPctOfField` is the anti-camp number
+    // that actually bites: arrivals scatter across an arc of the field edge
+    // rather than onto a point, so a camper covers a fraction of the possible
+    // arrivals instead of all of them (§3a).
+    //
+    // The radius range is bounded by the grid, and E1b is where that stopped
+    // being a guess. A tactical grid is 40 km ACROSS -- GRID_HALF_EXTENT_METRES
+    // is 20,000 -- so everything a warping fleet can touch has to fit inside
+    // 20 km of the anchor, not 40: field radius, plus the standoff outside it,
+    // plus the spread arc. At the maximum that is 12,000 + 2,000 + 40% of
+    // 12,000 = 18,800 m, which clears the bound with 1,200 m to spare. ADR-024
+    // §3a proposed 8-15 km by reading the 40 km as a radius; the ADR carries
+    // the correction, and this is the arithmetic it was corrected to.
+    "warpInStandoffMetres": 2000,
+    "fieldRadiusMetres": { "min": 5000, "max": 12000 },
+    "arrivalSpreadPctOfField": 40,
+    "clusterCount": { "min": 6, "max": 12 },
+
+    // A grade-II pool is about seven hours of solo mining and under two for a
+    // five-Miner op: depletion is meant to be felt, because a mined-out field
+    // is what pushes fleets outward and staggers the shard across systems.
+    "grades": [
+      { "grade": 1, "poolUnits": 4000,  "hazardScalePct": 50 },
+      { "grade": 2, "poolUnits": 8000,  "hazardScalePct": 100 },
+      { "grade": 3, "poolUnits": 16000, "hazardScalePct": 150 },
+      { "grade": 4, "poolUnits": 32000, "hazardScalePct": 200 },
+      { "grade": 5, "poolUnits": 64000, "hazardScalePct": 300 }
+    ],
+
+    // `compositionPct` is the share of pool units per band, in ore order
+    // (ferroChroma, astracite, nebulite), summing to 100. A field is mostly its
+    // archetype's ore and never purely: a belt is worth working even when it is
+    // not what you came for.
+    //
+    // Every hazard has a Phase-1 half that lands with this economy and a
+    // combat-era half that is reserved -- the `CombatEngaged` pattern. The
+    // reserved numbers are authored now so the combat ADR finds them rather
+    // than inventing them.
+    "archetypes": [
+      {
+        "id": "ferrousField", "name": "Ferrous Crust Field",
+        "hazard": { "kind": "none" },
+        "compositionPct": { "high": [90, 10, 0], "low": [80, 15, 5], "null": [70, 20, 10] }
+      },
+      {
+        "id": "irradiatedBelt", "name": "Irradiated Belt",
+        "hazard": {
+          "kind": "radiation",
+          "cycleSlowPerStackPct": 3,
+          "stackDecaySeconds": 30,
+          "burnStackThreshold": 15          // Reserved: hull burn, combat-era.
+        },
+        "compositionPct": { "high": [25, 75, 0], "low": [15, 75, 10], "null": [10, 75, 15] }
+      },
+      {
+        "id": "nebulaPocket", "name": "Nebula Pocket",
+        "hazard": {
+          "kind": "nebula",
+          // Detection range factor by grade, I..V. It dampens *everyone*, so
+          // the ganker closes unseen and also hunts blind.
+          "sensorDampingPctByGrade": [70, 58, 45, 33, 20],
+          "heatPerCycle": 34,
+          "heatThreshold": 100,
+          "heatDecayPerSecond": 2,
+          "lockoutSeconds": 60,
+          "pacedCycleSlowPct": 25,          // Pace cycles this much slower to shed heat.
+          "detonationThreshold": 100        // Reserved: gas-pocket AoE, combat-era.
+        },
+        "compositionPct": { "high": [15, 10, 75], "low": [5, 15, 80], "null": [5, 10, 85] },
+        // Ruling 1b: High-Sec pockets are *faded* -- grade I only, thin yields,
+        // hazard still on. Tier 1 stays craftable in every band while no market
+        // exists to buy Nebulite from; doing it well still means Low-Sec.
+        "gradeCapByBand": { "high": 1 }
+      }
+    ],
+
+    // The bake reads this block and nothing else here (ADR-024 §7's division of
+    // custody). Weights are per band, in archetype order; site counts are the
+    // 2-site : 3-site split.
+    "distribution": {
+      "bandSecurityFloors": { "high": 60, "low": 25 },   // null is the remainder.
+      "siteCountWeights":   { "high": [70, 30],     "low": [50, 50],     "null": [30, 70] },
+      "archetypeWeights":   { "high": [65, 25, 10], "low": [40, 35, 25], "null": [25, 40, 35] },
+      "gradeRange":         { "high": [1, 2],       "low": [2, 4],       "null": [3, 5] },
+
+      // The guarantees the bake's invariant suite checks, as data rather than
+      // as numbers hard-coded in the generator (E1b's input).
+      "highSecFirstSiteArchetype": "ferrousField",       // The new-player floor.
+      "maxSameArchetypePerSystem": { "high": 2, "low": 2, "null": 3 },
+      "fadedPocketSystemsPerHighRegion": 1,              // Ruling 1b's guarantee.
+      "minRegionOreGrade": 2                             // Every region covers all three ores at this grade or better.
+    }
+  },
+
+  // -------------------------------------------------------------- refining
+  "refining": {
+    // Bigger batches are capital-efficient and calendar-cheap, at the cost of
+    // locking inputs longer. The refund is deterministic and floored per
+    // material -- no crit-crafts, no probabilistic bonus units, the ledger
+    // always adds up.
+    "batches": [
+      { "units": 1,  "timePct": 100 },
+      { "units": 10, "timePct": 95 },
+      { "units": 50, "timePct": 90 }
+    ],
+    "queueDepthPerPlayer": 10,
+
+    // Slots are per player, not shared: a first-come pool on a shard of
+    // hundreds of commanders is a griefable queue, and contention belongs at
+    // the field and the trade lane rather than at the job form.
+    "tiers": [
+      { "tier": 1, "slotsPerPlayer": 1, "recipeTierCap": 1, "refundPct": 0,  "timePct": 100 },
+      { "tier": 2, "slotsPerPlayer": 2, "recipeTierCap": 2, "refundPct": 5,  "timePct": 95 },
+      { "tier": 3, "slotsPerPlayer": 3, "recipeTierCap": 3, "refundPct": 10, "timePct": 90 },
+      { "tier": 4, "slotsPerPlayer": 3, "recipeTierCap": 3, "refundPct": 15, "timePct": 85 }
+    ],
+
+    // The industrial map. Nova-Steel is physically born in dangerous space --
+    // no High-Sec station can ever cook it -- so endgame industry runs ore into
+    // the dark and alloys out of it, both legs escortable.
+    "bandTierCaps": { "high": 2, "low": 3, "null": 4 },
+
+    // Communal projects, and the phase's only sink before combat and the market
+    // arrive. Nobody owns a station: contributions are ledgered, the project
+    // completes, and the tier rises for everyone, permanently.
+    "upgradeProjects": [
+      { "toTier": 2, "costs": [ { "alloy": "ferrocitePlates", "units": 2500 },
+                                { "alloy": "astraGlass", "units": 800 } ] },
+      { "toTier": 3, "costs": [ { "alloy": "chromiteConduit", "units": 2000 },
+                                { "alloy": "quantumMatrix", "units": 1200 } ] },
+      { "toTier": 4, "costs": [ { "alloy": "novaSteel", "units": 500 } ] }
+    ]
+  }
+}

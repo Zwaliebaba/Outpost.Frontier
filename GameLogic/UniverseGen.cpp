@@ -2,7 +2,9 @@
 
 #include "UniverseGen.h"
 
+#include "FixedAngle.h"
 #include "ShipClass.h"
+#include "SiteEpoch.h"
 
 #include "JsonWriter.h"
 #include "Random.h"
@@ -10,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -18,63 +21,81 @@ namespace Game
 namespace
 {
 
-/*
- * Angles, in integers.
- *
- * A quarter wave of sine at 2^30, sampled 64 times, mirrored into 256 steps
- * around the circle. Every celestial and every anchor offset is placed with
- * this table, because the bake's output is compared byte for byte across
- * compilers (U1's accept) and `std::sin` is not a promise any two of them make
- * identically.
- *
- * 256 steps is 1.4 degrees, which is finer than anything here needs: an orbit's
- * bearing is flavour, and an anchor's warp-in bearing is a direction to stand
- * off in, not a tolerance to hit.
- */
-constexpr std::int32_t SIN_SCALE_BITS = 30;
-constexpr std::uint32_t ANGLE_STEPS = 256;
-
-constexpr std::array<std::int32_t, 65> SIN_QUARTER = {
-    0,          26350943,   52686014,   78989349,   105245103,  131437462,  157550647,  183568930,
-    209476638,  235258165,  260897982,  286380643,  311690799,  336813204,  361732726,  386434353,
-    410903207,  435124548,  459083786,  482766489,  506158392,  529245404,  552013618,  574449320,
-    596538995,  618269338,  639627258,  660599890,  681174602,  701339000,  721080937,  740388522,
-    759250125,  777654384,  795590213,  813046808,  830013654,  846480531,  862437520,  877875009,
-    892783698,  907154608,  920979082,  934248793,  946955747,  959092290,  970651112,  981625251,
-    992008094,  1001793390, 1010975242, 1019548121, 1027506862, 1034846671, 1041563127, 1047652185,
-    1053110176, 1057933813, 1062120190, 1065666786, 1068571464, 1070832474, 1072448455, 1073418433,
-    1073741824};
-
-/// sin(2*pi*_step/256), scaled by 2^30.
-[[nodiscard]] std::int64_t SinStep(std::uint32_t _step) noexcept
+/// Which band a system's baked security sits in (ADR-024 §3c). The thresholds
+/// are content, so the generator asks the file rather than carrying a copy.
+[[nodiscard]] std::uint8_t BandIndex(const SiteDistributionInfo& _distribution, std::uint8_t _security) noexcept
 {
-  const std::uint32_t step = _step % ANGLE_STEPS;
-  const std::uint32_t quadrant = step / 64;
-  const std::uint32_t index = step % 64;
-  switch (quadrant)
+  if (_security >= _distribution.highSecurityFloor)
   {
-  case 0:
-    return SIN_QUARTER[index];
-  case 1:
-    return SIN_QUARTER[64 - index];
-  case 2:
-    return -SIN_QUARTER[index];
-  default:
-    return -SIN_QUARTER[64 - index];
+    return static_cast<std::uint8_t>(SecurityBand::High);
   }
+  if (_security >= _distribution.lowSecurityFloor)
+  {
+    return static_cast<std::uint8_t>(SecurityBand::Low);
+  }
+  return static_cast<std::uint8_t>(SecurityBand::Null);
 }
 
-[[nodiscard]] std::int64_t CosStep(std::uint32_t _step) noexcept
+/// One draw against a weight table. All-zero weights pick the first entry
+/// rather than dividing by nothing -- a weightless table is a content mistake
+/// the invariants catch, and it must not be an out-of-range read here first.
+[[nodiscard]] std::uint32_t PickWeighted(const std::uint8_t* _weights, std::uint32_t _count, Neuron::Pcg32& _rng) noexcept
 {
-  return SinStep(_step + ANGLE_STEPS / 4);
+  std::uint32_t total = 0;
+  for (std::uint32_t index = 0; index < _count; ++index)
+  {
+    total += _weights[index];
+  }
+  if (total == 0)
+  {
+    return 0;
+  }
+  std::uint32_t roll = _rng.NextBelow(total);
+  for (std::uint32_t index = 0; index < _count; ++index)
+  {
+    if (roll < _weights[index])
+    {
+      return index;
+    }
+    roll -= _weights[index];
+  }
+  return _count - 1;
 }
 
-/// `_radius` metres at `_step`/256 of a turn, rounded to the metre. The
-/// multiply is int64 throughout: a radius of 30 AU is 4.5e12, and 4.5e12 * 2^30
-/// overflows nothing in 64 bits but would silently ruin 32.
-[[nodiscard]] UniversePos PolarOffset(std::int64_t _radiusMetres, std::uint32_t _step) noexcept
+/*
+ * The grade a site of this archetype may actually reach in this band.
+ *
+ * **The archetype's cap beats the band's range**, and that precedence is the
+ * resolution of a conflict the content states twice: ADR-024 ruling 1b makes
+ * High-Sec nebula pockets *faded* -- grade I, thin yields -- while §3c asks
+ * every region to cover all three ores at grade >= `minRegionOreGrade` (II).
+ * In High-Sec only a pocket carries Nebulite at all, so both cannot hold. The
+ * specific rule wins over the general one: the pocket stays faded, and the
+ * coverage floor yields to the cap where a cap exists.
+ */
+[[nodiscard]] std::uint8_t EffectiveGradeCap(const SiteArchetypeInfo& _archetype, std::uint8_t _band, std::uint8_t _gradeMax) noexcept
 {
-  return UniversePos{(_radiusMetres * CosStep(_step)) >> SIN_SCALE_BITS, (_radiusMetres * SinStep(_step)) >> SIN_SCALE_BITS};
+  const std::uint8_t cap = _archetype.gradeCapByBand[_band];
+  return cap == 0 ? _gradeMax : std::min(cap, _gradeMax);
+}
+
+/// The content's own spelling of an anchor kind. A function rather than the
+/// nested ternary this replaced, because a fourth kind made that unreadable and
+/// a fifth would make it wrong.
+[[nodiscard]] const char* AnchorKindName(AnchorKind _kind) noexcept
+{
+  switch (_kind)
+  {
+  case AnchorKind::Station:
+    return "station";
+  case AnchorKind::Planet:
+    return "planet";
+  case AnchorKind::Gate:
+    return "gate";
+  case AnchorKind::Site:
+    return "site";
+  }
+  return "planet";
 }
 
 [[nodiscard]] UniversePos Offset(const UniversePos& _base, const UniversePos& _delta) noexcept
@@ -197,7 +218,7 @@ constexpr std::array<const char*, 8> CONSTELLATION_FORM = {"Drift", "Veil",  "Ch
 
 } // namespace
 
-bool GenerateUniverse(const UniverseGenConfig& _config, UniverseDef& _outUniverse)
+bool GenerateUniverse(const UniverseGenConfig& _config, const SitesInfo& _sites, UniverseDef& _outUniverse)
 {
   const std::uint32_t constellationCount =
       static_cast<std::uint32_t>(_config.regionCount) * static_cast<std::uint32_t>(_config.constellationsPerRegion);
@@ -373,6 +394,13 @@ bool GenerateUniverse(const UniverseGenConfig& _config, UniverseDef& _outUnivers
   // on a Titius-Bode-ish progression from ~0.35 AU out, stations holding the
   // Anchorage's standoff over a planet. In-system geometry is the half of the
   // universe that is not laid out for legibility, so it is laid out for truth.
+  //
+  // Orbit radii are kept as they are drawn, because the site pass below rides
+  // its ring *between* two planet orbits and would otherwise have to recover a
+  // radius from a position -- which at 30 AU means an integer square root and a
+  // shift chosen so 4.5e12 squared does not wrap. Remembering the number costs
+  // a vector and cannot be got wrong.
+  std::vector<std::vector<std::int64_t>> orbitsBySystem(_outUniverse.systems.size());
   for (std::uint32_t index = 0; index < _outUniverse.systems.size(); ++index)
   {
     SolarSystem& system = _outUniverse.systems[index];
@@ -399,6 +427,7 @@ bool GenerateUniverse(const UniverseGenConfig& _config, UniverseDef& _outUnivers
       body.position = Offset(system.centre, PolarOffset(orbit, rng.NextBelow(ANGLE_STEPS)));
       body.radiusMetres = 2'400'000 + static_cast<std::int64_t>(rng.NextBelow(68'000'000));
       system.celestials.push_back(std::move(body));
+      orbitsBySystem[index].push_back(orbit);
 
       orbit = (orbit * static_cast<std::int64_t>(150 + rng.NextBelow(80))) / 100;
       orbit = std::min(orbit, AU_METRES * 30);
@@ -653,12 +682,294 @@ bool GenerateUniverse(const UniverseGenConfig& _config, UniverseDef& _outUnivers
       anchor.warpInPoint = LocalOffsetCm{static_cast<std::int32_t>(warpIn.x), static_cast<std::int32_t>(warpIn.y)};
       anchor.warpInFacingTurns16 = static_cast<std::uint16_t>(((bearing + ANGLE_STEPS / 2) % ANGLE_STEPS) * (65536u / ANGLE_STEPS));
       anchor.arrivalSpreadRadiusCm = static_cast<std::int32_t>(MetresToCm(ARRIVAL_SPREAD_RADIUS_METRES));
-      // The gate entity is U4's. It takes its block then, in bake order, which
-      // costs a re-bake U4 is already doing ("the bake's gate anchors get their
-      // gate entity") and keeps the u16 window clear until it does.
-      anchor.occupantIdBase = 0;
-      anchor.occupantCount = 0;
+      // The gate entity, which is U4's (ADR-016 §10). Exactly one and never
+      // more: a gate is one structure, and the block's spare id exists so the
+      // next anchor's ids cannot be run into rather than so this one can grow.
+      anchor.occupantCount = 1;
+      anchor.occupantIdBase = nextOccupantIdBase;
+      nextOccupantIdBase += ANCHOR_ID_BLOCK;
       system.anchors.push_back(anchor);
+    }
+  }
+
+  /*
+   * The id space, checked rather than assumed (ADR-018 D6a).
+   *
+   * `ANCHOR_ID_BLOCK`'s comment states the worst case a recipe at this scale
+   * can ask for and shows it fitting; this is that claim made mechanical, so a
+   * recipe that asked for more would fail the bake instead of wrapping two
+   * anchors onto the same occupant ids. A collision there would not surface as
+   * a bad file -- it would surface, much later, as two grids disagreeing about
+   * which ship a number means.
+   */
+  if (nextOccupantIdBase > DYNAMIC_SHIP_ID_BASE)
+  {
+    return false;
+  }
+
+  // ---- Sites ---------------------------------------------------------------
+  //
+  // Mining fields (ADR-024 §3a, build order E1b). `AnchorKind::Site` was
+  // reserved for exactly this, and cashing in a reserved id renumbers nothing.
+  //
+  // **Two decisions keep this slice additive**, which is what makes a 15 MB
+  // regenerated file reviewable at all. Sites are appended *after* every other
+  // anchor already has its id, so no station, planet or gate anchor moves and
+  // no occupant block shifts -- the same argument ADR-016 §10 used for
+  // appending `HullClass::Gate`. And every roll below comes from a **per-system
+  // stream of its own**, so the main sequence is untouched and not one existing
+  // byte of name, position, security or gate topology changes.
+  //
+  // A site authors no occupants, so it takes no id block: rocks are not
+  // entities (ADR-024 §4c), which is the property that lets ~6,250 anchors join
+  // without going near the window U4 measured into refusal.
+  //
+  // **A recipe given no site content bakes no sites**, rather than baking
+  // degenerate ones. That is what makes `SitesInfo{}` a usable argument: a
+  // suite testing gate topology or naming has no business carrying an economy,
+  // and a caller that forgets one gets a universe without mining fields instead
+  // of a grade-zero read off the end of the grade table.
+  const bool haveSiteContent =
+      std::any_of(std::begin(_sites.grades), std::end(_sites.grades), [](const SiteGradeInfo& _g) { return _g.poolUnits > 0; });
+  if (haveSiteContent)
+  {
+    const SiteDistributionInfo& distribution = _sites.distribution;
+    const std::uint32_t fieldRadiusSpread = _sites.fieldRadiusMaxMetres >= _sites.fieldRadiusMinMetres
+                                                ? _sites.fieldRadiusMaxMetres - _sites.fieldRadiusMinMetres + 1
+                                                : 1;
+
+    for (std::uint32_t index = 0; index < _outUniverse.systems.size(); ++index)
+    {
+      SolarSystem& system = _outUniverse.systems[index];
+      const std::vector<std::int64_t>& orbits = orbitsBySystem[index];
+      if (orbits.empty())
+      {
+        continue; // A system with no planets has no disc to put a field on.
+      }
+
+      // The site stream. Seeded from the recipe and the system id so it is a
+      // property of *which* system this is rather than of when it was reached,
+      // and so re-running the bake with sites off would leave the rest bit-
+      // identical.
+      Neuron::Pcg32 siteRng{_config.seed ^ (0x9E3779B97F4A7C15ull * (static_cast<std::uint64_t>(system.id) + 1))};
+
+      const std::uint8_t band = BandIndex(distribution, system.security);
+      const std::uint32_t siteCount = 2 + PickWeighted(distribution.siteCountWeights[band], 2, siteRng);
+
+      std::uint8_t archetypeUsed[SITE_ARCHETYPE_COUNT] = {};
+      const std::uint8_t sameCap = distribution.maxSameArchetypePerSystem[band] == 0
+                                       ? static_cast<std::uint8_t>(siteCount)
+                                       : distribution.maxSameArchetypePerSystem[band];
+
+      for (std::uint32_t slot = 0; slot < siteCount; ++slot)
+      {
+        // The new-player floor: a High-Sec system's first field is always the
+        // one with no hazard on it (ADR-024 §3c).
+        std::uint8_t archetype = static_cast<std::uint8_t>(distribution.highSecFirstSiteArchetype);
+        if (band != static_cast<std::uint8_t>(SecurityBand::High) || slot != 0)
+        {
+          archetype = static_cast<std::uint8_t>(PickWeighted(distribution.archetypeWeights[band], SITE_ARCHETYPE_COUNT, siteRng));
+          if (archetypeUsed[archetype] >= sameCap)
+          {
+            // Walk to the next archetype with room rather than re-rolling: a
+            // re-roll loop has no bound, and the walk is deterministic.
+            for (std::uint8_t step = 1; step < SITE_ARCHETYPE_COUNT; ++step)
+            {
+              const std::uint8_t candidate = static_cast<std::uint8_t>((archetype + step) % SITE_ARCHETYPE_COUNT);
+              if (archetypeUsed[candidate] < sameCap)
+              {
+                archetype = candidate;
+                break;
+              }
+            }
+          }
+        }
+        ++archetypeUsed[archetype];
+
+        const SiteArchetypeInfo& archetypeInfo = _sites.archetypes[archetype];
+        const std::uint8_t gradeMin = distribution.gradeMin[band];
+        const std::uint8_t gradeCap = EffectiveGradeCap(archetypeInfo, band, distribution.gradeMax[band]);
+        const std::uint8_t gradeSpread = gradeCap > gradeMin ? static_cast<std::uint8_t>(gradeCap - gradeMin + 1) : 1;
+        const std::uint8_t grade = static_cast<std::uint8_t>(std::min<std::uint32_t>(gradeCap, gradeMin + siteRng.NextBelow(gradeSpread)));
+
+        Anchor anchor;
+        anchor.id = nextAnchorId++;
+        anchor.kind = AnchorKind::Site;
+        anchor.system = system.id;
+        // A site has no entity to belong to, so `owner` is its ordinal within
+        // the system -- a per-system site id, which is what every other kind's
+        // owner is too. Never zero, because the parser reads owners as ids.
+        anchor.owner = static_cast<std::uint16_t>(slot + 1);
+
+        anchor.site.archetype = static_cast<SiteArchetype>(archetype);
+        anchor.site.grade = grade;
+
+        // The ring rides between two planet orbits; beyond the last one there
+        // is no gap to halve, so it steps out by a fixed fraction instead.
+        const std::uint32_t inner = siteRng.NextBelow(static_cast<std::uint32_t>(orbits.size()));
+        anchor.site.orbitRingRadiusMetres = inner + 1 < orbits.size()
+                                                ? orbits[inner] + (orbits[inner + 1] - orbits[inner]) / 2
+                                                : (orbits[inner] * SITE_RING_BEYOND_LAST_PLANET_PCT) / 100;
+
+        anchor.site.fieldRadiusCm =
+            static_cast<std::int32_t>((_sites.fieldRadiusMinMetres + siteRng.NextBelow(fieldRadiusSpread)) * 100);
+        anchor.site.layoutSeed = siteRng.Next();
+
+        // The pool, split by the archetype's composition for this band. The
+        // shares are floored, so a pool can come out a unit or two under its
+        // grade's total -- which is a rounding remainder and not a shortfall
+        // worth a redistribution pass nobody could perceive.
+        const std::uint32_t poolUnits = _sites.grades[grade - 1].poolUnits;
+        for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+        {
+          anchor.site.poolUnits[ore] = poolUnits * archetypeInfo.compositionPct[band][ore] / 100u;
+        }
+
+        // Epoch 0 is what the file carries; the runtime asks
+        // `SiteEpochPlacement` for today's (ADR-024 §3d).
+        const SitePlacement placement =
+            SiteEpochPlacement(system.centre, anchor.id, anchor.site, 0, static_cast<std::int64_t>(_sites.warpInStandoffMetres));
+        anchor.origin = placement.origin;
+        anchor.warpInPoint = placement.warpInPoint;
+        anchor.warpInFacingTurns16 = placement.warpInFacingTurns16;
+
+        // The wide arrival arc -- the half of the anti-camp design that bites,
+        // since under anchor-only warp an attacker reaches the field the same
+        // way a miner does (ADR-024 §3a).
+        anchor.arrivalSpreadRadiusCm =
+            static_cast<std::int32_t>(static_cast<std::int64_t>(anchor.site.fieldRadiusCm) * _sites.arrivalSpreadPctOfField / 100);
+
+        anchor.occupantIdBase = 0;
+        anchor.occupantCount = 0;
+        system.anchors.push_back(anchor);
+      }
+    }
+  }
+
+  // ---- The two guarantees the content states, honoured then checked --------
+  //
+  // `SiteDistributionInfo` carries them as data so the invariants suite can
+  // check the file's own claims instead of a second copy of them. Rolling alone
+  // does not deliver either: a High-Sec region can easily draw no nebula pocket
+  // at a weight of ten, and ruling 1b's promise -- Tier 1 craftable in every
+  // band while no market exists -- would quietly fail for the players furthest
+  // from the frontier.
+  if (haveSiteContent)
+  {
+    const SiteDistributionInfo& distribution = _sites.distribution;
+    const std::uint8_t highBand = static_cast<std::uint8_t>(SecurityBand::High);
+
+    // (a) At least one faded pocket per High-Sec region. Repaired rather than
+    // re-rolled: converting one site is bounded work with a deterministic
+    // choice, where re-rolling a region until it complies is a loop whose
+    // length depends on luck.
+    if (distribution.fadedPocketSystemsPerHighRegion > 0)
+    {
+      for (const Region& region : _outUniverse.regions)
+      {
+        std::uint32_t pockets = 0;
+        Anchor* candidate = nullptr;
+        for (SolarSystem& system : _outUniverse.systems)
+        {
+          if (system.region != region.id || BandIndex(distribution, system.security) != highBand)
+          {
+            continue;
+          }
+          for (Anchor& anchor : system.anchors)
+          {
+            if (anchor.kind != AnchorKind::Site)
+            {
+              continue;
+            }
+            if (anchor.site.archetype == SiteArchetype::NebulaPocket)
+            {
+              ++pockets;
+            }
+            else if (candidate == nullptr && anchor.owner != 1)
+            {
+              /*
+               * The first convertible site in the region, in bake order -- and
+               * **never a system's first site**, because in High-Sec that slot
+               * is the new-player floor (§3c) and converting it would trade one
+               * guarantee for the other. The bake caught exactly that: six
+               * regions had their floor overwritten before this clause existed.
+               */
+              candidate = &anchor;
+            }
+          }
+        }
+
+        if (pockets >= distribution.fadedPocketSystemsPerHighRegion || candidate == nullptr)
+        {
+          continue;
+        }
+
+        const SiteArchetypeInfo& pocket = _sites.archetypes[static_cast<std::uint8_t>(SiteArchetype::NebulaPocket)];
+        const std::uint8_t grade = EffectiveGradeCap(pocket, highBand, distribution.gradeMax[highBand]);
+        candidate->site.archetype = SiteArchetype::NebulaPocket;
+        candidate->site.grade = grade;
+        const std::uint32_t poolUnits = _sites.grades[grade - 1].poolUnits;
+        for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+        {
+          candidate->site.poolUnits[ore] = poolUnits * pocket.compositionPct[highBand][ore] / 100u;
+        }
+      }
+    }
+
+    // (b) Every region covers all three ores, at the coverage floor or at the
+    // archetype's cap where one applies -- `EffectiveGradeCap`'s precedence,
+    // which is what makes this satisfiable in High-Sec at all.
+    //
+    // **Checked, not repaired.** (a) is what makes it true; if it ever stops
+    // being true the bake must say so rather than ship content that contradicts
+    // its own guarantee, because the player who discovers it is one who cannot
+    // craft Astra-Glass anywhere near home.
+    if (distribution.minRegionOreGrade > 0)
+    {
+      for (const Region& region : _outUniverse.regions)
+      {
+        bool covered[ORE_COUNT] = {};
+        bool anySystem = false;
+        for (const SolarSystem& system : _outUniverse.systems)
+        {
+          if (system.region != region.id)
+          {
+            continue;
+          }
+          anySystem = true;
+          const std::uint8_t band = BandIndex(distribution, system.security);
+          for (const Anchor& anchor : system.anchors)
+          {
+            if (anchor.kind != AnchorKind::Site)
+            {
+              continue;
+            }
+            const SiteArchetypeInfo& archetypeInfo = _sites.archetypes[static_cast<std::uint8_t>(anchor.site.archetype)];
+            const std::uint8_t floor =
+                std::min(distribution.minRegionOreGrade, EffectiveGradeCap(archetypeInfo, band, distribution.gradeMax[band]));
+            if (anchor.site.grade < floor)
+            {
+              continue;
+            }
+            for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+            {
+              covered[ore] = covered[ore] || anchor.site.poolUnits[ore] > 0;
+            }
+          }
+        }
+
+        if (!anySystem)
+        {
+          continue;
+        }
+        for (const bool ore : covered)
+        {
+          if (!ore)
+          {
+            return false;
+          }
+        }
+      }
     }
   }
 
@@ -822,7 +1133,7 @@ bool WriteUniverseJson(const UniverseDef& _universe, std::string& _outJson)
     {
       writer.BeginObject();
       writer.Member("id", static_cast<std::int64_t>(anchor.id));
-      writer.Member("kind", anchor.kind == AnchorKind::Station ? "station" : (anchor.kind == AnchorKind::Planet ? "planet" : "gate"));
+      writer.Member("kind", AnchorKindName(anchor.kind));
       writer.Member("owner", static_cast<std::int64_t>(anchor.owner));
       position("origin", anchor.origin);
       offset("warpIn", anchor.warpInPoint);
@@ -835,6 +1146,27 @@ bool WriteUniverseJson(const UniverseDef& _universe, std::string& _outJson)
       }
       writer.Member("occupantIdBase", static_cast<std::int64_t>(anchor.occupantIdBase));
       writer.Member("occupantCount", static_cast<std::int64_t>(anchor.occupantCount));
+      if (anchor.kind == AnchorKind::Site)
+      {
+        // Only where it means something, the way `undock` is written only on
+        // stations: a block of zeroes on 18,000 anchors is noise in a file
+        // people are expected to read.
+        writer.Key("site");
+        writer.BeginObject();
+        writer.Member("archetype", SiteArchetypeContentKey(anchor.site.archetype));
+        writer.Member("grade", static_cast<std::int64_t>(anchor.site.grade));
+        writer.Member("orbitRingRadiusMetres", anchor.site.orbitRingRadiusMetres);
+        writer.Member("fieldRadiusCm", static_cast<std::int64_t>(anchor.site.fieldRadiusCm));
+        writer.Member("layoutSeed", static_cast<std::int64_t>(anchor.site.layoutSeed));
+        writer.Key("poolUnits");
+        writer.BeginObject();
+        for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+        {
+          writer.Member(OreContentKey(static_cast<OreId>(ore)), static_cast<std::int64_t>(anchor.site.poolUnits[ore]));
+        }
+        writer.EndObject();
+        writer.EndObject();
+      }
       writer.EndObject();
     }
     writer.EndArray();

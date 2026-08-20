@@ -103,7 +103,17 @@ ordered through a station rounds it holding the 1.2× tangent to the metre (384 
 turned out to carry one real overlap — the Carrier and Battleship wings' line ends sit 221 m
 apart against a 227 m contact, invisible until something measured it — and `Separate` heals it
 on tick 1, moving exactly those two hulls ≤ 3.4 m each, everything else bit-still; re-parking
-the boot fleet is the scenario owner's call, not this ADR's.
+the boot fleet is the scenario owner's call, not this ADR's. **The owner made it on
+2026-08-20 and the fleet is re-parked** — the ring now deals its slots widest-with-narrowest
+instead of in table order, so no capital stands beside another capital, and the tightest
+cross-wing pair went from **−5.9 m to +90.3 m**. The composition root carries the change and
+the reasoning; what belongs here is the finding underneath it, which is that the overlap was a
+symptom rather than the fault. The ring divided 45° evenly among wings 280 m to 1,920 m wide,
+and the table happened to run smallest hull to largest, so the two capitals landed adjacent —
+the worst of the eight arrangements. Two things that measurement settled and are worth keeping:
+a wider ring does **not** help (the wing lines are chords, so past a point they cross rather
+than separate — the same overlap is worse at 1,800 m than at 1,400 m), and no arrangement at
+the authored radius clears by more than ~111 m, because the ring is 87 % full by span alone.
 
 ## Alternatives rejected
 

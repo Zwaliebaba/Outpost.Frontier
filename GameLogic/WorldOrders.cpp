@@ -249,6 +249,26 @@ ValidationView World::Validation()
       view.stationYCm = Neuron::MetresToCentimetres(m_positions[slot].y);
     }
   }
+
+  /*
+   * And the gate, if this grid is one (ADR-016 §5, U4).
+   *
+   * Read out of the ship table for the same reason the station is, and gated on
+   * the *structure* being there rather than only on the anchor being known: a
+   * jump is judged against where the gate stands, so a view that named a
+   * destination without a position to judge against would let a fleet jump from
+   * anywhere. Both halves of the pair are set together or neither is.
+   */
+  if (m_jumpAnchor != INVALID_ID && m_gateShip != INVALID_SHIP_ID)
+  {
+    std::uint32_t slot = 0;
+    if (FindSlot(m_gateShip, slot))
+    {
+      view.jumpAnchor = m_jumpAnchor;
+      view.gateXCm = Neuron::MetresToCentimetres(m_positions[slot].x);
+      view.gateYCm = Neuron::MetresToCentimetres(m_positions[slot].y);
+    }
+  }
   return view;
 }
 

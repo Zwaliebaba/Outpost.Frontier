@@ -4,52 +4,75 @@
 
 #include "ByteWriter.h"
 #include "Log.h"
+#include "Simulation.h"
 #include "Telemetry.h"
 
 namespace Neuron
 {
 
-SnapshotSendResult SnapshotSender::Send(Simulation& _simulation, Transport& _transport, std::uint32_t _tick)
+bool SnapshotSender::Send(Simulation& _simulation, Transport& _transport, std::uint32_t _tick)
 {
-  // Named for the work, not the client: the row is what a profile reads to see
-  // that serialisation now scales with viewers rather than with ticks, which is
-  // the cost this shape accepts on purpose.
-  NEURON_SPAN("Snapshot");
-
   ByteWriter writer{m_buffer};
   WriteWireType(writer, WireType::Snapshot);
 
-  if (!_simulation.WriteSnapshot(_tick, m_viewer, writer) || !writer.Ok())
+  if (!_simulation.WriteSnapshot(m_viewer, m_grid, _tick, writer) || !writer.Ok())
   {
-    /*
-     * The simulation refused -- almost certainly because the grid outgrew one
-     * datagram, which is the point at which ADR-004 §6's growth path stops
-     * being optional and ADR-022 §6's priority truncation replaces this
-     * refusal outright.
-     *
-     * Loud, counted, and **named**: it is one client's stream that stopped, and
-     * on the day two clients view different grids the difference between "the
-     * server broke" and "player 3's grid is over the cap" is the whole
-     * diagnosis. Once per sender, because a message every tick at 20 Hz is a
-     * log nobody can read.
-     */
-    ++m_refused;
+    ++m_overCap;
     NEURON_COUNTER("SnapshotDropped", 1);
-    if (m_refused == 1)
+    if (!m_overCapLogged)
     {
-      NEURON_LOG_ERROR("the simulation could not fit a snapshot for client %u (player %u) in one datagram; it will see nothing move",
-                       m_clientId, m_viewer);
+      m_overCapLogged = true;
+      NEURON_LOG_ERROR("player %u: the simulation could not fit a snapshot in one datagram; this client will see nothing move", m_viewer);
     }
-    return SnapshotSendResult::Refused;
+    return false;
   }
 
-  // The overflow guard `ServerHost::SendTo` applies to every other message, kept
-  // here rather than borrowed: this send is the one that does not go through it,
-  // because the writer it fills is this object's own.
+  // Unreliable and unordered on purpose: full snapshots are idempotent, so a
+  // lost one costs a tick of freshness and a resent one would arrive after the
+  // snapshot that superseded it (ADR-004 §6).
   (void)_transport.Send(m_connection, TransportChannel::State, writer.Written());
   ++m_sent;
-  NEURON_COUNTER("SnapshotsSent", 1);
-  return SnapshotSendResult::Sent;
+
+  // After the snapshot, never before it: the summary is the slow feed, and a
+  // tick's freshness is worth more than a roster that is about to be sent
+  // again anyway.
+  SendSummaries(_simulation, _transport, _tick);
+  return true;
+}
+
+bool SnapshotSender::RequestView(Simulation& _simulation, std::uint16_t _grid, std::uint16_t& _outReasonCode)
+{
+  _outReasonCode = _simulation.MayView(m_viewer, _grid);
+  if (_outReasonCode != 0)
+  {
+    return false; // The feed stays exactly where it was.
+  }
+  m_grid = _grid;
+  return true;
+}
+
+void SnapshotSender::SendSummaries(Simulation& _simulation, Transport& _transport, std::uint32_t _tick)
+{
+  if ((_tick + m_viewer) % SUMMARY_INTERVAL_TICKS != 0)
+  {
+    return;
+  }
+
+  ByteWriter writer{m_buffer};
+  WriteWireType(writer, WireType::Summary);
+
+  // Nothing to say is the common answer and is not a failure: a commander with
+  // no docked ships and no fleets elsewhere is owed no frame, and sending an
+  // empty one every second would be a message whose only content is that there
+  // is none.
+  if (!_simulation.WriteSummaries(m_viewer, _tick, writer) || !writer.Ok())
+  {
+    return;
+  }
+
+  (void)_transport.Send(m_connection, TransportChannel::State, writer.Written());
+  ++m_summariesSent;
+  NEURON_COUNTER("SummariesSent", 1);
 }
 
 } // namespace Neuron

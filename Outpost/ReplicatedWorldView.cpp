@@ -365,7 +365,9 @@ bool ReplicatedWorldView::EncodeOrder(const OrderIntent& _intent, ByteWriter& _w
   {
     return false; // Not sent, rather than sent malformed.
   }
-  return Game::WriteOrderSubmit(order, _writer);
+  // The kind byte first: station commands share this stream (ADR-017 §8), and
+  // nothing in either payload could tell a reader which one it is holding.
+  return Game::WriteCommandKind(Game::CommandKind::Order, _writer) && Game::WriteOrderSubmit(order, _writer);
 }
 
 OrderDefaults ReplicatedWorldView::DefaultOrder() const

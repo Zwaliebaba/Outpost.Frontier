@@ -108,6 +108,9 @@ bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer)
 
   _writer.WriteUInt32(_world.Tick());
   _writer.WriteUInt32(0); // baselineTick: full snapshots only (ADR-004 §6).
+  // Which grid these ships stand on: the client's guard against interpolating
+  // one world's hulls towards another's after a view switch (U3b).
+  _writer.WriteUInt16(_world.Anchor());
   _writer.WriteUInt16(static_cast<std::uint16_t>(shipCount));
   _writer.WriteUInt16(orderCount);
   _writer.WriteUInt32(_world.LastOrderSeqProcessed());
@@ -158,6 +161,7 @@ bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader, std::
   SnapshotHeader header;
   header.tick = _reader.ReadUInt32();
   header.baselineTick = _reader.ReadUInt32();
+  header.gridAnchor = _reader.ReadUInt16();
   header.shipCount = _reader.ReadUInt16();
   header.orderCount = _reader.ReadUInt16();
   header.lastOrderSeqProcessed = _reader.ReadUInt32();

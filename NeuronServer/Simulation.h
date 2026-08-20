@@ -2,7 +2,7 @@
 
 #include "ByteWriter.h"
 #include "OrderIntent.h"
-#include "Wire.h" // For `PlayerId`: who a snapshot is *for* (ADR-018 D5).
+#include "Wire.h"
 
 #include <cstdint>
 #include <span>
@@ -47,6 +47,24 @@ namespace Neuron
 struct WorldMeta
 {
   std::uint16_t worldId = 0;
+
+  /*
+   * Which anchor this grid stands on, as a number the client can name back.
+   *
+   * `worldId` says *where in the universe* and this says *which grid* -- two
+   * different questions that happened to have one field until a client needed
+   * to address a grid rather than describe it. It is here because a station
+   * command names the station it is addressed to (ADR-017 §3) and a Dock names
+   * the anchor it is docking at (ADR-017 §2), and until this shipped the client
+   * had no way to learn either: `ValidationView::stationAnchor` was filled by
+   * `World` on the server and by nothing at all on the client, so a Dock could
+   * be validated but never composed.
+   *
+   * Engine-neutral, like everything else here: "the id of the thing this grid
+   * is anchored on". What an anchor *is* stays GameLogic's (ADR-014).
+   */
+  std::uint16_t gridAnchor = 0;
+
   std::int64_t anchorX = 0; // The tactical grid's origin, in whole world units.
   std::int64_t anchorY = 0;
 
@@ -65,24 +83,76 @@ public:
   virtual void AdvanceTick(std::uint32_t _tick) = 0;
 
   /*
-   * Serializes the state a client needs for this tick.
+   * Serializes the state **one viewer** needs for this tick.
+   *
+   * The viewer is here from this method's first line rather than added when it
+   * first matters (ADR-018 A13, ADR-022 §1). A simulation is free to ignore it
+   * -- and today's does, because there is one grid and one player -- but the
+   * *seam* may not, because every replication decision after this one is a
+   * decision about a viewer: which grid they are watching, what they own, what
+   * they last acked. A signature without a viewer is a signature that has to
+   * change at every call site on the day two clients see different worlds.
+   *
+   * `PlayerId` and not `clientId`: the durable player, never the connection
+   * (ADR-018 D5). A snapshot is owed to whoever is commanding, across the
+   * disconnect that D5's grace window is designed to survive.
    *
    * Returns false if it could not -- which at MVP scale means the fleet
    * outgrew one datagram, the point at which ADR-004 §6's growth path stops
    * being optional. A bool rather than a silent short write, because a
    * truncated snapshot is worse than a missing one: the client would read the
    * absent ships as despawned and resurrect them on the next tick.
-   *
-   * **It is asked once per viewer, not once per tick** (ADR-022 §1, ADR-018
-   * A13). `_viewer` is who the bytes are for, and a simulation is free to
-   * ignore it -- today's does, because there is one grid and no culling. The
-   * parameter is here anyway because the alternative is a seam change on the
-   * day relevance arrives, and because a `Simulation` that answered the same
-   * bytes to everyone by *signature* could never grow ADR-022 §4's ranking
-   * hook. Who the answer is for is the engine's to say; what the answer
-   * contains stays the game's (ADR-014).
+   * [ADR-022](../Design/ADR/ADR-022-interest-and-delta.md) §6 replaces this
+   * refusal with priority truncation; until that slice lands it stays exactly
+   * as loud as it is.
    */
-  [[nodiscard]] virtual bool WriteSnapshot(std::uint32_t _tick, PlayerId _viewer, ByteWriter& _writer) = 0;
+  [[nodiscard]] virtual bool WriteSnapshot(PlayerId _viewer, std::uint16_t _grid, std::uint32_t _tick, ByteWriter& _writer) = 0;
+
+  /*
+   * May this viewer watch that grid? (ADR-016 §7 — U3b.)
+   *
+   * Returns zero for yes and the game's own reason code for no, which is
+   * `OrderAck`'s arrangement and exists for the same reason: the refusal a
+   * player reads must be the same words whichever half produced it.
+   *
+   * The engine asks rather than decides, and the split is ADR-014's usual one.
+   * *Whether* a view is legal is game semantics -- ADR-016 §7 gates it on
+   * presence, ADR-017 §7 counts docked ships as presence, and both of those are
+   * facts about ships the engine may not know. *Enforcing* the answer is the
+   * session role's job, which is this library's.
+   *
+   * Defaulted to "yes" rather than pure, for `World()`'s reason: a simulation
+   * with one grid has nothing to gate, and `NullSimulation` is one.
+   */
+  [[nodiscard]] virtual std::uint16_t MayView(PlayerId _viewer, std::uint16_t _grid)
+  {
+    (void)_viewer;
+    (void)_grid;
+    return 0;
+  }
+
+  /*
+   * Serializes what one viewer is owed at the **summary cadence** -- the slow,
+   * per-viewer feed that answers questions a snapshot deliberately does not
+   * (ADR-016 §6). Returns false when this viewer has nothing to say, and the
+   * engine sends nothing rather than an empty frame.
+   *
+   * Opaque, like the snapshot, and framed under one wire type for the whole
+   * family: which member a payload carries is a byte inside these bytes, under
+   * the game's own schema hash. The engine decides *when* -- cadence is a link
+   * decision -- and the game decides *what*, which is ADR-022 §4's split
+   * applied to the one part of replication that exists today.
+   *
+   * Defaulted rather than pure, for `World()`'s reason: a simulation with no
+   * summaries is a real thing, and `NullSimulation` is one.
+   */
+  [[nodiscard]] virtual bool WriteSummaries(PlayerId _viewer, std::uint32_t _tick, ByteWriter& _writer)
+  {
+    (void)_viewer;
+    (void)_tick;
+    (void)_writer;
+    return false;
+  }
 
   /// Validates and applies one order payload. Returning a verdict rather than a
   /// bool keeps the refusal reason with the decision that produced it.
@@ -111,7 +181,7 @@ class NullSimulation final : public Simulation
 {
 public:
   void AdvanceTick(std::uint32_t _tick) override { m_lastTick = _tick; }
-  [[nodiscard]] bool WriteSnapshot(std::uint32_t, PlayerId, ByteWriter&) override { return false; }
+  [[nodiscard]] bool WriteSnapshot(PlayerId, std::uint16_t, std::uint32_t, ByteWriter&) override { return false; }
 
   [[nodiscard]] OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t>) override
   {

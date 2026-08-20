@@ -56,6 +56,22 @@ struct ReplicatedShip
   WingId wing = INVALID_WING_ID;
 
   /*
+   * `EntityRecord::statusBits`, carried through unread (ADR-014 §4).
+   *
+   * The engine moves the byte and the meaning is this library's: bit 0 is
+   * undock protection, which the client draws as a shimmer (ADR-017 §5). It
+   * lands here rather than being decoded into named flags because the other
+   * seven bits are reserved -- in-warp, combat-flagged and ADR-022's two
+   * relationship bits -- and a struct that grew a `bool` per bit as each landed
+   * would be a wire change wearing a field's clothes.
+   *
+   * **Not blended.** A bit is on or it is off; interpolating one halfway
+   * through a tick would invent a state the authority never had, so a sample
+   * between two snapshots takes the newer one's the moment it crosses.
+   */
+  std::uint8_t statusBits = 0;
+
+  /*
    * How fast the heading is observed to change, radians per second, CCW
    * positive -- the shortest-arc difference between the two snapshots the
    * sample interpolated, over the time between them. Zero while extrapolating,
@@ -109,6 +125,11 @@ public:
   void SampleAt(double _renderTick, std::vector<ReplicatedShip>& _outShips) const;
 
   [[nodiscard]] bool HasSnapshot() const noexcept { return m_count > 0; }
+
+  /// Which grid the view is currently holding, or `INVALID_ID` before the first
+  /// snapshot. A change here is a view switch, and the history was dropped on
+  /// the frame that changed it (U3b's smear guard).
+  [[nodiscard]] AnchorId Grid() const noexcept { return m_count > 0 ? m_frames[0].header.gridAnchor : INVALID_ID; }
   [[nodiscard]] std::uint32_t LatestTick() const noexcept;
   [[nodiscard]] std::uint32_t OldestTick() const noexcept;
   [[nodiscard]] std::size_t SnapshotCount() const noexcept { return m_count; }

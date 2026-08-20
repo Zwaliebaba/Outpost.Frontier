@@ -97,23 +97,28 @@ void ServerHost::SendSnapshots(std::uint32_t _tick)
     return; // Nobody to tell. Serialising for an empty room is pure waste.
   }
 
-  /*
-   * Each session serialises its own (ADR-022 §1). The refusal count stays
-   * aggregated here because the HUD asks the *host* whether clients are seeing
-   * the world move; which client it was is in the sender's log line, and the
-   * per-client tallies are on the sender for whoever needs them.
-   *
-   * One viewer's refusal does not skip the others: the grid that overflowed is
-   * that viewer's, and stopping the loop would turn one client's over-cap grid
-   * into everybody's outage -- the exact failure ADR-022 exists to retire.
-   */
+  NEURON_SPAN("Snapshot");
+
+  std::int64_t sent = 0;
   for (SessionInfo& session : m_sessions)
   {
-    if (session.snapshots.Send(*m_simulation, *m_transport, _tick) == SnapshotSendResult::Refused)
+    /*
+     * Each client's own sender, asked for that client's own bytes. The refusal
+     * -- the fleet outgrowing one datagram, the point at which ADR-004 §6's
+     * growth path stops being optional -- is counted and logged inside the
+     * sender, which is where "*which* client" is answerable. The host keeps
+     * its own total because the debug strip reads one number for the session.
+     */
+    if (session.sender.Send(*m_simulation, *m_transport, _tick))
+    {
+      ++sent;
+    }
+    else
     {
       m_snapshotFailures.fetch_add(1, std::memory_order_relaxed);
     }
   }
+  NEURON_COUNTER("SnapshotsSent", sent);
 }
 
 void ServerHost::SendTo(ConnectionId _connection, TransportChannel _channel, const ByteWriter& _writer)
@@ -168,16 +173,27 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
       return;
     }
 
-    SessionInfo session;
-    session.clientId = m_nextClientId++;
-    session.playerId = SOLE_PLAYER_ID;
-    session.connection = _event.connection;
+    /*
+     * Who this is (ADR-018 D5). One value until accounts exist -- but a *value*,
+     * not the connection id, and that distinction is the whole point of minting
+     * it now: everything player-keyed can key on this from its first line
+     * instead of keying on a connection and being rewritten the day one drops.
+     *
+     * It is decided here, before the session exists, because the session's own
+     * `SnapshotSender` is constructed with it (ADR-018 A13).
+     */
+    const PlayerId playerId = SOLE_PLAYER_ID;
+
+    /*
+     * The grid a session opens on: the simulation's own (ADR-009 §8's
+     * `worldMeta`). A client that has not asked for a view yet watches the world
+     * the server would have shown it anyway, so there is no state in which a
+     * session exists with no grid and nothing to send it.
+     */
+    const WorldMeta world = m_simulation->World();
+
+    SessionInfo& session = m_sessions.emplace_back(m_nextClientId++, playerId, _event.connection, world.gridAnchor);
     session.handshakeComplete = true;
-    // The stream is built with the session, keyed on the *player* and not the
-    // connection, so what it eventually retains per viewer survives the socket
-    // (ADR-018 D5, ADR-022 §2b).
-    session.snapshots = SnapshotSender{session.connection, session.clientId, session.playerId};
-    m_sessions.push_back(session);
     m_sessionCount.store(static_cast<std::uint32_t>(m_sessions.size()), std::memory_order_relaxed);
 
     Welcome welcome;
@@ -189,8 +205,8 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
 
     // Where the world is, so a client in another process can place a position
     // before any snapshot arrives (ADR-009 §8).
-    const WorldMeta world = m_simulation->World();
     welcome.worldId = world.worldId;
+    welcome.gridAnchor = world.gridAnchor;
     welcome.anchorX = world.anchorX;
     welcome.anchorY = world.anchorY;
     // The display strings ride along unread, like the id and the anchor: what
@@ -200,11 +216,6 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     welcome.worldBadge = world.worldBadge;
 
     /*
-     * Who this is (ADR-018 D5). One value until accounts exist -- but a *value*,
-     * not the connection id, and that distinction is the whole point of minting
-     * it now: everything player-keyed can key on this from its first line
-     * instead of keying on a connection and being rewritten the day one drops.
-     *
      * The resume token stays zero. There is nothing to authenticate against,
      * and inventing a token now would be inventing a security model with it.
      */
@@ -216,6 +227,42 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     SendTo(_event.connection, TransportChannel::Control, writer);
 
     NEURON_LOG_INFO("client %u joined as '%s'", session.clientId, hello.playerName.empty() ? "(unnamed)" : hello.playerName.c_str());
+    return;
+  }
+
+  case WireType::ViewRequest:
+  {
+    /*
+     * "Show me that grid" (ADR-016 §4, §7).
+     *
+     * The engine's whole part: find the session, ask the game whether this
+     * viewer may watch that world, and say what happened. It never learns why
+     * the answer was no -- the reason code is the game's number travelling
+     * through unread, exactly as `OrderAck`'s does (ADR-014 §3).
+     */
+    SessionInfo* session = FindSession(_event.connection);
+    if (session == nullptr || !session->handshakeComplete)
+    {
+      // Before the handshake there is no viewer to move and no session to
+      // answer on. Dropped rather than answered, like a pre-handshake order.
+      return;
+    }
+
+    ViewRequest request;
+    if (!Read(reader, request))
+    {
+      NEURON_LOG_WARNING("malformed view request from client %u", session->clientId);
+      return;
+    }
+
+    std::uint16_t reasonCode = 0;
+    const bool accepted = session->sender.RequestView(*m_simulation, request.gridAnchor, reasonCode);
+
+    std::array<std::uint8_t, 64> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::ViewChanged);
+    Write(writer, ViewChanged{request.gridAnchor, reasonCode, accepted});
+    SendTo(session->connection, TransportChannel::Control, writer);
     return;
   }
 

@@ -9,6 +9,7 @@
 #include "FleetSummary.h"
 #include "Formation.h"
 #include "StationMessages.h"
+#include "SummaryMessages.h"
 #include "WorldRegistry.h"
 
 #include "EntityRecord.h"
@@ -19,6 +20,7 @@
 #include <functional>
 #include <span>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -50,7 +52,9 @@ namespace
   config.constellationsPerRegion = 2;
   config.systemCount = 12;
   UniverseDef universe;
-  Assert::IsTrue(GenerateUniverse(config, universe), L"the test universe would not bake");
+  // No site content: the registry's subject is worlds and ids, and a
+  // universe without mining fields is the cheaper one to bake for it.
+  Assert::IsTrue(GenerateUniverse(config, SitesInfo{}, universe), L"the test universe would not bake");
   return universe;
 }
 
@@ -146,6 +150,30 @@ void DockAndLand(WorldRegistry& _registry, AnchorId _anchor, std::span<const Shi
     }
   }
   Assert::Fail(L"the test universe has no system with two anchors");
+  return {};
+}
+
+/// A gate anchor and the anchor on the far side of it -- the pair a jump
+/// crosses. Skips gates whose pair the small universe did not place, which the
+/// bake does not produce but which a test should not assume away.
+[[nodiscard]] std::vector<AnchorId> AGatePair(const UniverseDef& _universe)
+{
+  for (const SolarSystem& system : _universe.systems)
+  {
+    for (const Anchor& anchor : system.anchors)
+    {
+      if (anchor.kind != AnchorKind::Gate)
+      {
+        continue;
+      }
+      const AnchorId paired = _universe.PairedGateAnchor(anchor.id);
+      if (paired != INVALID_ID)
+      {
+        return {anchor.id, paired};
+      }
+    }
+  }
+  Assert::Fail(L"the test universe has no paired gate");
   return {};
 }
 
@@ -1056,6 +1084,253 @@ public:
   }
 };
 
+/*
+ * The gate jump (Build Order U4, ADR-016 §5, §10).
+ *
+ * A jump is a warp with two differences and no new machinery: it is ordered
+ * from the gate rather than from wherever the fleet stands, and it is priced
+ * flat rather than by distance. Everything else -- the spool, the bus, the
+ * arrival solve, the hash -- is `WarpTests` above, which is the point.
+ */
+TEST_CLASS(GateJumpTests)
+{
+public:
+  TEST_METHOD(AGateGridSpawnsItsGateAtTheCentreWithItsBakedId)
+  {
+    /*
+     * ADR-016 §10's pattern, and ADR-018 D6a's identity: the structure comes
+     * out of the anchor's own block, so a gate grid torn down and recreated
+     * holds the same *ship* rather than a new one that looks like it.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> pair = AGatePair(universe);
+    const Anchor* anchor = universe.FindAnchor(pair[0]);
+    Assert::IsNotNull(anchor);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+
+    const World* world = registry.Borrow(pair[0]);
+    Assert::IsNotNull(world);
+    Assert::AreEqual<std::size_t>(1, world->Ids().size(), L"a gate grid holds its gate and nothing else");
+    Assert::AreEqual<std::uint16_t>(static_cast<ShipId>(anchor->occupantIdBase), world->Ids()[0]);
+    Assert::AreEqual<std::uint8_t>(static_cast<std::uint8_t>(HullClass::Gate), world->Classes()[0]);
+
+    // At the grid centre, because the anchor's origin is the gate's universe
+    // position -- the grid is anchored on it, the same way a station's is.
+    Assert::AreEqual(0.0f, world->Positions()[0].x, 0.001f);
+    Assert::AreEqual(0.0f, world->Positions()[0].y, 0.001f);
+
+    // And it never moves, which is what makes it terrain rather than a fleet.
+    Assert::AreEqual(0.0f, ShipClass(HullClass::Gate).maxSpeedMetresPerSec);
+    Assert::AreEqual(0.0f, ShipClass(HullClass::Gate).warpSpeedMetresPerSec);
+
+    // The grid knows where its gate leads, and no other grid claims to.
+    Assert::AreEqual<std::uint16_t>(pair[1], world->JumpAnchor());
+    const AnchorId station = StationAnchors(universe, 1)[0];
+    const World* stationGrid = registry.Borrow(station);
+    Assert::IsNotNull(stationGrid);
+    Assert::AreEqual<std::uint16_t>(INVALID_ID, stationGrid->JumpAnchor(),
+                                    L"a station grid that offered a jump would be a way out of the system");
+  }
+
+  TEST_METHOD(AFleetAtTheGateCrossesToTheSystemOnTheFarSide)
+  {
+    /*
+     * W1's crossing, in one hop: the fleet leaves a grid in one system and
+     * arrives on a grid in another, through the same bus a warp uses.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> pair = AGatePair(universe);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    std::uint32_t tick = 0;
+
+    const ShipId ship = AddShip(registry, pair[0], 800.0f, 0.0f); // Inside the jump radius.
+    const ShipId fleet[] = {ship};
+    Assert::IsTrue(SubmitWarp(registry, pair[0], pair[1], fleet).accepted, L"a fleet at the gate may take it");
+
+    const std::uint32_t left = TickUntil(registry, tick, 2000, [&] { return !OnGrid(registry, pair[0], ship); });
+    Assert::IsTrue(left < 2000, L"the spool never finished");
+
+    const std::uint32_t arrived = TickUntil(registry, tick, 4000, [&] { return OnGrid(registry, pair[1], ship); });
+    Assert::IsTrue(OnGrid(registry, pair[1], ship), L"the fleet never came out of the gate");
+
+    AnchorId where = INVALID_ID;
+    Assert::IsTrue(registry.LocationOf(ship, where));
+    Assert::AreEqual<std::uint16_t>(pair[1], where);
+
+    const Anchor* from = universe.FindAnchor(pair[0]);
+    const Anchor* to = universe.FindAnchor(pair[1]);
+    Assert::IsTrue(from->system != to->system, L"this was not a crossing at all");
+
+    // Flat, and the class table is not consulted for it. Exactly the constant:
+    // the record's apply tick is stamped `TransitTicks` after the tick the
+    // fleet left on, and the bus applies at the top of that tick.
+    Assert::AreEqual<std::uint32_t>(GATE_JUMP_TICKS, arrived - left, L"a jump is priced flat (ADR-016 §5)");
+    Assert::IsTrue(GATE_JUMP_TICKS >= TRANSFER_FLOOR_TICKS, L"and still leaves a second host its slack");
+  }
+
+  TEST_METHOD(AJumpOrderedFromAcrossTheGridIsRefused)
+  {
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> pair = AGatePair(universe);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+
+    const ShipId far = AddShip(registry, pair[0], 9000.0f, 0.0f);
+    const ShipId fleet[] = {far};
+
+    const OrderVerdict verdict = SubmitWarp(registry, pair[0], pair[1], fleet);
+    Assert::IsFalse(verdict.accepted);
+    Assert::IsTrue(verdict.reason == OrderReason::NotAtGate);
+
+    // The same fleet, from the same place, may still warp *within* the system:
+    // the rule is about crossing a gate and not about where warps start.
+    const SolarSystem* system = universe.FindSystem(universe.FindAnchor(pair[0])->system);
+    Assert::IsNotNull(system);
+    for (const Anchor& anchor : system->anchors)
+    {
+      if (anchor.id != pair[0])
+      {
+        Assert::IsTrue(SubmitWarp(registry, pair[0], anchor.id, fleet).accepted,
+                       L"an in-system warp does not care where the fleet is standing");
+        break;
+      }
+    }
+  }
+
+  TEST_METHOD(TheOnlyWayOutOfASystemIsAGateGrid)
+  {
+    /*
+     * Reachability is per grid, and a gate's far side belongs to the gate's own
+     * grid alone. Otherwise a fleet could leave a system from a planet, and the
+     * gate would be scenery.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> pair = AGatePair(universe);
+    const SystemId here = universe.FindAnchor(pair[0])->system;
+
+    AnchorId nonGate = INVALID_ID;
+    for (const Anchor& anchor : universe.FindSystem(here)->anchors)
+    {
+      if (anchor.kind != AnchorKind::Gate)
+      {
+        nonGate = anchor.id;
+        break;
+      }
+    }
+    Assert::IsTrue(nonGate != INVALID_ID, L"the test system has no anchor that is not a gate");
+
+    WorldRegistry registry;
+    registry.Reset(&universe, Config());
+    const ShipId ship = AddShip(registry, nonGate, 300.0f, 0.0f);
+    const ShipId fleet[] = {ship};
+
+    const OrderVerdict verdict = SubmitWarp(registry, nonGate, pair[1], fleet);
+    Assert::IsFalse(verdict.accepted);
+    Assert::IsTrue(verdict.reason == OrderReason::UnknownAnchor,
+                   L"another system's gate is not somewhere you are far from -- it is not reachable at all");
+  }
+
+  TEST_METHOD(TwoGatesAtDifferentMapDistancesCostTheSame)
+  {
+    /*
+     * ADR-016 §5's reason for the flat price: between systems, distance is the
+     * strategic map's spacing rather than a journey (ADR-009 §3), so charging
+     * for it would charge the player for a number nobody chose to mean
+     * anything. Two crossings of very different map lengths, one number.
+     */
+    const UniverseDef universe = SmallUniverse();
+
+    // Every gate pair in the universe, with the plane distance between them.
+    std::vector<std::pair<std::int64_t, std::vector<AnchorId>>> crossings;
+    for (const SolarSystem& system : universe.systems)
+    {
+      for (const Anchor& anchor : system.anchors)
+      {
+        if (anchor.kind != AnchorKind::Gate)
+        {
+          continue;
+        }
+        const AnchorId paired = universe.PairedGateAnchor(anchor.id);
+        const Anchor* far = paired == INVALID_ID ? nullptr : universe.FindAnchor(paired);
+        if (far == nullptr)
+        {
+          continue;
+        }
+        // Shifted before squaring: raw universe deltas overflow int64 (the
+        // same reason the bake shifts, `UniverseGen`'s DistanceSquared).
+        const std::int64_t dx = (far->origin.x - anchor.origin.x) >> 20;
+        const std::int64_t dy = (far->origin.y - anchor.origin.y) >> 20;
+        crossings.emplace_back(dx * dx + dy * dy, std::vector<AnchorId>{anchor.id, paired});
+      }
+    }
+    Assert::IsTrue(crossings.size() >= 2, L"the test universe has too few gates to compare");
+    std::sort(crossings.begin(), crossings.end(), [](const auto& _a, const auto& _b) { return _a.first < _b.first; });
+    Assert::IsTrue(crossings.back().first > crossings.front().first, L"every gate pair is the same length apart");
+
+    const auto crossingTicks = [&universe](const std::vector<AnchorId>& _pair)
+    {
+      WorldRegistry registry;
+      registry.Reset(&universe, Config());
+      std::uint32_t tick = 0;
+      const ShipId ship = AddShip(registry, _pair[0], 800.0f, 0.0f);
+      const ShipId fleet[] = {ship};
+      Assert::IsTrue(SubmitWarp(registry, _pair[0], _pair[1], fleet).accepted);
+      const std::uint32_t left = TickUntil(registry, tick, 2000, [&] { return !OnGrid(registry, _pair[0], ship); });
+      const std::uint32_t arrived = TickUntil(registry, tick, 4000, [&] { return OnGrid(registry, _pair[1], ship); });
+      return arrived - left;
+    };
+
+    Assert::AreEqual(crossingTicks(crossings.front().second), crossingTicks(crossings.back().second),
+                     L"the map's spacing priced a jump");
+  }
+
+  TEST_METHOD(ACrossingReproducesItselfBitForBit)
+  {
+    /*
+     * The replay claim, asked of the one path that leaves a system. A jump
+     * moves ships between two worlds through the bus, and the bus is in the
+     * hash -- so a script that jumped and a re-run of it must agree at every
+     * checkpoint, including the ticks where the fleet is in neither world.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> pair = AGatePair(universe);
+
+    const auto run = [&universe, &pair]
+    {
+      WorldRegistry registry;
+      registry.Reset(&universe, Config(0x9A7Eu));
+      std::uint32_t tick = 0;
+      const ShipId ship = AddShip(registry, pair[0], 800.0f, 0.0f);
+      const ShipId fleet[] = {ship};
+      Assert::IsTrue(SubmitWarp(registry, pair[0], pair[1], fleet).accepted);
+
+      std::vector<std::uint64_t> hashes;
+      for (std::uint32_t step = 0; step < 600; ++step)
+      {
+        registry.Tick(++tick);
+        if (step % 20 == 0)
+        {
+          hashes.push_back(registry.Hash());
+        }
+      }
+      return hashes;
+    };
+
+    const std::vector<std::uint64_t> first = run();
+    const std::vector<std::uint64_t> second = run();
+    Assert::AreEqual(first.size(), second.size());
+    for (std::size_t index = 0; index < first.size(); ++index)
+    {
+      Assert::AreEqual(first[index], second[index], L"two runs of one crossing disagreed");
+    }
+  }
+};
+
 TEST_CLASS(FleetSummaryTests)
 {
 public:
@@ -1346,6 +1621,98 @@ public:
     buffer[2 + 2 + 4] = 200;
     Neuron::ByteReader bad{std::span<const std::uint8_t>{buffer, writer.BytesWritten()}};
     Assert::IsFalse(ReadStationRoster(bad, station, received));
+  }
+};
+
+/*
+ * The envelope ADR-016 §6's family travels in (ADR-018 A13).
+ *
+ * One engine wire type carries every member, so the kind byte is the game's and
+ * these are the tests for it. What is worth pinning is not that a byte survives
+ * a round trip but the two decisions the format rests on: that a frame is
+ * **self-delimiting without length prefixes**, because every body already
+ * carries its own row count, and that an unrecognised kind is **refused rather
+ * than skipped**, because skipping one would hide a schema disagreement the
+ * handshake exists to catch.
+ */
+TEST_CLASS(SummaryFrameTests)
+{
+public:
+  TEST_METHOD(TwoFamilyMembersShareOneFrameAndCanBeToldApart)
+  {
+    const FleetSummary summaries[] = {FleetSummary{11, FleetState::OnGrid, 5, FLEET_ETA_NONE},
+                                      FleetSummary{11, FleetState::Docked, 3, FLEET_ETA_NONE},
+                                      FleetSummary{42, FleetState::InTransit, 8, 97}};
+    const RosterEntry docked[] = {RosterEntry{101, HullClass::Carrier, 2}, RosterEntry{102, HullClass::Frigate, 2}};
+
+    std::uint8_t buffer[1024];
+    Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
+    Assert::IsTrue(BeginSummaryFrame(2, writer));
+    Assert::IsTrue(BeginSummaryRecord(SummaryKind::FleetSummaries, writer));
+    Assert::IsTrue(WriteFleetSummaries(summaries, writer));
+    Assert::IsTrue(BeginSummaryRecord(SummaryKind::StationRoster, writer));
+    Assert::IsTrue(WriteStationRoster(11, docked, writer));
+
+    // The arithmetic a caller has to be able to do before it writes, because it
+    // is what decides how many records fit one datagram.
+    const std::size_t expected = SUMMARY_FRAME_HEADER_BYTES + SUMMARY_RECORD_HEADER_BYTES + FleetSummariesBytes(3) +
+                                 SUMMARY_RECORD_HEADER_BYTES + StationRosterBytes(2);
+    Assert::AreEqual(expected, writer.BytesWritten());
+
+    Neuron::ByteReader reader{std::span<const std::uint8_t>{buffer, writer.BytesWritten()}};
+    std::uint8_t records = 0;
+    Assert::IsTrue(ReadSummaryFrame(reader, records));
+    Assert::AreEqual<std::uint32_t>(2, records);
+
+    SummaryKind kind{};
+    std::vector<FleetSummary> readSummaries;
+    Assert::IsTrue(ReadSummaryRecord(reader, kind));
+    Assert::IsTrue(kind == SummaryKind::FleetSummaries);
+    Assert::IsTrue(ReadFleetSummaries(reader, readSummaries));
+    Assert::AreEqual<std::size_t>(3, readSummaries.size());
+    Assert::AreEqual<std::uint32_t>(97, readSummaries[2].etaSeconds, L"the transit row's ETA");
+
+    AnchorId station = INVALID_ID;
+    std::vector<RosterEntry> readDocked;
+    Assert::IsTrue(ReadSummaryRecord(reader, kind));
+    Assert::IsTrue(kind == SummaryKind::StationRoster);
+    Assert::IsTrue(ReadStationRoster(reader, station, readDocked));
+    Assert::AreEqual<std::uint32_t>(11, station);
+    Assert::AreEqual<std::size_t>(2, readDocked.size());
+
+    // The claim that lets the format drop length prefixes: each body says where
+    // it ends, so two of them back to back consume the frame exactly.
+    Assert::IsTrue(reader.FullyConsumed(), L"the frame is self-delimiting");
+  }
+
+  TEST_METHOD(AnUnknownKindIsRefusedRatherThanSkipped)
+  {
+    // A frame promising one record, whose kind this build does not define. A
+    // decoder that skipped it would turn a version mismatch into a screen that
+    // is quietly missing a station.
+    const std::uint8_t frame[] = {1, 99};
+    Neuron::ByteReader reader{std::span<const std::uint8_t>{frame}};
+    std::uint8_t records = 0;
+    Assert::IsTrue(ReadSummaryFrame(reader, records));
+    Assert::AreEqual<std::uint32_t>(1, records);
+
+    SummaryKind kind{};
+    Assert::IsFalse(ReadSummaryRecord(reader, kind));
+  }
+
+  TEST_METHOD(ACountPastTheCapIsRefusedBeforeAnyRecordIsTouched)
+  {
+    // Both directions of the same rule: nothing is written for a count that
+    // cannot be honoured, and nothing is read for one that was not.
+    std::uint8_t buffer[64];
+    Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
+    Assert::IsFalse(BeginSummaryFrame(MAX_SUMMARY_RECORDS + 1, writer));
+    Assert::AreEqual<std::size_t>(0, writer.BytesWritten());
+
+    const std::uint8_t hostile[] = {200};
+    Neuron::ByteReader reader{std::span<const std::uint8_t>{hostile}};
+    std::uint8_t records = 0;
+    Assert::IsFalse(ReadSummaryFrame(reader, records));
   }
 };
 

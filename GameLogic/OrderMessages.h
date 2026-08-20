@@ -22,10 +22,57 @@
  * `OrderLeg` is already the wire's units -- which is the point of it being
  * quantised in the first place (ADR-005 §4). The client validates the same
  * integers it sends, and the server validates the same integers it received.
+ *
+ * **Two message kinds share this stream**, and the byte that tells them apart
+ * is below. ADR-017 §8 put `StationCommand` on the *acked order stream* rather
+ * than on a stream of its own -- one sequence counter, one `OrderAck`, one
+ * reason enum, so "I told the authority to do something" has one feedback loop
+ * and not two. That decision is what makes a discriminator necessary: both
+ * messages open with `u32 orderSeq` and then a byte (`kind` for one, `verb` for
+ * the other) whose value spaces overlap, so nothing in either payload could
+ * tell a reader which it was holding.
  */
 
 namespace Game
 {
+
+/*
+ * Which message the acked stream is carrying.
+ *
+ * The same shape `SummaryKind` gives the server-to-client family: **one engine
+ * wire type, a game-owned byte inside it.** `WireType::OrderSubmit` frames both
+ * and NeuronCore reads neither (ADR-004 ruling 4, ADR-014 §5); spending a
+ * second enumerator of the engine's framing enum on a station command would
+ * teach the engine that stations exist.
+ *
+ * It lives here rather than in a file of its own because this *is* the stream's
+ * wire file -- ADR-017 §8 named it "the acked order stream", and a family's
+ * discriminator belongs with the family's envelope.
+ *
+ * Appended to, never renumbered: the values are on the wire and this enum is in
+ * `GAME_SCHEMA_TEXT`, so a build that reordered it refuses one that did not.
+ */
+enum class CommandKind : std::uint8_t
+{
+  Order = 0,  // `OrderSubmit`
+  Station = 1 // `StationCommand`
+};
+
+/// The discriminator's own cost: one byte in front of either message.
+inline constexpr std::size_t COMMAND_KIND_BYTES = 1;
+
+/// Opens a payload. The caller writes the message immediately after.
+[[nodiscard]] bool WriteCommandKind(CommandKind _kind, Neuron::ByteWriter& _writer) noexcept;
+
+/*
+ * Reads it back, or refuses.
+ *
+ * Refuses a kind this build does not define, for `ReadSummaryRecord`'s reason:
+ * an unrecognised kind is a schema disagreement the handshake should already
+ * have caught, and a decoder that guessed would put a protocol error where the
+ * player is owed a bounce.
+ */
+[[nodiscard]] bool ReadCommandKind(Neuron::ByteReader& _reader, CommandKind& _outKind) noexcept;
 
 /// Bytes one order occupies. Fixed part plus two per ship. The trailing two are
 /// the anchor a Dock names (ADR-017 §2) -- written for every kind rather than

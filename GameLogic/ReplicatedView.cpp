@@ -42,6 +42,7 @@ namespace
   ship.hullGauge = _record.gaugeA;
   ship.shieldGauge = _record.gaugeB;
   ship.wing = _record.groupId;
+  ship.statusBits = _record.statusBits;
   return ship;
 }
 
@@ -78,6 +79,30 @@ bool ReplicatedView::ApplySnapshot(std::span<const std::uint8_t> _payload)
   if (!ReadSnapshot(reader, header, ships, orders))
   {
     return false;
+  }
+
+  /*
+   * **The smear guard** (U3b). A snapshot from a different grid is not a later
+   * frame of this one -- it is a different world, and the two share an id space
+   * without sharing any ships.
+   *
+   * So the history is dropped rather than extended. Interpolating across the
+   * switch would walk every hull from wherever it stood on the old grid to
+   * wherever a ship of the same id happens to stand on the new one, which reads
+   * as the fleet sliding across the gap between two worlds. The alternative --
+   * matching ids across the boundary and hoping -- is worse, because it is the
+   * same wrong answer without the visible symptom.
+   *
+   * Checked **before** the staleness test on purpose: the new grid's tick can
+   * be anything relative to the old one's (ADR-019 §2 makes the tick
+   * shard-global, so it is in fact the same clock, but a client must not depend
+   * on that to avoid rendering nonsense). A frame from elsewhere is never stale;
+   * it is a fresh start.
+   */
+  if (m_count > 0 && header.gridAnchor != m_frames[0].header.gridAnchor)
+  {
+    m_count = 0;
+    m_latestOrders.clear();
   }
 
   // Out-of-order arrival is normal on an unordered channel (ADR-003), and a
@@ -168,6 +193,9 @@ void ReplicatedView::SampleAt(double _renderTick, std::vector<ReplicatedShip>& _
       }
       ship.hullGauge = blend < 0.5f ? ship.hullGauge : target.hullGauge;
       ship.shieldGauge = blend < 0.5f ? ship.shieldGauge : target.shieldGauge;
+      // Same rule as the gauges, and for a stronger reason: a bit has no
+      // halfway. The shimmer turns on at the tick the authority says it did.
+      ship.statusBits = blend < 0.5f ? ship.statusBits : target.statusBits;
       _outShips.push_back(ship);
     }
     return;

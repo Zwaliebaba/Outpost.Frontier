@@ -139,6 +139,36 @@ struct TransferRequest
 inline constexpr float WARP_BASE_SECONDS = 5.0f;
 
 /*
+ * What a gate jump costs, in ticks (ADR-016 §5, U4).
+ *
+ * **Flat, and that is the decision rather than a simplification.** An in-system
+ * warp is priced by distance because in-system distance is real (ADR-009 §3);
+ * *between* systems it is map fiction -- the strategic map spaces systems for
+ * legibility, not for astronomy -- so pricing a jump by it would charge the
+ * player for a number nobody chose to mean anything. Every gate crossing costs
+ * the same, wherever the two systems are drawn.
+ *
+ * Four hundred ticks is twenty seconds at ADR-002's 20 Hz, and twenty is set
+ * against the number the route planner print prices: an eleven-jump route at
+ * 4m 10s, about twenty-three seconds a hop. A hop is the spool plus the
+ * crossing, and a light fleet spools in four (`spoolSeconds`, `ShipClass`), so
+ * twenty here is what makes that arithmetic land. A capital fleet pays more, in
+ * the spool, where the difference between hulls belongs.
+ *
+ * **In ticks and not seconds, unlike `WARP_BASE_SECONDS`**, and the reason is
+ * that this one is *flat*. A warp's duration is a division either way -- the
+ * distance term has to be converted -- but a constant whose whole point is that
+ * it is identical for every crossing should not arrive by one: `20.0 / 0.05` is
+ * 399.99999 in binary floating point and truncates to 399, so the number the
+ * design states would not be the number the bus used. The tick is the only
+ * clock (ADR-016 §5), and this is the one place it is cheapest to say so.
+ *
+ * Unlike a warp it is not governed by the slowest member: the gate does the
+ * moving, and a hull's warp drive has nothing to do with it.
+ */
+inline constexpr std::uint32_t GATE_JUMP_TICKS = 400;
+
+/*
  * The shortest a *transit* may be, in ticks (ADR-019 §4b).
  *
  * Not a game-feel number: it is the slack a cross-host transfer needs. A
@@ -147,8 +177,8 @@ inline constexpr float WARP_BASE_SECONDS = 5.0f;
  * a race, but only if the slack is guaranteed rather than assumed. One second
  * bounds worst-case host skew plus inter-host RTT with room to spare.
  *
- * It applies to crossings that take time -- warp today, the gate jump in U4 --
- * and not to a dock or an undock, which are not journeys: ADR-017 §2's "the
+ * It applies to crossings that take time -- warp and, since U4, the gate jump
+ * -- and not to a dock or an undock, which are not journeys: ADR-017 §2's "the
  * whole fleet, one moment" is a crossing between a world and the universe layer
  * on one host, with no other host to be raced by.
  *

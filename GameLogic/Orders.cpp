@@ -130,6 +130,10 @@ const char* OrderReasonText(OrderReason _reason) noexcept
     return "in combat";
   case OrderReason::UnknownAnchor:
     return "no route to there";
+  case OrderReason::NoPresence:
+    return "nothing of yours is there";
+  case OrderReason::NotAtGate:
+    return "not at the gate";
   }
   // Not a default label: a new enumerator should fail the switch's exhaustive
   // warning first, and only reach here if it crossed the wire from a build that
