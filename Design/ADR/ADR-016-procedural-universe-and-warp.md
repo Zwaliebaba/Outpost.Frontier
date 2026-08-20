@@ -93,13 +93,13 @@ symmetric, ids and names unique, every station orbiting a planet, 1–2 stations
 security in range, cluster separation (the map's requirement made measurable), starter
 systems valid, every anchor's warp-in point inside its grid bound. A `GameLogicTests` suite
 holds all of it against the committed file. Scale costs are measured, not guessed: ~2,500
-systems ≈ 3–5 MB of JSON parsed at boot by both halves; U1's acceptance records the number,
+systems ≈ 3–5 MB of JSON parsed at boot by both halves; U1's acceptance records the number, *(and the estimate was low twice over: U1 measured **14.2 MB**, and E1b's site anchors took the committed file to **18.93 MB** — still inside the threshold, which is why the fallback is still reserved rather than spent)*,
 and per-region files are the reserved fallback if it disappoints.
 
 ### 3. Anchors — warp destinations are authored, never coordinates
 
 A **grid anchor** becomes a first-class authored record:
-`{ kind : Station | Planet | Gate | Site(reserved), owner id, grid origin : UniversePos,
+`{ kind : Station | Planet | Gate | Site *(reserved then; baked by E1b)*, owner id, grid origin : UniversePos,
 warp-in point : local offset, warp-in facing }`. Ships warp **to anchors only** — never to
 arbitrary space. That single rule bounds the number of grids a system can ever host, makes
 "where can I go?" a finite, pickable list for the UI, and gives future content its extension

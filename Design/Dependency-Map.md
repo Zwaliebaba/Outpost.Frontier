@@ -141,7 +141,9 @@ Allowed deps: NeuronServer, NeuronClient, GameLogic (and transitively the rest).
 (JSON → `ServerConfig`/`ClientConfig` structs), `UniverseBake.h/.cpp` (the `"mode": "bake"` host mode -- runs the generator, round-trips its
 output before trusting it, and writes the committed universe), `UniverseLoad.h/.cpp` (locate + read the
 universe definition, then hand the bytes to GameLogic's pure parser — file IO stays here so
-GameLogic stays OS-free, ADR-009 §7), `ReplicatedWorldView.h/.cpp` (the `Neuron::WorldView`
+GameLogic stays OS-free, ADR-009 §7), `EconomyLoad.h/.cpp` (the same split for
+`Economy.json`, and the reason the bake host mode now loads two files before it generates
+one — ADR-024 §7's division of custody), `ReplicatedWorldView.h/.cpp` (the `Neuron::WorldView`
 implementation), boot/shutdown ordering (ADR-008), `SelfTest.h/.cpp` (the `selfTest` driver:
 server up, handshake, heartbeat, exit code), `TickSoak.h/.cpp` (R10's tick-budget soak, run by
 the self test so the number is re-taken in Release on every push — ADR-018 A4/D1c),

@@ -120,14 +120,20 @@ the three-faults-in-one-pass case, and the hash properties including the CRLF va
 **green, 0 failures**. Every new file is registered in the `.vcxproj` *and* the `.filters`,
 and in both file-name registries.
 
-**What is still owed, and is not a small print.** **MSVC has not built this and
-`GameLogicTests` has not run** — there is no Windows toolchain in the environment this was
-written in, so CI's Debug and Release legs are the first real gate, exactly as AGENTS.md §6
-means it. `Outpost/Main.cpp`, `AppConfig` and `EconomyLoad` are **not compile-verified at
-all**: they are Windows-only translation units, reviewed by reading the diff and no more than
-that. And the Accept's **Release parse-and-hash measurement is not taken** — it needs a
-Release boot on Windows — so that one acceptance item stays open until CI or an owner run
-reports the number.
+**What CI has since said, and what it has not.** E1a was written with no Windows toolchain
+in the environment, so its first record here said plainly that MSVC had not built it. That is
+no longer true: on run 148 the **Release leg built the libraries and `Outpost.exe`**, which
+covers `Outpost/Main.cpp`, `AppConfig` and `EconomyLoad` — the three translation units this
+slice could only review by reading — and **all seven source guards passed**. What is still
+owed is the half a compile cannot give: **`GameLogicTests` has not reported**, so the suite's
+verdict on `EconomyParseTests` is outstanding, and the Accept's **Release parse-and-hash
+measurement is not taken**, since it needs a Release boot rather than a Release build. Those
+two acceptance items stay open until a run reports them.
+
+*(E1a's own first CI run, 145, shows as **cancelled** rather than green, and the cause is worth
+recording because it repeated: this workflow runs one build per branch, so pushing the next
+commit kills the run in flight. A green tick for a slice therefore has to be waited for, not
+assumed from the absence of a red one.)*
 
 
 ### E1b — Sites in the bake, and the epoch that moves them
@@ -214,14 +220,31 @@ A separate bake harness ran the committed recipe end to end: bake, write, parse 
 and every ADR-024 §3 guarantee checked against the *generated* content, all green, and the
 same recipe twice produced byte-identical output.
 
-**What is still owed.** **MSVC has not built this and `GameLogicTests` has not run** -- CI's
-Debug and Release legs are the first real gate, as AGENTS.md §6 means it. `Outpost/UniverseBake.cpp`
-and `Outpost/SelfTest.cpp` are Windows-only translation units, reviewed by reading the diff and
-no more. And the parse figure the accept wants is a **Release MSVC** number: what exists is
-**185-220 ms on Linux clang -O2** for the 18.93 MB file, against U1's 167 ms Release for
-14.2 MB, so the ~1 s ceiling (ADR-018 D11) looks comfortable and **no per-region content split
-is owed** -- but that sentence needs CI's number before it is a measurement rather than an
-extrapolation.
+**What CI found, and what it has not said yet.** The first run refused E1b **before a line
+was compiled**, and the guard was right to: `FixedAngle.h`, `SiteEpoch.h` and `SiteEpoch.cpp`
+all name `UniversePos`, and the determinism guard treats every GameLogic file as per-tick code
+unless its job *is* the universe (ADR-009 §2). The three are placement files -- `SiteEpoch`
+computes where a field's grid sits on the plane, which is the arithmetic `UniverseGen` already
+does at bake time -- so they joined the owned list rather than earning an exception. Because
+widening a gating guard costs the protection it exists for, a **narrower rule replaced it**:
+`World.h`, `World.cpp` and `WorldOrders.cpp` may no longer name `SiteEpoch` at all, which turns
+ADR-024 §3d's "an epoch never applies under a live grid" from a promise into a check.
+
+With that fixed, run 148 got **all seven source guards green** and the **Release leg built both
+the libraries and `Outpost.exe`** -- so MSVC compiles this slice, including
+`Outpost/UniverseBake.cpp` and `Outpost/SelfTest.cpp`, the two Windows-only units E1b could
+only review by reading. **The suite has not reported yet**, so `UniverseSiteTests`' twelve
+methods are green on the cross-build mirror and unproven on the gate.
+
+And the parse figure the accept wants is a **Release MSVC** number: what exists is **185-220 ms
+on Linux clang -O2** for the 18.93 MB file, against U1's 167 ms Release for 14.2 MB, so the
+~1 s ceiling (ADR-018 D11) looks comfortable and **no per-region content split appears owed** --
+but an extrapolation is not a measurement, and this line does not treat it as one.
+
+*One defect was found by reading while CI ran*, and it is the kind two toolchains hide:
+`UniverseGen.cpp` calls `std::begin`/`std::end` on the grade table without including
+`<iterator>`. Both MSVC and libstdc++ pull it in through `<algorithm>`, so it would have
+survived until a third toolchain refused it.
 
 
 ### E2 — Mining in the sim, and the site ledger

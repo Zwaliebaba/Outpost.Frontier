@@ -150,6 +150,36 @@ green in CI, **and the post-MVP audio slice S15 with them**. The per-slice detai
 built, and what a "done" slice still owes — lives in [MVP-Build-Order.md](MVP-Build-Order.md);
 it is not repeated here.
 
+**The economy phase is designed, accepted, and its first two slices are in the tree
+(ADR-024, ADR-025, 2026-08-20).** A third design session settled mining and refining: three
+ores across 2–3 `Site` anchors per system, a fleet `Mine` order, per-station Bays, and
+deterministic refining with communal station upgrades — with nine owner rulings recorded
+across two review rounds, of which **R7 is the one that changed the shape of the content**
+(a site's bearing is re-derived every epoch, so a field re-forms overnight). ADR-025 followed
+as the deliverable ADR-024 §7a named: persistence, drawn at **identity and location are
+durable, intention and motion are not**, which ends the "no save file exists" era ADR-017
+opened. [Economy-Build-Order.md](Economy-Build-Order.md) is the delivery plan.
+
+**Built so far: E1a and E1b.** `Economy.json` is the **first hash-guarded balance content in
+the tree** — ADR-012 §D13's hook cashed in, with `economyHash` mixed into the handshake's
+existing `contentHash` so an economy mismatch is refused with no wire field added. And
+`AnchorKind::Site` stopped being reserved: the committed universe was re-baked to **24,841
+anchors in 18.93 MB at `universeHash ad9555dd776008a6`**, of which 6,223 are mining fields.
+That re-bake is **purely additive** — 180,467 lines added, zero removed, every station,
+planet and gate anchor keeping its id — because sites are appended after every other anchor
+is numbered and every site roll comes from a per-system stream that never advances the main
+sequence. **E2 is unblocked** now that ADR-025 is accepted, since the site ledger is the
+phase's first durable state.
+
+**What the economy phase cost in corrections is worth reading before the next slice**, because
+all four were found by building rather than by review: the ADR's field radius did not fit the
+grid (it read the 40 km grid as a radius when the half-extent is 20,000 m); two authored
+guarantees contradicted each other in High-Sec, where only a grade-capped pocket carries
+Nebulite; the faded-pocket repair ate the new-player floor in six regions; and CI's
+universe-coordinate guard correctly refused three new files before a line was compiled. Each
+is corrected at its source, and the guard's exclusion list grew a **narrower** rule beside it
+so the tick still cannot reach a site's placement.
+
 **T2's wire half is complete and H0's loop runs (2026-08-20).** `StationCommand` had a
 format, a validator and tests, and no line of `NeuronServer`, `NeuronClient` or `Outpost`
 mentioned either — so **UNDOCK could not be commanded over the wire at all**. It has its path
