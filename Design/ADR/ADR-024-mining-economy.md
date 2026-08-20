@@ -2,7 +2,10 @@
 
 **Status:** Proposed · 2026-08-20 (economy design session — **for owner review**; this is a
 design document, no code rides with it, and every number in it is a reference tuning the
-envelope suites will assert the *shape* of, not the value)
+envelope suites will assert the *shape* of, not the value) · **the six questions the review
+was owed are ruled** (owner rulings, 2026-08-20 — the final section records each with its
+reason; every proposal stood, so no body number moved). Acceptance of the whole waits on the
+owner's full read-through, and these rulings are normative the day it flips.
 **Depends on:** ADR-002 (tick), ADR-005 (orders, group validation, determinism), ADR-009
 (universe model), ADR-012 (JSON, content hashing, the §D13 balance-becomes-data hook),
 ADR-014 (seam), ADR-015 (contact), ADR-016 (anchors, the reserved `Site` kind, the universe
@@ -767,18 +770,40 @@ so retuning starts from the invariants rather than the values.
 - ADR-016 §3/§4-gaps, ADR-017 §1/§6 and ADR-012 §D13 take amendment notes pointing here
   **if accepted**; the README's supersession list grows its line at the same moment.
 
-## Open for the review — the questions only the owner can close
+## The six the review left open, answered *(owner rulings, 2026-08-20)*
 
-1. **The 50/50 wreck split** (§1d) — flat across bands, or should Null drop more (richer
-   piracy) at the cost of a banded loot table?
-2. **Faded High-Sec Nebulite** (§1b) — keep, or push Astra-Glass's Nebulite unit onto
-   the market as the intended first trade dependency?
-3. **The regeneration epoch** (§3d) — daily-with-stagger is the proposal; a faster Null
-   cadence (12 h) would feed war economies at the price of a second number.
-4. **Escorts inside Mine orders** (§4a) — formation-hold around the worked cluster is
-   free today; is that the wanted picture, or should escorts require their own separate
-   orders?
-5. **Hold-full posture** — `Hold` at the cluster (proposed) vs. auto-withdraw to the
-   site's warp-in point (safer default, less player-honest).
-6. **Upgrade project costs** (§6c) — sized for a young shard; happy to re-derive against
-   a target corp size and calendar if the owner names one.
+The questions were put to the owner the same day, each with a recommendation, and all six
+were ruled. Every proposal stood, so no number in the body moved — what changed is that each
+of these is now a **decision with its reason recorded** rather than a default that survived
+by silence, which is the difference the P1 §3 → ADR-017 §6a pattern exists to make.
+
+**R1 — The wreck split is a flat 50/50, in every band** (§1d, §5b stand as written). One
+number, no banded loot table; the victim always loses more than the attacker gains, so
+destruction is a sink everywhere. Null-drops-more was declined because it would weaken the
+sink exactly where the most valuable cargo dies; victim-lighter 40/60 was declined because
+piracy should stay a profession, just never a dominant one.
+
+**R2 — High-Sec keeps its faded Nebula Pockets** (§1b, §3c stand). Tier 1 stays craftable
+in every band from day one, which is load-bearing precisely while no market exists to buy
+Nebulite from; doing Nebulite *well* still means Low-Sec. Cutting them — Astra-Glass as the
+first forced trade route — is the named revisit for when the market phase makes "buy it
+instead" a sentence a new player can actually act on.
+
+**R3 — Regeneration is daily, staggered, in every band** (§3d stands). One number;
+"chewed out until tomorrow" is logistics a corp can plan around. The faster Null cadence
+(12 h) was declined for now and is the named revisit when war consumption exists to feed;
+the continuous trickle was declined for blurring the one clean signal depletion sends.
+
+**R4 — Mine orders take mixed fleets** (§4a stands). Escorts hold formation around the
+worked cluster through the existing solve, for free. Miners-only was declined: the escorted
+op is the picture this economy is drawing, and requiring two orders to draw it is ceremony.
+
+**R5 — A full Miner holds at the cluster** (§4b stands). No movement the player did not
+order — and no parking ships at the warp-in point, the field's most predictable ambush
+spot. Auto-withdraw was declined for splitting the wing to move ships somewhere *less*
+safe.
+
+**R6 — The upgrade project costs stand as sized** (§6c stands). ~31 slot-hours to a T2 and
+~86 to a T3 is a first real corp project — reachable, not trivial. Halving (faster
+bootstrap) and doubling (rarer T3s) were both declined; the costs are table data in
+`Economy.json` either way, so retuning after real play is an edit, not a redesign.
