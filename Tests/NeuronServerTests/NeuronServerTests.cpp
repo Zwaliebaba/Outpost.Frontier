@@ -103,7 +103,11 @@ public:
 
   /// A world with a far, negative anchor: the plane is signed and full-width
   /// (ADR-009 §1), so a narrowed field folds here instead of in a session.
-  [[nodiscard]] WorldMeta World() const override { return WorldMeta{42, -4200000000ll, 1750000000ll}; }
+  /// The display strings ride along so the test proves they arrive verbatim.
+  [[nodiscard]] WorldMeta World() const override
+  {
+    return WorldMeta{42, -4200000000ll, 1750000000ll, "Testfall-9", "Proving Grounds 0.0", "SEC -1.0"};
+  }
 
   [[nodiscard]] std::uint32_t Ticks() const noexcept { return m_ticks.load(std::memory_order_relaxed); }
   [[nodiscard]] std::uint32_t LastTick() const noexcept { return m_lastTick.load(std::memory_order_relaxed); }
@@ -272,6 +276,9 @@ public:
     Assert::AreEqual<std::uint16_t>(world.worldId, welcome.worldId);
     Assert::AreEqual(world.anchorX, welcome.anchorX);
     Assert::AreEqual(world.anchorY, welcome.anchorY);
+    Assert::AreEqual(world.worldName, welcome.worldName);
+    Assert::AreEqual(world.worldDetail, welcome.worldDetail);
+    Assert::AreEqual(world.worldBadge, welcome.worldBadge);
 
     // The heartbeat: ping out on the unreliable channel, pong back with the
     // timestamp untouched. This is what milestone M0 is.

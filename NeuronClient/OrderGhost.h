@@ -277,6 +277,19 @@ public:
   [[nodiscard]] std::size_t Count() const noexcept { return m_ghosts.size(); }
   [[nodiscard]] bool Empty() const noexcept { return m_ghosts.empty(); }
 
+  /// Orders sent and not yet answered -- the optimistic window, which is what
+  /// the context bar's `⏳ N ORDERS PENDING` chip counts (`tactical-hud.png`).
+  /// Promoted and bouncing ghosts are not pending: the authority has spoken.
+  [[nodiscard]] std::size_t PendingCount() const noexcept
+  {
+    std::size_t pending = 0;
+    for (const OrderGhost& ghost : m_ghosts)
+    {
+      pending += ghost.state == GhostState::Pending ? 1 : 0;
+    }
+    return pending;
+  }
+
   /// Ghosts abandoned for want of an answer. Should stay zero on a healthy
   /// link; a rising number is the link, not the game.
   [[nodiscard]] std::uint64_t TimedOutCount() const noexcept { return m_timedOut; }

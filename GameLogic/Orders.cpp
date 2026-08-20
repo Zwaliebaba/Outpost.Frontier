@@ -21,6 +21,22 @@ const char* FormationName(FormationId _formation) noexcept
   return "unnamed formation";
 }
 
+const char* StanceName(StanceId _stance) noexcept
+{
+  switch (_stance)
+  {
+  case StanceId::Balanced:
+    return "Balanced";
+  case StanceId::Aggressive:
+    return "Aggressive";
+  case StanceId::Evasive:
+    return "Evasive";
+  }
+  // As with the formations: no `default` label, so a new stance fails the
+  // exhaustiveness warning here before it reaches a player.
+  return "unnamed stance";
+}
+
 const char* OrderKindName(OrderKind _kind) noexcept
 {
   switch (_kind)

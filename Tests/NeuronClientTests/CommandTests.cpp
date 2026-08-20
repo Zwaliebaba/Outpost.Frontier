@@ -97,18 +97,42 @@ public:
     Assert::IsNotNull(Find(laid, "Formation"), L"the selected command's parameter is a button of its own");
   }
 
-  TEST_METHOD(TheParameterButtonSitsBesideItsOwnCommand)
+  TEST_METHOD(TheRowKeepsThePrintsOrderWithAttackSecond)
   {
-    // The pair has to read as one control. In the print `FORMATION` is next to
-    // `MOVE`, not stranded at the end of the row after three commands it has
-    // nothing to do with.
+    /*
+     * `MOVE · ATTACK · FORMATION · STANCE · ABILITIES` -- the print's order,
+     * and muscle memory forms early. The immediate verbs stay contiguous and
+     * the parameter chip opens the picker cluster, rather than wedging itself
+     * between MOVE and ATTACK.
+     */
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const std::uint32_t count =
         BuildCommandRow(KINDS, 0, FORMATIONS, 0, WideRow(), 1.0f, CommandRowTuning{}, buttons);
     Assert::AreEqual<std::uint32_t>(5, count);
     Assert::AreEqual(std::string{"Move"}, std::string{buttons[0].label});
-    Assert::AreEqual(std::string{"Formation"}, std::string{buttons[1].label});
-    Assert::AreEqual(std::string{"Attack"}, std::string{buttons[2].label});
+    Assert::AreEqual(std::string{"Attack"}, std::string{buttons[1].label});
+    Assert::AreEqual(std::string{"Formation"}, std::string{buttons[2].label});
+    Assert::AreEqual(std::string{"Stance"}, std::string{buttons[3].label});
+    Assert::AreEqual(std::string{"Abilities"}, std::string{buttons[4].label});
+  }
+
+  TEST_METHOD(OnlyThePickerButtonsCarryTheCaret)
+  {
+    /*
+     * The `▾` affordance: every parameter chip, and every command whose only
+     * possible act is opening a picker -- a named parameter with no content.
+     * MOVE is immediate and ATTACK takes a target, so neither is marked.
+     */
+    CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
+    const std::uint32_t count =
+        BuildCommandRow(KINDS, 0, FORMATIONS, 0, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+    const std::span<const CommandButton> laid{buttons, count};
+
+    Assert::IsFalse(Required(laid, "Move").opensPicker);
+    Assert::IsFalse(Required(laid, "Attack").opensPicker);
+    Assert::IsTrue(Required(laid, "Formation").opensPicker);
+    Assert::IsTrue(Required(laid, "Stance").opensPicker);
+    Assert::IsTrue(Required(laid, "Abilities").opensPicker);
   }
 
   TEST_METHOD(OnlyTheAvailableCommandsAreEnabled)

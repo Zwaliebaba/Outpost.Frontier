@@ -151,7 +151,15 @@ struct GhostLaneTuning
   float labelGapPixels = 8.0f;
   float labelLineHeightPixels = 13.0f;
 
+  /*
+   * Two sizes, the print's own hierarchy: the order's name (`MOVE ▸ LINE`) at
+   * the small face, and the numbers under it (`2.1 KM · ETA 19S`) a step
+   * smaller -- the eye reads what the order *is* before how far it goes. The
+   * detail index is the micro face `BASE_FONT_SIZES_PIXELS` bakes for exactly
+   * these secondary lines.
+   */
   std::uint8_t labelSizeIndex = 0;
+  std::uint8_t detailSizeIndex = 3;
 
   /*
    * A backstop, not a budget.

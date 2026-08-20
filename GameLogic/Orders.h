@@ -92,6 +92,34 @@ enum class FormationId : std::uint8_t
 /// contiguity the wire does not promise to keep.
 inline constexpr FormationId FORMATION_IDS[] = {FormationId::Line, FormationId::Wedge, FormationId::Claw};
 
+/*
+ * The postures the Stance command's parameter names (`tactical-hud.png`'s
+ * `STANCE AGGRESSIVE` readout).
+ *
+ * **Presentation vocabulary only, so far.** The Stance kind is reserved --
+ * `ValidateOrder` refuses it and nothing simulates it -- but the HUD's context
+ * bar states the chosen posture and the picker offers the list, and both have
+ * to get the words from the game (ADR-014 §2b). The values never cross the
+ * wire while the kind has no content, which is why they are absent from
+ * `GAME_SCHEMA_TEXT`; the day a stance order becomes submittable they join it,
+ * beside the validation that makes them mean something.
+ *
+ * Balanced is zero so a zeroed parameter is the default posture -- the same
+ * arrangement `FormationId::Line` has.
+ */
+enum class StanceId : std::uint8_t
+{
+  Balanced = 0,
+  Aggressive = 1,
+  Evasive = 2
+};
+
+/// All of them, in the order a command surface should offer them.
+inline constexpr StanceId STANCE_IDS[] = {StanceId::Balanced, StanceId::Aggressive, StanceId::Evasive};
+
+/// What to call one on screen. Never null, like `FormationName`.
+[[nodiscard]] const char* StanceName(StanceId _stance) noexcept;
+
 /// What to call one on screen. Never null, for the same reason
 /// `OrderReasonText` is never null: a label with no text is a control the
 /// player cannot name.

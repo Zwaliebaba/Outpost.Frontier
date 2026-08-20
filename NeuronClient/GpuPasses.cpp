@@ -223,7 +223,10 @@ namespace
 {
 
 /*
- * Text runs into glyph quads.
+ * One text run into glyph quads.
+ *
+ * Per run rather than over the whole list, so the caller can interleave them
+ * with the panels in build order -- see `UiPass::Record`.
  *
  * The pen walks the run in the baked size's own metrics: a bearing places the
  * bitmap against the pen and the advance moves it on. The face is monospace, so
@@ -239,8 +242,8 @@ namespace
  * substituted: the atlas's alphabet is a boot-time decision, and a run of boxes
  * is a bake to fix rather than a layout to nudge.
  */
-void ExpandTextRuns(const UiDrawList& _ui, const GlyphAtlas& _atlas, std::vector<UiInstance>& _outInstances,
-                    std::uint64_t& _outMissing)
+void ExpandOneTextRun(const UiTextRun& _run, const UiDrawList& _ui, const GlyphAtlas& _atlas,
+                      std::vector<UiInstance>& _outInstances, std::uint64_t& _outMissing)
 {
   const float atlasWidth = static_cast<float>(_atlas.TextureWidth());
   const float atlasHeight = static_cast<float>(_atlas.TextureHeight());
@@ -249,8 +252,8 @@ void ExpandTextRuns(const UiDrawList& _ui, const GlyphAtlas& _atlas, std::vector
     return;
   }
 
-  for (const UiTextRun& run : _ui.Runs())
   {
+    const UiTextRun& run = _run;
     const std::uint32_t sizeIndex = std::min<std::uint32_t>(run.sizeIndex, _atlas.SizeCount() - 1);
     const GlyphAtlasSize& size = _atlas.Size(sizeIndex);
     const float baseline = run.y + size.ascentPixels;
@@ -317,37 +320,58 @@ void UiPass::Record(const FrameContext& _context, bool _worldLayer)
 
   const UiDrawList& ui = *list;
 
-  // Panels first and in order. The build order is the draw order because there
-  // is one pipeline and no sort: a panel added after a run of text is meant to
-  // be over it.
-  for (const UiQuad& quad : ui.Quads())
-  {
-    UiInstance instance;
-    instance.rect[0] = quad.rect.x;
-    instance.rect[1] = quad.rect.y;
-    instance.rect[2] = quad.rect.width;
-    instance.rect[3] = quad.rect.height;
-    instance.colourRgba = quad.colourRgba;
-    if (quad.oriented)
+  /*
+   * Panels and glyphs into one stream, **in the order the list was built**.
+   *
+   * There is one pipeline and no sort, so the order instances go in is the
+   * order they composite -- and the two kinds live in two arrays, so they have
+   * to be merged rather than concatenated. `UiTextRun::quadsBefore` is the
+   * cursor that merges them: emit every quad added before a run, then that
+   * run's glyphs, then carry on. Concatenating instead made a panel unable to
+   * cover any text at all, whatever order it was added in -- invisible while
+   * the HUD was a border around a view, and wrong the moment the menu list
+   * floated over the ability rack.
+   */
+  const std::span<const UiQuad> quads = ui.Quads();
+  std::size_t nextQuad = 0;
+  const auto emitQuadsThrough = [&](std::size_t _upTo) {
+    for (; nextQuad < _upTo && nextQuad < quads.size(); ++nextQuad)
     {
-      // `rect` already carries centre and (length, thickness) -- `AddSegment`
-      // wrote it that way, so nothing is converted here. The axis and the flag
-      // are what tell the shader to read it that way.
-      instance.flags = UI_FLAG_ORIENTED;
-      instance.axis[0] = quad.axisX;
-      instance.axis[1] = quad.axisY;
+      const UiQuad& quad = quads[nextQuad];
+      UiInstance instance;
+      instance.rect[0] = quad.rect.x;
+      instance.rect[1] = quad.rect.y;
+      instance.rect[2] = quad.rect.width;
+      instance.rect[3] = quad.rect.height;
+      instance.colourRgba = quad.colourRgba;
+      if (quad.oriented)
+      {
+        // `rect` already carries centre and (length, thickness) -- `AddSegment`
+        // wrote it that way, so nothing is converted here. The axis and the
+        // flag are what tell the shader to read it that way.
+        instance.flags = UI_FLAG_ORIENTED;
+        instance.axis[0] = quad.axisX;
+        instance.axis[1] = quad.axisY;
+      }
+      m_instances.push_back(instance);
+      ++m_panelCount;
     }
-    m_instances.push_back(instance);
-  }
-  m_panelCount = static_cast<std::uint32_t>(m_instances.size());
+  };
 
-  // Then the glyphs. This is the only step that needs the atlas, which is why
-  // everything upstream of it is device-free.
-  if (_context.glyphAtlas != nullptr)
+  for (const UiTextRun& run : ui.Runs())
   {
-    ExpandTextRuns(ui, *_context.glyphAtlas, m_instances, m_missingGlyphs);
+    emitQuadsThrough(run.quadsBefore);
+    if (_context.glyphAtlas == nullptr)
+    {
+      continue; // No atlas: the panels still draw, which is the honest half.
+    }
+    // The only step that needs the atlas, which is why everything upstream of
+    // it is device-free.
+    const std::size_t before = m_instances.size();
+    ExpandOneTextRun(run, ui, *_context.glyphAtlas, m_instances, m_missingGlyphs);
+    m_glyphCount += static_cast<std::uint32_t>(m_instances.size() - before);
   }
-  m_glyphCount = static_cast<std::uint32_t>(m_instances.size()) - m_panelCount;
+  emitQuadsThrough(quads.size());
 
   if (m_instances.empty())
   {

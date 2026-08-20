@@ -272,7 +272,7 @@ public:
     constexpr std::int64_t ANCHOR_Y = 9223372036854775807ll;
 
     WriteWireType(writer, WireType::Welcome);
-    Write(writer, Welcome{7, 1234, 20, 0xaaaa, 0xbbbb, 9, ANCHOR_X, ANCHOR_Y});
+    Write(writer, Welcome{7, 1234, 20, 0xaaaa, 0xbbbb, 9, ANCHOR_X, ANCHOR_Y, "Vesta-3", "Frontier 0.4", "SEC 0.4"});
 
     ByteReader reader{writer.Written()};
     Assert::IsTrue(ReadWireType(reader) == WireType::Welcome);
@@ -287,6 +287,9 @@ public:
     Assert::AreEqual<std::uint16_t>(9, welcome.worldId);
     Assert::AreEqual(ANCHOR_X, welcome.anchorX);
     Assert::AreEqual(ANCHOR_Y, welcome.anchorY);
+    Assert::AreEqual(std::string{"Vesta-3"}, welcome.worldName);
+    Assert::AreEqual(std::string{"Frontier 0.4"}, welcome.worldDetail);
+    Assert::AreEqual(std::string{"SEC 0.4"}, welcome.worldBadge);
     Assert::IsTrue(reader.FullyConsumed());
   }
 

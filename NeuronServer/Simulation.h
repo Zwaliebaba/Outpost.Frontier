@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <span>
+#include <string>
 
 /*
  * The engine/game seam (ADR-014 §2).
@@ -33,12 +34,24 @@ namespace Neuron
  * Named in engine terms deliberately -- "world", not "solar system". The engine
  * carries the numbers to the client and never reads them; what they mean is
  * GameLogic's business (ADR-014).
+ *
+ * The three strings are the session's display strings for the HUD's top bar
+ * (`tactical-hud.png`): what to call the world, a secondary line, and a short
+ * status badge. Display *data*, never parsed -- the extended leak test
+ * (ADR-020 §D14) is exactly that labels arrive as data, so "Vesta-3" and
+ * "SEC 0.4" are the game's words travelling through fields the engine could
+ * carry for any networked sim. They are Public data and part of no hashed
+ * state: replay hashes and the schema/content handshake do not cover them.
  */
 struct WorldMeta
 {
   std::uint16_t worldId = 0;
   std::int64_t anchorX = 0; // The tactical grid's origin, in whole world units.
   std::int64_t anchorY = 0;
+
+  std::string worldName;   // The prime slot: where the player is.
+  std::string worldDetail; // The dim line beside it: region-of-space and version.
+  std::string worldBadge;  // The right cluster's badge, drawn verbatim.
 };
 
 class Simulation

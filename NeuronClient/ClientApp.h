@@ -104,6 +104,11 @@ private:
   void UpdateSelection();
   void UpdateOrders();
   void CommitOrder(const PuckSample& _sample, double _nowSeconds);
+
+  /// The slot in `m_orderKinds` holding this kind value, or `m_orderKindCount`
+  /// when the game never listed it -- the per-kind option tables are indexed by
+  /// slot, never by the opaque kind number.
+  [[nodiscard]] std::uint32_t KindSlot(std::uint16_t _kind) const noexcept;
   void ExtractScene();
 
   /*
@@ -206,16 +211,27 @@ private:
   OrderDefaults m_orderDefaults;
 
   /*
-   * The parameters that kind accepts, and which one the next order will carry.
+   * Every kind's parameters, and which one each kind will carry next.
    *
-   * The game's list, verbatim: numbers to send and names to show, neither
-   * interpreted here (ADR-014 §2c). `CycleParameter` steps the index; the
-   * command wheel's sub-ring will select from the same list in S11, which is
-   * why the client holds it rather than asking per order.
+   * The game's lists, verbatim: numbers to send and names to show, neither
+   * interpreted here (ADR-014 §2c). Asked once per kind at boot -- the lists
+   * are as static as the kind list itself -- and held **per kind** rather than
+   * for the selected one only, because the context bar states every standing
+   * parameter at once (`STANCE AGGRESSIVE ▸ FORMATION LINE` on the print) and
+   * a readout that only existed while its verb was selected would blank the
+   * moment the player reached for MOVE.
+   *
+   * All indexed by the kind's *slot* in `m_orderKinds`, not by the kind value:
+   * the value is the game's opaque number, and using it as an index would be
+   * assuming the game numbers its commands densely from zero.
    */
-  OrderOption m_orderOptions[MAX_ORDER_OPTIONS] = {};
-  std::uint32_t m_orderOptionCount = 0;
-  std::uint32_t m_orderOptionIndex = 0;
+  OrderOption m_kindOptions[MAX_ORDER_KINDS][MAX_ORDER_OPTIONS] = {};
+  std::uint32_t m_kindOptionCounts[MAX_ORDER_KINDS] = {};
+
+  /// Which option each kind currently has chosen, and which one the game calls
+  /// its default -- the summary row draws a non-default value in caution amber.
+  std::uint32_t m_kindOptionIndex[MAX_ORDER_KINDS] = {};
+  std::uint32_t m_kindDefaultIndex[MAX_ORDER_KINDS] = {};
 
   /*
    * The client's order counter, which the ack matches a ghost on.
@@ -267,6 +283,27 @@ private:
    * classic HUD bug where the thing you press is not the thing you see.
    */
   UiLayout m_uiLayout;
+
+  /*
+   * The `▥ MENU` chip and its stub list (RESUME · SETTINGS · EXIT).
+   *
+   * The chip must exist now even though the surfaces behind it do not: a HUD
+   * with no menu affordance is a dead end on a tablet with no Escape key
+   * (`tactical-hud.png`, session-surfaces). The rects are resolved in
+   * `UpdateHud` and drawn in `BuildHud` for the same reason `m_uiLayout` is a
+   * member -- one answer for the click and the quads.
+   */
+  static constexpr std::uint32_t MENU_RESUME = 0;
+  static constexpr std::uint32_t MENU_SETTINGS = 1;
+  static constexpr std::uint32_t MENU_EXIT = 2;
+  static constexpr std::uint32_t MENU_ITEM_COUNT = 3;
+  UiRect m_menuButtonRect;
+  UiRect m_menuItemRects[MENU_ITEM_COUNT] = {};
+  bool m_menuOpen = false;
+
+  /// This frame's left press landed on chrome above the world -- the menu chip
+  /// or the open list -- so selection and the puck must not also act on it.
+  bool m_uiConsumedPress = false;
 
   /// The game's commands, asked once at startup: this list does not change
   /// while a session runs, and asking every frame would imply it could.

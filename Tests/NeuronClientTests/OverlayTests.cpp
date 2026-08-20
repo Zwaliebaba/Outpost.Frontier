@@ -315,6 +315,46 @@ public:
     Assert::AreEqual<std::uint32_t>(2, marks.BarCount());
   }
 
+  TEST_METHOD(ADamagedShipGetsBarsWithoutBeingSelected)
+  {
+    // The print's rule: bars over the selection plus anything with hull below
+    // 100%. The damaged ship the player has not selected is exactly the one
+    // the readout exists for; the healthy unselected one stays clean.
+    const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f, 200, 255), Ship(2, 50.0f, 0.0f, 12.0f)};
+
+    OverlayMarkList marks;
+    BuildOverlayMarks(entities, {}, OverlayTuning{}, METRES_PER_PIXEL_CLOSE, marks);
+
+    Assert::AreEqual<std::uint32_t>(0, marks.ringCount, L"nothing selected, so no rings");
+    Assert::AreEqual<std::uint32_t>(1, CountOfKind(marks, OverlayKind::HullBar));
+    Assert::AreEqual<std::uint32_t>(1, CountOfKind(marks, OverlayKind::ShieldBar));
+    Assert::AreEqual(0.0f, marks.marks[0].anchorPlane.x, 1e-6f, L"and they sit on the hurt ship");
+  }
+
+  TEST_METHOD(TheHullBarBandsOnTheRosterStripsThresholds)
+  {
+    // Healthy, worn, low -- the same three bands at the same 70%/40% gauge
+    // boundaries as `HullGaugeFill`, so a wing's roster strip and its ships'
+    // bars cannot disagree about what worn means. Shield stays the allied fill.
+    const OverlayTuning tuning;
+    const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f, 200, 100), Ship(2, 10.0f, 0.0f, 12.0f, 150, 100),
+                                               Ship(3, 20.0f, 0.0f, 12.0f, 50, 100)};
+
+    OverlayMarkList marks;
+    BuildOverlayMarks(entities, {}, tuning, METRES_PER_PIXEL_CLOSE, marks);
+    Assert::AreEqual<std::uint32_t>(6, marks.BarCount());
+
+    const auto hullColourAt = [&](std::size_t _ship) { return marks.marks[_ship * 2].colourRgba; };
+    const auto shieldColourAt = [&](std::size_t _ship) { return marks.marks[_ship * 2 + 1].colourRgba; };
+    Assert::AreEqual(tuning.hullColourRgba, hullColourAt(0), L"200 of 255 is healthy");
+    Assert::AreEqual(tuning.hullWornColourRgba, hullColourAt(1), L"150 of 255 is worn");
+    Assert::AreEqual(tuning.hullLowColourRgba, hullColourAt(2), L"50 of 255 is low");
+    for (std::size_t ship = 0; ship < 3; ++ship)
+    {
+      Assert::AreEqual(tuning.shieldColourRgba, shieldColourAt(ship), L"the shield never changes band");
+    }
+  }
+
   TEST_METHOD(BuildingTwiceLeavesNoResidue)
   {
     const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f), Ship(2, 500.0f, 0.0f, 40.0f)};

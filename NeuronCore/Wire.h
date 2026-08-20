@@ -169,9 +169,25 @@ struct Welcome
   std::int64_t anchorX = 0;
   std::int64_t anchorY = 0;
 
+  /*
+   * The world's display strings, from the simulation's `WorldMeta` and carried
+   * exactly as unread as `worldId` is: a name for the world, a secondary line,
+   * and a short status badge. The HUD's top bar draws them verbatim
+   * (`tactical-hud.png`'s `VESTA-3 / FRONTIER 0.4 / SEC 0.4`), and the words
+   * are the game's -- the engine ships them the way it ships `playerName`,
+   * which is why they are plain strings rather than anything with structure.
+   */
+  std::string worldName;
+  std::string worldDetail;
+  std::string worldBadge;
+
   /// Who the server decided this is (ADR-018 D5). The client keeps it and
   /// offers it back on a resume; everything player-keyed is keyed on this and
   /// never on `clientId`, which is the connection and not the person.
+  ///
+  /// Last, after the variable-length strings, for the same reason `Hello` puts
+  /// its pair last: the fields the handshake fails closed on keep fixed offsets
+  /// from the front of the message.
   PlayerId playerId = INVALID_PLAYER_ID;
 
   /// The token to offer back. Reserved, always zero, and paired with `Hello`'s
@@ -254,9 +270,12 @@ void Write(ByteWriter& _writer, const Goodbye& _message) noexcept;
  * or retyped must change the string beside it, or two builds will disagree
  * silently instead of refusing each other at the handshake.
  */
-inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,u64 schemaHash,u64 contentHash,str playerName}"
+inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,u64 schemaHash,u64 contentHash,str playerName,"
+                                                     "u32 playerId,u64 resumeToken}"
                                                      "Welcome{u32 clientId,u32 tick,u16 tickRate,u64 schemaHash,u64 contentHash,"
-                                                     "u16 worldId,i64 anchorX,i64 anchorY}"
+                                                     "u16 worldId,i64 anchorX,i64 anchorY,"
+                                                     "str worldName,str worldDetail,str worldBadge,"
+                                                     "u32 playerId,u64 resumeToken}"
                                                      "UpdateRequired{u64 serverSchemaHash,u64 serverContentHash}"
                                                      "Refuse{u16 reason}"
                                                      "Ping{u64 clientSendMicroseconds}"

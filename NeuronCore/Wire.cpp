@@ -54,6 +54,12 @@ void Write(ByteWriter& _writer, const Welcome& _message) noexcept
   // (ADR-009 §1), so anything narrower would silently fold it.
   _writer.WriteInt64(_message.anchorX);
   _writer.WriteInt64(_message.anchorY);
+  _writer.WriteText(_message.worldName);
+  _writer.WriteText(_message.worldDetail);
+  _writer.WriteText(_message.worldBadge);
+
+  // Identity last, after the variable-length strings, so the fields the
+  // handshake fails closed on stay at fixed offsets from the front.
   _writer.WriteUInt32(_message.playerId);
   _writer.WriteUInt64(_message.resumeToken);
 }
@@ -68,6 +74,9 @@ bool Read(ByteReader& _reader, Welcome& _outMessage) noexcept
   _outMessage.worldId = _reader.ReadUInt16();
   _outMessage.anchorX = _reader.ReadInt64();
   _outMessage.anchorY = _reader.ReadInt64();
+  _outMessage.worldName = std::string(_reader.ReadText());
+  _outMessage.worldDetail = std::string(_reader.ReadText());
+  _outMessage.worldBadge = std::string(_reader.ReadText());
   _outMessage.playerId = _reader.ReadUInt32();
   _outMessage.resumeToken = _reader.ReadUInt64();
   return _reader.Ok();

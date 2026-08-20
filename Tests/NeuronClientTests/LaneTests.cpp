@@ -67,7 +67,8 @@ constexpr std::uint32_t VIEWPORT_HEIGHT = 900;
   ghost.originMetres = _origin;
   ghost.targetMetres = _target;
   ghost.preview.etaSeconds = 92.0f;
-  std::snprintf(ghost.preview.label, sizeof(ghost.preview.label), "Move - Claw");
+  // The game's spelling since the print pass: uppercase, `▸`-separated.
+  std::snprintf(ghost.preview.label, sizeof(ghost.preview.label), "MOVE \xE2\x96\xB8 CLAW");
 
   // Its own target is its first leg, which is what `OrderGhostList::Add` does.
   // A ghost built by hand without this has no plan and draws nothing.
@@ -259,11 +260,12 @@ public:
   {
     char buffer[48] = {};
 
+    // Uppercase and ·-separated -- the print's own spelling for HUD chrome.
     FormatLaneDetail(18400.0f, 101.0f, buffer, sizeof(buffer));
-    Assert::AreEqual(std::string{"18.4 km - ETA 1m 41s"}, std::string{buffer});
+    Assert::AreEqual(std::string{"18.4 KM \xC2\xB7 ETA 1M 41S"}, std::string{buffer});
 
     FormatLaneDetail(18400.0f, 41.0f, buffer, sizeof(buffer));
-    Assert::AreEqual(std::string{"18.4 km - ETA 41s"}, std::string{buffer});
+    Assert::AreEqual(std::string{"18.4 KM \xC2\xB7 ETA 41S"}, std::string{buffer});
   }
 
   TEST_METHOD(AShortHopIsMetresRatherThanZeroPointZeroKilometres)
@@ -272,7 +274,7 @@ public:
     // switch is metres, and a station-keeping nudge is the common order.
     char buffer[48] = {};
     FormatLaneDetail(940.0f, 8.0f, buffer, sizeof(buffer));
-    Assert::AreEqual(std::string{"940 m - ETA 8s"}, std::string{buffer});
+    Assert::AreEqual(std::string{"940 M \xC2\xB7 ETA 8S"}, std::string{buffer});
   }
 
   TEST_METHOD(AnUnknownEtaLosesTheEtaAndKeepsTheDistance)
@@ -282,7 +284,7 @@ public:
     // question the game declined.
     char buffer[48] = {};
     FormatLaneDetail(3200.0f, -1.0f, buffer, sizeof(buffer));
-    Assert::AreEqual(std::string{"3.2 km"}, std::string{buffer});
+    Assert::AreEqual(std::string{"3.2 KM"}, std::string{buffer});
   }
 
   TEST_METHOD(TheSecondsRoundUpSoNothingArrivesInZero)
@@ -291,10 +293,10 @@ public:
     // `1s` for the last fraction of a second.
     char buffer[48] = {};
     FormatLaneDetail(500.0f, 0.2f, buffer, sizeof(buffer));
-    Assert::AreEqual(std::string{"500 m - ETA 1s"}, std::string{buffer});
+    Assert::AreEqual(std::string{"500 M \xC2\xB7 ETA 1S"}, std::string{buffer});
 
     FormatLaneDetail(500.0f, 59.4f, buffer, sizeof(buffer));
-    Assert::AreEqual(std::string{"500 m - ETA 1m 00s"}, std::string{buffer});
+    Assert::AreEqual(std::string{"500 M \xC2\xB7 ETA 1M 00S"}, std::string{buffer});
   }
 
   TEST_METHOD(ATinyBufferIsTerminatedRatherThanOverrun)
@@ -467,16 +469,18 @@ public:
 
     const std::vector<std::string> texts = Texts(list);
     Assert::AreEqual<std::size_t>(2, texts.size());
-    Assert::AreEqual(std::string{"Move - Claw"}, texts[0], L"the game's own words, not the engine's");
-    Assert::AreEqual(std::string{"3.0 km - ETA 1m 32s"}, texts[1]);
+    Assert::AreEqual(std::string{"MOVE \xE2\x96\xB8 CLAW"}, texts[0], L"the game's own words, not the engine's");
+    Assert::AreEqual(std::string{"3.0 KM \xC2\xB7 ETA 1M 32S"}, texts[1]);
 
-    // Centred on the same point, and the detail line below the name.
+    // Centred on the same point, and the detail line below the name -- in
+    // cells, not bytes, because both lines carry a multi-byte glyph.
     const UiTextRun& name = list.Runs()[0];
     const UiTextRun& detail = list.Runs()[1];
-    const float nameCentre = name.x + static_cast<float>(texts[0].size()) * view.cellPixels * 0.5f;
-    const float detailCentre = detail.x + static_cast<float>(texts[1].size()) * view.cellPixels * 0.5f;
+    const float nameCentre = name.x + static_cast<float>(TextCellCount(texts[0])) * view.cellPixels * 0.5f;
+    const float detailCentre = detail.x + static_cast<float>(TextCellCount(texts[1])) * view.cellPixels * 0.5f;
     Assert::AreEqual(nameCentre, detailCentre, 0.01f, L"the two lines share a centre");
     Assert::IsTrue(detail.y > name.y, L"the numbers go under the name");
+    Assert::AreNotEqual(name.sizeIndex, detail.sizeIndex, L"two sizes: the name leads, the numbers step back");
   }
 
   TEST_METHOD(TheDistanceIsMeasuredOnThePlaneAndNotOnScreen)
@@ -595,9 +599,9 @@ public:
     const std::vector<std::string> texts = Texts(list);
 
     // Two waypoint labels, then the name, the detail and the leg count.
-    Assert::AreEqual(std::string{"30s"}, texts[0], L"the first leg's own prediction");
-    Assert::AreEqual(std::string{"40s"}, texts[1], L"and the second's");
-    Assert::AreEqual(std::string{"Move - Claw"}, texts[2]);
+    Assert::AreEqual(std::string{"30S"}, texts[0], L"the first leg's own prediction");
+    Assert::AreEqual(std::string{"40S"}, texts[1], L"and the second's");
+    Assert::AreEqual(std::string{"MOVE \xE2\x96\xB8 CLAW"}, texts[2]);
     Assert::AreEqual(std::string{"3 LEGS"}, texts.back(), L"the print's footer, and only when there is a queue");
 
     // A single leg keeps S11c's picture: a name and a detail line, nothing else.
@@ -625,8 +629,8 @@ public:
     BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list, list);
     const std::vector<std::string> texts = Texts(list);
 
-    Assert::AreEqual(std::string{"30s"}, texts[0], L"leg one keeps its prediction");
-    Assert::AreEqual(std::string{"17s"}, texts[1], L"leg two is the one being flown, so it is the authority's");
+    Assert::AreEqual(std::string{"30S"}, texts[0], L"leg one keeps its prediction");
+    Assert::AreEqual(std::string{"17S"}, texts[1], L"leg two is the one being flown, so it is the authority's");
   }
 
   TEST_METHOD(TheDistanceIsTheWholePlanAndNotTheLastLeg)
@@ -643,9 +647,9 @@ public:
 
     // 3 km then 3 km again: six, not the three the last leg alone would give.
     const auto detail = std::find_if(texts.begin(), texts.end(),
-                                     [](const std::string& _text) { return _text.find(" km") != std::string::npos; });
+                                     [](const std::string& _text) { return _text.find(" KM") != std::string::npos; });
     Assert::IsTrue(detail != texts.end(), L"there has to be a distance to check");
-    Assert::IsTrue(detail->rfind("6.0 km", 0) == 0, L"the whole plan, walked leg by leg");
+    Assert::IsTrue(detail->rfind("6.0 KM", 0) == 0, L"the whole plan, walked leg by leg");
   }
 
   TEST_METHOD(ARefusedAppendTakesBackOnlyItsOwnLeg)
