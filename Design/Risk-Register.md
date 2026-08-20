@@ -7,7 +7,8 @@
 ([ADR-018](ADR/ADR-018-scaling-baseline.md)); **R10 re-annotated the same day** when its soak
 stopped being a measurement someone had taken and became one CI takes (A4);
 **R22 closed and R23 opened 2026-08-20** when the Debug leg went back to gating and the one
-question that did not close with it was given its own row. Top
+question that did not close with it was given its own row; **standing spike 2 marked run
+2026-08-20**, its "CI builds Debug only" note having outlived the Release leg. Top
 technical risks, each with mitigation already wired into the ADRs/build order (referenced),
 plus its early-validation point. Review at each milestone (M0/M1/MVP, then W0/W1/W2).
 
@@ -49,8 +50,13 @@ guesses were right.
    debugger and a person. The automated half (`selfTest`) passes.*
 2. **Replay-hash across Debug/Release** (S6): confirm hashes *differ* across configs is
    acceptable and documented (same-binary scope, ADR-005 §6) — prevents a false alarm later.
-   *Still to run: CI builds Debug only, so the two configs have never been compared. The suite
-   that would answer it exists as of S6; it needs a Release build and one comparison.*
+   *Run, and now run continuously.* The note this row carried — "CI builds Debug only, so the
+   two configs have never been compared" — stopped being true with ADR-018 A2's Release leg.
+   Each leg's self test logs its replay hash, a step lifts it into an artifact, and the
+   `replay-hash-comparison` job (named **Spike 2** in the workflow) puts the two side by side
+   in the run summary every push, with the verdict written out: differing is the expected
+   result and agreeing is a coincidence of codegen that nothing should be built on. A spike
+   that answers its question once is worth more when it keeps answering it.
 3. **1,024-instance draw** (after S5): 1,024 `InstanceRecord`s through the opaque pass —
    validates the corpus entity cap costs nothing on the render side (it shouldn't, instanced).
    *Still to run: needs a GPU. The instance path it would exercise has been in the tree since

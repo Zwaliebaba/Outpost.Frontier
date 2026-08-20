@@ -94,23 +94,32 @@ moves between the trees without a rename pass. Three things it changed in these 
 - [Universe-Build-Order.md](Universe-Build-Order.md) — the post-MVP universe phase: U1–U6
   slices delivering ADR-016 (bake, anchors, warp, gates, strategic map, system view), plus
   the named content deliverables (system-view print, `Gate.obj`); milestones W0 (first warp)
-  / W1 (first crossing) / W2 (the universe on screen). No slice started.
+  / W1 (first crossing) / W2 (the universe on screen). **U1, U2 and U3a are built, with
+  U3b's sim half and U5's pure half beside them**; U4 is untouched, U3c is blocked on
+  machinery rather than on a screen, and the rest of what is left is screen work.
 - [Station-Build-Order.md](Station-Build-Order.md) — the docking phase: T1–T3 slices
   delivering ADR-017 (roster + transfer bus in the sim, the wire and tactical surfaces,
   the hangar screen), interleaved **after U2, before U3a**; milestones H0 (the headless
   loop) / H1 (the hangar loop); deliverables P1 (station-screen print, blocks T3) and P2
-  (dock/undock audio). No slice started.
-- [Risk-Register.md](Risk-Register.md) — R1–R14 with designed-in mitigations + standing spikes.
-  R6 and R14 are marked realised, with what actually happened.
+  (dock/undock audio). **T1 is built in all three halves and T2's identity cluster is on the
+  wire**; T2's client half is not, and T3 is still gated on P1.
+- [Risk-Register.md](Risk-Register.md) — R1–R23 with designed-in mitigations + standing spikes.
+  R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised and
+  closed**, and R23 — a gating test that flakes — is the one question that did not close
+  with it.
 - [Scaling-Readiness-Review.md](Scaling-Readiness-Review.md) — five-lens review of the MVP
   and this corpus for scaling readiness (2026-08-19, **advisory**): consolidated findings
   (`UX-/NET-/CPP-/UI-/SIM-`), a decision list sequenced against the build orders, and the
   fourteen questions the owner answered the same day — **the answers are normative as
   [ADR-018](ADR/ADR-018-scaling-baseline.md)**; the review stays the evidence record.
-  **Ten of the register's twenty-six actions are delivered, and every design deliverable in
-  it is now written** — A1–A4, A14, A19, A22, A23, A24, A26. What remains is slice work, and
-  the gates are the register's own: A5–A13 and A15–A18, A20, A21 and A25 land with U1, U2,
-  T1, T2, U3b, U3c and U5. Nothing is waiting on a decision; the next move is U1.
+  **Nineteen of the register's twenty-six actions are delivered, and every design deliverable
+  in it is written** — A1–A10, A12, A14, A17, A19, A21, A22, A23, A24 and A26 — with A11
+  **partly** done: the wire carries u32 ship ids, while the sim's `ShipId` stays u16 until the
+  delta cluster lifts the full-fit constraint (D6's own staging). **Six are open** — A13,
+  A15, A16, A18, A20 and A25 — and each lands with U3b, T2, U5 or U3c rather than waiting on
+  a decision. A13 is the one several of the others stand behind: the per-client
+  `SnapshotSender` does not exist yet, and U3b's client half, T2's roster privacy and U3c all
+  need it.
 
 ## Implementation state (2026-08-19)
 
