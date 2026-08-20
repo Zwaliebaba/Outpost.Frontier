@@ -125,6 +125,11 @@ public:
   void SampleAt(double _renderTick, std::vector<ReplicatedShip>& _outShips) const;
 
   [[nodiscard]] bool HasSnapshot() const noexcept { return m_count > 0; }
+
+  /// Which grid the view is currently holding, or `INVALID_ID` before the first
+  /// snapshot. A change here is a view switch, and the history was dropped on
+  /// the frame that changed it (U3b's smear guard).
+  [[nodiscard]] AnchorId Grid() const noexcept { return m_count > 0 ? m_frames[0].header.gridAnchor : INVALID_ID; }
   [[nodiscard]] std::uint32_t LatestTick() const noexcept;
   [[nodiscard]] std::uint32_t OldestTick() const noexcept;
   [[nodiscard]] std::size_t SnapshotCount() const noexcept { return m_count; }

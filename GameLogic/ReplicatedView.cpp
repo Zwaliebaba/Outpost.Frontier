@@ -81,6 +81,30 @@ bool ReplicatedView::ApplySnapshot(std::span<const std::uint8_t> _payload)
     return false;
   }
 
+  /*
+   * **The smear guard** (U3b). A snapshot from a different grid is not a later
+   * frame of this one -- it is a different world, and the two share an id space
+   * without sharing any ships.
+   *
+   * So the history is dropped rather than extended. Interpolating across the
+   * switch would walk every hull from wherever it stood on the old grid to
+   * wherever a ship of the same id happens to stand on the new one, which reads
+   * as the fleet sliding across the gap between two worlds. The alternative --
+   * matching ids across the boundary and hoping -- is worse, because it is the
+   * same wrong answer without the visible symptom.
+   *
+   * Checked **before** the staleness test on purpose: the new grid's tick can
+   * be anything relative to the old one's (ADR-019 §2 makes the tick
+   * shard-global, so it is in fact the same clock, but a client must not depend
+   * on that to avoid rendering nonsense). A frame from elsewhere is never stale;
+   * it is a fresh start.
+   */
+  if (m_count > 0 && header.gridAnchor != m_frames[0].header.gridAnchor)
+  {
+    m_count = 0;
+    m_latestOrders.clear();
+  }
+
   // Out-of-order arrival is normal on an unordered channel (ADR-003), and a
   // stale snapshot is not an error -- it is simply already superseded. Dropping
   // it beats letting it overwrite newer state.
