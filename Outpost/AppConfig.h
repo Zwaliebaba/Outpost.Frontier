@@ -163,6 +163,7 @@ struct AppConfig
   bool selfTest = false;
   LogSettings logging;
   std::string universeDefinition = "GameData/Universe/Frontier.json";
+  std::string economyDefinition = "GameData/Economy/Economy.json";
   ServerSettings server;
   ClientSettings client;
   ContentSettings content;

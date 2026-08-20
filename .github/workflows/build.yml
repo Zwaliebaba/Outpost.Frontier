@@ -336,7 +336,20 @@ jobs:
           # (U5). Neither does math on a position -- one looks an anchor up, the
           # other walks a graph of ids -- which is why they appear in the second
           # list and not the first.
-          $posOwned = @('Universe.h', 'Universe.cpp', 'UniverseParse.h', 'UniverseParse.cpp', 'UniverseGen.h', 'UniverseGen.cpp')
+          # E1b adds three, and they are placement files rather than exceptions.
+          # `SiteEpoch` computes where a mining field's *grid sits on the plane*
+          # for a given epoch (ADR-024 §3a) -- that is the anchor arithmetic
+          # ADR-009 §2 says universe coordinates are for, and it is the same job
+          # `UniverseGen` does at bake time. `FixedAngle` is the fixed-point
+          # polar geometry both of them place with; it lived inside
+          # `UniverseGen.cpp` until a second, runtime consumer arrived, and
+          # moving it is what made it visible here.
+          #
+          # Widening this list would cost the protection that actually matters
+          # -- that none of it is reached from the tick -- so the rule below
+          # replaces it with a narrower one rather than dropping it.
+          $posOwned = @('Universe.h', 'Universe.cpp', 'UniverseParse.h', 'UniverseParse.cpp', 'UniverseGen.h', 'UniverseGen.cpp',
+                        'SiteEpoch.h', 'SiteEpoch.cpp', 'FixedAngle.h')
           $defOwned = $posOwned + @('WorldRegistry.h', 'WorldRegistry.cpp', 'UniverseRoute.h', 'UniverseRoute.cpp')
           $guarded = Get-ChildItem -Path GameLogic -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue |
             Where-Object { $_.Name -ne 'pch.h' -and $_.Name -ne 'pch.cpp' }
@@ -351,6 +364,24 @@ jobs:
             if ($file.Name -notin $defOwned -and $text -match '\bUniverseDef\b')
             {
               $bad += "$($file.Name): the universe definition in per-tick simulation code"
+            }
+          }
+
+          # The narrower rule that keeps `SiteEpoch`'s exclusion honest.
+          #
+          # A site's placement is computed when its world spins up and when a
+          # map draws it -- never inside `Tick` (ADR-024 §3d: an epoch never
+          # applies under a live grid). That is a design promise, and a promise
+          # about where a function is called is exactly the kind the tree makes
+          # mechanical rather than remembered: naming it from the tick's own
+          # files would put universe-scale arithmetic back on the per-tick path
+          # through the one door the list above just opened.
+          foreach ($name in @('World.h', 'World.cpp', 'WorldOrders.cpp'))
+          {
+            $path = Join-Path 'GameLogic' $name
+            if ((Test-Path $path) -and ((Get-Content $path -Raw) -match '\bSiteEpoch'))
+            {
+              $bad += "${name}: the tick reaches for a site's epoch placement, which is spin-up and map work"
             }
           }
 

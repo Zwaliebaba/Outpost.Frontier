@@ -5,6 +5,7 @@
 #include "Universe.h"
 #include "UniverseGen.h"
 #include "UniverseRoute.h"
+#include "SiteEpoch.h"
 #include "UniverseParse.h"
 #include "Validate.h"
 
@@ -51,10 +52,104 @@ namespace
   return config;
 }
 
+/*
+ * The site content the bake consumes (ADR-024 §7's division of custody).
+ *
+ * Built in code rather than parsed from a literal, and deliberately: the shape
+ * of `Economy.json` is `EconomyParseTests`' subject, and repeating a whole
+ * economy document here would make every site test fail for parsing reasons
+ * too. What this suite is about is what the *bake* does with the numbers.
+ *
+ * The values mirror the shipped file closely enough that its guarantees are
+ * exercised -- a High-Sec grade cap on pockets, a per-band composition where
+ * only a pocket carries Nebulite in High-Sec -- because those are exactly the
+ * clauses the bake has to reconcile.
+ */
+[[nodiscard]] SitesInfo TestSites()
+{
+  SitesInfo sites;
+  sites.regenSeconds = 86400;
+  sites.warpInStandoffMetres = 2000;
+  sites.fieldRadiusMinMetres = 5000;
+  sites.fieldRadiusMaxMetres = 12000;
+  sites.arrivalSpreadPctOfField = 40;
+  sites.clusterCountMin = 6;
+  sites.clusterCountMax = 12;
+
+  const std::uint32_t pools[SITE_GRADE_COUNT] = {4000, 8000, 16000, 32000, 64000};
+  const std::uint32_t hazard[SITE_GRADE_COUNT] = {50, 100, 150, 200, 300};
+  for (std::uint8_t grade = 0; grade < SITE_GRADE_COUNT; ++grade)
+  {
+    sites.grades[grade].poolUnits = pools[grade];
+    sites.grades[grade].hazardScalePct = hazard[grade];
+  }
+
+  // FC / AC / NB per band, in `OreId` order. Nebulite is absent from High-Sec
+  // except in a pocket, which is what makes the faded-pocket guarantee the only
+  // way a High-Sec region covers all three ores.
+  const std::uint8_t composition[SITE_ARCHETYPE_COUNT][SECURITY_BAND_COUNT][ORE_COUNT] = {
+      {{90, 10, 0}, {80, 15, 5}, {70, 20, 10}},
+      {{25, 75, 0}, {15, 75, 10}, {10, 75, 15}},
+      {{15, 10, 75}, {5, 15, 80}, {5, 10, 85}}};
+  for (std::uint8_t archetype = 0; archetype < SITE_ARCHETYPE_COUNT; ++archetype)
+  {
+    for (std::uint8_t band = 0; band < SECURITY_BAND_COUNT; ++band)
+    {
+      for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+      {
+        sites.archetypes[archetype].compositionPct[band][ore] = composition[archetype][band][ore];
+      }
+    }
+  }
+  sites.archetypes[static_cast<std::uint8_t>(SiteArchetype::NebulaPocket)]
+      .gradeCapByBand[static_cast<std::uint8_t>(SecurityBand::High)] = 1;
+
+  SiteDistributionInfo& distribution = sites.distribution;
+  distribution.highSecurityFloor = 60;
+  distribution.lowSecurityFloor = 25;
+  const std::uint8_t counts[SECURITY_BAND_COUNT][2] = {{70, 30}, {50, 50}, {30, 70}};
+  const std::uint8_t weights[SECURITY_BAND_COUNT][SITE_ARCHETYPE_COUNT] = {{65, 25, 10}, {40, 35, 25}, {25, 40, 35}};
+  const std::uint8_t gradeMin[SECURITY_BAND_COUNT] = {1, 2, 3};
+  const std::uint8_t gradeMax[SECURITY_BAND_COUNT] = {2, 4, 5};
+  const std::uint8_t sameCap[SECURITY_BAND_COUNT] = {2, 2, 3};
+  for (std::uint8_t band = 0; band < SECURITY_BAND_COUNT; ++band)
+  {
+    distribution.siteCountWeights[band][0] = counts[band][0];
+    distribution.siteCountWeights[band][1] = counts[band][1];
+    for (std::uint8_t archetype = 0; archetype < SITE_ARCHETYPE_COUNT; ++archetype)
+    {
+      distribution.archetypeWeights[band][archetype] = weights[band][archetype];
+    }
+    distribution.gradeMin[band] = gradeMin[band];
+    distribution.gradeMax[band] = gradeMax[band];
+    distribution.maxSameArchetypePerSystem[band] = sameCap[band];
+  }
+  distribution.highSecFirstSiteArchetype = SiteArchetype::FerrousField;
+  distribution.fadedPocketSystemsPerHighRegion = 1;
+  distribution.minRegionOreGrade = 2;
+  return sites;
+}
+
+/// Which band a system's security puts it in, by the same thresholds the bake
+/// used. A test that re-derived them from its own literals would be checking
+/// that two numbers were typed the same way twice.
+[[nodiscard]] std::uint8_t TestBand(const SitesInfo& _sites, std::uint8_t _security)
+{
+  if (_security >= _sites.distribution.highSecurityFloor)
+  {
+    return static_cast<std::uint8_t>(SecurityBand::High);
+  }
+  if (_security >= _sites.distribution.lowSecurityFloor)
+  {
+    return static_cast<std::uint8_t>(SecurityBand::Low);
+  }
+  return static_cast<std::uint8_t>(SecurityBand::Null);
+}
+
 [[nodiscard]] UniverseDef Bake(const UniverseGenConfig& _config)
 {
   UniverseDef universe;
-  Assert::IsTrue(GenerateUniverse(_config, universe), L"the bake refused a config it should accept");
+  Assert::IsTrue(GenerateUniverse(_config, TestSites(), universe), L"the bake refused a config it should accept");
   return universe;
 }
 
@@ -539,7 +634,7 @@ public:
     UniverseGenConfig impossible = SmallConfig();
     impossible.systemCount = 0;
     UniverseDef empty;
-    Assert::IsFalse(GenerateUniverse(impossible, empty), L"a recipe with fewer systems than constellations is not satisfiable");
+    Assert::IsFalse(GenerateUniverse(impossible, TestSites(), empty), L"a recipe with fewer systems than constellations is not satisfiable");
     Assert::IsTrue(empty.systems.empty());
   }
 
@@ -628,7 +723,7 @@ public:
     // the *arithmetic* is not: 2,500 systems is where an id space or an int64
     // square would overflow if one were going to.
     UniverseDef universe;
-    Assert::IsTrue(GenerateUniverse(UniverseGenConfig{}, universe), L"the committed recipe does not bake");
+    Assert::IsTrue(GenerateUniverse(UniverseGenConfig{}, TestSites(), universe), L"the committed recipe does not bake");
     Assert::AreEqual(static_cast<std::size_t>(UniverseGenConfig{}.systemCount), universe.systems.size());
 
     std::size_t anchors = 0;
@@ -651,6 +746,352 @@ public:
     std::vector<UniverseDiagnostic> diagnostics;
     Assert::IsTrue(ParseUniverse(json, reloaded, diagnostics), L"the committed-scale bake does not parse");
     Assert::AreEqual(ComputeUniverseHash(universe), ComputeUniverseHash(reloaded));
+  }
+};
+
+/*
+ * Sites: what the bake owes the economy (ADR-024 §3, build order E1b).
+ *
+ * The distribution numbers are content, so these check the *guarantees* rather
+ * than the rolls -- a suite that asserted "65% of High-Sec sites are ferrous"
+ * would fail the day someone retuned a weight, which is a thing the file is
+ * meant to allow.
+ */
+TEST_CLASS(UniverseSiteTests)
+{
+public:
+  TEST_METHOD(EverySystemHasTwoOrThreeSites)
+  {
+    const UniverseDef universe = Bake(SmallConfig());
+    for (const SolarSystem& system : universe.systems)
+    {
+      std::size_t sites = 0;
+      for (const Anchor& anchor : system.anchors)
+      {
+        sites += anchor.kind == AnchorKind::Site ? 1u : 0u;
+      }
+      Assert::IsTrue(sites >= 2 && sites <= 3, L"ADR-024 says exactly 2 to 3 mining areas per system");
+    }
+  }
+
+  TEST_METHOD(ASiteAuthorsNoOccupantsAndSoCostsNoShipId)
+  {
+    /*
+     * The property that lets ~6,250 anchors join without going near the window
+     * U4 measured into refusal: rocks are not entities (ADR-024 §4c), so a site
+     * takes no occupant block at all. If this ever stops being true the bake
+     * starts competing with stations and gates for the 32,767 authored ids.
+     */
+    const UniverseDef universe = Bake(SmallConfig());
+    for (const SolarSystem& system : universe.systems)
+    {
+      for (const Anchor& anchor : system.anchors)
+      {
+        if (anchor.kind != AnchorKind::Site)
+        {
+          continue;
+        }
+        Assert::AreEqual(0u, static_cast<unsigned>(anchor.occupantCount), L"a site authored an occupant");
+        Assert::AreEqual(0u, static_cast<unsigned>(anchor.occupantIdBase), L"a site took an occupant id block");
+      }
+    }
+  }
+
+  TEST_METHOD(AFieldAndItsApproachFitTheGridAtEveryEpoch)
+  {
+    /*
+     * The invariant the moving bearing makes interesting.
+     *
+     * A grid is 40 km **across** -- `GRID_HALF_EXTENT_METRES` is 20,000 -- so
+     * the field, the standoff outside it and the arrival arc all have to fit
+     * inside 20 km of the anchor. None of the three is a function of the
+     * bearing, which is exactly why the property holds for every epoch; this
+     * sweeps epochs anyway, because "it cannot depend on the bearing" is the
+     * kind of reasoning worth one loop of evidence.
+     */
+    const SitesInfo sites = TestSites();
+    const UniverseDef universe = Bake(SmallConfig());
+    constexpr std::int64_t BOUND_CM = GRID_HALF_EXTENT_METRES * 100;
+
+    std::uint32_t checked = 0;
+    for (const SolarSystem& system : universe.systems)
+    {
+      for (const Anchor& anchor : system.anchors)
+      {
+        if (anchor.kind != AnchorKind::Site)
+        {
+          continue;
+        }
+        const std::int64_t reach = static_cast<std::int64_t>(anchor.site.fieldRadiusCm) +
+                                   static_cast<std::int64_t>(sites.warpInStandoffMetres) * 100 + anchor.arrivalSpreadRadiusCm;
+        Assert::IsTrue(reach <= BOUND_CM, L"a field, its standoff and its arrival arc do not fit the grid");
+
+        for (std::uint32_t epoch = 0; epoch < 8; ++epoch)
+        {
+          const SitePlacement placement =
+              SiteEpochPlacement(system.centre, anchor.id, anchor.site, epoch, sites.warpInStandoffMetres);
+          const std::int64_t x = placement.warpInPoint.x;
+          const std::int64_t y = placement.warpInPoint.y;
+          Assert::IsTrue(x * x + y * y <= BOUND_CM * BOUND_CM, L"an epoch put the warp-in point outside the grid");
+        }
+        ++checked;
+      }
+    }
+    Assert::IsTrue(checked > 0, L"the test universe has no sites, so this proved nothing");
+  }
+
+  TEST_METHOD(TheBakedPlacementIsEpochZero)
+  {
+    // The file carries a real position rather than a placeholder, so anything
+    // reading it without knowing epochs exist still sees a sane universe.
+    const SitesInfo sites = TestSites();
+    const UniverseDef universe = Bake(SmallConfig());
+    for (const SolarSystem& system : universe.systems)
+    {
+      for (const Anchor& anchor : system.anchors)
+      {
+        if (anchor.kind != AnchorKind::Site)
+        {
+          continue;
+        }
+        const SitePlacement zero = SiteEpochPlacement(system.centre, anchor.id, anchor.site, 0, sites.warpInStandoffMetres);
+        Assert::AreEqual(zero.origin.x, anchor.origin.x, L"the baked origin is not the epoch-0 placement");
+        Assert::AreEqual(zero.origin.y, anchor.origin.y, L"the baked origin is not the epoch-0 placement");
+        Assert::AreEqual(zero.warpInPoint.x, anchor.warpInPoint.x, L"the baked warp-in is not epoch 0's");
+        Assert::AreEqual(zero.warpInPoint.y, anchor.warpInPoint.y, L"the baked warp-in is not epoch 0's");
+        Assert::AreEqual(static_cast<unsigned>(zero.warpInFacingTurns16), static_cast<unsigned>(anchor.warpInFacingTurns16),
+                         L"the baked facing is not epoch 0's");
+      }
+    }
+  }
+
+  TEST_METHOD(AFieldReFormsBetweenEpochsAndEachEpochReproducesExactly)
+  {
+    /*
+     * Ruling R7's whole point, as two properties rather than one: the field has
+     * to *move* (or scouting never goes stale) and each epoch has to be
+     * *reproducible* (or two machines disagree about where the ore is).
+     */
+    const SitesInfo sites = TestSites();
+    const UniverseDef universe = Bake(SmallConfig());
+    std::uint32_t checked = 0;
+    for (const SolarSystem& system : universe.systems)
+    {
+      for (const Anchor& anchor : system.anchors)
+      {
+        if (anchor.kind != AnchorKind::Site)
+        {
+          continue;
+        }
+        const SitePlacement first = SiteEpochPlacement(system.centre, anchor.id, anchor.site, 3, sites.warpInStandoffMetres);
+        const SitePlacement again = SiteEpochPlacement(system.centre, anchor.id, anchor.site, 3, sites.warpInStandoffMetres);
+        Assert::AreEqual(first.origin.x, again.origin.x, L"an epoch does not reproduce");
+        Assert::AreEqual(first.origin.y, again.origin.y, L"an epoch does not reproduce");
+        Assert::AreEqual(first.layoutSalt, again.layoutSalt, L"a rock layout does not reproduce");
+
+        const SitePlacement next = SiteEpochPlacement(system.centre, anchor.id, anchor.site, 4, sites.warpInStandoffMetres);
+        Assert::IsTrue(next.origin.x != first.origin.x || next.origin.y != first.origin.y, L"the field did not move");
+        Assert::IsTrue(next.layoutSalt != first.layoutSalt, L"the rock layout did not reshuffle");
+        ++checked;
+        break;
+      }
+      if (checked >= 16)
+      {
+        break;
+      }
+    }
+    Assert::IsTrue(checked > 0, L"the test universe has no sites, so this proved nothing");
+  }
+
+  TEST_METHOD(TheEpochStaggerSpreadsBoundariesAcrossTheDay)
+  {
+    /*
+     * Without the stagger every field in the shard re-forms on one tick, which
+     * is a visible hitch and a predictable minute to be waiting in. The claim
+     * is only that boundaries *differ*, not how they are spread -- the
+     * distribution is the generator's business, not the design's.
+     */
+    constexpr std::uint32_t EPOCH_TICKS = 1728000; // One day at 20 Hz.
+    std::unordered_set<std::uint32_t> boundaries;
+    for (AnchorId anchor = 1; anchor <= 64; ++anchor)
+    {
+      std::uint32_t boundary = 0;
+      while (boundary < EPOCH_TICKS && SiteEpochIndex(boundary, anchor, EPOCH_TICKS) == SiteEpochIndex(0, anchor, EPOCH_TICKS))
+      {
+        boundary += 4096;
+      }
+      boundaries.insert(boundary);
+    }
+    Assert::IsTrue(boundaries.size() > 8, L"the epoch stagger puts too many sites on one boundary");
+
+    // A shard configured never to regenerate sits in epoch 0 forever rather
+    // than dividing by zero.
+    Assert::AreEqual(0u, SiteEpochIndex(999999, 7, 0));
+  }
+
+  TEST_METHOD(AHighSecSystemsFirstSiteIsTheNewPlayerFloor)
+  {
+    // ADR-024 §3c's on-ramp. It has to survive the faded-pocket repair, which
+    // is the interaction that actually broke when E1b was written: the repair
+    // converted whichever site it found first, and six regions lost their floor.
+    const SitesInfo sites = TestSites();
+    const UniverseDef universe = Bake(SmallConfig());
+    for (const SolarSystem& system : universe.systems)
+    {
+      if (TestBand(sites, system.security) != static_cast<std::uint8_t>(SecurityBand::High))
+      {
+        continue;
+      }
+      for (const Anchor& anchor : system.anchors)
+      {
+        if (anchor.kind != AnchorKind::Site)
+        {
+          continue;
+        }
+        Assert::IsTrue(anchor.site.archetype == sites.distribution.highSecFirstSiteArchetype,
+                       L"a High-Sec system's first mining field is not the hazard-free one");
+        break;
+      }
+    }
+  }
+
+  TEST_METHOD(EveryHighSecRegionHoldsAFadedPocket)
+  {
+    // Ruling 1b, made measurable: Tier 1 stays craftable in every band while no
+    // market exists to buy Nebulite from.
+    const SitesInfo sites = TestSites();
+    const UniverseDef universe = Bake(SmallConfig());
+
+    std::unordered_set<std::uint16_t> highRegions;
+    std::unordered_set<std::uint16_t> withPocket;
+    for (const SolarSystem& system : universe.systems)
+    {
+      if (TestBand(sites, system.security) != static_cast<std::uint8_t>(SecurityBand::High))
+      {
+        continue;
+      }
+      highRegions.insert(system.region);
+      for (const Anchor& anchor : system.anchors)
+      {
+        if (anchor.kind == AnchorKind::Site && anchor.site.archetype == SiteArchetype::NebulaPocket)
+        {
+          withPocket.insert(system.region);
+        }
+      }
+    }
+    Assert::IsTrue(!highRegions.empty(), L"the test universe has no High-Sec regions, so this proved nothing");
+    for (const std::uint16_t region : highRegions)
+    {
+      Assert::IsTrue(withPocket.count(region) == 1, L"a High-Sec region has nowhere at all to mine Nebulite");
+    }
+  }
+
+  TEST_METHOD(EveryRegionCoversAllThreeOres)
+  {
+    /*
+     * The coverage guarantee, with the precedence that makes it satisfiable: an
+     * archetype's band cap beats the coverage floor. In High-Sec only a pocket
+     * carries Nebulite and a pocket is capped at grade I, so a floor of II
+     * applied blindly would be a promise the content cannot keep.
+     */
+    const SitesInfo sites = TestSites();
+    const UniverseDef universe = Bake(SmallConfig());
+
+    std::unordered_set<std::uint32_t> covered; // region * ORE_COUNT + ore
+    std::unordered_set<std::uint16_t> regions;
+    for (const SolarSystem& system : universe.systems)
+    {
+      regions.insert(system.region);
+      const std::uint8_t band = TestBand(sites, system.security);
+      for (const Anchor& anchor : system.anchors)
+      {
+        if (anchor.kind != AnchorKind::Site)
+        {
+          continue;
+        }
+        const std::uint8_t archetypeCap = sites.archetypes[static_cast<std::uint8_t>(anchor.site.archetype)].gradeCapByBand[band];
+        const std::uint8_t cap =
+            archetypeCap == 0 ? sites.distribution.gradeMax[band] : std::min(archetypeCap, sites.distribution.gradeMax[band]);
+        const std::uint8_t floor = std::min(sites.distribution.minRegionOreGrade, cap);
+        if (anchor.site.grade < floor)
+        {
+          continue;
+        }
+        for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+        {
+          if (anchor.site.poolUnits[ore] > 0)
+          {
+            covered.insert(static_cast<std::uint32_t>(system.region) * ORE_COUNT + ore);
+          }
+        }
+      }
+    }
+    for (const std::uint16_t region : regions)
+    {
+      for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+      {
+        Assert::IsTrue(covered.count(static_cast<std::uint32_t>(region) * ORE_COUNT + ore) == 1,
+                       L"a region cannot supply one of the three ores at all");
+      }
+    }
+  }
+
+  TEST_METHOD(GradesRespectTheBandRangeAndTheArchetypeCap)
+  {
+    const SitesInfo sites = TestSites();
+    const UniverseDef universe = Bake(SmallConfig());
+    for (const SolarSystem& system : universe.systems)
+    {
+      const std::uint8_t band = TestBand(sites, system.security);
+      for (const Anchor& anchor : system.anchors)
+      {
+        if (anchor.kind != AnchorKind::Site)
+        {
+          continue;
+        }
+        const std::uint8_t archetypeCap = sites.archetypes[static_cast<std::uint8_t>(anchor.site.archetype)].gradeCapByBand[band];
+        const std::uint8_t cap =
+            archetypeCap == 0 ? sites.distribution.gradeMax[band] : std::min(archetypeCap, sites.distribution.gradeMax[band]);
+        Assert::IsTrue(anchor.site.grade >= 1 && anchor.site.grade <= cap, L"a site rolled a grade its band and archetype forbid");
+        Assert::IsTrue(anchor.site.orbitRingRadiusMetres > 0, L"a field rides no orbit ring");
+
+        std::uint32_t total = 0;
+        for (const std::uint32_t pool : anchor.site.poolUnits)
+        {
+          total += pool;
+        }
+        Assert::IsTrue(total > 0, L"a mining field holds no ore at all");
+      }
+    }
+  }
+
+  TEST_METHOD(NoSiteContentBakesNoSites)
+  {
+    // What makes `SitesInfo{}` a usable argument for a suite that is not about
+    // the economy -- and what stops a forgotten economy reading off the end of
+    // the grade table.
+    UniverseDef universe;
+    Assert::IsTrue(GenerateUniverse(SmallConfig(), SitesInfo{}, universe), L"a site-free bake was refused");
+    for (const SolarSystem& system : universe.systems)
+    {
+      for (const Anchor& anchor : system.anchors)
+      {
+        Assert::IsTrue(anchor.kind != AnchorKind::Site, L"a bake with no site content produced a site");
+      }
+    }
+  }
+
+  TEST_METHOD(SitesRoundTripThroughTheFileUnchanged)
+  {
+    const UniverseDef universe = Bake(SmallConfig());
+    std::string json;
+    Assert::IsTrue(WriteUniverseJson(universe, json), L"the universe would not serialise");
+
+    UniverseDef reloaded;
+    std::vector<UniverseDiagnostic> diagnostics;
+    Assert::IsTrue(ParseUniverse(json, reloaded, diagnostics), L"a universe with sites does not parse back");
+    Assert::AreEqual(ComputeUniverseHash(universe), ComputeUniverseHash(reloaded),
+                     L"a site did not survive the round trip -- so a field would mean something different on each half");
   }
 };
 

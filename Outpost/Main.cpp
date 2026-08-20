@@ -6,6 +6,7 @@
 #include "SelfTest.h"
 #include "UniverseBake.h"
 #include "ShaderTable.h"
+#include "EconomyLoad.h"
 #include "UniverseLoad.h"
 
 // GameLogic, reached only from here: the executable is the one project
@@ -101,6 +102,7 @@ void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigP
   NEURON_LOG_INFO("server: port %u, max sessions %u", static_cast<unsigned>(_config.server.port),
                   static_cast<unsigned>(_config.server.maxSessions));
   NEURON_LOG_INFO("universe: %s", _config.universeDefinition.c_str());
+  NEURON_LOG_INFO("economy: %s", _config.economyDefinition.c_str());
   const std::string meshDirectory = Outpost::ResolveContentPath(_config.content.meshDirectory);
   if (meshDirectory.empty())
   {
@@ -139,9 +141,9 @@ public:
    * the point of doing it now: the shape lands while it costs nothing, so U3a's
    * warp adds a destination rather than a runtime.
    */
-  UniverseSimulation(std::uint64_t _universeHash, WorldMeta _worldMeta, const Game::UniverseDef& _universe,
+  UniverseSimulation(std::uint64_t _contentHash, WorldMeta _worldMeta, const Game::UniverseDef& _universe,
                      std::uint64_t _sessionSeed)
-    : m_universeHash(_universeHash),
+    : m_contentHash(_contentHash),
       // Moved rather than copied: `WorldMeta` carries the HUD's display strings
       // as of main's UI slice, so a copy here is three allocations per boot for
       // nothing.
@@ -479,9 +481,13 @@ public:
     return Game::GameSchemaHash();
   }
 
+  /// The universe and the economy, mixed (ADR-024 §7). One number because the
+  /// handshake carries one; both halves state what they read rather than being
+  /// told, so a client whose litres drifted is refused at the door exactly as
+  /// one whose systems drifted is.
   [[nodiscard]] std::uint64_t ContentHash() const override
   {
-    return m_universeHash;
+    return m_contentHash;
   }
 
   [[nodiscard]] WorldMeta World() const override
@@ -515,7 +521,7 @@ public:
   void HandOff() noexcept { m_registry.HandOff(); }
 
 private:
-  std::uint64_t m_universeHash = 0;
+  std::uint64_t m_contentHash = 0;
   WorldMeta m_worldMeta;
 
   Game::WorldRegistry m_registry;
@@ -843,13 +849,17 @@ void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
  * largest. Neither side should learn the other's, so the translation lives
  * here, in the only project entitled to know both.
  *
- * The content hash is the universe hash. Both halves load the identical file
- * and each states what it read rather than being told (ADR-009 §8) -- in
- * `mode: "client"` that is the whole safety property, because a client whose
- * content drifted is refused at the door instead of rendering a world nobody
- * is simulating.
+ * The content hash is the universe and the economy mixed (ADR-024 §7). Both
+ * halves load the identical files and each states what it read rather than
+ * being told (ADR-009 §8) -- in `mode: "client"` that is the whole safety
+ * property, because a client whose content drifted is refused at the door
+ * instead of rendering a world nobody is simulating. Mixing rather than adding
+ * a second wire field is what makes the economy free to guard; its price is
+ * that the number cannot say *which* file differs, which is why the boot log
+ * states both separately.
  */
-Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _config, const Outpost::UniverseLoadResult& _universe)
+Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _config, const Outpost::UniverseLoadResult& _universe,
+                                                     std::uint64_t _contentHash)
 {
   // The mesh list, by name, is the renderer's classId order. Matching on the
   // authored file name rather than on position means reordering the list in
@@ -868,7 +878,7 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
 
   Outpost::ReplicatedWorldView::Desc desc;
   desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, Outpost::ReplicatedWorldView::INVALID_RENDER_CLASS);
-  desc.contentHash = _universe.universeHash;
+  desc.contentHash = _contentHash;
   desc.wingNames = WingNames();
 
   for (const auto& mapping : MESH_FOR_HULL)
@@ -1075,14 +1085,55 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
                   Clock::MillisecondsBetween(universeStart, Clock::Counter()));
   LogResolvedUniverse(universe);
 
+  /*
+   * The economy, beside the universe and guarded the same way (ADR-024 §7).
+   *
+   * Timed for the same reason the universe is, though this file is kilobytes
+   * rather than megabytes: the number that matters is the one a boot reports,
+   * not the one anybody expected, and CI re-takes it on every push.
+   */
+  const std::int64_t economyStart = Clock::Counter();
+  Outpost::EconomyLoadResult economy;
+  std::vector<std::string> economyErrors;
+  if (!Outpost::LoadEconomy(config.economyDefinition, economy, economyErrors))
+  {
+    Outpost::ConfigDiagnostics economyDiagnostics;
+    economyDiagnostics.errors = economyErrors;
+    for (const std::string& error : economyErrors)
+      NEURON_LOG_ERROR("%s", error.c_str());
+    ReportStartupFailure(economyDiagnostics);
+    Log::Shutdown();
+    return 1;
+  }
+  NEURON_LOG_INFO("economy: read, parsed and hashed in %.0f ms from %s",
+                  Clock::MillisecondsBetween(economyStart, Clock::Counter()), economy.path.c_str());
+
+  /*
+   * One number for the handshake, two in the log.
+   *
+   * The wire carries a single `contentHash`, so the economy rides into the
+   * fail-closed check with no new field and no schema bump -- and the cost of
+   * mixing is that the number cannot name the file that differs. Hence both
+   * hashes, stated separately, right here: when a client is refused, this line
+   * is what tells an operator which half drifted.
+   */
+  const std::uint64_t contentHash = Game::MixContentHashes(universe.universeHash, economy.economyHash);
+  NEURON_LOG_INFO("content: universe %016llx, economy %016llx, mixed %016llx",
+                  static_cast<unsigned long long>(universe.universeHash), static_cast<unsigned long long>(economy.economyHash),
+                  static_cast<unsigned long long>(contentHash));
+
   // GameLogic implements Simulation and the composition root injects it
   // (ADR-014 §2). Until it does (S5c), the server hosts one that advances
   // nothing but knows its content hash and where its world is anchored -- which
   // is enough to prove the loop, the sessions, the wire and the handshake.
-  // The session seed is the content hash: same universe, same session, same
-  // worlds -- and a content change is a different session by construction,
-  // which is the honest relationship between the two.
-  UniverseSimulation simulation{universe.universeHash, MakeWorldMeta(universe.universe), universe.universe, universe.universeHash};
+  // The session seed is the **universe** hash, while the hash the wire carries
+  // is the mixed one: same universe, same session, same worlds -- and a
+  // universe change is a different session by construction. The economy is
+  // deliberately not in the seed. It guards the handshake because both halves
+  // must agree about a litre, but a hold size has no business reshuffling every
+  // grid's randomness, and folding it in would make retuning balance silently
+  // re-roll the worlds.
+  UniverseSimulation simulation{contentHash, MakeWorldMeta(universe.universe), universe.universe, universe.universeHash};
   simulation.SpawnStartingFleet();
 
   /*
@@ -1143,7 +1194,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
       // a world view by reference and never learns what is behind it; hosting
       // exercises exactly the handshake a separate client would, because both
       // sides state their own hashes rather than sharing a variable.
-      Outpost::ReplicatedWorldView worldView{MakeWorldViewDesc(config, universe)};
+      Outpost::ReplicatedWorldView worldView{MakeWorldViewDesc(config, universe, contentHash)};
 
       ClientApp client;
       // The shader table is a temporary and the client keeps it, which is safe

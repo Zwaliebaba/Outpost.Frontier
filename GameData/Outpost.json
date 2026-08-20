@@ -4,6 +4,10 @@
 
   "logging": { "level": "info", "file": "Outpost.log" },
   "universe": { "definition": "GameData/Universe/Frontier.json" },
+  // Balance, as hash-guarded content rather than as a compiled table
+  // (ADR-024 §7). Its hash is mixed with the universe's into the one number the
+  // handshake carries, so a client whose litres differ is refused at the door.
+  "economy":  { "definition": "GameData/Economy/Economy.json" },
 
   // The mesh order is the classId order the renderer draws with: ships from
   // smallest to largest, then the two hulls that never move -- the station and

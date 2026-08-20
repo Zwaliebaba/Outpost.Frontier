@@ -34,7 +34,14 @@ set), ADR-014 (the relevance hook lands as rank-in-the-game, truncate-in-the-eng
 ADR-016 §6 (per-grid becomes per-viewer); **ADR-023** delivers remote play and amends
 ADR-003 §1/§3 (descriptors, and validation that is off only against loopback), ADR-008 §8 (its
 "no architectural work remains" now names what the first remote deployment owes) and
-ADR-012 §3.
+ADR-012 §3; **ADR-024** cashes in ADR-016 §3's reserved `Site` kind (sites bake with an
+authored orbit ring, their bearing epoch-derived) and ADR-012 §D13 (the first hash-guarded
+balance content, `Economy.json`), answers ADR-016's named mined-out-fields and wrecks
+questions (a durable site ledger; bounded, non-durable wrecks), grows ADR-017 §1's roster
+record with a per-ship cargo manifest, activates ADR-017 §6's CARGO and REFINERY tabs, and
+ends ADR-017's "no persistence" note — the universe layer's durable state gains a journal
+(ADR-024 §7a) — whose format, cadence and recovery are **ADR-025**, which spends
+ADR-017's "no persistence" note outright.
 
 **A numbering note.** The interest/delta and remote-play deliverables were written as ADR-021
 and ADR-022 and **renumbered to 022 and 023** when they met ship make-way, which had taken 021
@@ -68,6 +75,8 @@ and delta, this is why.
 | [021](ADR/ADR-021-ship-make-way.md) | Ship make-way *(owner-reported defect)* | **A ship with nowhere to be steps out of a mover's lane and flies home** — a displaced target sought through the ordinary envelope, recomputed each tick and never stored; the corridor is tested against the *berth* so the sidestep cannot undo itself; side chosen by turn time, not distance; the occupied destination stays exempt |
 | [022](ADR/ADR-022-interest-and-delta.md) | Interest & delta *(deliverable A14 — gates shared grids)* | **Culling and delta live in the session role alone**; `SnapshotAck` against a ring of **views as sent**, not world states; keyframes on a new reliable `Bulk` channel because a view switch is a mid-session join; the game **ranks** relevance and the engine **truncates** it; **owned and selected are never culled** and `culledCount` says what is missing; truncate, never refuse; ownership costs **no byte** — two spare `statusBits` carry the relationship |
 | [023](ADR/ADR-023-remote-play.md) | Remote play *(deliverable A22 — blocks first remote deployment)* | **A two-pin key compiled into the build, never a config value**; `Listen`/`Connect` take descriptors and the validation policy is *derived from the address*, so "no validation off-loopback" is unrepresentable rather than discouraged; the token step lives in the front door and the game never sees it; four abuse rules, each closing something in the tree today |
+| [024](ADR/ADR-024-mining-economy.md) | Mining economy *(economy design session — **accepted** 2026-08-20, nine owner rulings recorded across two review rounds)* | **Three ores across 2–3 `Site` anchors per system** (ADR-016 §3's reserved kind cashed in) that **re-form on a daily epoch** — bearing on an authored orbit ring, warp-in, layout, pools — banded by the existing security value with hazards staged pre/post-combat; a fleet `Mine` order with deterministic cycles and a durable site ledger (worlds forget, ledgers do not); every economy number in hash-guarded content (`Economy.json`, ADR-012 §D13), movement staying compiled; per-station Bays, manual transfer, deterministic ME refining with communal station-tier upgrades — Nova-Steel refinable only outside High-Sec; **persistence becomes due**: an engine-owned journal + snapshot at the universe layer, its ADR a named deliverable blocking implementation |
+| [025](ADR/ADR-025-persistence.md) | Persistence *(deliverable D-P1 — **accepted** 2026-08-20; clears E2's gate)* | **An engine-owned append-only journal plus a periodic snapshot**, serialised on Sim and written on its own lane; the durable line is **identity and location, never intention** — a fleet reloads at rest with an empty queue; records are **outcomes, not commands**, so the journal is explicitly *not* the replay log; a separate **`DurableHash()`** proves the reload because the replay hash folds transient state; the load guards on `universeHash` **only**, so retuning balance never invalidates a shard; a **named one-second** durability window on hard kill and nothing on a clean stop; SQL staged to the service layer |
 
 ## Coding standard
 
@@ -104,10 +113,21 @@ moves between the trees without a rename pass. Three things it changed in these 
   loop) / H1 (the hangar loop); deliverables P1 (station-screen print, blocks T3) and P2
   (dock/undock audio). **T1 is built in all three halves and T2's identity cluster is on the
   wire**; T2's client half is not, and T3 is still gated on P1.
-- [Risk-Register.md](Risk-Register.md) — R1–R23 with designed-in mitigations + standing spikes.
+- [Economy-Build-Order.md](Economy-Build-Order.md) — the mining and refining phase: E1a–E5
+  slices delivering ADR-024 (the economy content layer, sites in the bake and the epoch that
+  moves them, the Mine order and the site ledger, cargo and the Bay and the wire cluster,
+  refining with its tiers and projects, the two screens); milestones G0 (the headless mining
+  loop) / G1 (the first alloy) / G2 (the loop on screen); deliverables **D-P1, the persistence
+  ADR — it blocks E2** and is where ADR-024 §7a's journal gets its format — plus the CARGO and
+  REFINERY prints (block E5), icons, the site field's visual treatment, and audio last.
+  **Nothing is built yet.** It splits the E1 the ADR sketched and moves the screens out of E4,
+  both recorded in its sequencing rationale.
+- [Risk-Register.md](Risk-Register.md) — R1–R26 with designed-in mitigations + standing spikes.
   R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised and
   closed**, and R23 — a gating test that flakes — is the one question that did not close
-  with it.
+  with it. **R24 and R25 arrived with ADR-024** — the economy's two: faucet-without-sink
+  inflation, and High-Sec site contention — and **R26 with ADR-025**, the one persistence
+  brings: a torn journal or a refused load taking a shard's state with it.
 - [Scaling-Readiness-Review.md](Scaling-Readiness-Review.md) — five-lens review of the MVP
   and this corpus for scaling readiness (2026-08-19, **advisory**): consolidated findings
   (`UX-/NET-/CPP-/UI-/SIM-`), a decision list sequenced against the build orders, and the
@@ -129,6 +149,43 @@ moves between the trees without a rename pass. Three things it changed in these 
 green in CI, **and the post-MVP audio slice S15 with them**. The per-slice detail — what was
 built, and what a "done" slice still owes — lives in [MVP-Build-Order.md](MVP-Build-Order.md);
 it is not repeated here.
+
+**The economy phase is designed, accepted, and its first two slices are in the tree
+(ADR-024, ADR-025, 2026-08-20).** A third design session settled mining and refining: three
+ores across 2–3 `Site` anchors per system, a fleet `Mine` order, per-station Bays, and
+deterministic refining with communal station upgrades — with nine owner rulings recorded
+across two review rounds, of which **R7 is the one that changed the shape of the content**
+(a site's bearing is re-derived every epoch, so a field re-forms overnight). ADR-025 followed
+as the deliverable ADR-024 §7a named: persistence, drawn at **identity and location are
+durable, intention and motion are not**, which ends the "no save file exists" era ADR-017
+opened. [Economy-Build-Order.md](Economy-Build-Order.md) is the delivery plan.
+
+**Both are green in CI (run 150, 2026-08-20)**: 650 tests across the four suites in Debug and
+Release, the self test passing end to end, the replay hash matching across configurations, and
+the universe parsing in **183 ms in Release** — a third more content than U1 for a tenth more
+time, so R17's per-region split stays reserved. The tick soak is unchanged in character
+(7.000 ms for a capped grid), which answers the question 6,223 new anchors raise: a site costs
+the tick nothing until somebody warps to it.
+
+**Built so far: E1a and E1b.** `Economy.json` is the **first hash-guarded balance content in
+the tree** — ADR-012 §D13's hook cashed in, with `economyHash` mixed into the handshake's
+existing `contentHash` so an economy mismatch is refused with no wire field added. And
+`AnchorKind::Site` stopped being reserved: the committed universe was re-baked to **24,841
+anchors in 18.93 MB at `universeHash ad9555dd776008a6`**, of which 6,223 are mining fields.
+That re-bake is **purely additive** — 180,467 lines added, zero removed, every station,
+planet and gate anchor keeping its id — because sites are appended after every other anchor
+is numbered and every site roll comes from a per-system stream that never advances the main
+sequence. **E2 is unblocked** now that ADR-025 is accepted, since the site ledger is the
+phase's first durable state.
+
+**What the economy phase cost in corrections is worth reading before the next slice**, because
+all four were found by building rather than by review: the ADR's field radius did not fit the
+grid (it read the 40 km grid as a radius when the half-extent is 20,000 m); two authored
+guarantees contradicted each other in High-Sec, where only a grade-capped pocket carries
+Nebulite; the faded-pocket repair ate the new-player floor in six regions; and CI's
+universe-coordinate guard correctly refused three new files before a line was compiled. Each
+is corrected at its source, and the guard's exclusion list grew a **narrower** rule beside it
+so the tick still cannot reach a site's placement.
 
 **T2's wire half is complete and H0's loop runs (2026-08-20).** `StationCommand` had a
 format, a validator and tests, and no line of `NeuronServer`, `NeuronClient` or `Outpost`
@@ -162,7 +219,7 @@ CI now runs headless in the shipping binary on every push (schema self-check, wi
 round-trips, a replay-determinism run, then the whole handshake + order + snapshot loop over
 QUIC loopback), 4× MSAA offscreen + resolve, cosmetic banking/hover, and the STALE marker.
 The merged tree — S14 plus ADR-015's collision and ADR-021's make-way, and now S15's audio —
-runs **593 tests green** across the four suites on MSVC, in Debug and Release alike.
+runs **593 tests green** across the four suites on MSVC, in Debug and Release alike. *(The suite stands at **650** as of the economy phase, 2026-08-20.)*
 
 **The half that needed a person and a GPU is done (2026-08-19):** the MVP definition
 demonstrated in a live session, together with the visual items outstanding since the last
@@ -340,7 +397,7 @@ linger is simulation state, so it is in the hash.
 **Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
 handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. The
-suite now stands at **593** — 300 client, 208 GameLogic, 75 core, 10 server. GameLogic is
+suite now stands at **650** — it was 593 before the economy phase, and the growth is again GameLogic's (`EconomyParseTests`, and `UniverseSiteTests`' twelve). GameLogic is
 where the growth is, and that is the universe and station phases arriving: it has gone from 136
 to 208 without a single one of those tests needing a device. Its
 visible half — window open, swapchain presenting, heartbeat live — together with the four

@@ -83,6 +83,9 @@
     <ClCompile Include="ConfigLoad.cpp">
       <Filter>Config</Filter>
     </ClCompile>
+    <ClCompile Include="EconomyLoad.cpp">
+      <Filter>Config</Filter>
+    </ClCompile>
     <ClCompile Include="UniverseLoad.cpp">
       <Filter>Config</Filter>
     </ClCompile>
@@ -108,6 +111,9 @@
       <Filter>Config</Filter>
     </ClInclude>
     <ClInclude Include="ConfigLoad.h">
+      <Filter>Config</Filter>
+    </ClInclude>
+    <ClInclude Include="EconomyLoad.h">
       <Filter>Config</Filter>
     </ClInclude>
     <ClInclude Include="UniverseLoad.h">

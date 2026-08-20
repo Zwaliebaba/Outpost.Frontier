@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EconomyDef.h"
 #include "Ids.h"
 #include "Universe.h"
 
@@ -115,6 +116,18 @@ inline constexpr std::int64_t GATE_WARP_IN_STANDOFF_METRES = 1'200;
 /// `Structure` contact radius so an undocking fleet never spawns in contact.
 inline constexpr std::int64_t STATION_UNDOCK_STANDOFF_METRES = 800;
 
+/*
+ * Where a site's orbit ring may sit, as a percentage of the gap between the two
+ * planet orbits it rides between (ADR-024 §3a).
+ *
+ * The midpoint, rather than a roll: the *bearing* is what varies, every epoch,
+ * and varying the radius as well would buy nothing a player could perceive
+ * while making a field's distance from its star another number to reproduce.
+ * Outside the last planet there is no gap to halve, so the ring takes a fixed
+ * step beyond it instead.
+ */
+inline constexpr std::int64_t SITE_RING_BEYOND_LAST_PLANET_PCT = 140;
+
 /// The room ADR-018 D18's deterministic per-order arrival offsets get to spread
 /// in. Baked so that answering hub contention never needs an anchor-schema
 /// migration; the offset *rule* is the simulation's.
@@ -183,8 +196,15 @@ inline constexpr std::uint32_t DYNAMIC_SHIP_ID_BASE = 32768;
  *
  * Deterministic in the strong sense the accept asks for: the same config
  * produces the same `UniverseDef`, field for field, on any build.
+ *
+ * **`_sites` is the economy's site block** (ADR-024 §7's division of custody:
+ * the bake consumes `sites`, the runtime consumes the rest). It is a parameter
+ * rather than a field of the config because it is *content read from another
+ * file* rather than part of this universe's recipe -- passing it explicitly is
+ * what keeps one set of numbers in one place, which is the whole point of E1a
+ * having moved them out of code.
  */
-[[nodiscard]] bool GenerateUniverse(const UniverseGenConfig& _config, UniverseDef& _outUniverse);
+[[nodiscard]] bool GenerateUniverse(const UniverseGenConfig& _config, const SitesInfo& _sites, UniverseDef& _outUniverse);
 
 /// Serialises a generated universe to the canonical JSON the game reads back.
 /// Round-trips through `ParseUniverse` exactly; that is a bake invariant, not

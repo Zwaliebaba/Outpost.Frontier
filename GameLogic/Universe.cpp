@@ -277,6 +277,21 @@ std::uint64_t ComputeUniverseHash(const UniverseDef& _universe)
       hash = HashValue(anchor.undockFacingTurns16, hash);
       hash = HashValue(anchor.occupantIdBase, hash);
       hash = HashValue(anchor.occupantCount, hash);
+
+      // The site block, folded unconditionally rather than only for sites: it
+      // is zeroed on every other kind, so hashing it costs nothing and cannot
+      // be forgotten the day a fourth kind carries one. A pool that changed
+      // without moving `universeHash` would be two halves quietly disagreeing
+      // about how much ore a field holds.
+      hash = HashValue(static_cast<std::uint8_t>(anchor.site.archetype), hash);
+      hash = HashValue(anchor.site.grade, hash);
+      hash = HashValue(anchor.site.orbitRingRadiusMetres, hash);
+      hash = HashValue(anchor.site.fieldRadiusCm, hash);
+      hash = HashValue(anchor.site.layoutSeed, hash);
+      for (const std::uint32_t pool : anchor.site.poolUnits)
+      {
+        hash = HashValue(pool, hash);
+      }
     }
   }
 
