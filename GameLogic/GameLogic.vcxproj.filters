@@ -17,6 +17,9 @@
     <ClCompile Include="EconomyParse.cpp">
       <Filter>Economy</Filter>
     </ClCompile>
+    <ClCompile Include="SiteEpoch.cpp">
+      <Filter>Economy</Filter>
+    </ClCompile>
     <ClCompile Include="Eta.cpp">
       <Filter>Orders</Filter>
     </ClCompile>
@@ -91,6 +94,12 @@
     </ClInclude>
     <ClInclude Include="EconomyParse.h">
       <Filter>Economy</Filter>
+    </ClInclude>
+    <ClInclude Include="SiteEpoch.h">
+      <Filter>Economy</Filter>
+    </ClInclude>
+    <ClInclude Include="FixedAngle.h">
+      <Filter>Universe</Filter>
     </ClInclude>
     <ClInclude Include="Eta.h">
       <Filter>Orders</Filter>

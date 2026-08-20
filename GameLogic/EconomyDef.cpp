@@ -252,6 +252,11 @@ const char* OreContentKey(OreId _ore) noexcept
   return ORE_KEYS[static_cast<std::uint8_t>(_ore)];
 }
 
+const char* SiteArchetypeContentKey(SiteArchetype _archetype) noexcept
+{
+  return ARCHETYPE_KEYS[static_cast<std::uint8_t>(_archetype)];
+}
+
 bool TryOreId(std::string_view _text, OreId& _outOre) noexcept
 {
   std::uint8_t index = 0;

@@ -160,9 +160,15 @@ epoch's approach vector, its facing derived with it. The baked **site block**:
 - `archetype` — `ferrousField` | `irradiatedBelt` | `nebulaPocket`
 - `grade` — I–V (§3d): how rich, how hazardous
 - `orbitRingRadius` — where on the disc the field rides; the *bearing* is the epoch's
-- `fieldRadiusCm` — the rock field's extent (8–15 km; bake invariant: field plus warp-in
-  standoff sits inside the 40 km grid bound — origin-independent, so it holds for every
-  bearing by construction)
+- `fieldRadiusCm` — the rock field's extent (**5–12 km**; bake invariant: field plus warp-in
+  standoff plus arrival arc sits inside the grid bound — origin-independent, so it holds for
+  every bearing by construction). *(**Corrected by E1b, 2026-08-20.** This said 8–15 km
+  against "the 40 km grid bound", reading the 40 km as a radius. A grid is 40 km **across**:
+  `GRID_HALF_EXTENT_METRES` is 20,000, so everything a warping fleet touches has to fit inside
+  20 km of the anchor. At 15 km the field, its 2 km standoff and the wide arrival arc this
+  same section asks for came to 23 km and did not fit. 12 km is the ceiling that does —
+  12,000 + 2,000 + 40 % of 12,000 = 18,800 m, clearing the bound by 1,200 m — and the
+  arithmetic now lives beside the numbers in `Economy.json`.)*
 - `layoutSeed` — the deterministic rock-field layout (§4c), reshuffled per epoch
 - per-ore starting pool, in units, from the archetype × grade tables below
 
@@ -227,7 +233,14 @@ suite's style:
 - At most two sites of one archetype per system in High and Low. **Null may roll triples**:
   a triple-nebula system is a strategic prize, and prizes belong where the shooting is.
 - Every High-Sec **region** contains ≥ 1 faded `nebulaPocket` system (ruling 1b).
-- Every region's site set covers all three ores at grade ≥ II somewhere.
+- Every region's site set covers all three ores at grade ≥ II somewhere — **or at the
+  archetype's own band cap where one applies, which beats this floor.** *(The precedence is
+  E1b's, 2026-08-20, and it exists because the two bullets above contradicted each other: in
+  High-Sec only a nebula pocket carries Nebulite at all, and ruling 1b caps a High-Sec pocket
+  at grade I. A floor of II applied blindly was a promise the content could not keep, so the
+  specific rule wins over the general one — the pocket stays faded, and coverage yields to the
+  cap. The bake **checks** this rather than repairing it, and refuses rather than shipping a
+  region that cannot supply an ore.)*
 - Starter systems author their sites by hand, like everything else about them: Vesta-3
   gets `ferrousField` grade II and `irradiatedBelt` grade I — both cycles teachable at
   home, Nebulite deliberately a short trip away.

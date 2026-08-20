@@ -304,7 +304,9 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation)
     recipe.systemCount = 12;
 
     Game::UniverseDef universe;
-    bool ok = Game::GenerateUniverse(recipe, universe);
+    // No site content: this checks gate topology, and a universe without
+    // mining fields is the cheaper one to bake for it (UniverseGen's guard).
+    bool ok = Game::GenerateUniverse(recipe, Game::SitesInfo{}, universe);
 
     // The first gate with a far side, and the anchor on the other end of it.
     Game::AnchorId here = Game::INVALID_ID;

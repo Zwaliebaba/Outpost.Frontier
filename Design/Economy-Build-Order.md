@@ -1,6 +1,6 @@
 # Economy Build Order — the Mining and Refining Phase
 
-**Status:** Session output 2026-08-20 · **E1a is built** (2026-08-20); the rest is not. The design this plan delivers
+**Status:** Session output 2026-08-20 · **E1a and E1b are built** (2026-08-20); the rest is not. The design this plan delivers
 is [ADR-024](ADR/ADR-024-mining-economy.md), accepted 2026-08-20 with nine owner rulings;
 where this document and that one disagree, the **ADR wins on *what*** and this one on
 ***when***. Two refinements of the ADR's own delivery sketch are recorded in the sequencing
@@ -87,7 +87,7 @@ holds what it parses into plus `ComputeEconomyHash` and `MixContentHashes`;
 `GameLogic/EconomyParse.h/.cpp` is the pure `bytes → EconomyDef` function in
 `ParseUniverse`'s shape; `Outpost/EconomyLoad.h/.cpp` opens the file the way
 `UniverseLoad` does; and `Tests/GameLogicTests/EconomyParseTests.cpp` is the suite.
-**`economyHash 162c9e8874ee3435`.** The handshake carries
+**`economyHash 0b07707ec843431d`.** *(E1a measured `162c9e8874ee3435`; E1b corrected the field-radius range against the real grid bound, and a changed litre moving the hash is the property the hash exists to have.)* The handshake carries
 `Mix(universeHash, economyHash)` through the existing `contentHash` — no wire field, no
 schema bump — and the boot log states all three numbers, because a mixed hash cannot say
 which file drifted.
@@ -162,6 +162,67 @@ two runs and identical between a GameLogic call and the client's own. Parse + ha
 grown file **re-measured in Release** against D11's ~1 s ceiling. `UniverseGenTests`'
 expected `universeHash` is updated in the same commit — this is a **fail-closed content
 event**, and both halves take it together.
+
+**Built (E1b, 2026-08-20).** `AnchorKind::Site` stopped being reserved, and the universe
+grew **6,223 mining fields**. `GameLogic/SiteEpoch.h/.cpp` is where a field is *today* --
+`SiteEpochIndex` and `SiteEpochPlacement`, pure and integer-only and called by both halves;
+`FixedAngle.h` carries the fixed-point sine table `UniverseGen.cpp` kept privately until a
+second, runtime consumer arrived; `Anchor` grew a `SiteSpec`; the writer, the parser and
+`ComputeUniverseHash` all learned it; and `Tests/GameLogicTests/UniverseGenTests.cpp` gained
+a `UniverseSiteTests` class of twelve.
+**`universeHash ad9555dd776008a6`**, 18.93 MB, 24,841 anchors (3,356 station, 9,262 planet,
+6,000 gate, 6,223 site) with the top anchor id at 24,841 of the u16 window's 65,535.
+
+**The re-bake is purely additive, which is the part that made it reviewable.** `git` reports
+**180,467 lines added and zero removed**: not one station, planet or gate anchor moved, no
+occupant block shifted, and no name, position, security value or gate edge changed. Two
+decisions bought that. Sites are appended **after** every other anchor already has its id --
+the same argument ADR-016 §10 used for appending `HullClass::Gate`, run against a 15 MB file
+-- and every site roll comes from a **per-system stream of its own**, so the main sequence
+that draws names and orbits is never advanced by a site. A site also **authors no occupants**,
+so ~6,250 anchors joined without going near the 32,767-id window U4 measured into refusal.
+
+**Three things the implementation found, each now corrected at its source.** The ADR's
+field-radius range **did not fit the grid**: it said 8-15 km against "the 40 km grid bound",
+but a grid is 40 km *across* and `GRID_HALF_EXTENT_METRES` is 20,000, so at 15 km the field,
+its standoff and the wide arrival arc came to 23 km. The range is now 5-12 km, worst case
+18,800 m, and the arithmetic sits beside the numbers in `Economy.json`. Two authored
+**guarantees contradicted each other**: coverage asks every region for all three ores at
+grade >= II, while ruling 1b caps a High-Sec nebula pocket at grade I -- and in High-Sec only
+a pocket carries Nebulite, so an all-High region could never satisfy both. The archetype's cap
+now beats the coverage floor, and the bake **checks** coverage and refuses rather than shipping
+a region that cannot supply an ore. And the faded-pocket repair **ate the new-player floor**:
+converting the first convertible site in a region took High-Sec systems' first site, which
+§3c reserves for the hazard-free archetype. Six regions lost it before the repair learned to
+skip slot one; a test now pins it.
+
+Two smaller things fell out. The universe file crossed `JsonLimits`' **16 MB default**, so
+`ParseUniverse` now passes its own 64 MB cap -- which is what ADR-012 §C9 meant by content
+setting its own limit, arriving the first time it mattered. And `GenerateUniverse` gained a
+second parameter, the economy's site block, with a **guard that bakes no sites when no site
+content is supplied** -- which is what lets `RegistryTests` and `selfTest` pass `SitesInfo{}`
+instead of carrying an economy they have no use for.
+
+**What was verified, and how.** The whole GameLogic path compiles clean under **clang 18 on
+Linux** and is **clang-tidy clean**; the four source guards that apply (repo-wide file-name
+uniqueness, R2 prefixes and suffixes, no clock or unseeded randomness in GameLogic, no
+constant declared in two headers) were run by hand and are green; and every new file is in the
+`.vcxproj`, the `.filters` and both file-name registries. The real `UniverseGenTests.cpp` was
+compiled against a CppUnitTest shim and run: **32 test methods, 0 failures** -- the twelve new
+ones plus the twenty that already existed, which now run against universes that contain sites.
+A separate bake harness ran the committed recipe end to end: bake, write, parse back, hash,
+and every ADR-024 §3 guarantee checked against the *generated* content, all green, and the
+same recipe twice produced byte-identical output.
+
+**What is still owed.** **MSVC has not built this and `GameLogicTests` has not run** -- CI's
+Debug and Release legs are the first real gate, as AGENTS.md §6 means it. `Outpost/UniverseBake.cpp`
+and `Outpost/SelfTest.cpp` are Windows-only translation units, reviewed by reading the diff and
+no more. And the parse figure the accept wants is a **Release MSVC** number: what exists is
+**185-220 ms on Linux clang -O2** for the 18.93 MB file, against U1's 167 ms Release for
+14.2 MB, so the ~1 s ceiling (ADR-018 D11) looks comfortable and **no per-region content split
+is owed** -- but that sentence needs CI's number before it is a measurement rather than an
+extrapolation.
+
 
 ### E2 — Mining in the sim, and the site ledger
 **Gated on the persistence ADR** (below): the site ledger is this tree's first durable state,

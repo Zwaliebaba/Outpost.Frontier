@@ -433,6 +433,7 @@ struct EconomyDef
 /// The content's own spelling of an id, for parsing and for diagnostics. These
 /// are the strings `Economy.json` uses, not display names.
 [[nodiscard]] const char* OreContentKey(OreId _ore) noexcept;
+[[nodiscard]] const char* SiteArchetypeContentKey(SiteArchetype _archetype) noexcept;
 
 [[nodiscard]] bool TryOreId(std::string_view _text, OreId& _outOre) noexcept;
 [[nodiscard]] bool TryAlloyId(std::string_view _text, AlloyId& _outAlloy) noexcept;

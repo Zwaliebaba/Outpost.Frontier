@@ -114,8 +114,17 @@
     // that actually bites: arrivals scatter across an arc of the field edge
     // rather than onto a point, so a camper covers a fraction of the possible
     // arrivals instead of all of them (§3a).
+    //
+    // The radius range is bounded by the grid, and E1b is where that stopped
+    // being a guess. A tactical grid is 40 km ACROSS -- GRID_HALF_EXTENT_METRES
+    // is 20,000 -- so everything a warping fleet can touch has to fit inside
+    // 20 km of the anchor, not 40: field radius, plus the standoff outside it,
+    // plus the spread arc. At the maximum that is 12,000 + 2,000 + 40% of
+    // 12,000 = 18,800 m, which clears the bound with 1,200 m to spare. ADR-024
+    // §3a proposed 8-15 km by reading the 40 km as a radius; the ADR carries
+    // the correction, and this is the arithmetic it was corrected to.
     "warpInStandoffMetres": 2000,
-    "fieldRadiusMetres": { "min": 8000, "max": 15000 },
+    "fieldRadiusMetres": { "min": 5000, "max": 12000 },
     "arrivalSpreadPctOfField": 40,
     "clusterCount": { "min": 6, "max": 12 },
 

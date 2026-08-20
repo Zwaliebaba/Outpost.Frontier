@@ -491,7 +491,79 @@ void ReadConstellations(Reader& _reader, const JsonValue& _root, UniverseDef& _o
     _outKind = AnchorKind::Gate;
     return true;
   }
-  return false; // `site` is reserved and never baked (ADR-016 §3).
+  if (_text == "site")
+  {
+    _outKind = AnchorKind::Site;
+    return true;
+  }
+  return false;
+}
+
+/*
+ * A site anchor's own block (ADR-024 §3a).
+ *
+ * Every field is required. An optional read would let a re-bake that forgot one
+ * parse into a field with no ore in it, and the first anyone would know is a
+ * commander warping to a mining site and finding rocks worth nothing.
+ */
+/*
+ * A sanity ceiling on a site's ring radius -- a corruption bound, not a design
+ * limit. The outermost planet a bake places sits at 30 AU (~4.5e12 m) and a
+ * ring beyond the last planet steps out by 40%, so anything past this is a file
+ * that has been damaged rather than a field that is far away.
+ */
+constexpr std::int64_t SITE_RING_MAX_RADIUS_METRES = 100'000'000'000'000; // ~668 AU
+
+[[nodiscard]] bool ReadSiteSpec(Reader& _reader, const JsonValue& _anchor, const std::string& _anchorPath, SiteSpec& _outSite)
+{
+  const JsonValue site = _reader.Require(_anchor, "site", JsonKind::Object, _anchorPath);
+  if (!site.Valid())
+  {
+    return false;
+  }
+  const std::string path = _anchorPath + ".site";
+  RejectUnknownKeys(_reader, site, {"archetype", "grade", "orbitRingRadiusMetres", "fieldRadiusCm", "layoutSeed", "poolUnits"},
+                    path);
+
+  std::string archetypeText;
+  bool ok = _reader.ReadName(site, "archetype", path, archetypeText);
+  if (ok && !TrySiteArchetype(archetypeText, _outSite.archetype))
+  {
+    _reader.Fail(site, path + ".archetype", "'" + archetypeText + "' is not a site archetype");
+    ok = false;
+  }
+
+  std::int64_t grade = 0;
+  ok = _reader.ReadInt64(site, "grade", path, 1, SITE_GRADE_COUNT, grade) && ok;
+  _outSite.grade = static_cast<std::uint8_t>(grade);
+
+  // A ring at or inside the star is not a place; the ceiling is the plane's own
+  // arithmetic rather than a taste, since a radius is added to a system centre.
+  ok = _reader.ReadInt64(site, "orbitRingRadiusMetres", path, 1, SITE_RING_MAX_RADIUS_METRES, _outSite.orbitRingRadiusMetres) && ok;
+
+  std::int64_t fieldRadiusCm = 0;
+  ok = _reader.ReadInt64(site, "fieldRadiusCm", path, 1, GRID_HALF_EXTENT_METRES * 100, fieldRadiusCm) && ok;
+  _outSite.fieldRadiusCm = static_cast<std::int32_t>(fieldRadiusCm);
+
+  std::int64_t layoutSeed = 0;
+  ok = _reader.ReadInt64(site, "layoutSeed", path, 0, 0xffffffffll, layoutSeed) && ok;
+  _outSite.layoutSeed = static_cast<std::uint32_t>(layoutSeed);
+
+  const JsonValue pools = _reader.Require(site, "poolUnits", JsonKind::Object, path);
+  if (!pools.Valid())
+  {
+    return false;
+  }
+  const std::string poolPath = path + ".poolUnits";
+  RejectUnknownKeys(_reader, pools, {OreContentKey(OreId::FerroChroma), OreContentKey(OreId::Astracite), OreContentKey(OreId::Nebulite)},
+                    poolPath);
+  for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+  {
+    std::int64_t units = 0;
+    ok = _reader.ReadInt64(pools, OreContentKey(static_cast<OreId>(ore)), poolPath, 0, 0xffffffffll, units) && ok;
+    _outSite.poolUnits[ore] = static_cast<std::uint32_t>(units);
+  }
+  return ok;
 }
 
 void ReadAnchors(Reader& _reader, const JsonValue& _system, const std::string& _systemPath, SolarSystem& _outSystem)
@@ -518,7 +590,7 @@ void ReadAnchors(Reader& _reader, const JsonValue& _system, const std::string& _
     }
     RejectUnknownKeys(_reader, entry,
                       {"id", "kind", "owner", "origin", "warpIn", "warpInFacingTurns16", "arrivalSpreadRadiusCm", "undock",
-                       "undockFacingTurns16", "occupantIdBase", "occupantCount"},
+                       "undockFacingTurns16", "occupantIdBase", "occupantCount", "site"},
                       path);
 
     Anchor anchor;
@@ -532,7 +604,7 @@ void ReadAnchors(Reader& _reader, const JsonValue& _system, const std::string& _
 
     if (haveKind && !ParseAnchorKindName(kindText, anchor.kind))
     {
-      _reader.Fail(entry, path + ".kind", "'" + kindText + "' is not station, planet or gate");
+      _reader.Fail(entry, path + ".kind", "'" + kindText + "' is not station, planet, gate or site");
       continue;
     }
 
@@ -544,6 +616,18 @@ void ReadAnchors(Reader& _reader, const JsonValue& _system, const std::string& _
     if (_reader.ReadOptionalInt64(entry, "arrivalSpreadRadiusCm", path, 0, GRID_HALF_EXTENT_METRES * 100, spread))
     {
       anchor.arrivalSpreadRadiusCm = static_cast<std::int32_t>(spread);
+    }
+
+    bool haveSite = true;
+    if (anchor.kind == AnchorKind::Site)
+    {
+      haveSite = ReadSiteSpec(_reader, entry, path, anchor.site);
+    }
+    else if (entry.Member("site").Valid())
+    {
+      // A site block on a station is not a harmless extra: it would parse, hash
+      // and then mean nothing, which is how content grows a field nobody reads.
+      _reader.Fail(entry, path + ".site", "only a site anchor carries a site block");
     }
 
     bool haveUndock = true;
@@ -562,8 +646,8 @@ void ReadAnchors(Reader& _reader, const JsonValue& _system, const std::string& _
     anchor.occupantIdBase = static_cast<std::uint32_t>(idBase);
     anchor.occupantCount = static_cast<std::uint16_t>(occupants);
 
-    if (!haveId || !haveKind || !haveOwner || !haveOrigin || !haveWarpIn || !haveFacing || !haveUndock || !haveIdBase ||
-        !haveOccupants)
+    if (!haveId || !haveKind || !haveOwner || !haveOrigin || !haveWarpIn || !haveFacing || !haveUndock || !haveSite ||
+        !haveIdBase || !haveOccupants)
     {
       continue;
     }
@@ -714,7 +798,21 @@ bool ParseUniverse(std::string_view _json, UniverseDef& _outUniverse, std::vecto
 
   JsonDocument document;
   std::vector<JsonError> jsonErrors;
-  if (!JsonDocument::Parse(_json, document, jsonErrors))
+  /*
+   * The universe sets its own size cap (ADR-012 §C9), and E1b is when it had
+   * to: `JsonLimits`' 16 MB default was comfortable for U1's 14.2 MB file and
+   * is not for this one, because ~6,250 site anchors take it past the line. A
+   * content file outgrowing a limit meant for *configuration* is not a
+   * surprise -- it is the reason the ADR said content would carry its own.
+   *
+   * 64 MB is a corruption bound rather than a budget. What actually governs how
+   * big this file may get is R17's parse-time threshold and ADR-018 D11's ~1 s
+   * ceiling, both measured in Release, with a per-region split as the reserved
+   * fallback; a byte count cannot express that and should not pretend to.
+   */
+  Neuron::JsonLimits limits;
+  limits.maxBytes = std::size_t{64} * 1024 * 1024;
+  if (!JsonDocument::Parse(_json, document, jsonErrors, limits))
   {
     for (const JsonError& error : jsonErrors)
     {

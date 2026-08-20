@@ -22,6 +22,7 @@
     <ClCompile Include="ReplicatedView.cpp" />
     <ClCompile Include="EconomyDef.cpp" />
     <ClCompile Include="EconomyParse.cpp" />
+    <ClCompile Include="SiteEpoch.cpp" />
     <ClCompile Include="Eta.cpp" />
     <ClCompile Include="EventRecord.cpp" />
     <ClCompile Include="FleetSummary.cpp" />
@@ -50,6 +51,8 @@
     <ClInclude Include="SchemaHash.h" />
     <ClInclude Include="EconomyDef.h" />
     <ClInclude Include="EconomyParse.h" />
+    <ClInclude Include="FixedAngle.h" />
+    <ClInclude Include="SiteEpoch.h" />
     <ClInclude Include="Eta.h" />
     <ClInclude Include="EventRecord.h" />
     <ClInclude Include="FleetSummary.h" />

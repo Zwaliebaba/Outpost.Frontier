@@ -52,7 +52,9 @@ namespace
   config.constellationsPerRegion = 2;
   config.systemCount = 12;
   UniverseDef universe;
-  Assert::IsTrue(GenerateUniverse(config, universe), L"the test universe would not bake");
+  // No site content: the registry's subject is worlds and ids, and a
+  // universe without mining fields is the cheaper one to bake for it.
+  Assert::IsTrue(GenerateUniverse(config, SitesInfo{}, universe), L"the test universe would not bake");
   return universe;
 }
 
