@@ -526,6 +526,151 @@ public:
     Assert::IsTrue(sawAccept && sawRefusal, L"a matrix that is all one answer proves nothing");
   }
 
+  TEST_METHOD(AFleetScaleDockRoundTripsThroughTheWireWithParity)
+  {
+    /*
+     * H0's last parity criterion, and the one the two tests above do not cover
+     * between them. `TheRadiusGrowsWithTheFleetItIsJudging` proves the radius
+     * scales, but never sends anything; `TheClientAndTheServerRefuseADockForThe
+     * SameReason` proves the verdicts agree, but over **two** ships and marks
+     * this file wrote by hand.
+     *
+     * This one is the whole fleet through the actual wire. Forty-one ships in
+     * the MVP's own class mix are docked at a real station, the world is
+     * serialised and decoded, and the client's view is assembled **from the
+     * decoded records** rather than from the world's tables -- ids in the order
+     * the wire put them, positions that have been through centimetre
+     * quantisation and back.
+     *
+     * The reason this is worth its own test rather than a bigger `cases[]`:
+     * the footprint-derived radius (ADR-018 D7) is computed from a *solve over
+     * the whole order*, so its inputs are every member's class and position.
+     * At two ships a rounding difference cannot move the answer; at forty-one,
+     * spread over kilometres in a Battleship-paced line, the radius is a
+     * kilometres-large number derived from forty-one quantised positions, and
+     * the two halves have to land on the same float anyway.
+     */
+    World world;
+    world.Reset(12);
+
+    const ShipId station = SpawnAt(world, HullClass::Structure, 0.0f, 0.0f);
+    world.SetAnchor(81, station, {});
+
+    // The MVP fleet's own mix, so the solve is asked the question the game
+    // actually asks it rather than a uniform one.
+    constexpr HullClass FLEET_MIX[] = {HullClass::Interceptor, HullClass::Bomber,  HullClass::Corvette,
+                                       HullClass::Frigate,     HullClass::Hauler,  HullClass::Miner,
+                                       HullClass::Carrier,     HullClass::Battleship};
+    constexpr std::uint32_t FLEET_SIZE = 41;
+
+    OrderSubmit dock = DockOrder({}, 81);
+    for (std::uint32_t index = 0; index < FLEET_SIZE; ++index)
+    {
+      // Fanned out at odd offsets so no two ships share a position and the
+      // quantisation has something to round.
+      const float x = 700.0f + static_cast<float>(index) * 37.3f;
+      const float y = -400.0f + static_cast<float>(index) * 19.7f;
+      const ShipId ship = SpawnAt(world, FLEET_MIX[index % std::size(FLEET_MIX)], x, y);
+      Assert::IsTrue(dock.AddShip(ship), L"the per-order cap must hold the MVP fleet");
+    }
+    Assert::AreEqual<std::uint32_t>(FLEET_SIZE, dock.shipCount);
+
+    // Through the wire, and back.
+    std::array<std::uint8_t, 2048> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteSnapshot(world, writer), L"the fleet plus its station must fit one datagram");
+
+    SnapshotHeader header;
+    std::vector<Neuron::EntityRecord> records;
+    Neuron::ByteReader reader{writer.Written()};
+    Assert::IsTrue(ReadSnapshot(reader, header, records));
+    Assert::AreEqual<std::size_t>(FLEET_SIZE + 1, records.size(), L"the fleet and the station both have to arrive");
+
+    // The client's view, built from what arrived and from nothing else.
+    std::vector<ShipId> replicatedIds;
+    std::vector<ShipMark> replicatedMarks;
+    replicatedIds.reserve(records.size());
+    replicatedMarks.reserve(records.size());
+    float stationXMetres = 0.0f;
+    float stationYMetres = 0.0f;
+    for (const Neuron::EntityRecord& record : records)
+    {
+      replicatedIds.push_back(static_cast<ShipId>(record.id));
+      ShipMark mark;
+      mark.xCm = record.posXCm;
+      mark.yCm = record.posYCm;
+      mark.hullClass = static_cast<HullClass>(record.typeId);
+      replicatedMarks.push_back(mark);
+      if (static_cast<ShipId>(record.id) == station)
+      {
+        stationXMetres = Neuron::CentimetresToMetres(record.posXCm);
+        stationYMetres = Neuron::CentimetresToMetres(record.posYCm);
+      }
+    }
+
+    const ValidationView clientView =
+      DockViewOf(replicatedIds, replicatedMarks, 81, stationXMetres, stationYMetres);
+
+    // The radius first: it is the number the client draws and the server judges
+    // against, so a disagreement here is two different promises to the player.
+    const float serverRadius = DockRadiusMetres(world.Validation(), dock);
+    const float clientRadius = DockRadiusMetres(clientView, dock);
+    Assert::AreEqual(serverRadius, clientRadius, 0.01f, L"the fleet-scale dock radius did not survive the wire");
+    Assert::IsTrue(serverRadius > static_cast<float>(DOCK_RADIUS_METRES),
+                   L"a 41-ship fleet must be the case the flat radius could not serve");
+
+    // Then the verdict, both ways round: one order the fleet can satisfy and
+    // one it cannot, so neither half can pass by always answering the same.
+    const OrderVerdict serverNear = ValidateOrder(world.Validation(), dock);
+    const OrderVerdict clientNear = ValidateOrder(clientView, dock);
+    Assert::AreEqual(serverNear.accepted, clientNear.accepted, L"the halves disagreed about a fleet-scale dock");
+    Assert::IsTrue(serverNear.reason == clientNear.reason);
+    Assert::IsTrue(serverNear.accepted, L"a fleet inside its own footprint radius must be able to dock");
+
+    // Now move one member far outside and re-ask. The refusal has to be the
+    // same refusal, for the same reason, on both sides.
+    World distant;
+    distant.Reset(12);
+    const ShipId farStation = SpawnAt(distant, HullClass::Structure, 0.0f, 0.0f);
+    distant.SetAnchor(81, farStation, {});
+    OrderSubmit strayed = DockOrder({}, 81);
+    for (std::uint32_t index = 0; index < FLEET_SIZE; ++index)
+    {
+      const bool stray = index == FLEET_SIZE - 1;
+      const float x = stray ? 60000.0f : 700.0f + static_cast<float>(index) * 37.3f;
+      const float y = stray ? 60000.0f : -400.0f + static_cast<float>(index) * 19.7f;
+      const ShipId ship = SpawnAt(distant, FLEET_MIX[index % std::size(FLEET_MIX)], x, y);
+      Assert::IsTrue(strayed.AddShip(ship));
+    }
+
+    std::array<std::uint8_t, 2048> strayedBuffer{};
+    Neuron::ByteWriter strayedWriter{strayedBuffer};
+    Assert::IsTrue(WriteSnapshot(distant, strayedWriter));
+    SnapshotHeader strayedHeader;
+    std::vector<Neuron::EntityRecord> strayedRecords;
+    Neuron::ByteReader strayedReader{strayedWriter.Written()};
+    Assert::IsTrue(ReadSnapshot(strayedReader, strayedHeader, strayedRecords));
+
+    std::vector<ShipId> strayedIds;
+    std::vector<ShipMark> strayedMarks;
+    for (const Neuron::EntityRecord& record : strayedRecords)
+    {
+      strayedIds.push_back(static_cast<ShipId>(record.id));
+      ShipMark mark;
+      mark.xCm = record.posXCm;
+      mark.yCm = record.posYCm;
+      mark.hullClass = static_cast<HullClass>(record.typeId);
+      strayedMarks.push_back(mark);
+    }
+    const ValidationView strayedView = DockViewOf(strayedIds, strayedMarks, 81);
+
+    const OrderVerdict serverFar = ValidateOrder(distant.Validation(), strayed);
+    const OrderVerdict clientFar = ValidateOrder(strayedView, strayed);
+    Assert::IsFalse(serverFar.accepted, L"one member 60 km out must not dock the fleet");
+    Assert::AreEqual(serverFar.accepted, clientFar.accepted, L"the halves disagreed about a strayed member");
+    Assert::IsTrue(serverFar.reason == clientFar.reason, L"the same refusal must carry the same reason");
+  }
+
   TEST_METHOD(AViewWithoutMarksCannotWaveADockThrough)
   {
     /*

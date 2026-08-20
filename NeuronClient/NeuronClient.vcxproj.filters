@@ -65,6 +65,9 @@
     <ClCompile Include="Picking.cpp">
       <Filter>Input</Filter>
     </ClCompile>
+    <ClCompile Include="ApproachChain.cpp">
+      <Filter>Input</Filter>
+    </ClCompile>
     <ClCompile Include="OrderPuck.cpp">
       <Filter>Input</Filter>
     </ClCompile>
@@ -180,6 +183,9 @@
       <Filter>Assets</Filter>
     </ClInclude>
     <ClInclude Include="Picking.h">
+      <Filter>Input</Filter>
+    </ClInclude>
+    <ClInclude Include="ApproachChain.h">
       <Filter>Input</Filter>
     </ClInclude>
     <ClInclude Include="OrderPuck.h">

@@ -57,7 +57,17 @@ bool Window::Create(const WindowDesc& _desc)
   }
   m_classRegistered = true;
 
-  const DWORD style = _desc.borderlessFullscreen ? WS_POPUP : WS_OVERLAPPEDWINDOW;
+  /*
+   * Created windowed whatever the configuration says, and put into borderless
+   * fullscreen below if it asked for it.
+   *
+   * Two reasons rather than one. The mode is a *runtime* mode now, so it has to
+   * come from the one function that owns the transition or the configured path
+   * and the Alt+Enter path would be two different fullscreens. And the windowed
+   * box created here is what the toggle restores to, so a session that starts
+   * fullscreen still has somewhere sensible to come back to.
+   */
+  constexpr DWORD style = WS_OVERLAPPEDWINDOW;
 
   // AdjustWindowRect so the requested size is the client area -- the part the
   // swapchain gets -- not the window including its chrome.
@@ -81,8 +91,61 @@ bool Window::Create(const WindowDesc& _desc)
   m_height = static_cast<std::uint32_t>(client.bottom - client.top);
 
   ShowWindow(m_handle, SW_SHOW);
-  NEURON_LOG_INFO("window created: %ux%u client", m_width, m_height);
+  if (_desc.borderlessFullscreen)
+  {
+    SetBorderlessFullscreen(true);
+  }
+  NEURON_LOG_INFO("window created: %ux%u client%s", m_width, m_height, m_borderlessFullscreen ? " (borderless fullscreen)" : "");
   return true;
+}
+
+void Window::SetBorderlessFullscreen(bool _fullscreen) noexcept
+{
+  if (m_handle == nullptr || _fullscreen == m_borderlessFullscreen)
+  {
+    return;
+  }
+
+  if (_fullscreen)
+  {
+    // Saved before anything changes, because this is the only moment the
+    // windowed placement still exists to be read.
+    m_windowedPlacement.length = sizeof(m_windowedPlacement);
+    if (GetWindowPlacement(m_handle, &m_windowedPlacement) == 0)
+    {
+      NEURON_LOG_WARNING("could not read the window placement; staying windowed");
+      return;
+    }
+
+    // The monitor the window is on *now*, not the one it started on: a window
+    // dragged to the second screen goes fullscreen there, which is the only
+    // behaviour that is not surprising.
+    MONITORINFO monitor{};
+    monitor.cbSize = sizeof(monitor);
+    if (GetMonitorInfoW(MonitorFromWindow(m_handle, MONITOR_DEFAULTTONEAREST), &monitor) == 0)
+    {
+      NEURON_LOG_WARNING("could not read the monitor bounds; staying windowed");
+      return;
+    }
+
+    SetWindowLongPtrW(m_handle, GWL_STYLE, static_cast<LONG_PTR>(WS_POPUP | WS_VISIBLE));
+    SetWindowPos(m_handle, HWND_TOP, monitor.rcMonitor.left, monitor.rcMonitor.top, monitor.rcMonitor.right - monitor.rcMonitor.left,
+                 monitor.rcMonitor.bottom - monitor.rcMonitor.top, SWP_FRAMECHANGED | SWP_NOOWNERZORDER);
+  }
+  else
+  {
+    SetWindowLongPtrW(m_handle, GWL_STYLE, static_cast<LONG_PTR>(WS_OVERLAPPEDWINDOW | WS_VISIBLE));
+    SetWindowPlacement(m_handle, &m_windowedPlacement);
+    // Placement moves and sizes it; this is what makes Windows recompute the
+    // frame it was just given back.
+    SetWindowPos(m_handle, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+  }
+
+  m_borderlessFullscreen = _fullscreen;
+  // The swapchain is resized by whoever consumes `ConsumeResize`: the style
+  // change above has already queued the `WM_SIZE` that sets it.
+  NEURON_LOG_INFO("window mode: %s", _fullscreen ? "borderless fullscreen" : "windowed");
 }
 
 void Window::Destroy()
@@ -402,6 +465,13 @@ LRESULT Window::HandleMessage(HWND _window, UINT _message, WPARAM _wParam, LPARA
     // which the flip-model swapchain disables anyway.
     if (_wParam == VK_RETURN)
     {
+      // Bit 30 is the previous key state. Without it a held Alt+Enter toggles
+      // once per auto-repeat, which reads as the window flickering rather than
+      // as a mode change.
+      if ((_lParam & (LPARAM{1} << 30)) == 0)
+      {
+        SetBorderlessFullscreen(!m_borderlessFullscreen);
+      }
       return 0;
     }
     SetKey(_wParam, true); // Alt arrives as a system key, not a plain one.

@@ -1,7 +1,7 @@
 # ADR-018 — Scaling Baseline: the Review Decisions
 
 **Status:** Accepted · 2026-08-19 (owner decision session over
-[Scaling-Readiness-Review.md](../Scaling-Readiness-Review.md))
+[Scaling-Readiness-Review.md](../Archive/Scaling-Readiness-Review.md))
 **Depends on:** ADR-002…008, ADR-012…017 — this ADR decides *between* options those
 documents left open or answers questions they never asked; it introduces no new mechanism
 beyond what the review's findings proposed.
@@ -297,7 +297,7 @@ work must exist before the slice starts; finding ids point into the review's app
   [Station-Build-Order.md](../Station-Build-Order.md) carry the delivery half of §A —
   slice-accept additions, the three design deliverables (A1, A14, A19), and U3c.
 - The [Risk-Register](../Risk-Register.md) gains R19–R21 and annotations per A23/A26.
-- The [review document](../Scaling-Readiness-Review.md) stays the evidence record; where
+- The [review document](../Archive/Scaling-Readiness-Review.md) stays the evidence record; where
   its decision list and this ADR differ, **this ADR wins** — it is the owner's answer.
 - Three schema clusters absorb every wire change decided here (T1: bus + dock; T2:
   identity + u32 command ids + D9's schema-text growth + statusBits; delta slice:

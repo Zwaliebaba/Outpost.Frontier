@@ -843,15 +843,18 @@ public:
     Assert::AreEqual(0.0f, world.SpeedAt(1), 1e-4f, L"separation invented velocity");
   }
 
-  TEST_METHOD(AnOccupiedDestinationEndsParkedAdjacentNotInside)
+  TEST_METHOD(AnObstructedDestinationSlidesWholeAndTheFleetArrives)
   {
     /*
-     * The one arrival the contact model deliberately costs: a target with a
-     * hull already parked on it cannot be reached, so the ship brakes to a stop
-     * against the blocker and the leg ends by its own deadline (ADR-005 §2) --
-     * the same designed outcome as any other member that cannot arrive. What
-     * the model owes here is narrower and testable: no overlap at any point,
-     * a stop adjacent to the blocker, and an order that ends rather than wedges.
+     * ADR-026, the rule and its point in one scenario: a hull is parked exactly
+     * on the destination, and the fleet no longer brakes against it and gives
+     * up. The formation slides to the nearest free placement and **arrives**.
+     *
+     * Three things are asserted rather than one, because "it moved" is not the
+     * claim. It must not overlap the blocker; it must stop **short** of it --
+     * on the side the fleet approached from, which is what ADR-026 3's
+     * approach-bearing fan buys -- and it must genuinely finish, because an
+     * order that slides and then expires anyway has fixed nothing.
      */
     World world;
     world.Reset(11);
@@ -871,18 +874,120 @@ public:
       closest = std::min(closest, CentreDistance(world, mover, parked));
     }
 
-    Assert::IsTrue(closest >= contact - CONTACT_SLACK_METRES, L"the mover pushed into the hull on its target");
+    Assert::IsTrue(closest >= contact - CONTACT_SLACK_METRES, L"the slid fleet still pushed into the hull it slid away from");
 
-    const float finalGap = CentreDistance(world, mover, parked);
-    Assert::IsTrue(finalGap <= contact + 2.0f * World::ARRIVAL_TOLERANCE_METRES + CONTACT_SLACK_METRES,
-                   L"the mover gave up somewhere short of adjacent");
+    std::uint32_t slot = 0;
+    Assert::IsTrue(world.FindSlot(mover, slot));
+    const XMFLOAT2 finished = world.Positions()[slot];
+
+    // One Corvette solves to a point, so the fleet's bounding radius is its
+    // class spacing and the first ring sits exactly that far out.
+    const float spacing = ShipClass(HullClass::Corvette).formationSpacingMetres;
+    const float fromAsked = DistanceTo(finished, 2000.0f, 0.0f);
+    Assert::IsTrue(fromAsked > World::ARRIVAL_TOLERANCE_METRES, L"the fleet did not slide at all");
+    Assert::IsTrue(fromAsked <= 2.0f * spacing + World::ARRIVAL_TOLERANCE_METRES,
+                   L"the fleet slid further than the two rings allow");
+    Assert::IsTrue(finished.x < 2000.0f, L"the fleet slid past the obstruction instead of stopping short of it");
+    Assert::IsTrue(world.SpeedAt(slot) < 1.0f, L"the fleet never settled");
+    Assert::IsTrue(world.Groups().empty(), L"the slid leg did not finish and retire");
+  }
+
+  TEST_METHOD(AFleetWithNowhereToSlideFliesToTheAskedPointAndParksAdjacent)
+  {
+    /*
+     * ADR-026 4's fallback, which is ADR-015 5's outcome kept and demoted:
+     * with every candidate taken the fleet is sent to the point it was asked
+     * for, brakes at contact range and the leg ends by its deadline. Never a
+     * refusal, and never a wedge.
+     *
+     * The blockers are placed at the candidates themselves rather than by
+     * flooding the area, so the test states the geometry it depends on: the
+     * asked point, then twelve bearings at one bounding radius and twelve at
+     * two, fanned from the bearing the fleet approaches along.
+     */
+    World world;
+    world.Reset(11);
+    const ShipId parked = SpawnShipAt(world, HullClass::Corvette, 2000.0f, 0.0f);
+    const ShipId mover = SpawnShipAt(world, HullClass::Corvette, 0.0f, 0.0f);
+    const ShipId moverOnly[] = {mover};
+
+    // A lone Corvette's bounding radius is its spacing, and it approaches from
+    // the west, so the fan starts at pi.
+    const float spacing = ShipClass(HullClass::Corvette).formationSpacingMetres;
+    constexpr std::uint32_t BEARINGS = 12;
+    const float step = XM_2PI / static_cast<float>(BEARINGS);
+    for (const float ring : {1.0f, 2.0f})
+    {
+      for (std::uint32_t index = 0; index < BEARINGS; ++index)
+      {
+        const float bearing = PI + static_cast<float>(index) * step;
+        (void)SpawnShipAt(world, HullClass::Corvette, 2000.0f + std::cos(bearing) * ring * spacing,
+                          std::sin(bearing) * ring * spacing);
+      }
+    }
+
+    const float contact = ContactBetween(HullClass::Corvette, HullClass::Corvette);
+    float closest = std::numeric_limits<float>::max();
+    for (std::uint32_t tick = 1; tick <= 2000; ++tick)
+    {
+      if (tick == 1)
+      {
+        Assert::IsTrue(world.SubmitOrder(MoveTo(moverOnly, 1, 2000.0f, 0.0f)).accepted);
+      }
+      world.Tick(tick);
+      closest = std::min(closest, CentreDistance(world, mover, parked));
+    }
+
+    Assert::IsTrue(closest >= contact - CONTACT_SLACK_METRES, L"the mover pushed into the hull on its target");
     std::uint32_t slot = 0;
     Assert::IsTrue(world.FindSlot(mover, slot));
     Assert::IsTrue(world.SpeedAt(slot) < 1.0f, L"the mover is still pushing against an unreachable target");
-    // Ended by deadline *and long since retired*: a finished group lingers
-    // `ORDER_DONE_LINGER_TICKS` and then leaves the table, so two thousand
-    // ticks later an empty table is what "ended, not wedged" looks like.
     Assert::IsTrue(world.Groups().empty(), L"a blocked leg must end by deadline and retire, not wedge");
+  }
+
+  TEST_METHOD(TwoFleetsSentToOnePointDoNotEndUpInTheSamePlace)
+  {
+    /*
+     * The clause that costs nothing and does the most work (ADR-026 2): both
+     * orders are accepted in the same batch, ingest places them in sequence,
+     * and the second sees the first's *placed* final-leg anchor and goes
+     * somewhere else. Nothing is reserved and nothing is stored -- a placement
+     * is taken exactly when live positions or live intentions say so.
+     *
+     * The asymmetry is the point. An earlier draft counted unplaced groups as
+     * intentions too, and then *both* fleets slid off the point, each
+     * deferring to a claim the other had not actually staked.
+     */
+    World world;
+    world.Reset(11);
+    const ShipId first = SpawnShipAt(world, HullClass::Corvette, -3000.0f, 0.0f);
+    const ShipId second = SpawnShipAt(world, HullClass::Corvette, -3000.0f, 400.0f);
+    const ShipId firstOnly[] = {first};
+    const ShipId secondOnly[] = {second};
+
+    Assert::IsTrue(world.SubmitOrder(MoveTo(firstOnly, 1, 0.0f, 0.0f)).accepted);
+    Assert::IsTrue(world.SubmitOrder(MoveTo(secondOnly, 1, 0.0f, 0.0f)).accepted);
+    for (std::uint32_t tick = 1; tick <= 2000; ++tick)
+    {
+      world.Tick(tick);
+    }
+
+    const float contact = ContactBetween(HullClass::Corvette, HullClass::Corvette);
+    Assert::IsTrue(CentreDistance(world, first, second) >= contact - CONTACT_SLACK_METRES,
+                   L"two fleets sent to one point ended up inside each other");
+
+    std::uint32_t slot = 0;
+    Assert::IsTrue(world.FindSlot(first, slot));
+    const float firstGap = DistanceTo(world.Positions()[slot], 0.0f, 0.0f);
+    Assert::IsTrue(world.FindSlot(second, slot));
+    const float secondGap = DistanceTo(world.Positions()[slot], 0.0f, 0.0f);
+
+    // One of them owns the point it asked for and the other stands off it.
+    // Which one is a fact about the scan order, not about arrival timing.
+    Assert::IsTrue(std::min(firstGap, secondGap) <= World::ARRIVAL_TOLERANCE_METRES,
+                   L"neither fleet got the point, so both slid for no reason");
+    Assert::IsTrue(std::max(firstGap, secondGap) > World::ARRIVAL_TOLERANCE_METRES,
+                   L"both fleets were placed on the same point");
   }
 
   TEST_METHOD(AFormationStillArrivesOnEveryStationWithContactOn)

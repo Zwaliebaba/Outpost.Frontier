@@ -68,6 +68,188 @@ struct WorldClassLookup
 
 } // namespace
 
+bool World::ShipIsUnderOrders(ShipId _shipId) const noexcept
+{
+  const auto carries = [_shipId](const OrderGroup& _group) noexcept
+  {
+    if (_group.state == OrderState::Done || _group.legIndex >= _group.legCount)
+    {
+      return false; // A finished group is lingering to be seen, not going anywhere.
+    }
+    for (std::uint16_t index = 0; index < _group.memberCount; ++index)
+    {
+      if (_group.members[index] == _shipId)
+      {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  for (const OrderGroup& group : m_groups)
+  {
+    if (carries(group))
+    {
+      return true;
+    }
+  }
+  // Pending too, for the reason the intention clause reads them: two orders
+  // accepted in one batch are both true before either is ingested.
+  for (const PendingOrder& pending : m_pending)
+  {
+    if (carries(pending.group))
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+/*
+ * Is a solved placement free? (ADR-026 §2, ADR-017 §4.)
+ *
+ * One predicate, two callers: the parking ring asks it about a berth and a Move
+ * asks it about a slid destination. It was `FindBerth`'s inner loops until
+ * ADR-026 gave the second caller a reason to exist, and it is shared rather
+ * than copied because a second clearance loop is a second thing to keep in step
+ * with ADR-015's factor -- and one of the two would eventually lose.
+ *
+ * Free means both of:
+ *
+ * - the solved stations clear **every hull on the grid** by the avoidance
+ *   model's own `AVOID_CLEARANCE_FACTOR`, ships in `_exclude` aside -- a fleet
+ *   must not count itself as the reason it cannot go somewhere; and
+ * - the placement lands inside **no other group's final-leg anchor**, reading
+ *   the pending queue as well as the live groups.
+ *
+ * That second clause is the one that does the work nobody expects. It is what
+ * makes two fleets sent to the same point on the same tick pick different
+ * placements **with nothing reserved and nothing stored**, and it has to read
+ * pending orders because both fleets are accepted before either is ingested --
+ * the suite found exactly that when the parking ring shipped without it.
+ *
+ * The class lookup is a callback rather than the world's own tables because
+ * `FindBerth` is asked about ships that have only just arrived, and passing the
+ * caller's lookup keeps that path bit-identical to what it was.
+ */
+bool World::IsPlacementFree(std::span<const FormationStation> _stations, HullClass (*_hullClassOf)(ShipId, void*), void* _context,
+                            std::span<const ShipId> _exclude, const XMFLOAT2& _candidateMetres, float _boundingMetres,
+                            std::uint32_t _ignoreServerOrderId, bool _forMovePlacement) const noexcept
+{
+  for (const FormationStation& station : _stations)
+  {
+    const float solvedRadius = ShipClass(_hullClassOf(station.shipId, _context)).collisionRadiusMetres;
+    for (std::size_t slot = 0; slot < m_ids.size(); ++slot)
+    {
+      if (std::find(_exclude.begin(), _exclude.end(), m_ids[slot]) != _exclude.end())
+      {
+        continue;
+      }
+      const float clearance =
+        AVOID_CLEARANCE_FACTOR * (solvedRadius + ShipClass(static_cast<HullClass>(m_classes[slot])).collisionRadiusMetres);
+      const float dx = station.positionMetres.x - m_positions[slot].x;
+      const float dy = station.positionMetres.y - m_positions[slot].y;
+      if (dx * dx + dy * dy < clearance * clearance)
+      {
+        /*
+         * **A ship that is going somewhere is traffic, not an obstruction**
+         * (ADR-026 §2). Only hulls that will still be there can block a
+         * destination; a mover is ADR-015's problem, and ADR-015 solves it --
+         * the fleet flies through space the other has vacated by the time it
+         * arrives. Without this, two fleets ordered to swap places both slide,
+         * each because the other is standing on its destination *now*, which
+         * is the one case the avoidance model was written to make work.
+         *
+         * Asked only on a hit, and that is the whole reason it can afford to
+         * be a scan: a placement in open space never reaches this line.
+         *
+         * `FindBerth` passes false and keeps every hull blocking. A berth is
+         * chosen for a fleet that is *arriving*, and one already occupied is
+         * occupied whether or not its tenant has plans.
+         */
+        if (_forMovePlacement && ShipIsUnderOrders(m_ids[slot]))
+        {
+          continue;
+        }
+        return false;
+      }
+    }
+  }
+
+  const auto conflicts = [&_candidateMetres, _boundingMetres, _ignoreServerOrderId,
+                          _forMovePlacement](const OrderGroup& _group) noexcept
+  {
+    if (_group.legCount == 0)
+    {
+      return false;
+    }
+    /*
+     * **An intention is a placement, not a request** (ADR-026 2).
+     *
+     * A group whose leg has never been applied has no deadline stamped, and
+     * its anchor is still the raw point somebody asked for -- it has not been
+     * through this function yet and may not survive it. Treating that as an
+     * intention makes two fleets sent to one point *both* slide off it, each
+     * deferring to a claim the other had not actually staked.
+     *
+     * Ingest places groups in sequence, so by the time the second is placed
+     * the first is real, and the asymmetry falls out with nothing stored.
+     *
+     * `FindBerth` does not take this branch and must not: its parking orders
+     * are still pending when the next fleet scans, and reading them is what
+     * stops two same-tick undocks picking one berth.
+     */
+    if (_forMovePlacement && _group.legDeadlineTick == 0)
+    {
+      return false;
+    }
+    /*
+     * A group is never its own obstruction, and forgetting that is not a
+     * subtle bug: an order being placed is already in the table with its
+     * asked point as its final-leg anchor, so without this clause *every*
+     * destination conflicts with itself and every order in an empty sky
+     * slides by a ring. The suite said so immediately, in about twenty
+     * voices.
+     *
+     * Zero ignores nothing, which is what `FindBerth` wants: a fleet being
+     * undocked has no group yet.
+     */
+    if (_ignoreServerOrderId != 0 && _group.serverOrderId == _ignoreServerOrderId)
+    {
+      return false;
+    }
+    const XMFLOAT2& intent = _group.legs[_group.legCount - 1].anchorMetres;
+    const float dx = intent.x - _candidateMetres.x;
+    const float dy = intent.y - _candidateMetres.y;
+    return dx * dx + dy * dy < _boundingMetres * _boundingMetres;
+  };
+
+  for (const OrderGroup& group : m_groups)
+  {
+    if (conflicts(group))
+    {
+      return false;
+    }
+  }
+  /*
+   * The pending queue, for `FindBerth` alone. A Move placement skips it for
+   * the reason above: a pending order is a request that has not been placed,
+   * and it will be placed -- against this group's now-real anchor -- on the
+   * very next ingest.
+   */
+  if (!_forMovePlacement)
+  {
+    for (const PendingOrder& pending : m_pending)
+    {
+      if (conflicts(pending.group))
+      {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 bool World::FindBerth(std::span<const ShipId> _ships, FormationId _formation,
                       const XMFLOAT2& _stationCentreMetres, const XMFLOAT2& _undockPointMetres,
                       XMFLOAT2& _outBerthMetres, float& _outFacingRadians) const
@@ -122,84 +304,10 @@ bool World::FindBerth(std::span<const ShipId> _ships, FormationId _formation,
         continue;
       }
 
-      // Clear of every hull on the grid, by the avoidance model's own clearance
-      // rather than by a second number that could drift from it (ADR-015).
-      bool free = true;
-      for (std::uint32_t index = 0; index < placed && free; ++index)
-      {
-        const float solvedRadius = ShipClass(WorldClassLookup::Of(stations[index].shipId, &lookup)).collisionRadiusMetres;
-        for (std::size_t slot = 0; slot < m_ids.size(); ++slot)
-        {
-          // The fleet being parked is standing at the undock point; it must not
-          // count itself as the reason it cannot leave.
-          if (std::find(_ships.begin(), _ships.end(), m_ids[slot]) != _ships.end())
-          {
-            continue;
-          }
-          const float clearance =
-            AVOID_CLEARANCE_FACTOR * (solvedRadius + ShipClass(static_cast<HullClass>(m_classes[slot])).collisionRadiusMetres);
-          const float dx = stations[index].positionMetres.x - m_positions[slot].x;
-          const float dy = stations[index].positionMetres.y - m_positions[slot].y;
-          if (dx * dx + dy * dy < clearance * clearance)
-          {
-            free = false;
-            break;
-          }
-        }
-      }
-      if (!free)
-      {
-        continue;
-      }
-
-      /*
-       * And clear of every other group's *intention*. This is the clause that
-       * makes two same-tick undocks pick different berths with nothing reserved
-       * and nothing stored: the first fleet's parking order is a group with a
-       * final-leg anchor, and the second fleet sees it.
-       */
       const float bounding =
         FormationExtentMetres(std::span<const FormationStation>{stations, placed}, candidate) + largestSpacing;
-      const auto conflicts = [&candidate, bounding](const OrderGroup& _group) noexcept
-      {
-        if (_group.legCount == 0)
-        {
-          return false;
-        }
-        const XMFLOAT2& intent = _group.legs[_group.legCount - 1].anchorMetres;
-        const float dx = intent.x - candidate.x;
-        const float dy = intent.y - candidate.y;
-        return dx * dx + dy * dy < bounding * bounding;
-      };
-
-      for (const OrderGroup& group : m_groups)
-      {
-        if (conflicts(group))
-        {
-          free = false;
-          break;
-        }
-      }
-
-      /*
-       * **And the orders that have not been ingested yet.**
-       *
-       * Two fleets undocking on the same tick both arrive before any ingest
-       * runs, so the first one's parking order is still pending when the second
-       * one scans -- and without this it is invisible, and both are sent to the
-       * same berth. The suite found exactly that. A pending order is a live
-       * intention by every definition that matters here: it has been accepted,
-       * it is world state, and it becomes a group on the very next tick.
-       */
-      for (const PendingOrder& pending : m_pending)
-      {
-        if (conflicts(pending.group))
-        {
-          free = false;
-          break;
-        }
-      }
-      if (!free)
+      if (!IsPlacementFree(std::span<const FormationStation>{stations, placed}, &WorldClassLookup::Of, &lookup, _ships, candidate,
+                           bounding, 0, false))
       {
         continue;
       }
@@ -544,6 +652,98 @@ void World::IngestOrders()
   }
 }
 
+/*
+ * Rings for a player's click, expressed as multiples of the fleet's own
+ * bounding radius rather than as metres (ADR-026 §3).
+ *
+ * `PARKING_RING_METRES` can be absolute because a station's doorway is a fixed
+ * piece of geometry. A destination is not: the same two numbers would be a
+ * generous slide for three Interceptors and barely a nudge for a sixty-ship
+ * line. One bounding radius clears the fleet's own footprint; two gives it a
+ * second try without carrying it somewhere the player would not recognise.
+ */
+constexpr float PLACEMENT_RING_EXTENTS[] = {1.0f, 2.0f};
+
+bool World::FindClearPlacement(std::span<const ShipId> _ships, FormationId _formation, float _facingRadians,
+                               const XMFLOAT2& _askedMetres, float _approachBearingRadians,
+                               std::uint32_t _ignoreServerOrderId, XMFLOAT2& _outAnchorMetres) const
+{
+  if (_ships.empty() || _ships.size() > MAX_SHIPS_PER_ORDER)
+  {
+    return false;
+  }
+
+  WorldClassLookup lookup{this};
+  FormationStation stations[MAX_SHIPS_PER_ORDER];
+
+  float largestSpacing = 0.0f;
+  for (const ShipId shipId : _ships)
+  {
+    largestSpacing = std::max(largestSpacing, ShipClass(WorldClassLookup::Of(shipId, &lookup)).formationSpacingMetres);
+  }
+
+  /*
+   * Solved once at the asked point, for two things at once: whether it is free,
+   * and how big this fleet is. The rings below are multiples of that size, so
+   * the fleet's own footprint is what decides how far "nearby" reaches.
+   *
+   * The facing never changes. Only the anchor moves -- that is what "slides
+   * whole" means, and it is why this solve can be reused as the shape at every
+   * candidate.
+   */
+  const std::uint32_t placed = SolveFormation(_formation, _ships, &WorldClassLookup::Of, &lookup, _askedMetres, _facingRadians,
+                                              std::span<FormationStation>{stations});
+  if (placed == 0)
+  {
+    return false;
+  }
+  const float bounding = FormationExtentMetres(std::span<const FormationStation>{stations, placed}, _askedMetres) + largestSpacing;
+
+  // The asked point first, always. A destination with room in it must never
+  // move, or every order in an empty sky would drift by a ring.
+  if (IsPlacementFree(std::span<const FormationStation>{stations, placed}, &WorldClassLookup::Of, &lookup, _ships, _askedMetres,
+                      bounding, _ignoreServerOrderId, true))
+  {
+    _outAnchorMetres = _askedMetres;
+    return true;
+  }
+
+  constexpr float BEARING_STEP = DirectX::XM_2PI / static_cast<float>(PARKING_BEARINGS);
+
+  for (const float ringExtents : PLACEMENT_RING_EXTENTS)
+  {
+    const float ring = ringExtents * bounding;
+    for (std::uint32_t step = 0; step < PARKING_BEARINGS; ++step)
+    {
+      // The same alternating fan the parking ring scans, and the same reason:
+      // a fixed order, so "which placement" is a function of the world and not
+      // of the order two fleets happened to arrive in.
+      const std::uint32_t stepsOut = (step + 1) / 2;
+      const float side = (step % 2 == 0) ? 1.0f : -1.0f;
+      const float bearing = _approachBearingRadians + static_cast<float>(stepsOut) * side * BEARING_STEP;
+
+      const XMFLOAT2 candidate{_askedMetres.x + std::cos(bearing) * ring, _askedMetres.y + std::sin(bearing) * ring};
+
+      const std::uint32_t candidatePlaced = SolveFormation(_formation, _ships, &WorldClassLookup::Of, &lookup, candidate,
+                                                           _facingRadians, std::span<FormationStation>{stations});
+      if (candidatePlaced == 0)
+      {
+        continue;
+      }
+      if (!IsPlacementFree(std::span<const FormationStation>{stations, candidatePlaced}, &WorldClassLookup::Of, &lookup, _ships,
+                           candidate, bounding, _ignoreServerOrderId, true))
+      {
+        continue;
+      }
+
+      _outAnchorMetres = candidate;
+      return true;
+    }
+  }
+
+  return false;
+}
+
 void World::ApplyLeg(OrderGroup& _group)
 {
   if (_group.legIndex >= _group.legCount)
@@ -572,7 +772,60 @@ void World::ApplyLeg(OrderGroup& _group)
     return;
   }
 
-  const OrderGroupLeg& leg = _group.legs[_group.legIndex];
+  OrderGroupLeg& leg = _group.legs[_group.legIndex];
+
+  /*
+   * Solve, then slide (ADR-026 §5) -- **when the leg becomes active, and only
+   * then**.
+   *
+   * `legDeadlineTick == 0` is what "this leg has not run yet" means: the
+   * deadline is stamped at the bottom of this function, so a zero here is a
+   * first activation and anything else is the membership re-solve a casualty
+   * triggers. A fleet that loses a ship mid-flight must not have its
+   * destination moved under it; it closes the hole and flies on.
+   *
+   * At submission would have been easier and would have been wrong. A queued
+   * third leg may fly minutes after it was accepted, and a placement computed
+   * then is a precise answer about a world that has since moved.
+   *
+   * The slid anchor is written **back into the leg**, so everything downstream
+   * inherits it without being told: the ETA measures the real distance, the
+   * ghost draws the real destination, and -- the one that matters -- the next
+   * fleet's own scan sees this group's final-leg anchor where the fleet is
+   * actually going.
+   *
+   * A `Warp` is exempt: it does not fly to a point, it spools and leaves, and
+   * ADR-016 §3 already promises clean water at the far end.
+   */
+  if (_group.legDeadlineTick == 0 && _group.kind == OrderKind::Move)
+  {
+    // Where the fleet is coming from, so a blocked destination is approached
+    // from the near side and the slide stops short rather than overshooting.
+    XMFLOAT2 centroid{0.0f, 0.0f};
+    for (std::uint32_t index = 0; index < livingCount; ++index)
+    {
+      std::uint32_t slot = 0;
+      if (FindSlot(living[index], slot))
+      {
+        centroid.x += m_positions[slot].x;
+        centroid.y += m_positions[slot].y;
+      }
+    }
+    centroid.x /= static_cast<float>(livingCount);
+    centroid.y /= static_cast<float>(livingCount);
+
+    const float approach = std::atan2(centroid.y - leg.anchorMetres.y, centroid.x - leg.anchorMetres.x);
+
+    XMFLOAT2 placement{};
+    if (FindClearPlacement(std::span<const ShipId>{living, livingCount}, _group.formation, leg.facingRadians, leg.anchorMetres,
+                           approach, _group.serverOrderId, placement))
+    {
+      leg.anchorMetres = placement;
+    }
+    // Otherwise the asked point stands and the fleet flies to it: ADR-015 parks
+    // it at contact range and the deadline ends the leg (ADR-026 §4). Never a
+    // refusal, and never a wedge.
+  }
 
   FormationStation stations[MAX_SHIPS_PER_ORDER] = {};
   const auto lookup = [](ShipId _shipId, void* _context) -> HullClass

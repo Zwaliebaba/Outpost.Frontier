@@ -57,6 +57,20 @@ struct SceneEntity
   std::uint8_t hullGauge = 0;    // 0-255, not a percentage. Full is 255.
   std::uint8_t shieldGauge = 0;  // Likewise.
   bool stale = false;               // Extrapolated past the cap and frozen (ADR-002 §4).
+
+  /*
+   * The game's own per-entity flags, carried and not read (ADR-014 §4).
+   *
+   * `EntityRecord::statusBits` arrives at the view and stopped there until the
+   * overlay needed one of the bits. What each bit *means* is the game's -- bit
+   * zero is undock protection today -- and the engine's whole part is to hand
+   * the byte to whoever draws, exactly as `groupId` is a number it carries
+   * without knowing that this game means a wing by it.
+   *
+   * A byte rather than a bool per state, because the next flag then costs
+   * nothing here and the one after that costs nothing either.
+   */
+  std::uint8_t statusBits = 0;
 };
 
 /// Per-instance data, matching ADR-006 §6 field for field.

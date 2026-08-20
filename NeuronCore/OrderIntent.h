@@ -35,6 +35,10 @@ namespace Neuron
  * pointed at, and quantisation happens once, at `EncodeOrder`, so a pre-check
  * and the authority round the same value at the same moment.
  */
+/// "No anchor": this order names a place and not a thing. Zero would be a
+/// plausible id, so the sentinel is the top of the range rather than the bottom.
+inline constexpr std::uint16_t INVALID_ANCHOR = 0xffffu;
+
 struct OrderIntent
 {
   std::uint16_t kind = 0;      // GameLogic's order enum; opaque here.
@@ -61,6 +65,19 @@ struct OrderIntent
   /// and the seam should not decide where.
   const std::uint16_t* entityIds = nullptr;
   std::uint32_t entityCount = 0;
+
+  /*
+   * What the command acts *on*, when it acts on something rather than
+   * somewhere. `INVALID_ANCHOR` for the orders that only name a place.
+   *
+   * Engine-neutral, like `Welcome::gridAnchor` and for the same reason: this
+   * is "the id of the thing this order is about", and what that thing *is*
+   * stays the game's (ADR-014). One field serves every such verb, so a client
+   * whose gesture is "act on that structure" fills the same slot whichever
+   * verb the game resolves it to -- which is what keeps a second one from
+   * being added the first time a second verb needs it.
+   */
+  std::uint16_t anchor = INVALID_ANCHOR;
 };
 
 /*
@@ -278,6 +295,37 @@ struct OrderKindOption
 /// How many commands a client will ask for -- the wheel's eight sectors again,
 /// and for the same reason.
 inline constexpr std::uint32_t MAX_ORDER_KINDS = 8;
+
+/*
+ * What acting on one entity means (ADR-017 2, `tactical-hud.png`).
+ *
+ * The gesture is "select ships, act on that thing", and the printed command row
+ * stays exactly as printed -- so the verb cannot be a button, and the engine
+ * cannot decide what it is. It asks the game about the entity under the cursor
+ * and gets back a kind to send, a word to draw, and the anchor to fill in.
+ *
+ * The engine never learns *why* an entity affords a verb. A station affords
+ * docking because of what a station is, which is the game's business; all this
+ * carries is that something is afforded and what to call it. Future station
+ * verbs -- trade, repair, missions -- arrive as different `kind`s through the
+ * same call, and no engine code changes.
+ */
+struct ContextAction
+{
+  /// The game's order enum, opaque here. Only meaningful when `available`.
+  std::uint16_t kind = 0;
+
+  /// The word to draw, from the game -- `DOCK`. Null when nothing is afforded.
+  const char* label = nullptr;
+
+  /// What to put in `OrderIntent::anchor`. Usually the entity asked about, but
+  /// the game says so rather than the engine assuming it.
+  std::uint16_t anchor = INVALID_ANCHOR;
+
+  /// False when this entity affords nothing to this selection -- which is the
+  /// common answer, and is not a failure.
+  bool available = false;
+};
 
 /*
  * One order the authority is still working on, as the client's ghost needs it.

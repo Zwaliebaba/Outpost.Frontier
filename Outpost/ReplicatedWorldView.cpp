@@ -64,6 +64,13 @@ namespace
   _outOrder.formation = static_cast<Game::FormationId>(_intent.parameter);
   _outOrder.queueMode = _intent.queued ? Game::QueueMode::Append : Game::QueueMode::Replace;
 
+  // What the order acts on, when it acts on something. The seam's sentinel and
+  // the game's are different values on purpose -- `INVALID_ANCHOR` is the
+  // engine's "no thing named" and `Game::INVALID_ID` is ours -- so the
+  // translation is explicit here rather than a shared constant that would tie
+  // the two vocabularies together (ADR-014).
+  _outOrder.anchor = _intent.anchor == Neuron::INVALID_ANCHOR ? Game::INVALID_ID : static_cast<Game::AnchorId>(_intent.anchor);
+
   // Quantised once, here, and never again. Everything downstream -- the bounds
   // check, the wire, the server's own validation -- sees these integers.
   _outOrder.target.xCm = Neuron::MetresToCentimetres(_intent.targetXMetres);
@@ -147,6 +154,7 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
   _outScene.instances.reserve(m_sampled.size());
   _outScene.entities.reserve(m_sampled.size());
   m_validationIds.clear();
+  m_stationEntityId = Game::INVALID_SHIP_ID;
   m_validationIds.reserve(m_sampled.size());
 
   std::uint32_t renderClassCount = 0;
@@ -203,7 +211,20 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
     entity.hullGauge = ship.hullGauge;
     entity.shieldGauge = ship.shieldGauge;
     entity.stale = ship.stale;
+    // The protection bit and whatever joins it, carried across for the overlay
+    // to draw. The engine gets the byte and not its meaning (ADR-014 4).
+    entity.statusBits = ship.statusBits;
     _outScene.entities.push_back(entity);
+
+    // Which of these is the station, for the context action to offer a verb on.
+    // Recorded here because this loop already has the hull class in hand and is
+    // the one place that sees every entity the frame will draw -- a structure
+    // this build has no mesh for was skipped above, and an entity a player
+    // cannot see must not be one they can act on.
+    if (hull == Game::HullClass::Structure)
+    {
+      m_stationEntityId = ship.id;
+    }
 
     // The same id again, for `ValidateOrder`. Filled here rather than in
     // `PreCheck` so that the ships an order may name are exactly the ships this
@@ -544,6 +565,54 @@ std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const std::uint16_t> _s
     ++rows;
   }
   return rows;
+}
+
+/*
+ * What acting on this entity means (ADR-017 2).
+ *
+ * One verb today, and the shape is built for the ones after it: a station is
+ * the natural home for trade, repair and missions, and each arrives here as
+ * another kind rather than as another button in a row the print froze.
+ *
+ * Two conditions, and both are about the *game* rather than about the click.
+ * The entity has to be this grid's station -- the anchor the `Welcome` named,
+ * which is the only structure a client can address today -- and the player has
+ * to have ships selected, because DOCK with an empty selection is a verb with
+ * no subject and offering it would be offering a refusal.
+ *
+ * Deliberately not checked here: whether the fleet is *in range*. That is not a
+ * condition on the action, it is what the approach chain exists to fix -- the
+ * client flies the fleet to the perimeter and submits the Dock when they
+ * arrive. Greying the action out at distance would remove the affordance
+ * exactly where it is most useful.
+ */
+bool ReplicatedWorldView::ContextActionFor(std::uint16_t _entityId, std::span<const std::uint16_t> _selectedIds,
+                                           ContextAction& _outAction) const
+{
+  _outAction = ContextAction{};
+  if (_selectedIds.empty() || m_desc.gridAnchor == Game::INVALID_ID)
+  {
+    return false;
+  }
+  if (m_stationEntityId == Game::INVALID_SHIP_ID || _entityId != m_stationEntityId)
+  {
+    return false;
+  }
+
+  // A selection holding only the station is asking the station to dock at
+  // itself, which is a refusal dressed as an affordance.
+  const bool anyShip =
+    std::any_of(_selectedIds.begin(), _selectedIds.end(), [&](std::uint16_t _id) { return _id != m_stationEntityId; });
+  if (!anyShip)
+  {
+    return false;
+  }
+
+  _outAction.kind = static_cast<std::uint16_t>(Game::OrderKind::Dock);
+  _outAction.label = "DOCK";
+  _outAction.anchor = static_cast<std::uint16_t>(m_desc.gridAnchor);
+  _outAction.available = true;
+  return true;
 }
 
 void ReplicatedWorldView::PollOrderFeedback(OrderFeedback& _outFeedback)

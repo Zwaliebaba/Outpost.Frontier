@@ -79,6 +79,37 @@ public:
   /// Waits for the sim thread to exit. Stop() first, or this never returns.
   void Join();
 
+  /*
+   * Makes the authority miss its deadlines on purpose (S7's open item).
+   *
+   * The client's F10 cuts its own *feed*: the link stays up, snapshots stop
+   * arriving, and from the client's side that is indistinguishable from a
+   * server that stopped. It is not the same event, though, and until this
+   * existed nothing could produce the other one -- so the tick-debt path, the
+   * overrun counter and the catch-up ticks were reachable only by a machine
+   * genuinely struggling, which a loopback session never is.
+   *
+   * The stall is real rather than simulated: the sim thread stops for this
+   * long, so it does not tick, does not poll the transport and does not send.
+   * What the client sees is what it would see from a hosed server, because it
+   * *is* that, briefly and on purpose.
+   *
+   * Called from any thread, applied at the top of the next tick. A stall past
+   * `MAX_TICK_DEBT_MS` is what the debt-dropping branch exists for, so asking
+   * for a long one is the way to exercise it.
+   */
+  void InjectStall(std::uint32_t _milliseconds) noexcept
+  {
+    m_stallRequestMs.store(_milliseconds, std::memory_order_relaxed);
+  }
+
+  /// Stalls this host has actually served. Lets a test wait for the stall to
+  /// have happened rather than sleep and hope.
+  [[nodiscard]] std::uint32_t StallCount() const noexcept
+  {
+    return m_stalls.load(std::memory_order_relaxed);
+  }
+
   [[nodiscard]] bool Running() const noexcept
   {
     return m_running.load(std::memory_order_acquire);
@@ -154,6 +185,11 @@ private:
   std::atomic<std::uint32_t> m_sessionCount{0};
   std::atomic<std::uint32_t> m_snapshotFailures{0};
   std::atomic<std::uint32_t> m_ordersRefused{0};
+
+  /// Requested by anyone, consumed by the sim thread, which takes it exactly
+  /// once: a stall is an event, not a state to be in.
+  std::atomic<std::uint32_t> m_stallRequestMs{0};
+  std::atomic<std::uint32_t> m_stalls{0};
   std::uint16_t m_boundPort = 0;
 };
 

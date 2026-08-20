@@ -880,6 +880,10 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
   desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, Outpost::ReplicatedWorldView::INVALID_RENDER_CLASS);
   desc.contentHash = _contentHash;
   desc.wingNames = WingNames();
+  // Which grid this client watches, so a station has a number the client can
+  // address it by (ADR-017 8). The same anchor the `Welcome` carries; taken
+  // from the universe here because the composition root builds both.
+  desc.gridAnchor = _universe.universe.StartAnchorId();
 
   for (const auto& mapping : MESH_FOR_HULL)
   {

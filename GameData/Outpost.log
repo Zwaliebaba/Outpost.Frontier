@@ -1,61 +1,57 @@
-[   0.009] info  | Outpost: Frontier starting
-[   0.009] info  | config: Outpost.json
-[   0.010] info  | user settings: C:\Users\zwali\AppData\Local\Outpost.Frontier\Settings.json
-[   0.010] info  | mode: host
-[   0.010] info  | server: port 7777, max sessions 8
-[   0.010] info  | universe: GameData/Universe/Frontier.json
-[   0.010] info  | content: 9 meshes from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Meshes
-[   0.010] info  | window: 1600x900 windowed, vsync on, ui scale 1.00
-[   2.796] info  | universe: read, parsed and hashed in 2786 ms (R17's threshold is ~1000 ms)
-[   2.797] info  | universe: 'Frontier' from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Universe/Frontier.json (2500 system(s), hash db10606904062335)
-[   2.797] info  | start: system 1 'Vesta-3', grid anchored at (-734132574593023943, -731859766588080745)
-[   2.869] info  | quic transport listening on 127.0.0.1:7777 (alpn opf/1)
-[   2.869] info  | server host started on port 7777 at 20 Hz
-[   2.899] info  | window created: 1600x900 client
-[   2.917] info  | d3d12 debug layer enabled
-[   4.872] info  | d3d12 device created on NVIDIA GeForce RTX 3070 Ti Laptop GPU (tearing supported)
-[   4.957] info  | task pool started with 12 worker(s)
-[   4.972] info  | pipelines: opaque (21876 + 18364 B), nebula (7560 + 14128 B), overlay (24620 + 24900 B), ui (21332 + 15060 B) built
-[   5.056] info  | meshes: 9 classes, 5276 triangles
-[   5.062] info  | upload ring: 256 KiB x 3 frames
-[   5.071] info  | glyph atlas: Consolas, 4 sizes, 608 glyphs, 1024x256
-[   5.157] info  | nebula: 256x256 field over 96000 m (375 m/texel), seed 1
-[   5.541] info  | audio: 2 of 2 cue(s) loaded, 8 output channel(s) at 48000 Hz, 32 3D + 16 2D voices
-[   5.545] info  | task pool stopped after 13 task(s)
-[   5.548] info  | quic transport connecting to 127.0.0.1:7777
-[   5.548] info  | client initialised (NVIDIA GeForce RTX 3070 Ti Laptop GPU, vsync on)
-[   5.548] info  | entering frame loop
-[   5.571] info  | client 1 joined as '(unnamed)'
-[   5.575] info  | joined as client 1 (server at tick 53, 20 Hz)
-[   5.575] info  | world 1 anchored at (-734132574593023943, -731859766588080745)
-[   5.622] info  | first pong: server tick 54, round trip 46.783 ms
-[   7.871] info  | net(session 1): rtt 0.33 ms, resends 0, dropped 0, dgrams 56/10, bytes 41310/136
-[  10.580] info  | net(client 1): rtt 24.24 ms, ping loss 0.0% (0/20), resends 0, dgrams 20/121, bytes 236/90565
-[  12.872] info  | net(session 1): rtt 0.31 ms, resends 0, dropped 0, dgrams 175/29, bytes 130876/326
-[  15.584] info  | net(client 1): rtt 35.66 ms, ping loss 0.0% (0/40), resends 0, dgrams 40/241, bytes 436/180145
-[  17.921] info  | net(session 1): rtt 0.31 ms, resends 0, dropped 0, dgrams 296/49, bytes 221349/526
-[  20.589] info  | net(client 1): rtt 55.74 ms, ping loss 1.7% (1/60), resends 0, dgrams 60/360, bytes 636/269711
-[  22.922] info  | net(session 1): rtt 0.34 ms, resends 0, dropped 0, dgrams 416/69, bytes 310929/726
-[  25.595] info  | net(client 1): rtt 24.33 ms, ping loss 0.0% (0/79), resends 0, dgrams 79/480, bytes 826/359291
-[  27.922] info  | net(session 1): rtt 0.34 ms, resends 0, dropped 0, dgrams 535/88, bytes 400495/916
-[  30.600] info  | net(client 1): rtt 31.35 ms, ping loss 0.0% (0/99), resends 0, dgrams 99/600, bytes 1026/448871
-[  32.971] info  | net(session 1): rtt 0.38 ms, resends 0, dropped 0, dgrams 656/108, bytes 490968/1116
-[  35.606] info  | net(client 1): rtt 48.92 ms, ping loss 0.8% (1/119), resends 0, dgrams 119/719, bytes 1226/538437
-[  37.971] info  | net(session 1): rtt 0.32 ms, resends 0, dropped 0, dgrams 773/125, bytes 580506/1286
-[  40.610] info  | net(client 1): rtt 24.37 ms, ping loss 0.0% (0/135), resends 0, dgrams 135/836, bytes 1386/627975
-[  43.021] info  | net(session 1): rtt 0.38 ms, resends 0, dropped 0, dgrams 893/144, bytes 670965/1476
-[  45.616] info  | net(client 1): rtt 36.68 ms, ping loss 0.6% (1/155), resends 0, dgrams 155/955, bytes 1586/717541
-[  48.022] info  | net(session 1): rtt 0.33 ms, resends 0, dropped 0, dgrams 1013/164, bytes 760545/1676
-[  50.622] info  | net(client 1): rtt 48.14 ms, ping loss 0.0% (0/174), resends 0, dgrams 174/1075, bytes 1776/807121
-[  53.071] info  | net(session 1): rtt 0.33 ms, resends 0, dropped 0, dgrams 1134/184, bytes 851018/1876
-[  55.627] info  | net(client 1): rtt 6.10 ms, ping loss 0.0% (0/194), resends 0, dgrams 194/1196, bytes 1976/897594
-[  58.072] info  | net(session 1): rtt 0.38 ms, resends 0, dropped 0, dgrams 1254/204, bytes 940598/2076
-[  60.632] info  | net(client 1): rtt 24.31 ms, ping loss 0.0% (0/214), resends 0, dgrams 214/1316, bytes 2176/987174
-[  63.121] info  | net(session 1): rtt 0.36 ms, resends 0, dropped 0, dgrams 1374/223, bytes 1031057/2266
-[  65.637] info  | net(client 1): rtt 42.84 ms, ping loss 0.0% (0/233), resends 0, dgrams 233/1435, bytes 2366/1076740
-[  67.132] info  | frame loop ended after 9986 frames
-[  67.221] info  | connection 1 said goodbye
-[  67.271] info  | client 1 left (reason 1)
-[  67.283] info  | server host stopped after 1288 ticks (0 overruns)
-[  67.284] info  | server ran 1288 ticks (0 overruns)
-[  67.284] info  | Outpost: Frontier exiting cleanly (0)
+[   0.011] info  | Outpost: Frontier starting
+[   0.012] info  | config: Outpost.json
+[   0.012] info  | user settings: C:\Users\zwali\AppData\Local\Outpost.Frontier\Settings.json
+[   0.012] info  | mode: host
+[   0.012] info  | server: port 7777, max sessions 8
+[   0.012] info  | universe: GameData/Universe/Frontier.json
+[   0.012] info  | economy: GameData/Economy/Economy.json
+[   0.012] info  | content: 10 meshes from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Meshes
+[   0.012] info  | window: 1600x900 windowed, vsync on, ui scale 1.00
+[   3.725] info  | universe: read, parsed and hashed in 3712 ms (R17's threshold is ~1000 ms)
+[   3.726] info  | universe: 'Frontier' from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Universe/Frontier.json (2500 system(s), hash ad9555dd776008a6)
+[   3.726] info  | start: system 1 'Vesta-3', grid anchored at (-734132574593023943, -731859766588080745)
+[   3.731] info  | economy: read, parsed and hashed in 4 ms from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Economy/Economy.json
+[   3.731] info  | content: universe ad9555dd776008a6, economy 0b07707ec843431d, mixed 1965b853a23a5115
+[   3.736] info  | parked fleet: 40 hulls, tightest cross-wing clearance 90.3 m (LANTERN to ECHO)
+[   3.818] info  | quic transport listening on 127.0.0.1:7777 (alpn opf/1)
+[   3.818] info  | server host started on port 7777 at 20 Hz
+[   3.849] info  | window created: 1600x900 client
+[   3.867] info  | d3d12 debug layer enabled
+[   5.773] info  | d3d12 device created on NVIDIA GeForce RTX 3070 Ti Laptop GPU (tearing supported)
+[   5.861] info  | task pool started with 12 worker(s)
+[   6.008] info  | pipelines: opaque (5792 + 5088 B), nebula (3036 + 4732 B), overlay (6456 + 5048 B), ui (5892 + 4648 B) built
+[   6.081] info  | meshes: 10 classes, 6420 triangles
+[   6.085] info  | upload ring: 256 KiB x 3 frames
+[   6.093] info  | glyph atlas: Consolas, 4 sizes, 608 glyphs, 1024x256
+[   6.149] info  | nebula: 256x256 field over 96000 m (375 m/texel), seed 1
+[   6.597] info  | audio: 2 of 2 cue(s) loaded, 8 output channel(s) at 48000 Hz, 32 3D + 16 2D voices
+[   6.602] info  | task pool stopped after 14 task(s)
+[   6.604] info  | quic transport connecting to 127.0.0.1:7777
+[   6.604] info  | client initialised (NVIDIA GeForce RTX 3070 Ti Laptop GPU, vsync on)
+[   6.604] info  | entering frame loop
+[   6.621] info  | client 1 joined as '(unnamed)'
+[   6.633] info  | joined as client 1 (server at tick 55, 20 Hz)
+[   6.633] info  | world 1 anchored at (-734132574593023943, -731859766588080745)
+[   6.673] info  | first pong: server tick 56, round trip 39.351 ms
+[   8.821] info  | net(session 1): rtt 0.32 ms, resends 0, dropped 0, dgrams 55/8, bytes 39625/116
+[  11.636] info  | net(client 1): rtt 7.50 ms, ping loss 0.0% (0/19), resends 0, dgrams 19/125, bytes 226/90820
+[  13.871] info  | net(session 1): rtt 0.35 ms, resends 0, dropped 0, dgrams 181/28, bytes 130365/316
+[  16.641] info  | net(client 1): rtt 18.84 ms, ping loss 0.0% (0/39), resends 0, dgrams 39/250, bytes 426/180665
+[  18.921] info  | net(session 1): rtt 0.48 ms, resends 0, dropped 0, dgrams 301/42, bytes 221021/456
+[  21.647] info  | net(client 1): rtt 46.99 ms, ping loss 0.0% (0/52), resends 0, dgrams 52/368, bytes 556/270412
+[  23.971] info  | net(session 1): rtt 0.41 ms, resends 0, dropped 0, dgrams 426/61, bytes 311747/646
+[  26.651] info  | net(client 1): rtt 5.67 ms, ping loss 0.0% (0/72), resends 0, dgrams 72/493, bytes 756/360257
+[  29.021] info  | net(session 1): rtt 0.36 ms, resends 0, dropped 0, dgrams 552/81, bytes 402487/846
+[  31.656] info  | net(client 1): rtt 24.09 ms, ping loss 0.0% (0/92), resends 0, dgrams 92/618, bytes 956/450102
+[  34.021] info  | net(session 1): rtt 0.41 ms, resends 0, dropped 0, dgrams 677/101, bytes 492332/1046
+[  36.662] info  | net(client 1): rtt 43.40 ms, ping loss 0.0% (0/111), resends 0, dgrams 111/742, bytes 1146/539933
+[  39.021] info  | net(session 1): rtt 0.33 ms, resends 0, dropped 0, dgrams 802/121, bytes 582177/1246
+[  41.667] info  | net(client 1): rtt 5.39 ms, ping loss 0.0% (0/131), resends 0, dgrams 131/867, bytes 1346/629778
+[  44.071] info  | net(session 1): rtt 0.32 ms, resends 0, dropped 0, dgrams 928/141, bytes 672917/1446
+[  46.673] info  | net(client 1): rtt 18.36 ms, ping loss 0.0% (0/151), resends 0, dgrams 151/993, bytes 1546/720518
+[  48.496] info  | frame loop ended after 6573 frames
+[  48.571] info  | connection 1 said goodbye
+[  48.621] info  | client 1 left (reason 1)
+[  48.686] info  | server host stopped after 897 ticks (0 overruns)
+[  48.687] info  | server ran 897 ticks (0 overruns)
+[  48.687] info  | Outpost: Frontier exiting cleanly (0)
