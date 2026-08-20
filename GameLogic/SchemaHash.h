@@ -50,8 +50,21 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "OrderSubmit{u32 orderSeq,u8 kind,u8 formation,u8 queueMode,u16 shipCount,u16 shipIds[shipCount],"
     "i32 targetXCm,i32 targetYCm,u16 targetFacingTurns16,u16 anchor}"
     "StationCommand{u32 orderSeq,u8 verb,u16 station,u8 formation,u8 wing,u16 shipCount,u32 shipIds[shipCount]}"
+    // ADR-017 §8 put station commands on the *acked order stream* rather than a
+    // stream of their own -- one sequence, one ack, one reason enum -- so both
+    // messages share `WireType::OrderSubmit` and this byte is what tells them
+    // apart. It has to be in the hash: both open with `u32 orderSeq` and then a
+    // byte whose value spaces overlap, so a build that disagreed about the
+    // discriminator would read an Undock as a Move and validate it.
+    "CommandFrame{u8 kind,body}"
     "StationRoster{u16 station,u16 count,(u32 shipId,u8 classId,u8 wingId)[count]}"
     "FleetSummaries{u16 count,(u16 anchor,u8 state,u16 shipCount,u16 etaSeconds)[count]}"
+    // ADR-016 §6's family shares one engine wire type, so the byte that says
+    // which member a record carries is ours and belongs in this hash. No length
+    // prefix: every body above is self-delimiting, and a reader that does not
+    // know a kind must refuse rather than skip -- which is only safe *because*
+    // this line makes a build that renumbered `SummaryKind` fail the handshake.
+    "SummaryFrame{u8 recordCount,(u8 kind,body)[recordCount]}"
     "meaning{typeId=HullClass,groupId=WingId,gaugeA=hull255,gaugeB=shield255,state=OrderState,etaSeconds=s|65535=none,"
     "anchor=AnchorId|0=none,statusBits.bit0=undockProtected,"
     "summary.anchor=whereItIsOrWhereItIsGoing,summary.etaSeconds=s|65535=none}"
@@ -64,6 +77,8 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "OrderState:Underway=0,Arriving=1,Done=2;"
     "StationVerb:Undock=0,AssignWing=1;"
     "FleetState:OnGrid=0,Docked=1,InTransit=2;"
+    "SummaryKind:StationRoster=0,FleetSummaries=1;"
+    "CommandKind:Order=0,Station=1;"
     "OrderReason:Accepted=0,EmptySelection=1,NotOwned=2,UnknownShip=3,QueueFull=4,OutOfBounds=5,"
     "InvalidFormation=6,TooManyShips=7,UnknownKind=8,UnknownStation=9,NotAtStation=10,NotDocked=11,"
     "InvalidQueueMode=12,CombatEngaged=13,UnknownAnchor=14}"

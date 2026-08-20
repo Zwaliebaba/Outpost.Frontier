@@ -30,8 +30,17 @@ namespace Neuron
  * schema hash does not cover this -- it covers *game payloads*, and `Hello` is
  * the message that carries the schema hash in the first place -- so the version
  * is the only thing that can refuse the connection, and it does.
+ *
+ * **3 as of the station phase's wire half:** `Welcome` grew `gridAnchor`
+ * between `worldId` and the plane coordinates, which moves every field after it
+ * -- a build reading a v2 `Welcome` as v3 would take two bytes of `anchorX` for
+ * the anchor and then be shifted for the rest of the message. This is the
+ * framing change the version exists for, and unlike the `Summary` type word it
+ * really is one. The field is what lets a client *address* the grid it is on
+ * rather than only describe it, which is what a Dock and a station command both
+ * need (ADR-017 §2, §3).
  */
-inline constexpr std::uint16_t PROTOCOL_VERSION = 2;
+inline constexpr std::uint16_t PROTOCOL_VERSION = 3;
 
 enum class WireType : std::uint16_t
 {
@@ -70,7 +79,27 @@ enum class WireType : std::uint16_t
    * it through unread, which is what lets a local refusal and a server refusal
    * say the same thing (ADR-014 §3).
    */
-  OrderAck = 10
+  OrderAck = 10,
+
+  /*
+   * A per-viewer game payload at the summary cadence (ADR-016 §6, ADR-018 A13).
+   *
+   * Opaque for the same reason `Snapshot` is, and **one type for the whole
+   * family** rather than one per message kind: a roster, a fleet summary and
+   * whatever ADR-016 §6 adds next are all "what this viewer is owed at about
+   * 1 Hz", and which of them a payload carries is a distinction the game draws
+   * inside its own bytes under its own hash. An enumerator per kind would spend
+   * a slot of this enum on every game concept that ever wants a slow feed,
+   * which is exactly the coupling ADR-014 §5 keeps out of NeuronCore.
+   *
+   * Adding it did **not** bump `PROTOCOL_VERSION`, and the reason is worth
+   * stating because it is the first question a reader has: the version covers
+   * breaking *framing* changes, and no existing message's layout moved. A build
+   * that predates this type ignores it (the client's dispatch has always had a
+   * `default`), and what actually fails a mismatch closed is the *game* schema
+   * hash -- the frame's format is `GAME_SCHEMA_TEXT`'s, not this library's.
+   */
+  Summary = 11
 };
 
 /// Why a server turned a client away. On the wire, so the values are fixed.
@@ -166,6 +195,12 @@ struct Welcome
   std::uint64_t schemaHash = 0;
   std::uint64_t contentHash = 0;
   std::uint16_t worldId = 0;
+
+  /// Which anchor this grid stands on (ADR-016 §3), so the client can name it
+  /// back in a Dock or a station command. `worldId` says where in the universe;
+  /// this says which grid.
+  std::uint16_t gridAnchor = 0;
+
   std::int64_t anchorX = 0;
   std::int64_t anchorY = 0;
 
@@ -273,7 +308,7 @@ void Write(ByteWriter& _writer, const Goodbye& _message) noexcept;
 inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,u64 schemaHash,u64 contentHash,str playerName,"
                                                      "u32 playerId,u64 resumeToken}"
                                                      "Welcome{u32 clientId,u32 tick,u16 tickRate,u64 schemaHash,u64 contentHash,"
-                                                     "u16 worldId,i64 anchorX,i64 anchorY,"
+                                                     "u16 worldId,u16 gridAnchor,i64 anchorX,i64 anchorY,"
                                                      "str worldName,str worldDetail,str worldBadge,"
                                                      "u32 playerId,u64 resumeToken}"
                                                      "UpdateRequired{u64 serverSchemaHash,u64 serverContentHash}"
@@ -291,7 +326,11 @@ inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,
                                                      // is fully described here because every field of it is a
                                                      // number this library defines the meaning of.
                                                      "OrderSubmit{u16 type,opaque payload}"
-                                                     "OrderAck{u32 orderSeq,u32 serverOrderId,u16 reasonCode,u8 accepted}";
+                                                     "OrderAck{u32 orderSeq,u32 serverOrderId,u16 reasonCode,u8 accepted}"
+                                                     // Type word only, again: one type for ADR-016 §6's whole
+                                                     // summary family, and which member a payload carries is a
+                                                     // byte inside the game's own schema.
+                                                     "Summary{u16 type,opaque payload}";
 
 [[nodiscard]] std::uint64_t CoreSchemaHash() noexcept;
 

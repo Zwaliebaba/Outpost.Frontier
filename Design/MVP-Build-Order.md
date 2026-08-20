@@ -41,9 +41,18 @@ open**, and none of them blocks the MVP or M1 — both are met:
 
 Two more that belong to no slice and are recorded where they live rather than here: ADR-011 §8's
 callback ring and external-lane registration (deliberately deferred, named in S15's notes), and
-the fact that **nothing in the build copies `GameData/` beside the executable** — the deployed
+~~the fact that **nothing in the build copies `GameData/` beside the executable** — the deployed
 copy under `x64/<config>/` is maintained by hand, which is a trap for the next person to add
-content and find it missing at runtime.
+content and find it missing at runtime.~~ **Closed 2026-08-20:** `Outpost.vcxproj` gained a
+`CopyGameData` target that runs after Build and puts the content beside the executable, with
+`Outpost.json` lifted to the output root because that — not inside the content folder — is
+where `LoadAppConfig` reads it from. The layout was implied in three places and produced in
+none: `ResolveContentPath` and `LoadAppConfig` both fall back to the executable's own folder,
+and `FileSys::SetHomeDirectory` names `<exe>\GameData\` outright. `SkipUnchangedFiles` keeps
+the ~15 MB bake from being re-copied every incremental build, and the copy does not mirror, so
+content *deleted* from `GameData/` still lingers in an old output folder. CI is unaffected: the
+self test runs from `ci-selftest/` with its own config, and the working directory wins over
+beside-the-exe in both lookups.
 
 ---
 

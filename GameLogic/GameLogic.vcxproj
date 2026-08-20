@@ -30,6 +30,7 @@
     <ClCompile Include="ShipClass.cpp" />
     <ClCompile Include="Station.cpp" />
     <ClCompile Include="StationMessages.cpp" />
+    <ClCompile Include="SummaryMessages.cpp" />
     <ClCompile Include="Snapshot.cpp" />
     <ClCompile Include="Universe.cpp" />
     <ClCompile Include="UniverseGen.cpp" />
@@ -55,6 +56,7 @@
     <ClInclude Include="ShipClass.h" />
     <ClInclude Include="Station.h" />
     <ClInclude Include="StationMessages.h" />
+    <ClInclude Include="SummaryMessages.h" />
     <ClInclude Include="Snapshot.h" />
     <ClInclude Include="Transfer.h" />
     <ClInclude Include="Universe.h" />

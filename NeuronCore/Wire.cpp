@@ -50,6 +50,9 @@ void Write(ByteWriter& _writer, const Welcome& _message) noexcept
   _writer.WriteUInt64(_message.schemaHash);
   _writer.WriteUInt64(_message.contentHash);
   _writer.WriteUInt16(_message.worldId);
+  // Which grid, beside where it is: a client that cannot name its anchor cannot
+  // compose a Dock or a station command (ADR-017 §2, §3).
+  _writer.WriteUInt16(_message.gridAnchor);
   // Signed and full-width: the universe plane runs to +/-9.2e18 metres
   // (ADR-009 §1), so anything narrower would silently fold it.
   _writer.WriteInt64(_message.anchorX);
@@ -72,6 +75,7 @@ bool Read(ByteReader& _reader, Welcome& _outMessage) noexcept
   _outMessage.schemaHash = _reader.ReadUInt64();
   _outMessage.contentHash = _reader.ReadUInt64();
   _outMessage.worldId = _reader.ReadUInt16();
+  _outMessage.gridAnchor = _reader.ReadUInt16();
   _outMessage.anchorX = _reader.ReadInt64();
   _outMessage.anchorY = _reader.ReadInt64();
   _outMessage.worldName = std::string(_reader.ReadText());

@@ -5,6 +5,35 @@
 namespace Game
 {
 
+bool WriteCommandKind(CommandKind _kind, Neuron::ByteWriter& _writer) noexcept
+{
+  if (_writer.BytesRemaining() < COMMAND_KIND_BYTES)
+  {
+    return false;
+  }
+  _writer.WriteUInt8(static_cast<std::uint8_t>(_kind));
+  return _writer.Ok();
+}
+
+bool ReadCommandKind(Neuron::ByteReader& _reader, CommandKind& _outKind) noexcept
+{
+  const std::uint8_t raw = _reader.ReadUInt8();
+  if (!_reader.Ok())
+  {
+    return false;
+  }
+  // A switch rather than a range test, so a kind added to the enum and not to
+  // this list is a compiler warning rather than a payload refused at runtime.
+  switch (static_cast<CommandKind>(raw))
+  {
+  case CommandKind::Order:
+  case CommandKind::Station:
+    _outKind = static_cast<CommandKind>(raw);
+    return true;
+  }
+  return false;
+}
+
 bool WriteOrderSubmit(const OrderSubmit& _order, Neuron::ByteWriter& _writer) noexcept
 {
   if (_order.shipCount > MAX_SHIPS_PER_ORDER)

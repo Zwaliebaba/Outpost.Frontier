@@ -9,6 +9,7 @@
 #include "FleetSummary.h"
 #include "Formation.h"
 #include "StationMessages.h"
+#include "SummaryMessages.h"
 #include "WorldRegistry.h"
 
 #include "EntityRecord.h"
@@ -1346,6 +1347,98 @@ public:
     buffer[2 + 2 + 4] = 200;
     Neuron::ByteReader bad{std::span<const std::uint8_t>{buffer, writer.BytesWritten()}};
     Assert::IsFalse(ReadStationRoster(bad, station, received));
+  }
+};
+
+/*
+ * The envelope ADR-016 §6's family travels in (ADR-018 A13).
+ *
+ * One engine wire type carries every member, so the kind byte is the game's and
+ * these are the tests for it. What is worth pinning is not that a byte survives
+ * a round trip but the two decisions the format rests on: that a frame is
+ * **self-delimiting without length prefixes**, because every body already
+ * carries its own row count, and that an unrecognised kind is **refused rather
+ * than skipped**, because skipping one would hide a schema disagreement the
+ * handshake exists to catch.
+ */
+TEST_CLASS(SummaryFrameTests)
+{
+public:
+  TEST_METHOD(TwoFamilyMembersShareOneFrameAndCanBeToldApart)
+  {
+    const FleetSummary summaries[] = {FleetSummary{11, FleetState::OnGrid, 5, FLEET_ETA_NONE},
+                                      FleetSummary{11, FleetState::Docked, 3, FLEET_ETA_NONE},
+                                      FleetSummary{42, FleetState::InTransit, 8, 97}};
+    const RosterEntry docked[] = {RosterEntry{101, HullClass::Carrier, 2}, RosterEntry{102, HullClass::Frigate, 2}};
+
+    std::uint8_t buffer[1024];
+    Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
+    Assert::IsTrue(BeginSummaryFrame(2, writer));
+    Assert::IsTrue(BeginSummaryRecord(SummaryKind::FleetSummaries, writer));
+    Assert::IsTrue(WriteFleetSummaries(summaries, writer));
+    Assert::IsTrue(BeginSummaryRecord(SummaryKind::StationRoster, writer));
+    Assert::IsTrue(WriteStationRoster(11, docked, writer));
+
+    // The arithmetic a caller has to be able to do before it writes, because it
+    // is what decides how many records fit one datagram.
+    const std::size_t expected = SUMMARY_FRAME_HEADER_BYTES + SUMMARY_RECORD_HEADER_BYTES + FleetSummariesBytes(3) +
+                                 SUMMARY_RECORD_HEADER_BYTES + StationRosterBytes(2);
+    Assert::AreEqual(expected, writer.BytesWritten());
+
+    Neuron::ByteReader reader{std::span<const std::uint8_t>{buffer, writer.BytesWritten()}};
+    std::uint8_t records = 0;
+    Assert::IsTrue(ReadSummaryFrame(reader, records));
+    Assert::AreEqual<std::uint32_t>(2, records);
+
+    SummaryKind kind{};
+    std::vector<FleetSummary> readSummaries;
+    Assert::IsTrue(ReadSummaryRecord(reader, kind));
+    Assert::IsTrue(kind == SummaryKind::FleetSummaries);
+    Assert::IsTrue(ReadFleetSummaries(reader, readSummaries));
+    Assert::AreEqual<std::size_t>(3, readSummaries.size());
+    Assert::AreEqual<std::uint32_t>(97, readSummaries[2].etaSeconds, L"the transit row's ETA");
+
+    AnchorId station = INVALID_ID;
+    std::vector<RosterEntry> readDocked;
+    Assert::IsTrue(ReadSummaryRecord(reader, kind));
+    Assert::IsTrue(kind == SummaryKind::StationRoster);
+    Assert::IsTrue(ReadStationRoster(reader, station, readDocked));
+    Assert::AreEqual<std::uint32_t>(11, station);
+    Assert::AreEqual<std::size_t>(2, readDocked.size());
+
+    // The claim that lets the format drop length prefixes: each body says where
+    // it ends, so two of them back to back consume the frame exactly.
+    Assert::IsTrue(reader.FullyConsumed(), L"the frame is self-delimiting");
+  }
+
+  TEST_METHOD(AnUnknownKindIsRefusedRatherThanSkipped)
+  {
+    // A frame promising one record, whose kind this build does not define. A
+    // decoder that skipped it would turn a version mismatch into a screen that
+    // is quietly missing a station.
+    const std::uint8_t frame[] = {1, 99};
+    Neuron::ByteReader reader{std::span<const std::uint8_t>{frame}};
+    std::uint8_t records = 0;
+    Assert::IsTrue(ReadSummaryFrame(reader, records));
+    Assert::AreEqual<std::uint32_t>(1, records);
+
+    SummaryKind kind{};
+    Assert::IsFalse(ReadSummaryRecord(reader, kind));
+  }
+
+  TEST_METHOD(ACountPastTheCapIsRefusedBeforeAnyRecordIsTouched)
+  {
+    // Both directions of the same rule: nothing is written for a count that
+    // cannot be honoured, and nothing is read for one that was not.
+    std::uint8_t buffer[64];
+    Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
+    Assert::IsFalse(BeginSummaryFrame(MAX_SUMMARY_RECORDS + 1, writer));
+    Assert::AreEqual<std::size_t>(0, writer.BytesWritten());
+
+    const std::uint8_t hostile[] = {200};
+    Neuron::ByteReader reader{std::span<const std::uint8_t>{hostile}};
+    std::uint8_t records = 0;
+    Assert::IsFalse(ReadSummaryFrame(reader, records));
   }
 };
 

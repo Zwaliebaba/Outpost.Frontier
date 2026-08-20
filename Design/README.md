@@ -94,30 +94,63 @@ moves between the trees without a rename pass. Three things it changed in these 
 - [Universe-Build-Order.md](Universe-Build-Order.md) — the post-MVP universe phase: U1–U6
   slices delivering ADR-016 (bake, anchors, warp, gates, strategic map, system view), plus
   the named content deliverables (system-view print, `Gate.obj`); milestones W0 (first warp)
-  / W1 (first crossing) / W2 (the universe on screen). No slice started.
+  / W1 (first crossing) / W2 (the universe on screen). **U1, U2 and U3a are built, with
+  U3b's sim half and U5's pure half beside them**; U4 is untouched, U3c is blocked on
+  machinery rather than on a screen, and the rest of what is left is screen work.
 - [Station-Build-Order.md](Station-Build-Order.md) — the docking phase: T1–T3 slices
   delivering ADR-017 (roster + transfer bus in the sim, the wire and tactical surfaces,
   the hangar screen), interleaved **after U2, before U3a**; milestones H0 (the headless
   loop) / H1 (the hangar loop); deliverables P1 (station-screen print, blocks T3) and P2
-  (dock/undock audio). No slice started.
-- [Risk-Register.md](Risk-Register.md) — R1–R14 with designed-in mitigations + standing spikes.
-  R6 and R14 are marked realised, with what actually happened.
+  (dock/undock audio). **T1 is built in all three halves and T2's identity cluster is on the
+  wire**; T2's client half is not, and T3 is still gated on P1.
+- [Risk-Register.md](Risk-Register.md) — R1–R23 with designed-in mitigations + standing spikes.
+  R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised and
+  closed**, and R23 — a gating test that flakes — is the one question that did not close
+  with it.
 - [Scaling-Readiness-Review.md](Scaling-Readiness-Review.md) — five-lens review of the MVP
   and this corpus for scaling readiness (2026-08-19, **advisory**): consolidated findings
   (`UX-/NET-/CPP-/UI-/SIM-`), a decision list sequenced against the build orders, and the
   fourteen questions the owner answered the same day — **the answers are normative as
   [ADR-018](ADR/ADR-018-scaling-baseline.md)**; the review stays the evidence record.
-  **Ten of the register's twenty-six actions are delivered, and every design deliverable in
-  it is now written** — A1–A4, A14, A19, A22, A23, A24, A26. What remains is slice work, and
-  the gates are the register's own: A5–A13 and A15–A18, A20, A21 and A25 land with U1, U2,
-  T1, T2, U3b, U3c and U5. Nothing is waiting on a decision; the next move is U1.
+  **Twenty of the register's twenty-six actions are delivered, and every design deliverable
+  in it is written** — A1–A10, A12–A14, A17, A19, A21, A22, A23, A24 and A26 — with A11
+  **partly** done: the wire carries u32 ship ids, while the sim's `ShipId` stays u16 until
+  the delta cluster lifts the full-fit constraint (D6's own staging). **A13 closed
+  2026-08-20** — the per-client `SnapshotSender`, the over-cap refusal tested loudly, and
+  `StationRoster` addressed per viewer through the summary family's own frame — which is
+  what U3b's client half, T2's roster privacy and U3c were all standing behind. **Five
+  remain: A15, A16, A18, A20 and A25**, each landing with U3b, T2, U5 or U3c rather than
+  waiting on a decision.
 
-## Implementation state (2026-08-19)
+## Implementation state (2026-08-20)
 
 **Every MVP slice is in the tree: S1 through S14** (with the inserted S2b, S5b, S5c and S5d),
 green in CI, **and the post-MVP audio slice S15 with them**. The per-slice detail — what was
 built, and what a "done" slice still owes — lives in [MVP-Build-Order.md](MVP-Build-Order.md);
 it is not repeated here.
+
+**T2's wire half is complete and H0's loop runs (2026-08-20).** `StationCommand` had a
+format, a validator and tests, and no line of `NeuronServer`, `NeuronClient` or `Outpost`
+mentioned either — so **UNDOCK could not be commanded over the wire at all**. It has its path
+now, through a `CommandKind` byte leading the acked stream's payload, and `selfTest` drives
+the whole headless loop over real QUIC loopback: dock a fleet, watch it leave the snapshot,
+read its roster off the summary feed, undock a subset on the same acked stream, and watch the
+pair come back wearing the protection bit while the ships that never left do not. Two
+prerequisites fell out of it, both gaps rather than additions: `Welcome` grew **`gridAnchor`**
+(PROTOCOL_VERSION 3) because a client had no number with which to address the station it
+could see, and `ReplicatedShip` grew **`statusBits`** because the protection bit reached the
+wire and stopped there. **P1 also turns out to exist** — the station-screen print landed
+2026-08-19 and this file called it missing until now. Its four open review questions were
+answered the same day as [ADR-017 §6a](ADR/ADR-017-station-docking.md), so **every design
+gate in the station phase is now cleared** and what is left of it is screen work.
+
+**Three things landed on 2026-08-20, none of them a slice.** R22 closed and the Debug leg went
+back to gating, leaving R23 behind it. The build stopped relying on a hand-maintained
+deployment: `Outpost.vcxproj` gained a `CopyGameData` target, so content and `Outpost.json`
+arrive beside the executable and a fresh clone can press F5 — the MVP-Build-Order note that
+recorded that gap is closed. And the boot fleet was re-parked on the owner's call, closing the
+one item ADR-015 left open (see the ship-collision entry below). The next move is **A13**, the
+per-client `SnapshotSender`.
 
 **The MVP is met — the play test was signed off 2026-08-19.** The lap the Architecture Overview
 calls "the one data flow" runs end to end — right-drag to plane point, pre-check, PENDING
@@ -189,14 +222,19 @@ screen where emergent fleets and wings are recombined.
 [Station-Build-Order.md](Station-Build-Order.md) is the delivery plan, interleaved after U2
 and before U3a — it introduces the transfer bus warp inherited.
 
-**Built so far: all three halves of T1, and T2's identity cluster on the wire.** Docking, the
+**Built so far: all three halves of T1, and T2's wire half in full.** Docking, the
 transfer bus, undocking with its fifteen seconds, the parking ring and the event record are
 in the sim; `PlayerId` and the reserved resume token are on `Hello`/`Welcome`, and the schema
 text grew the verdict-affecting constants and the check-order sequence (ADR-018 D9/A21).
 **T2's client half is not built** — the DOCK context action, the approach chain, the fades,
-the shimmer and the DOCKED roster blocks are all screen work — and neither is its per-client
-`SnapshotSender`, which is the piece U3c waits on. T3, the hangar screen, is still gated on
-the station-screen print (P1), its one missing design artifact.
+the shimmer and the DOCKED roster blocks are all screen work. Its per-client `SnapshotSender`,
+the piece U3c waited on, landed with A13. T3, the hangar screen, **has no design gate left**: the
+four questions [P1](ScreenPrints/station-screen.png) marked open for review were answered on
+2026-08-20 as [ADR-017 §6a](ADR/ADR-017-station-docking.md) — the wave-2 trigger (the point
+clears, bounded by a timeout so §4's full-ring hold cannot stall it), the composer's lifetime
+(persists, reconciled against the roster), wing colour (none — colour already means
+relationship), and the sort inside a wing (class descending, then ship id, because names are
+client-side).
 
 **The first post-MVP feature is in the tree: ship collision (ADR-015, 2026-08-18).** Ships no
 longer fly through each other — per-class contact radii in the class table, braking and
@@ -206,9 +244,13 @@ plus a converging-crowd replay test joined `GameLogicTests`; nothing on the wire
 things worth knowing: a target with a hull parked on it now ends with the mover parked
 adjacent and the leg expiring by its deadline (the obstructed-footprint item stays open, only
 its failure mode improved), and the authored starting fleet carried a real 6 m overlap between
-the Carrier and Battleship wings' line ends that `Separate` now heals on tick 1 — re-parking
-that layout is the owner's call. Originally verified on a Linux clang cross-build of GameLogic;
-since the merge with S14 the full MSVC build and all four suites (collision and S14 together)
+the Carrier and Battleship wings' line ends that `Separate` now heals on tick 1 — **re-parked
+2026-08-20 on the owner's call**: the ring deals its slots widest-with-narrowest rather than in
+table order, which moves the tightest cross-wing pair from −5.9 m to +90.3 m and leaves ship
+ids, wing ids and call signs exactly as they were. The boot log now states the number every
+run, because ADR-015 found that overlap only by measuring for it. Originally verified on a
+Linux clang cross-build of GameLogic; since the merge with S14 the full MSVC build and all
+four suites (collision and S14 together)
 have run green locally, with CI's run standing behind it as usual.
 
 **And its other half followed: ship make-way (ADR-021, 2026-08-19).** ADR-015 gave the mover

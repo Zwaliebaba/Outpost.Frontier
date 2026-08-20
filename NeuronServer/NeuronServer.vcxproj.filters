@@ -5,6 +5,9 @@
     <ClCompile Include="ServerHost.cpp">
       <Filter>Host</Filter>
     </ClCompile>
+    <ClCompile Include="SnapshotSender.cpp">
+      <Filter>Replication</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -17,6 +20,9 @@
     <ClInclude Include="Simulation.h">
       <Filter>Seam</Filter>
     </ClInclude>
+    <ClInclude Include="SnapshotSender.h">
+      <Filter>Replication</Filter>
+    </ClInclude>
     <ClInclude Include="NeuronServer.h" />
   </ItemGroup>
   <ItemGroup>
@@ -25,6 +31,9 @@
     </Filter>
     <Filter Include="Seam">
       <UniqueIdentifier>{c9aaed31-cd05-4fb0-bb12-827d86fc4015}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Replication">
+      <UniqueIdentifier>{1f7c2b64-5d3e-4a91-9c08-6be4d2a7f350}</UniqueIdentifier>
     </Filter>
     <Filter Include="Project Files">
       <UniqueIdentifier>{5d1335cd-641b-4838-927e-4b9a58d9ed42}</UniqueIdentifier>
