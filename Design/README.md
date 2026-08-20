@@ -214,6 +214,22 @@ than on a screen: it needs T2's per-client `SnapshotSender` and U3b's view subsc
 neither exists yet. U4 (gates and the twelfth hull) is untouched. The system-view print
 remains the one missing design artifact.
 
+**Every open design decision in both post-MVP phases is now answered (2026-08-20).** The two
+prints that carried an OPEN list have been ruled on: `station-screen.png` §3's four questions
+as [ADR-017 §6a](ADR/ADR-017-station-docking.md), and `strategic-map.png` §4's as
+[ADR-016 §9a](ADR/ADR-016-procedural-universe-and-warp.md). Route execution needed no new
+ruling — ADR-016 §8 decided it when the phase was designed and it stands — but its accepted
+cost now has somewhere to be *reported*, because D19's event record landed after the print was
+drawn and the reconnect away-log is one of its consumers. Of the other three: the history
+scrubber **keeps its rail** as a drawn, inert stub, since the irreversible thing is the layout
+and not the feature, and build-or-cut waits on a strategic stream that does not exist; intel
+ping provenance is **deferred behind a named trigger** rather than guessed at, on ADR-018 D5's
+own reasoning about inventing a security model for something that cannot yet be attacked; and
+the map is **landscape only**, because aspect belongs to the display envelope and not to a
+surface — one portrait screen in ADR-020's stack is a navigation model whose surfaces disagree
+about shape. **What blocks the universe phase now is one missing artifact, not a decision: D1,
+the system-view print.**
+
 **The station phase is designed and its simulation is built (ADR-017, 2026-08-19).** A second
 owner design session settled docking: docked ships as an off-grid roster, the dock order
 (together, instant, inside the radius, client-fed approach), undock with 15-second

@@ -285,7 +285,12 @@ surfaced on the HUD.
 **Accept 🏁 W1:** a routed A→B→C crossing completes watched and unwatched; killing the
 client mid-route halts the fleet at the next gate and reconnecting resumes the feed;
 `NotAtGate` bounces with parity; the strategic-map print's §3 question is answered in the
-tree and its OPEN note updated.
+tree and its OPEN note updated. **That question was answered by
+[ADR-016 §8](ADR/ADR-016-procedural-universe-and-warp.md) when this phase was designed** —
+the map plans, the client feeds, one order per completed hop — and re-ruled unchanged on
+2026-08-20 (§9a.1). So what U4 owes is not a decision but the *behaviour*: the feeder, and
+the halt emitted into ADR-018 D19's event record so "your fleet stopped at KIL-7 while you
+were away" is something the away-log can say rather than something the player discovers.
 
 ### U5 — Strategic map v1 *(depends only on U1 — runs in parallel with U2–U4)*
 **Gate (ADR-018): D7 is delivered — [ADR-020](ADR/ADR-020-ui-architecture.md) — and A20's
@@ -301,6 +306,15 @@ overlay + region band badge, search, selected-system panel, fleet markers from s
 DESTINATION / ADD WAYPOINT driving the U4 planner, VIEW on systems with presence, TACTICAL ⇄
 MAP navigation. Sovereignty, heat, intel and the history scrubber are visible stubs, exactly
 as the print anticipates for content that does not exist.
+**Three of the print's §4 decisions landed 2026-08-20
+([ADR-016 §9a](ADR/ADR-016-procedural-universe-and-warp.md)) and they shape this slice:** the
+history scrubber keeps its rail — drawn, inert and labelled — because the irreversible thing
+is the layout rather than the feature, and build-or-cut waits on the strategic stream existing
+rather than on U5; intel-ping provenance is deferred behind a named trigger (the first
+information one commander sees because another reported it), so the overlay shows nothing and
+promises nothing; and the screen is **landscape only**, because aspect is a property of the
+display envelope and not of a surface — which is also the envelope this slice must not lay
+zone tables against blind (UI-4).
 **Accept:** visual checkpoint against the print at region level *over the real baked
 content* — constellation hulls disjoint, labels legible, which is U1's clustering invariant
 paying off on screen; a destination set on the map produces a real crossing; the full 2,500
