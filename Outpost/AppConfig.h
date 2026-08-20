@@ -26,7 +26,8 @@ enum class HostMode : std::uint8_t
 {
   Host,     // Server and client in one process -- the MVP default.
   Headless, // Server only. The standing proof it has no client dependency.
-  Client    // Client only, connecting to client.connect.
+  Client,   // Client only, connecting to client.connect.
+  Bake      // Runs the universe bake, writes the JSON, exits (build order U1).
 };
 
 struct LogSettings

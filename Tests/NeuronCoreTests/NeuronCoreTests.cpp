@@ -111,7 +111,7 @@ public:
 TEST_CLASS(EntityRecordTests)
 {
 public:
-  TEST_METHOD(RecordIsTwentyBytesOnTheWire)
+  TEST_METHOD(RecordIsExactlyItsDeclaredWidthOnTheWire)
   {
     std::uint8_t storage[64]{};
     ByteWriter writer{std::span<std::uint8_t>{storage}};
@@ -132,6 +132,7 @@ public:
     source.headingTurns16 = 40000;
     source.gaugeA = 200;
     source.gaugeB = 100;
+    source.statusBits = 0x05;
 
     std::uint8_t storage[64]{};
     ByteWriter writer{std::span<std::uint8_t>{storage}};
@@ -148,6 +149,7 @@ public:
     Assert::AreEqual(source.posYCm, result.posYCm);
     Assert::AreEqual(source.velXCmPerSec, result.velXCmPerSec);
     Assert::AreEqual(source.velYCmPerSec, result.velYCmPerSec);
+    Assert::AreEqual(source.statusBits, result.statusBits);
     Assert::AreEqual(source.headingTurns16, result.headingTurns16);
     Assert::AreEqual(source.gaugeA, result.gaugeA);
     Assert::AreEqual(source.gaugeB, result.gaugeB);

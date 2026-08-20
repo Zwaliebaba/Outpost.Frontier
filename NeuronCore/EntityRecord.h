@@ -21,7 +21,7 @@
  *   position  centimetres, +-21474 km
  *   velocity  centimetres per second, +-327 m/s
  *   heading   1/65536 of a turn
- * 20 bytes per entity: 41 ships and a header fit one datagram, and the 1024-cap
+ * 21 bytes per entity: 41 ships and a header fit one datagram, and the 1024-cap
  * case is what forces delta encoding later rather than a bigger packet.
  */
 
@@ -56,9 +56,30 @@ struct EntityRecord
   std::uint16_t headingTurns16 = 0;
   std::uint8_t gaugeA = 0;
   std::uint8_t gaugeB = 0;
+
+  /*
+   * A bitfield, on purpose (ADR-017 §5).
+   *
+   * Neutral like `typeId` and `groupId`: the engine carries the byte and the
+   * game decides what each bit means. Unlike the old always-zero `flags` byte
+   * this one *is* meant to be `|=`d into, which is exactly why it is named for
+   * what it is rather than reserved under a vaguer word.
+   *
+   * A byte rather than a widened `typeId` because the other seven bits are
+   * already spoken for: in-warp, combat-flagged, and -- per
+   * [ADR-022](../Design/ADR/ADR-022-interest-and-delta.md) -- two bits of
+   * viewer-relative relationship, which is how ownership reaches the client
+   * costing no byte at all.
+   *
+   * **It cost ships.** `ENTITY_RECORD_BYTES` went 20 to 21 and the snapshot cap
+   * fell from 45 to 43. That is recorded here rather than only in the ADR for
+   * the same reason `ORDER_STATE_RECORD_BYTES` records its own: the next person
+   * who wants a status bit should find the price already on the page.
+   */
+  std::uint8_t statusBits = 0;
 };
 
-inline constexpr std::size_t ENTITY_RECORD_BYTES = 20;
+inline constexpr std::size_t ENTITY_RECORD_BYTES = 21;
 
 void WriteEntityRecord(ByteWriter& _writer, const EntityRecord& _record) noexcept;
 [[nodiscard]] EntityRecord ReadEntityRecord(ByteReader& _reader) noexcept;

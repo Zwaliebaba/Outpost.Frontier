@@ -117,12 +117,13 @@
       </ObjectFileOutput>
       <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">/Qembed_debug %(AdditionalOptions)</AdditionalOptions>
     </FxCompile>
-    <!-- Included by the .hlsl files above; fxc resolves them beside the source. -->
+    <!-- Included by the .hlsl files above; dxc resolves them beside the source. -->
     <None Include="Shaders\FrameConstants.hlsli" />
     <None Include="Shaders\Nebula.hlsli" />
     <None Include="Shaders\Overlay.hlsli" />
     <None Include="Shaders\Opaque.hlsli" />
     <None Include="Shaders\PassConstants.hlsli" />
+    <None Include="Shaders\Ui.hlsli" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -133,9 +134,11 @@
     <ClCompile Include="ConfigLoad.cpp" />
     <ClCompile Include="ReplicatedWorldView.cpp" />
     <ClCompile Include="ShaderTable.cpp" />
+    <ClCompile Include="UniverseBake.cpp" />
     <ClCompile Include="UniverseLoad.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="SelfTest.cpp" />
+    <ClCompile Include="TickSoak.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -143,8 +146,10 @@
     <ClInclude Include="ConfigLoad.h" />
     <ClInclude Include="ReplicatedWorldView.h" />
     <ClInclude Include="ShaderTable.h" />
+    <ClInclude Include="UniverseBake.h" />
     <ClInclude Include="UniverseLoad.h" />
     <ClInclude Include="SelfTest.h" />
+    <ClInclude Include="TickSoak.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
@@ -153,17 +158,17 @@
     <RootNamespace>Outpost</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
+  <!-- The toolset is pinned in one file (ADR-018 A24); a CI step holds it there. -->
+  <Import Project="$(MSBuildThisFileDirectory)..\Outpost.Toolset.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -174,9 +179,11 @@
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(MSBuildThisFileDirectory)..\Outpost.Compile.props" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(MSBuildThisFileDirectory)..\Outpost.Compile.props" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -191,8 +198,6 @@
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>true</ConformanceMode>
-      <LanguageStandard>stdcpplatest</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProjectDir)CompiledShaders;$(SolutionDir)NeuronCore;$(SolutionDir)NeuronClient;$(SolutionDir)NeuronServer;$(SolutionDir)GameLogic;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
@@ -219,8 +224,6 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>true</ConformanceMode>
-      <LanguageStandard>stdcpplatest</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProjectDir)CompiledShaders;$(SolutionDir)NeuronCore;$(SolutionDir)NeuronClient;$(SolutionDir)NeuronServer;$(SolutionDir)GameLogic;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>

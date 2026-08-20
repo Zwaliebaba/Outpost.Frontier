@@ -1,7 +1,11 @@
 # MVP Build Order — Vertical Slices
 
 **Status:** Session output 2026-08-17 · **implementation progress appended 2026-08-18 · S14
-landed; play test signed off 2026-08-19 — the MVP is met.**
+landed; play test signed off 2026-08-19 — the MVP is met.** · **This document is closed as a
+plan** (2026-08-20): S1–S15 are all built, and post-MVP work lives in
+[Universe-Build-Order.md](Universe-Build-Order.md) and
+[Station-Build-Order.md](Station-Build-Order.md). What still lands here is a change *inside* a
+slice this document owns — see the two recorded under the MVP sign-off.
 Each slice is independently testable, lands green (`Tests/` + `selfTest` where applicable),
 and is sized at "a few days" or less. Order matters — later slices assume earlier ones.
 Milestones: **M0** = the brief's named first milestone; **M1** = first commanded fleet;
@@ -33,7 +37,7 @@ open**, and none of them blocks the MVP or M1 — both are met:
 | 3 | **No sim-side stall injector** — F10 cuts the client's *feed*, which is indistinguishable from the client's side but does not pause the authority | S7 | Only matters the day something tests the server stalling rather than the link going quiet |
 | 4 | **What the puck should do when a station lands inside a gate or another fleet** | S10 | A design decision nobody has taken; `puck-and-wheel.png` §6 lists it OPEN |
 | 5 | **Nobody has heard the audio** — the manual pass is S15's real acceptance, and the two WAVs are synthesised placeholders | S15 | Landed 2026-08-19; no listening pass since |
-| 6 | **The Debug CI leg does not gate** (`continue-on-error`) while R22 is open, so a green tick certifies **Release only** | — | Risk-Register R22. A confirmed deadlock was removed from the file R22 names, but confirming it *was* the CI hang needs green Debug legs, not an argument |
+| 6 | ~~**The Debug CI leg does not gate** (`continue-on-error`) while R22 is open, so a green tick certifies **Release only**~~ **Closed 2026-08-20** | — | Risk-Register R22. The green Debug legs the row asked for arrived, the owner closed it, and `continue-on-error` came out of the build job. What survives R22 is a different question, now **R23**: `QuicTransportTests` has flaked on both configurations, and a flaky test that gates is a red build nobody caused |
 
 Two more that belong to no slice and are recorded where they live rather than here: ADR-011 §8's
 callback ring and external-lane registration (deliberately deferred, named in S15's notes), and
@@ -1565,22 +1569,58 @@ by finding a deadlock that made it undemonstrable: engine code that 477 tests an
 S14's notes above). A green tick said the tree was ready. Only a person at a GPU could say
 whether the game was, and the first thing they saw was that it was not.
 
-**One qualification stands, and it is on the machine half.** The Debug leg of CI is still
-`continue-on-error` while R22 is open, so a green run certifies **Release** only. That
-deadlock is a strong candidate for R22's cause — it is in the file R22 names, in a call
+**The qualification that stood here has been discharged.** The Debug leg of CI was
+`continue-on-error` while R22 was open, so a green run certified **Release** only. That
+deadlock was a strong candidate for R22's cause — it is in the file R22 names, in a call
 `NeuronCoreTests`' loopback pump drives hard, and it is a race, which is the shape R22
 reported — but R22's own hypothesis was a different mechanism in `Teardown`, and settling it
-takes green Debug runs rather than an argument. `continue-on-error` comes out of the build job
-the day that holds, and not before.
+took green Debug runs rather than an argument. **They came**, the owner closed the row on
+2026-08-20, and `continue-on-error` is out of the build job: a green tick certifies both
+configurations again. Worth keeping from the episode: the deadlock was found by a person at a
+GPU and confirmed by CI, in that order, and the fix was gated on the second rather than the
+first — which is the only reason the closing note here is a record and not a hope.
 
 **What follows the MVP is already moving.** The first post-MVP feature landed beside S14 and
 merged with it: ship collision (ADR-015) — contact radii in the class table, braking and
 deflection inside Steering, a fifth tick system (`Separate`) — recorded in that ADR rather
-than as a slice here, because it belongs to no build order's sequence. The universe phase is
-designed (ADR-016) and has its own plan, [Universe-Build-Order.md](Universe-Build-Order.md),
-with no slice started. **S15 below is built as of 2026-08-19** and stays this document's own
-tail; the station phase (ADR-017) has [its own plan](Station-Build-Order.md) and no slice
-started either.
+than as a slice here, because it belongs to no build order's sequence. **S15 below is built as
+of 2026-08-19** and stays this document's own tail.
+
+**The two phases now have their own plans and their own progress**, and this document is not
+where to read it: the universe phase (ADR-016,
+[Universe-Build-Order.md](Universe-Build-Order.md)) has U1, U2, U3a, U3b's sim half and U5's
+pure half built; the station phase (ADR-017,
+[Station-Build-Order.md](Station-Build-Order.md)) has all of T1 and T2's identity cluster.
+Both plans carry a **Built** line per landed slice, which is where the detail lives.
+
+**Two changes did land inside this document's territory, and are recorded here because
+nothing else covers them.**
+
+*The order table grew a lifetime.* A group that reaches `Done` now **lingers 30 ticks**
+(`ORDER_DONE_LINGER_TICKS`) before it is retired, instead of leaving the table on the tick it
+finishes. S12 built the ghost that retires on *seeing* `Done` in a snapshot (ADR-014 §2c —
+order records exist only while an order does, so absence is the signal), and that reading is
+safe only if the record outlives the event it reports; without the linger the ghost races the
+snapshot at exactly the rate the link is slow. Two consequences worth having in one place:
+`doneTick` is simulation state and folds into the hash — `RetirementReplaysExactly` pins it —
+and snapshot order selection became **two passes, live groups first**, so when the sixteen-slot
+cap bites the record that gets dropped is a corpse serving out its linger rather than the order
+the player just gave. `World.cpp` split in the same work, with the order pipeline moving to
+`WorldOrders.cpp`.
+
+*S11's HUD caught up with its print.* The command row stopped being a fixed list of verbs and
+became the game's own lists, asked once through `WorldView::OrderKinds`/`OrderOptions` and held
+**per kind** rather than for the selected one, indexed by slot rather than by kind value. That
+is what let `StanceId{Balanced, Aggressive, Evasive}` arrive as three words with **no engine
+edit and no wire field** — ADR-014 §2c's argument tested by the game growing a parameter rather
+than by a second game appearing. Six print details landed with it: the row keeps ATTACK second
+with parameter chips deferred past the immediate verbs, only picker buttons carry the `▾`
+caret, the `▥ MENU` chip and its stub list exist, the context bar counts the optimistic window
+(`⏳ N ORDERS PENDING`), world-space gauge bars band on the same two thresholds the roster
+strips use, and the selection ring became the own-fleet phosphor instead of the allied cyan it
+had shipped as. One of them moved the renderer: **the ghost's lane now draws under the hulls**,
+which took ADR-006's reserved pass list a second insertion (`UiWorld`, §1c) — a second `UiPass`
+instance into the world target before `Opaque`, at the same price `Nebula` paid.
 
 ---
 

@@ -2,9 +2,12 @@
 
 #include "Ids.h"
 #include "Orders.h"
+#include "Station.h"
+#include "Transfer.h"
 #include "Validate.h"
 #include "ShipClass.h"
 
+#include "OwnerThread.h"
 #include "Random.h"
 
 #include <DirectXMath.h>
@@ -111,8 +114,44 @@ struct OrderGroup
   FormationId formation = FormationId::Line;
   OrderState state = OrderState::Underway;
 
+  /*
+   * What the group is *doing* (U3a). A Move flies legs; a Warp spools and then
+   * leaves.
+   *
+   * A kind on the group rather than a second table, because a warp is an order
+   * in every way that matters -- it is acked, it is replaced by the next order,
+   * it holds its members, and the client draws a ghost for it. What differs is
+   * what happens when it completes, and that is one branch rather than a
+   * parallel machine.
+   */
+  OrderKind kind = OrderKind::Move;
+
+  /// Where a `Warp` is going. `INVALID_ID` for a Move.
+  AnchorId anchor = INVALID_ID;
+
+  /*
+   * When the spool finishes (ADR-016 §5), for a `Warp`.
+   *
+   * The window in which a warp can still be called off -- by a replacing order,
+   * which is the only cancel there is: ADR-016 §8 refuses a program of verbs, so
+   * "cancel" is "tell them to do something else", and the group table already
+   * makes that work. Zero for a Move.
+   */
+  std::uint32_t spoolUntilTick = 0;
+
   std::uint16_t memberCount = 0;
   ShipId members[MAX_SHIPS_PER_ORDER] = {};
+
+  /*
+   * Issued by the world to itself rather than by a player (ADR-017 §4).
+   *
+   * Exactly one flag, and it earns its place twice: the parking order is a real
+   * group, so the ETA, the drawn lane, the straggler deadline and player
+   * override all come free -- and ingesting a *player's* order is what ends
+   * undock protection, which a system order must not do or the fleet would lose
+   * its fifteen seconds to the very order that parks it.
+   */
+  bool systemIssued = false;
 
   std::uint8_t legCount = 0;
   std::uint8_t legIndex = 0;
@@ -162,6 +201,15 @@ struct PendingOrder
 {
   OrderGroup group;
   QueueMode queueMode = QueueMode::Replace;
+
+  /// What the order actually was. A Dock never becomes a group -- ingest
+  /// consumes it into transfer records instead (ADR-017 §2) -- so the kind has
+  /// to survive submission rather than being inferred from a group that will
+  /// not exist.
+  OrderKind kind = OrderKind::Move;
+
+  /// The anchor a Dock named. Meaningless for a Move.
+  AnchorId anchor = INVALID_ID;
 };
 
 /// What a ship looks like at the moment it enters the world.
@@ -172,6 +220,12 @@ struct ShipSpawn
   float xMetres = 0.0f;
   float yMetres = 0.0f;
   float headingRadians = 0.0f;
+
+  /// Undock protection (ADR-017 §5): the tick this ship stops being protected,
+  /// or zero for "never was". A spawn parameter rather than a later call
+  /// because a ship that is protected from its first tick and a ship that
+  /// becomes protected on its second are different things on the wire.
+  std::uint32_t protectedUntilTick = 0;
 };
 
 class World
@@ -256,9 +310,105 @@ public:
   /// same build, same seed, same orders, same state.
   void Reset(std::uint64_t _seed) noexcept;
 
-  /// Adds a ship and returns its id, or `INVALID_SHIP_ID` if the class has no
-  /// content. Reserved classes are nameable and never spawnable (ADR-009 §6).
-  [[nodiscard]] ShipId Spawn(const ShipSpawn& _spawn);
+  /*
+   * Adds a ship **with the id it is given** (ADR-018 D6a), and returns it --
+   * or `INVALID_SHIP_ID` if the class has no content (reserved classes are
+   * nameable and never spawnable, ADR-009 §6) or the id is already in use.
+   *
+   * The world does not mint ids and must not: under the universe runtime a ship
+   * keeps its id across grids, so an id space owned per-world would collide on
+   * the first transfer -- which is exactly what it did, from zero, in every
+   * world at once. Allocation belongs to the registry, and an authored
+   * occupant's id is derived from its anchor so that spin-up, teardown and
+   * recreate reproduce it bit-exactly.
+   */
+  [[nodiscard]] ShipId Spawn(const ShipSpawn& _spawn, ShipId _shipId);
+
+  /*
+   * Takes a ship out of the world **without destroying it** (ADR-017 §9).
+   *
+   * The transfer seam: the ship's id, class and wing come back so the roster --
+   * or, later, the destination grid -- can hold the same ship rather than a new
+   * one that looks like it. `Spawn` is the other half, and it already takes an
+   * id for exactly this reason.
+   *
+   * False when the id is not here, which is a question worth being able to ask.
+   */
+  [[nodiscard]] bool TransferOut(ShipId _shipId, TransferMember& _outMember);
+
+  /*
+   * The transfers this world filed and has not handed over yet.
+   *
+   * A world files; the registry stamps and applies. It cannot do both, because
+   * the ordering counter is the host's and a world minting its own would give
+   * two grids the same number in the same tick (ADR-018 D17).
+   */
+  [[nodiscard]] std::span<const TransferRequest> FiledTransfers() const noexcept { return m_filed; }
+  void ClearFiledTransfers() noexcept { m_filed.clear(); }
+
+  /// Gives the world up, so another thread may take it (ADR-007 §7). Boot's
+  /// Main-to-Sim hand-off is the sanctioned use and, today, the only one.
+  void ReleaseOwner() noexcept;
+
+  /*
+   * Which anchor's grid this is, and which of its ships is the station
+   * (ADR-016 §3, ADR-017 §2).
+   *
+   * The registry says this once, on spin-up. The world needs it because `Dock`
+   * names an anchor and the validator has to answer "is that this grid's?" --
+   * and it is an *id*, not a universe coordinate, so this stays on the right
+   * side of ADR-009 §2's line: the tick still knows nothing about where in the
+   * galaxy it is.
+   *
+   * `INVALID_SHIP_ID` for a grid with no station -- a gate, a planet, open
+   * space -- which is what makes every Dock there `UnknownStation`.
+   *
+   * `_reachable` is where a `Warp` from here may go: **a list of ids**, copied
+   * because it is content and never changes, and ids because the world may not
+   * read a universe (ADR-009 §2). The registry knows both halves, so the
+   * registry is what says this once, on spin-up.
+   */
+  void SetAnchor(AnchorId _anchor, ShipId _stationShip, std::span<const AnchorId> _reachable);
+
+  [[nodiscard]] AnchorId Anchor() const noexcept { return m_anchor; }
+  [[nodiscard]] ShipId StationShip() const noexcept { return m_stationShip; }
+
+  /*
+   * A move the world issues to itself (ADR-017 §4).
+   *
+   * The same path a player's order takes -- validated, queued, ingested,
+   * solved -- with one difference: it does not end undock protection. The
+   * parking order arrives in the same tick the fleet does, and a fleet that
+   * lost its protection to the order that parks it would have none at all.
+   */
+  [[nodiscard]] OrderVerdict SubmitSystemOrder(const OrderSubmit& _order);
+
+  /*
+   * Where a just-undocked fleet should park itself (ADR-017 §4).
+   *
+   * Scans the parking ring's 24 candidates in the fixed order §4 states and
+   * returns the first **free** one -- free meaning the fleet's *solved*
+   * formation there clears every hull on the grid by the avoidance model's own
+   * clearance, and lands inside no other group's final-leg intention.
+   *
+   * That second clause is what makes two fleets undocking on the same tick pick
+   * different berths **with no reserved-berth state to store or hash**: a berth
+   * is taken exactly when live positions or live intentions say so. It is also
+   * why this reads the group table rather than a reservation list.
+   *
+   * False means all 24 are taken, which is **not** a refusal: the fleet holds
+   * at the undock point with its protection still ticking and separation
+   * keeping it honest. Undocking is never refused for clutter.
+   */
+  [[nodiscard]] bool FindBerth(std::span<const ShipId> _ships, FormationId _formation,
+                               const DirectX::XMFLOAT2& _stationCentreMetres,
+                               const DirectX::XMFLOAT2& _undockPointMetres, DirectX::XMFLOAT2& _outBerthMetres,
+                               float& _outFacingRadians) const;
+
+  /// Is this ship still under undock protection at `_tick` (ADR-017 §5)? False
+  /// for an unknown ship, which is the same answer as an unprotected one --
+  /// the question is about immunity, not existence.
+  [[nodiscard]] bool IsProtected(ShipId _shipId, std::uint32_t _tick) const noexcept;
 
   /// Removes a ship. Returns false if the id is not present, which is a
   /// question worth being able to ask rather than an error worth asserting.
@@ -362,6 +512,7 @@ public:
   [[nodiscard]] std::span<const Guidance> Guidances() const noexcept { return m_guidances; }
   [[nodiscard]] std::span<const std::uint8_t> Hulls() const noexcept { return m_hulls; }
   [[nodiscard]] std::span<const std::uint8_t> Shields() const noexcept { return m_shields; }
+  [[nodiscard]] std::span<const std::uint32_t> ProtectedUntil() const noexcept { return m_protectedUntil; }
 
   /// The accepted orders, and what they are doing. Read by `WriteSnapshot` for
   /// the order-state records that promote a client's ghost (ADR-004 §6).
@@ -396,7 +547,16 @@ public:
   /// The view `ValidateOrder` runs against, built from this world's own tables.
   /// Exposed because the server pre-checks with it and a test asserts parity
   /// against the client's (ADR-005 §4).
-  [[nodiscard]] ValidationView Validation() const noexcept;
+  /*
+   * The view `ValidateOrder` reads, over this world's ships.
+   *
+   * **Non-const, and the span it hands back is borrowed.** A `ShipMark` is
+   * wire-quantised and the world stores metres, so the marks have to be
+   * materialised somewhere; they live in a scratch table here rather than in a
+   * temporary the returned span would outlive. The next call overwrites it,
+   * which is the same borrow-never-hold rule the registry states for worlds.
+   */
+  [[nodiscard]] ValidationView Validation();
 
   /// The RNG's state, for the world hash. Exposed rather than hashed here so
   /// `WorldHash` stays the single place that decides what "the state" means.
@@ -413,9 +573,19 @@ private:
   void Integrate();
   void Separate();
 
+  /// Sends off the warps whose spool has run out (U3a). Run at the top of
+  /// `GroupAdvance`, because a fleet that has left is not a fleet with a leg.
+  void DepartFinishedWarps();
+
   /// Solves the current leg's stations and writes them into the members'
   /// guidance. The one place a group touches a ship.
   void ApplyLeg(OrderGroup& _group);
+
+  /// Both `SubmitOrder` and `SubmitSystemOrder`, which differ by one flag and
+  /// must not differ by anything else -- a system order that took a shortcut
+  /// through validation would be the one order the parity contract does not
+  /// cover.
+  [[nodiscard]] OrderVerdict Submit(const OrderSubmit& _order, bool _systemIssued);
 
   /// The group this ship currently belongs to, or null. A ship is in at most
   /// one group -- `ForgetShipInGroups` on ingest is what makes that true -- so
@@ -434,7 +604,23 @@ private:
   /// rather than a map: it is O(1), it has no iteration order to get wrong, and
   /// a pointer-keyed container is exactly what ADR-005 §5 forbids.
   std::vector<ShipId> m_slotById;
-  ShipId m_nextShipId = 0;
+  /*
+   * Single-writer enforcement (ADR-007 §7), debug-only and never hashed: an
+   * owner id that reached the world hash would make a replay depend on which
+   * thread ran it.
+   */
+  Neuron::OwnerThread m_owner;
+
+  /// Which anchor's grid this is, and its station if it has one. Set once on
+  /// spin-up and never hashed: they are identity, not state, and a world that
+  /// folded its own address into its hash could not be compared against its
+  /// recreation on another host.
+  AnchorId m_anchor = INVALID_ID;
+  ShipId m_stationShip = INVALID_SHIP_ID;
+
+  /// Where a warp from this grid may go. Content, set once, never hashed --
+  /// it is the same list in every run of the same universe.
+  std::vector<AnchorId> m_reachable;
 
   std::vector<ShipId> m_ids;
   std::vector<std::uint8_t> m_classes;
@@ -446,11 +632,26 @@ private:
   std::vector<std::uint8_t> m_hulls;
   std::vector<std::uint8_t> m_shields;
 
+  /// Undock protection, per slot (ADR-017 §5). Zero means unprotected, which is
+  /// every ship that did not arrive out of a station. Hashed like every other
+  /// per-ship field: it is simulation state, and a replay that disagreed about
+  /// who was protected would disagree about the fight that follows.
+  std::vector<std::uint32_t> m_protectedUntil;
+
   std::vector<OrderGroup> m_groups;
 
   /// Accepted, waiting for the next tick to ingest. World state, so a replay
   /// reproduces orders that were in flight across a tick boundary.
   std::vector<PendingOrder> m_pending;
+
+  /// Filed this tick, drained by the registry between ticks. World state until
+  /// it is drained -- a replay that lost a filed transfer would lose a dock.
+  std::vector<TransferRequest> m_filed;
+
+  /// Scratch for `Validation()`, not state: the quantised mirror of
+  /// `m_positions` and `m_classes`, rebuilt on demand and hashed by nothing.
+  /// A member so the span it is handed out as has somewhere to live.
+  std::vector<ShipMark> m_validationMarks;
 
   std::uint32_t m_nextOrderId = 1; // Zero means "no order" in the verdict.
   std::uint32_t m_lastOrderSeqProcessed = 0;

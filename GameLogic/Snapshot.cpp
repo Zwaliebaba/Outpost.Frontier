@@ -47,6 +47,17 @@ Neuron::EntityRecord MakeShipRecord(const World& _world, std::uint32_t _slot) no
   record.headingTurns16 = Neuron::RadiansToHeading(_world.Headings()[_slot]);
   record.gaugeA = _world.Hulls()[_slot];
   record.gaugeB = _world.Shields()[_slot];
+
+  /*
+   * The status byte (ADR-017 §5). One bit today: undock protection, which the
+   * client draws as a shimmer.
+   *
+   * Read against the world's *own* tick rather than a tick passed in, for the
+   * same reason `WriteSnapshot` ignores the loop's: the world knows its own and
+   * they are the same number, and writing the world's is the one that cannot
+   * drift.
+   */
+  record.statusBits = _world.IsProtected(record.id, _world.Tick()) ? SHIP_STATUS_PROTECTED : 0;
   return record;
 }
 

@@ -28,6 +28,7 @@ void WriteEntityRecord(ByteWriter& _writer, const EntityRecord& _record) noexcep
   _writer.WriteUInt16(_record.headingTurns16);
   _writer.WriteUInt8(_record.gaugeA);
   _writer.WriteUInt8(_record.gaugeB);
+  _writer.WriteUInt8(_record.statusBits);
 }
 
 EntityRecord ReadEntityRecord(ByteReader& _reader) noexcept
@@ -43,6 +44,7 @@ EntityRecord ReadEntityRecord(ByteReader& _reader) noexcept
   record.headingTurns16 = _reader.ReadUInt16();
   record.gaugeA = _reader.ReadUInt8();
   record.gaugeB = _reader.ReadUInt8();
+  record.statusBits = _reader.ReadUInt8();
   return record;
 }
 

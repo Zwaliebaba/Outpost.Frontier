@@ -93,6 +93,15 @@ without saying what anchors them. This ADR says it.
      the `GridAnchor`'s `UniversePos`. The engine carries them and never reads them, which is
      ADR-014's rule holding at the one place it was most tempting to bend.
 
+   **A third departure arrived 2026-08-19: `worldMeta` grew three display strings** —
+   `worldName`, `worldDetail`, `worldBadge` — because the HUD's top bar states them verbatim
+   (`tactical-hud.png`'s `VESTA-3 / FRONTIER 0.4 / SEC 0.4`) and the words are the game's. They
+   are plain strings rather than anything with structure, and the engine ships them exactly the
+   way it ships `playerName`: copied, never parsed. This is the same rule as the bullet above
+   rather than an exception to it — the engine carries "a name, a secondary line, a badge",
+   which is generic; what those say about security ratings and frontier status is the game's,
+   and `NeuronCore` never learns it.
+
    `worldMeta` earns its place in the wire now rather than at S5c because `mode: "client"`
    already exists: a client in another process shares no configuration with the server, so
    without the anchor it cannot place a single replicated position.

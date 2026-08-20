@@ -53,7 +53,7 @@ struct JsonError
 
 struct JsonLimits
 {
-  std::size_t maxBytes = 16u * 1024u * 1024u;
+  std::size_t maxBytes = std::size_t{16} * 1024 * 1024;
   std::uint32_t maxDepth = 64;
 };
 

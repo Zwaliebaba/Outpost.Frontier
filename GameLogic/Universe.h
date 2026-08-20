@@ -69,6 +69,21 @@ struct LocalOffsetCm
   }
 };
 
+/*
+ * Where a ship can warp to (ADR-016 §3).
+ *
+ * `Site` is reserved and unused: mining fields and PVE encounters are new
+ * anchor rows rather than new architecture, and the enumerator exists now so
+ * that adding one is content rather than a wire renumber.
+ */
+enum class AnchorKind : std::uint8_t
+{
+  Station = 0,
+  Planet = 1,
+  Gate = 2,
+  Site = 3 // Reserved: no content, never baked.
+};
+
 enum class CelestialKind : std::uint8_t
 {
   Star,
@@ -107,24 +122,128 @@ struct Gate
   UniversePos position;
 };
 
+/*
+ * A warp destination (ADR-016 §3), and the only kind there is.
+ *
+ * Ships warp **to anchors, never to coordinates**. That one rule bounds how
+ * many grids a system can host, makes "where can I go?" a finite pickable list,
+ * and gives future content an extension point that costs a row rather than a
+ * design.
+ *
+ * A station's anchor doubles as its planet's: "warp to Kessler" and "warp to
+ * the Anchorage" land on the same grid, because the busy place should be one
+ * place.
+ */
+struct Anchor
+{
+  AnchorId id = INVALID_ID;
+  AnchorKind kind = AnchorKind::Planet;
+  SystemId system = INVALID_ID;
+
+  /// The station, planet or gate this anchor belongs to. Scoped by `kind` --
+  /// a `StationId` for `Station`, a `CelestialId` for `Planet`, a `GateId` for
+  /// `Gate` -- because those id spaces are per-system and independent.
+  std::uint16_t owner = INVALID_ID;
+
+  /// Where the 40 km grid sits on the universe plane.
+  UniversePos origin;
+
+  /// Where a warp arrives, as a local offset from `origin`, with the facing the
+  /// formation solve centres on. Never random: ADR-016 §3 makes arrival an
+  /// authored property so two fleets arriving the same tick differ only by
+  /// ADR-015's separation.
+  LocalOffsetCm warpInPoint;
+  std::uint16_t warpInFacingTurns16 = 0;
+
+  /*
+   * Contention (ADR-018 D18). One authored point per anchor would serialise
+   * hub traffic, so simultaneous arrivals spread deterministically around the
+   * authored bearing rather than stacking. The *rule* is the sim's (a function
+   * of the transfer record, never randomness); what the bake owes is the room
+   * to do it in, which is this radius -- carried from the first committed file
+   * so contention never forces an anchor-schema migration.
+   */
+  std::int32_t arrivalSpreadRadiusCm = 0;
+
+  /*
+   * Undock (ADR-017 §3), station anchors only and zero elsewhere: where an
+   * undocking fleet appears, and which way it faces. ~800 m off the structure,
+   * facing outward, clear of its contact radius.
+   */
+  LocalOffsetCm undockPoint;
+  std::uint16_t undockFacingTurns16 = 0;
+
+  /*
+   * The first ship id this anchor's authored occupants take (ADR-018 D6a/A5).
+   *
+   * Derived from the anchor at bake time rather than allocated at spin-up, so
+   * a world torn down and recreated reproduces its occupants' ids bit-exactly
+   * and no two anchors can ever collide. u32 because D6 widened ship ids; the
+   * bake is free to use the whole range because it is not the wire.
+   */
+  std::uint32_t occupantIdBase = 0;
+  std::uint16_t occupantCount = 0;
+};
+
+/*
+ * A UI grouping with clustered members and clear gaps between them.
+ *
+ * *ADR-009 §4 deliberately left constellations out, on the grounds that a field
+ * nothing reads is a field that rots.* ADR-016 read them: the strategic map's
+ * middle pinch level is constellations, and U1 makes their separation a
+ * measurable bake invariant rather than an aesthetic hope. They still carry no
+ * mechanics -- regions scope security and, later, ownership.
+ */
+struct Constellation
+{
+  ConstellationId id = INVALID_ID;
+  RegionId region = INVALID_ID;
+  std::string name;
+
+  /*
+   * Where the cluster is, as the bake placed it -- not the centroid of whatever
+   * systems ended up in it.
+   *
+   * It is carried rather than derived because the two are different numbers and
+   * the difference matters twice: the map draws the constellation pinch level
+   * from this, and the clustering invariant ("every system is nearer its own
+   * constellation's centre than any other's") is only true against the placed
+   * centre. Derived centroids drift with however many systems were drawn, which
+   * is how that invariant first appeared to fail.
+   */
+  UniversePos centre;
+};
+
 struct SolarSystem
 {
   SystemId id = INVALID_ID;
   RegionId region = INVALID_ID;
+  ConstellationId constellation = INVALID_ID;
   std::string name;
   UniversePos centre;
+
+  /// 0..100, low is lawless. Per-system, varying inside its region's band, so
+  /// the map's security overlay has a gradient rather than fifty flat plates.
+  std::uint8_t security = 0;
+
+  /// True for the handful of systems a new commander may start in.
+  bool starter = false;
+
   std::vector<Celestial> celestials;
   std::vector<Station> stations;
   std::vector<Gate> gates;
+  std::vector<Anchor> anchors;
 };
 
-/// Constellations are deliberately absent: the corpus makes them a UI grouping
-/// with zero mechanics (ADR-009 §4), and a field nothing reads is a field that
-/// rots. Regions are real -- they scope the map and, later, ownership.
+/// Regions scope the map's coarsest pinch level, the security band, and later
+/// ownership. `securityFloor`/`securityCeiling` are the band a region's systems
+/// vary inside (0..100); the map draws the band badge from them.
 struct Region
 {
   RegionId id = INVALID_ID;
   std::string name;
+  std::uint8_t securityFloor = 0;
+  std::uint8_t securityCeiling = 0;
 };
 
 /// Where a session begins. Authored rather than inferred, so adding a second
@@ -139,15 +258,25 @@ struct UniverseDef
 {
   std::string name;
   std::vector<Region> regions;
+  std::vector<Constellation> constellations;
   std::vector<SolarSystem> systems;
   UniverseStart start;
 
   [[nodiscard]] const SolarSystem* FindSystem(SystemId _id) const noexcept;
   [[nodiscard]] const Station* FindStation(SystemId _system, StationId _station) const noexcept;
 
+  /// The anchor a warp order names, or null. Anchor ids are unique across the
+  /// whole universe -- unlike celestial/station/gate ids, which are per-system
+  /// -- because a warp order carries one number and nothing else.
+  [[nodiscard]] const Anchor* FindAnchor(AnchorId _id) const noexcept;
+
   /// The grid anchor a session starts at: the start station's position
   /// (ADR-009 §9). Invalid system id when the start cannot be resolved.
   [[nodiscard]] GridAnchor StartAnchor() const noexcept;
+
+  /// The same place, as the id the registry and any warp order name it by.
+  /// `INVALID_ID` for content that predates the anchor table.
+  [[nodiscard]] AnchorId StartAnchorId() const noexcept;
 };
 
 /*
@@ -161,8 +290,17 @@ struct UniverseDef
  *
  * Everything hashed is an integer or a string. There is no float in the
  * universe model, so there is no question about how one hashes.
+ *
+ * Not `noexcept`, and it used to be: walking in id order means sorting indices,
+ * which allocates once per entity list, and a `noexcept` function that
+ * allocates promises something it cannot keep -- `bad_alloc` there is
+ * `std::terminate`, on the boot path that reads the largest file this game
+ * owns (R17). The annotation was incidental rather than a design promise: the
+ * one production caller (`Outpost::LoadUniverse`) already allocates and already
+ * reports failures as diagnostics. Found by the clang-tidy CI step's first
+ * Windows run (ADR-018 A24).
  */
-[[nodiscard]] std::uint64_t ComputeUniverseHash(const UniverseDef& _universe) noexcept;
+[[nodiscard]] std::uint64_t ComputeUniverseHash(const UniverseDef& _universe);
 
 /*
  * Anchor and local conversion (ADR-009 §2).

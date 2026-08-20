@@ -450,9 +450,26 @@ struct TrafficSteer
 
 void World::Reset(std::uint64_t _seed) noexcept
 {
+  /*
+   * A reset world is **unowned** (ADR-007 §7). Not claimed here, because the
+   * thread that seeds a world is not necessarily the thread that ticks it: the
+   * composition root builds the start grid on Main and the server runs it on
+   * Sim, and a claim taken here would record the builder and fire on the first
+   * tick. Ownership is taken by the first thread that mutates it instead.
+   */
+  m_owner.Release();
+
   m_tick = 0;
   m_slotById.clear();
-  m_nextShipId = 0;
+
+  // Identity goes with the state. A reset world is nobody's grid until the
+  // registry says otherwise, and keeping a stale anchor here would let a Dock
+  // be judged against the grid this world used to be.
+  m_anchor = INVALID_ID;
+  m_stationShip = INVALID_SHIP_ID;
+  m_reachable.clear();
+
+  m_filed.clear();
 
   m_ids.clear();
   m_classes.clear();
@@ -463,6 +480,7 @@ void World::Reset(std::uint64_t _seed) noexcept
   m_guidances.clear();
   m_hulls.clear();
   m_shields.clear();
+  m_protectedUntil.clear();
 
   m_groups.clear();
   m_pending.clear();
@@ -472,19 +490,28 @@ void World::Reset(std::uint64_t _seed) noexcept
   m_random.Seed(_seed);
 }
 
-ShipId World::Spawn(const ShipSpawn& _spawn)
+ShipId World::Spawn(const ShipSpawn& _spawn, ShipId _shipId)
 {
+  NEURON_ASSERT_OWNER(m_owner);
+
   if (!HullClassHasContent(_spawn.hullClass))
   {
     return INVALID_SHIP_ID; // Fighter and Cruiser are ids, not ships.
   }
-  if (m_nextShipId >= INVALID_SHIP_ID)
+  if (_shipId == INVALID_SHIP_ID)
   {
-    return INVALID_SHIP_ID; // 65k ships in one session is not a real scenario.
+    return INVALID_SHIP_ID; // The allocator ran out, or nobody asked it.
   }
 
-  const ShipId shipId = m_nextShipId++;
-  m_slotById.resize(static_cast<std::size_t>(shipId) + 1, INVALID_SHIP_ID);
+  const ShipId shipId = _shipId;
+  if (shipId < m_slotById.size() && m_slotById[shipId] != INVALID_SHIP_ID)
+  {
+    // Refused rather than asserted: the caller owns the id space, so a
+    // collision is a question about the allocator, and returning the invalid id
+    // is how every other refusal here answers.
+    return INVALID_SHIP_ID;
+  }
+  m_slotById.resize(std::max(m_slotById.size(), static_cast<std::size_t>(shipId) + 1), INVALID_SHIP_ID);
   m_slotById[shipId] = static_cast<ShipId>(m_ids.size());
 
   m_ids.push_back(shipId);
@@ -505,11 +532,63 @@ ShipId World::Spawn(const ShipSpawn& _spawn)
 
   m_hulls.push_back(255);
   m_shields.push_back(255);
+
+  // Undocking spawns a ship full *and* protected, and both are the roster's
+  // doing: it holds no gauges, so there is nothing to come back damaged
+  // (ADR-017 §1), and it stamps the window on the way out (§5).
+  m_protectedUntil.push_back(_spawn.protectedUntilTick);
   return shipId;
+}
+
+bool World::IsProtected(ShipId _shipId, std::uint32_t _tick) const noexcept
+{
+  std::uint32_t slot = 0;
+  if (!FindSlot(_shipId, slot))
+  {
+    return false;
+  }
+  return _tick < m_protectedUntil[slot];
+}
+
+bool World::TransferOut(ShipId _shipId, TransferMember& _outMember)
+{
+  NEURON_ASSERT_OWNER(m_owner);
+
+  std::uint32_t slot = 0;
+  if (!FindSlot(_shipId, slot))
+  {
+    return false;
+  }
+
+  // Read before the removal, because `Despawn` swap-and-pops and the slot it
+  // reads from is about to hold somebody else.
+  _outMember.shipId = _shipId;
+  _outMember.hullClass = static_cast<HullClass>(m_classes[slot]);
+  _outMember.wing = m_wings[slot];
+  return Despawn(_shipId);
+}
+
+void World::SetAnchor(AnchorId _anchor, ShipId _stationShip, std::span<const AnchorId> _reachable)
+{
+  m_anchor = _anchor;
+  m_stationShip = _stationShip;
+  m_reachable.assign(_reachable.begin(), _reachable.end());
+}
+
+void World::ReleaseOwner() noexcept
+{
+  // The hand-off ADR-007 §7 sanctions, and the only one this game makes: the
+  // composition root populates the start grid on Main, says here that it is
+  // done, and the sim thread adopts it on its first tick. Anything that touches
+  // the world from two threads *without* passing through here is the bug the
+  // owner-assert exists to find.
+  m_owner.Release();
 }
 
 bool World::Despawn(ShipId _shipId)
 {
+  NEURON_ASSERT_OWNER(m_owner);
+
   std::uint32_t slot = 0;
   if (!FindSlot(_shipId, slot))
   {
@@ -537,6 +616,7 @@ bool World::Despawn(ShipId _shipId)
     m_guidances[slot] = m_guidances[last];
     m_hulls[slot] = m_hulls[last];
     m_shields[slot] = m_shields[last];
+    m_protectedUntil[slot] = m_protectedUntil[last];
   }
 
   m_slotById[_shipId] = INVALID_SHIP_ID;
@@ -549,6 +629,7 @@ bool World::Despawn(ShipId _shipId)
   m_guidances.pop_back();
   m_hulls.pop_back();
   m_shields.pop_back();
+  m_protectedUntil.pop_back();
   return true;
 }
 
@@ -574,6 +655,8 @@ float World::SpeedAt(std::uint32_t _slot) const noexcept
 
 void World::Tick(std::uint32_t _tick)
 {
+  NEURON_ASSERT_OWNER(m_owner);
+
   m_tick = _tick;
 
   IngestOrders();

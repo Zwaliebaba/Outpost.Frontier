@@ -315,6 +315,8 @@ const char* HostModeText(HostMode _mode) noexcept
       return "headless";
     case HostMode::Client:
       return "client";
+    case HostMode::Bake:
+      return "bake";
   }
   return "?";
 }
@@ -345,9 +347,13 @@ void ApplyConfigLayer(const JsonValue& _root, AppConfig& _config, ConfigDiagnost
     {
       _config.mode = HostMode::Client;
     }
+    else if (text == "bake")
+    {
+      _config.mode = HostMode::Bake;
+    }
     else
     {
-      _diagnostics.errors.push_back("mode must be \"host\", \"headless\" or \"client\"");
+      _diagnostics.errors.push_back("mode must be \"host\", \"headless\", \"client\" or \"bake\"");
     }
   }
 

@@ -2,6 +2,7 @@
 
 #include "OrderIntent.h"
 #include "Transport.h"
+#include "Wire.h"
 
 #include <cstdint>
 #include <memory>
@@ -55,6 +56,14 @@ public:
   [[nodiscard]] std::uint32_t ClientId() const noexcept
   {
     return m_clientId;
+  }
+
+  /// Who the server says this is (ADR-018 D5). Distinct from `ClientId`, which
+  /// names the *connection* -- everything player-keyed keys on this one, so
+  /// that it survives the connection dropping.
+  [[nodiscard]] PlayerId Player() const noexcept
+  {
+    return m_playerId;
   }
   [[nodiscard]] std::uint32_t ServerTick() const noexcept
   {
@@ -178,6 +187,11 @@ private:
   std::string m_playerName;
 
   std::uint32_t m_clientId = 0;
+
+  /// Learned from the `Welcome`, and offered back on a resume when resumes
+  /// exist. Kept beside `m_clientId` rather than instead of it, because they
+  /// answer different questions.
+  PlayerId m_playerId = INVALID_PLAYER_ID;
   std::uint32_t m_serverTick = 0;
   std::uint16_t m_serverTickRate = 0;
 

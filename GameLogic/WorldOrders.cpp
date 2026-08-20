@@ -44,18 +44,228 @@ namespace
   return XMScalarModAngle(_radians);
 }
 
+/// `SolveFormation`'s class lookup, over a world's own tables. A linear scan
+/// rather than the slot table, because the berth scan asks about the ships in
+/// an *order* and those are ids, not slots.
+struct WorldClassLookup
+{
+  const World* world = nullptr;
+
+  [[nodiscard]] static HullClass Of(ShipId _shipId, void* _context) noexcept
+  {
+    const auto* lookup = static_cast<const WorldClassLookup*>(_context);
+    const std::span<const ShipId> ids = lookup->world->Ids();
+    for (std::size_t slot = 0; slot < ids.size(); ++slot)
+    {
+      if (ids[slot] == _shipId)
+      {
+        return static_cast<HullClass>(lookup->world->Classes()[slot]);
+      }
+    }
+    return HullClass::Interceptor;
+  }
+};
+
 } // namespace
 
-ValidationView World::Validation() const noexcept
+bool World::FindBerth(std::span<const ShipId> _ships, FormationId _formation,
+                      const XMFLOAT2& _stationCentreMetres, const XMFLOAT2& _undockPointMetres,
+                      XMFLOAT2& _outBerthMetres, float& _outFacingRadians) const
 {
+  if (_ships.empty() || _ships.size() > MAX_SHIPS_PER_ORDER)
+  {
+    return false;
+  }
+
+  // The bearing the fleet is already pointing along. Candidates fan out from
+  // here rather than from an arbitrary zero, so the nearest free berth is
+  // usually the first one tried and the fleet rarely crosses its own doorway.
+  const float baseBearing =
+    std::atan2(_undockPointMetres.y - _stationCentreMetres.y, _undockPointMetres.x - _stationCentreMetres.x);
+
+  WorldClassLookup lookup{this};
+  FormationStation stations[MAX_SHIPS_PER_ORDER];
+
+  // One largest-class spacing, the unit the dock radius pads by too.
+  float largestSpacing = 0.0f;
+  for (const ShipId shipId : _ships)
+  {
+    largestSpacing = std::max(largestSpacing, ShipClass(WorldClassLookup::Of(shipId, &lookup)).formationSpacingMetres);
+  }
+
+  constexpr float BEARING_STEP = DirectX::XM_2PI / static_cast<float>(PARKING_BEARINGS);
+
+  for (const float ring : PARKING_RING_METRES)
+  {
+    for (std::uint32_t step = 0; step < PARKING_BEARINGS; ++step)
+    {
+      /*
+       * 0, +1, -1, +2, -2, ... -- outward from the undock bearing, alternating.
+       * Written as arithmetic on the step index rather than as a table, because
+       * a table is a thing that can disagree with the sentence describing it.
+       */
+      const std::uint32_t stepsOut = (step + 1) / 2;             // 0, 1, 1, 2, 2, 3, 3 ...
+      const float side = (step % 2 == 0) ? 1.0f : -1.0f;          // ... and which way each is.
+      const float bearing = baseBearing + static_cast<float>(stepsOut) * side * BEARING_STEP;
+
+      const XMFLOAT2 candidate{_stationCentreMetres.x + std::cos(bearing) * ring,
+                               _stationCentreMetres.y + std::sin(bearing) * ring};
+
+      // Facing the outward radial, so parked fleets face away from the station
+      // rather than at it -- a fleet pointing inward reads as one about to dock.
+      const float facing = bearing;
+
+      const std::uint32_t placed = SolveFormation(_formation, _ships, &WorldClassLookup::Of, &lookup, candidate, facing,
+                                                  std::span<FormationStation>{stations});
+      if (placed == 0)
+      {
+        continue;
+      }
+
+      // Clear of every hull on the grid, by the avoidance model's own clearance
+      // rather than by a second number that could drift from it (ADR-015).
+      bool free = true;
+      for (std::uint32_t index = 0; index < placed && free; ++index)
+      {
+        const float solvedRadius = ShipClass(WorldClassLookup::Of(stations[index].shipId, &lookup)).collisionRadiusMetres;
+        for (std::size_t slot = 0; slot < m_ids.size(); ++slot)
+        {
+          // The fleet being parked is standing at the undock point; it must not
+          // count itself as the reason it cannot leave.
+          if (std::find(_ships.begin(), _ships.end(), m_ids[slot]) != _ships.end())
+          {
+            continue;
+          }
+          const float clearance =
+            AVOID_CLEARANCE_FACTOR * (solvedRadius + ShipClass(static_cast<HullClass>(m_classes[slot])).collisionRadiusMetres);
+          const float dx = stations[index].positionMetres.x - m_positions[slot].x;
+          const float dy = stations[index].positionMetres.y - m_positions[slot].y;
+          if (dx * dx + dy * dy < clearance * clearance)
+          {
+            free = false;
+            break;
+          }
+        }
+      }
+      if (!free)
+      {
+        continue;
+      }
+
+      /*
+       * And clear of every other group's *intention*. This is the clause that
+       * makes two same-tick undocks pick different berths with nothing reserved
+       * and nothing stored: the first fleet's parking order is a group with a
+       * final-leg anchor, and the second fleet sees it.
+       */
+      const float bounding =
+        FormationExtentMetres(std::span<const FormationStation>{stations, placed}, candidate) + largestSpacing;
+      const auto conflicts = [&candidate, bounding](const OrderGroup& _group) noexcept
+      {
+        if (_group.legCount == 0)
+        {
+          return false;
+        }
+        const XMFLOAT2& intent = _group.legs[_group.legCount - 1].anchorMetres;
+        const float dx = intent.x - candidate.x;
+        const float dy = intent.y - candidate.y;
+        return dx * dx + dy * dy < bounding * bounding;
+      };
+
+      for (const OrderGroup& group : m_groups)
+      {
+        if (conflicts(group))
+        {
+          free = false;
+          break;
+        }
+      }
+
+      /*
+       * **And the orders that have not been ingested yet.**
+       *
+       * Two fleets undocking on the same tick both arrive before any ingest
+       * runs, so the first one's parking order is still pending when the second
+       * one scans -- and without this it is invisible, and both are sent to the
+       * same berth. The suite found exactly that. A pending order is a live
+       * intention by every definition that matters here: it has been accepted,
+       * it is world state, and it becomes a group on the very next tick.
+       */
+      for (const PendingOrder& pending : m_pending)
+      {
+        if (conflicts(pending.group))
+        {
+          free = false;
+          break;
+        }
+      }
+      if (!free)
+      {
+        continue;
+      }
+
+      _outBerthMetres = candidate;
+      _outFacingRadians = facing;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+ValidationView World::Validation()
+{
+  m_validationMarks.resize(m_ids.size());
+  for (std::size_t slot = 0; slot < m_ids.size(); ++slot)
+  {
+    m_validationMarks[slot].xCm = Neuron::MetresToCentimetres(m_positions[slot].x);
+    m_validationMarks[slot].yCm = Neuron::MetresToCentimetres(m_positions[slot].y);
+    m_validationMarks[slot].hullClass = static_cast<HullClass>(m_classes[slot]);
+  }
+
   ValidationView view;
   view.shipIds = m_ids;
+  view.shipMarks = m_validationMarks;
+  view.reachableAnchors = m_reachable;
   view.queuedLegs = 0; // Per-group, and resolved in SubmitOrder where the group is known.
+
+  /*
+   * The station, if this grid has one (ADR-017 §2).
+   *
+   * Its position comes out of the same table every other ship's does rather
+   * than being assumed to be the grid centre. It *is* the centre today -- the
+   * anchor's origin is the structure's universe position -- but "the station
+   * is at (0,0)" is a fact about how the bake places things, and a validator
+   * that hard-coded it would be judging distance against an assumption instead
+   * of against the world.
+   */
+  if (m_stationShip != INVALID_SHIP_ID)
+  {
+    std::uint32_t slot = 0;
+    if (FindSlot(m_stationShip, slot))
+    {
+      view.stationAnchor = m_anchor;
+      view.stationXCm = Neuron::MetresToCentimetres(m_positions[slot].x);
+      view.stationYCm = Neuron::MetresToCentimetres(m_positions[slot].y);
+    }
+  }
   return view;
+}
+
+OrderVerdict World::SubmitSystemOrder(const OrderSubmit& _order)
+{
+  return Submit(_order, true);
 }
 
 OrderVerdict World::SubmitOrder(const OrderSubmit& _order)
 {
+  return Submit(_order, false);
+}
+
+OrderVerdict World::Submit(const OrderSubmit& _order, bool _systemIssued)
+{
+  NEURON_ASSERT_OWNER(m_owner);
+
   // Appending needs to know which group it would append to, and that is the
   // group the *first* named ship already belongs to. One group per order means
   // a selection spanning two groups cannot append to both, so the answer is the
@@ -95,6 +305,9 @@ OrderVerdict World::SubmitOrder(const OrderSubmit& _order)
    * one is validated, so at submit the Append can only see the group the
    * Replace is about to destroy. Resolving early would append to a corpse.
    */
+  group.systemIssued = _systemIssued;
+  group.kind = _order.kind;
+  group.anchor = _order.anchor;
   group.serverOrderId = append ? 0 : m_nextOrderId;
   group.clientOrderSeq = _order.orderSeq;
   group.formation = _order.formation;
@@ -113,7 +326,7 @@ OrderVerdict World::SubmitOrder(const OrderSubmit& _order)
   group.legStartTick = m_tick;
   group.legDeadlineTick = 0; // Sized by ApplyLeg, which is where the stations exist.
 
-  m_pending.push_back(PendingOrder{group, _order.queueMode});
+  m_pending.push_back(PendingOrder{group, _order.queueMode, _order.kind, _order.anchor});
   if (!append)
   {
     ++m_nextOrderId;
@@ -135,6 +348,88 @@ void World::IngestOrders()
   {
     OrderGroup& submitted = pending.group;
     m_lastOrderSeqProcessed = std::max(m_lastOrderSeqProcessed, submitted.clientOrderSeq);
+
+    /*
+     * A dock never enters the group table (ADR-017 §2). It is not a movement
+     * plan with a destination -- it is the fleet leaving the world, all at
+     * once, which is what "together, one moment" means. So ingest consumes it
+     * into transfer records and the ships are gone by the time this tick's
+     * steering runs.
+     *
+     * Out of their groups first, and that falls out of `TransferOut` calling
+     * `Despawn`: a group holding a docked id would keep solving a station for
+     * a ship that is no longer anywhere.
+     */
+    if (pending.kind == OrderKind::Dock)
+    {
+      TransferRequest request;
+      request.kind = TransferKind::Dock;
+      request.anchor = pending.anchor;
+      for (std::uint16_t index = 0; index < submitted.memberCount; ++index)
+      {
+        TransferMember member;
+        if (TransferOut(submitted.members[index], member) && !request.AddMember(member))
+        {
+          break; // The order cap and the crossing cap are the same number.
+        }
+      }
+      if (request.memberCount > 0)
+      {
+        m_filed.push_back(request);
+      }
+      continue;
+    }
+
+    /*
+     * A player's own command ends undock protection (ADR-017 §5).
+     *
+     * On *ingest* rather than on submit, so the rule is the same one tick that
+     * everything else in the order pipeline happens on. The parking order does
+     * not count -- that is exactly what `systemIssued` is for, and without the
+     * distinction a fleet would lose its fifteen seconds to the order that
+     * parks it.
+     */
+    if (!submitted.systemIssued)
+    {
+      for (std::uint16_t index = 0; index < submitted.memberCount; ++index)
+      {
+        std::uint32_t slot = 0;
+        if (FindSlot(submitted.members[index], slot))
+        {
+          m_protectedUntil[slot] = 0;
+        }
+      }
+    }
+
+    /*
+     * A warp **spools where it stands** (ADR-016 §5).
+     *
+     * It takes the group table like any order -- so it is acked, replaced by
+     * the next order, and drawn as a ghost -- but it has no legs: the fleet
+     * holds, the clock runs, and when it finishes the ships leave the world on
+     * the transfer bus. Holding rather than drifting is what makes "cancelled
+     * by a replacing order" mean something: the fleet is exactly where the
+     * player left it.
+     *
+     * The spool is the **slowest member's**, for the same reason the transit is:
+     * a fleet arrives together, so it leaves together.
+     */
+    if (pending.kind == OrderKind::Warp)
+    {
+      float spoolSeconds = 0.0f;
+      for (std::uint16_t index = 0; index < submitted.memberCount; ++index)
+      {
+        std::uint32_t slot = 0;
+        if (FindSlot(submitted.members[index], slot))
+        {
+          spoolSeconds = std::max(spoolSeconds, ShipClass(static_cast<HullClass>(m_classes[slot])).spoolSeconds);
+          m_guidances[slot] = Guidance{};
+        }
+      }
+      submitted.spoolUntilTick = m_tick + static_cast<std::uint32_t>(spoolSeconds / TICK_SECONDS);
+      submitted.legCount = 0;
+      submitted.legIndex = 0;
+    }
 
     const bool append = pending.queueMode == QueueMode::Append;
     if (append)
@@ -374,8 +669,77 @@ float World::LegEtaSeconds(const OrderGroup& _group) const noexcept
   return GroupTravelSeconds(std::span<const TravelLeg>{legs, count});
 }
 
+void World::DepartFinishedWarps()
+{
+  /*
+   * A warp that has finished spooling leaves (ADR-016 §5, ADR-017 §9).
+   *
+   * The ships go out through the same seam a dock uses -- `TransferOut`, id and
+   * class and wing intact -- and the registry decides where and when they
+   * arrive, because that needs the universe and a world does not have one.
+   *
+   * **Collected first, transferred second, and that is not tidiness.**
+   * `TransferOut` despawns, despawning forgets the ship in its group, and
+   * forgetting the last member *erases the group* -- so transferring while
+   * iterating `m_groups` would delete the entry being read. The list of
+   * departures is taken while nothing is being removed, and the removals happen
+   * after.
+   */
+  struct Departure
+  {
+    AnchorId anchor = INVALID_ID;
+    FormationId formation = FormationId::Line;
+    std::uint16_t memberCount = 0;
+    ShipId members[MAX_SHIPS_PER_ORDER] = {};
+  };
+
+  std::vector<Departure> leaving;
+  for (OrderGroup& group : m_groups)
+  {
+    if (group.kind != OrderKind::Warp || group.state == OrderState::Done || m_tick < group.spoolUntilTick)
+    {
+      continue;
+    }
+
+    Departure departure;
+    departure.anchor = group.anchor;
+    departure.formation = group.formation;
+    departure.memberCount = group.memberCount;
+    std::copy(group.members, group.members + group.memberCount, departure.members);
+    leaving.push_back(departure);
+
+    // Marked before anything is removed, so the group that survives the
+    // despawns (one whose members did not all leave) is not asked to depart
+    // again next tick.
+    group.state = OrderState::Done;
+    group.doneTick = m_tick;
+  }
+
+  for (const Departure& departure : leaving)
+  {
+    TransferRequest request;
+    request.kind = TransferKind::Transit;
+    request.anchor = departure.anchor;
+    request.formation = departure.formation;
+    for (std::uint16_t index = 0; index < departure.memberCount; ++index)
+    {
+      TransferMember member;
+      if (TransferOut(departure.members[index], member) && !request.AddMember(member))
+      {
+        break;
+      }
+    }
+    if (request.memberCount > 0)
+    {
+      m_filed.push_back(request);
+    }
+  }
+}
+
 void World::GroupAdvance()
 {
+  DepartFinishedWarps();
+
   for (OrderGroup& group : m_groups)
   {
     if (group.state == OrderState::Done || group.legIndex >= group.legCount)

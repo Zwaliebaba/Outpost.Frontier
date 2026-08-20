@@ -44,18 +44,43 @@ namespace Game
 inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "SnapshotHeader{u32 tick,u32 baselineTick,u16 shipCount,u16 orderCount,u32 lastOrderSeqProcessed}"
     "ShipRecord=EntityRecord{u16 id,u8 typeId,u8 groupId,i32 posXCm,i32 posYCm,"
-    "i16 velXCmPerSec,i16 velYCmPerSec,u16 headingTurns16,u8 gaugeA,u8 gaugeB}"
+    "i16 velXCmPerSec,i16 velYCmPerSec,u16 headingTurns16,u8 gaugeA,u8 gaugeB,u8 statusBits}"
     "OrderStateRecord{u32 serverOrderId,u32 clientOrderSeq,u16 etaSeconds,u8 state,u8 legIndex,u8 legCount,"
     "u8 memberCount}"
     "OrderSubmit{u32 orderSeq,u8 kind,u8 formation,u8 queueMode,u16 shipCount,u16 shipIds[shipCount],"
-    "i32 targetXCm,i32 targetYCm,u16 targetFacingTurns16}"
-    "meaning{typeId=HullClass,groupId=WingId,gaugeA=hull255,gaugeB=shield255,state=OrderState,etaSeconds=s|65535=none}"
+    "i32 targetXCm,i32 targetYCm,u16 targetFacingTurns16,u16 anchor}"
+    "StationCommand{u32 orderSeq,u8 verb,u16 station,u8 formation,u8 wing,u16 shipCount,u32 shipIds[shipCount]}"
+    "StationRoster{u16 station,u16 count,(u32 shipId,u8 classId,u8 wingId)[count]}"
+    "FleetSummaries{u16 count,(u16 anchor,u8 state,u16 shipCount,u16 etaSeconds)[count]}"
+    "meaning{typeId=HullClass,groupId=WingId,gaugeA=hull255,gaugeB=shield255,state=OrderState,etaSeconds=s|65535=none,"
+    "anchor=AnchorId|0=none,statusBits.bit0=undockProtected,"
+    "summary.anchor=whereItIsOrWhereItIsGoing,summary.etaSeconds=s|65535=none}"
     "quantisation{position=cm,velocity=cm/s,heading=turns/65536}"
     "hull{11 classes,Fighter+Cruiser reserved}"
-    "caps{shipsPerOrder=64,ordersPerSnapshot=16}"
-    "enums{OrderKind:Move=0,Attack=1,Stance=2,Abilities=3;FormationId:Line=0,Wedge=1,Claw=2;"
+    "caps{shipsPerOrder=64,ordersPerSnapshot=16,dockRadiusMetres=5000,undockProtectionSeconds=15,"
+    "parkingRingMetres=2500|4000,parkingBearings=12,warpBaseSeconds=5}"
+    "enums{OrderKind:Move=0,Attack=1,Stance=2,Abilities=3,Warp=4,Dock=5;FormationId:Line=0,Wedge=1,Claw=2;"
     "QueueMode:Replace=0,Append=1;"
-    "OrderState:Underway=0,Arriving=1,Done=2}";
+    "OrderState:Underway=0,Arriving=1,Done=2;"
+    "StationVerb:Undock=0,AssignWing=1;"
+    "FleetState:OnGrid=0,Docked=1,InTransit=2;"
+    "OrderReason:Accepted=0,EmptySelection=1,NotOwned=2,UnknownShip=3,QueueFull=4,OutOfBounds=5,"
+    "InvalidFormation=6,TooManyShips=7,UnknownKind=8,UnknownStation=9,NotAtStation=10,NotDocked=11,"
+    "InvalidQueueMode=12,CombatEngaged=13,UnknownAnchor=14}"
+
+    /*
+     * The **order** the checks run in, not just their names (ADR-018 D9/A21).
+     *
+     * Two builds that check the same rules in a different sequence return
+     * different reasons for an order that breaks two of them, and the reason is
+     * what the player reads -- so a bounce that says one thing on the client
+     * and another on the server is a compatibility failure even though both
+     * builds "have" the same enum. It is in the hash because that is where
+     * behaviour that must match belongs.
+     */
+    "checkOrder{order:EmptySelection,TooManyShips,UnknownKind,InvalidQueueMode,InvalidFormation,QueueFull,"
+    "UnknownStation,UnknownAnchor,OutOfBounds,UnknownShip,NotAtStation;"
+    "station:EmptySelection,TooManyShips,InvalidFormation,UnknownStation,NotDocked}";
 
 /// Stable across runs and builds by construction: FNV-1a over the text above,
 /// computed at compile time so it costs nothing to ask.

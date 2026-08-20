@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!--
+    The compiler switches every project in this tree shares (ADR-018 A24,
+    review finding CPP-4).
+
+    Two of these four were never written down anywhere. /fp:precise and the
+    absence of /arch are what ADR-005 §6's same-binary determinism actually
+    rests on, and both were MSVC defaults that the design documents described in
+    prose as if they had been chosen. A default is not a decision: nothing
+    stopped the next contributor, or the next property page, from changing one,
+    and the symptom would have been replay hashes parting with no line to blame.
+
+    Imported from each project's PropertySheets ImportGroup, which is the one
+    place a shared sheet reliably beats the toolset's defaults and still loses
+    to a project that deliberately overrides it. No project overrides these: the
+    CI step "Check the build invariants are centralised" fails the build on a
+    .vcxproj that spells one of them, and a second step reads the switches back
+    off the compiler command lines in build.log, so the invariant is checked
+    where it actually takes effect rather than where it is written.
+  -->
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <!-- /std:c++latest and /permissive-, both AGENTS.md §5 rules. -->
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+      <ConformanceMode>true</ConformanceMode>
+
+      <!--
+        /fp:precise, stated. /fp:fast licenses the compiler to reassociate float
+        expressions, so two translation units of the same simulation built under
+        it can disagree about the same sum. AGENTS.md §5 bans it in GameLogic;
+        this is that ban made mechanical, and made solution-wide, because the
+        client re-runs the same shared functions on the same quantised inputs.
+      -->
+      <FloatingPointModel>Precise</FloatingPointModel>
+
+      <!--
+        No /arch. x64's baseline is SSE2, and raising it (AVX, AVX2) changes
+        which instructions the compiler picks for the same float expression, so
+        a build with /arch and one without are two different binaries by
+        ADR-005 §6's reckoning and their replay hashes part. NotSet emits no
+        switch at all: the state this tree is in today, and now the state it is
+        held in.
+      -->
+      <EnableEnhancedInstructionSet>NotSet</EnableEnhancedInstructionSet>
+    </ClCompile>
+  </ItemDefinitionGroup>
+</Project>

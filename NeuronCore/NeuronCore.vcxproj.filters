@@ -26,6 +26,9 @@
     <ClCompile Include="Clock.cpp">
       <Filter>Foundation</Filter>
     </ClCompile>
+    <ClCompile Include="OwnerThread.cpp">
+      <Filter>Foundation</Filter>
+    </ClCompile>
     <ClCompile Include="EntityRecord.cpp">
       <Filter>Serialization</Filter>
     </ClCompile>
@@ -54,6 +57,9 @@
       <Filter>Foundation</Filter>
     </ClInclude>
     <ClInclude Include="Clock.h">
+      <Filter>Foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="OwnerThread.h">
       <Filter>Foundation</Filter>
     </ClInclude>
     <ClInclude Include="Hash.h">

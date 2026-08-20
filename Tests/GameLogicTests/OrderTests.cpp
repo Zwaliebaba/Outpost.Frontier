@@ -47,13 +47,28 @@ namespace GameLogicTests
 namespace
 {
 
+/*
+ * The id the world would have minted before ADR-018 D6a moved allocation to the
+ * registry: sequential from zero, per world.
+ *
+ * Sequential rather than "lowest free" on purpose -- the world used to mint
+ * monotonically, and reusing a despawned id would quietly change what a test
+ * about identity is testing. Per world rather than globally for a sharper
+ * reason: the replay suites run a scenario twice and compare hashes, and a
+ * counter that kept climbing between runs would make every one of them fail.
+ */
+[[nodiscard]] ShipId NextShipId(const World& _world) noexcept
+{
+  return static_cast<ShipId>(_world.ShipCount());
+}
+
 [[nodiscard]] ShipId SpawnAt(World& _world, HullClass _class, float _x = 0.0f, float _y = 0.0f)
 {
   ShipSpawn spawn;
   spawn.hullClass = _class;
   spawn.xMetres = _x;
   spawn.yMetres = _y;
-  return _world.Spawn(spawn);
+  return _world.Spawn(spawn, NextShipId(_world));
 }
 
 [[nodiscard]] OrderSubmit Order(std::initializer_list<ShipId> _ships, float _xMetres, float _yMetres, float _facing = 0.0f)
@@ -75,6 +90,46 @@ namespace
   ValidationView view;
   view.shipIds = _ids;
   view.queuedLegs = _queuedLegs;
+  return view;
+}
+
+/*
+ * A dock order: the verb, the anchor it names, and the ships.
+ *
+ * No target -- a Dock points at a structure rather than at the plane, and the
+ * zeroed leg it carries is what the check order walks past on its way to
+ * `NotAtStation`.
+ */
+[[nodiscard]] OrderSubmit DockOrder(std::initializer_list<ShipId> _ships, AnchorId _anchor)
+{
+  OrderSubmit order = Order(_ships, 0.0f, 0.0f);
+  order.kind = OrderKind::Dock;
+  order.anchor = _anchor;
+  return order;
+}
+
+/// A ship as the client would hold it: quantised, and carrying its class.
+[[nodiscard]] ShipMark MarkAt(float _xMetres, float _yMetres, HullClass _class)
+{
+  ShipMark mark;
+  mark.xCm = Neuron::MetresToCentimetres(_xMetres);
+  mark.yCm = Neuron::MetresToCentimetres(_yMetres);
+  mark.hullClass = _class;
+  return mark;
+}
+
+/// The client's half of a dock view: ids and marks off the wire, plus which
+/// anchor the grid it is watching belongs to.
+[[nodiscard]] ValidationView DockViewOf(std::span<const ShipId> _ids, std::span<const ShipMark> _marks,
+                                        AnchorId _stationAnchor, float _stationXMetres = 0.0f,
+                                        float _stationYMetres = 0.0f)
+{
+  ValidationView view;
+  view.shipIds = _ids;
+  view.shipMarks = _marks;
+  view.stationAnchor = _stationAnchor;
+  view.stationXCm = Neuron::MetresToCentimetres(_stationXMetres);
+  view.stationYCm = Neuron::MetresToCentimetres(_stationYMetres);
   return view;
 }
 
@@ -178,9 +233,14 @@ public:
 
   TEST_METHOD(EveryReasonHasText)
   {
-    constexpr OrderReason ALL[] = {OrderReason::Accepted,   OrderReason::EmptySelection,   OrderReason::NotOwned,
-                                   OrderReason::UnknownShip, OrderReason::QueueFull,       OrderReason::OutOfBounds,
-                                   OrderReason::InvalidFormation, OrderReason::TooManyShips, OrderReason::UnknownKind};
+    constexpr OrderReason ALL[] = {OrderReason::Accepted,       OrderReason::EmptySelection,
+                                   OrderReason::NotOwned,       OrderReason::UnknownShip,
+                                   OrderReason::QueueFull,      OrderReason::OutOfBounds,
+                                   OrderReason::InvalidFormation, OrderReason::TooManyShips,
+                                   OrderReason::UnknownKind,    OrderReason::UnknownStation,
+                                   OrderReason::NotAtStation,   OrderReason::NotDocked,
+                                   OrderReason::InvalidQueueMode, OrderReason::CombatEngaged,
+                                   OrderReason::UnknownAnchor};
     for (const OrderReason reason : ALL)
     {
       const char* text = OrderReasonText(reason);
@@ -229,6 +289,247 @@ public:
     // And the matrix is not trivially all-accepted or all-refused.
     Assert::IsTrue(ValidateOrder(world.Validation(), cases[0]).accepted);
     Assert::IsFalse(ValidateOrder(world.Validation(), cases[4]).accepted);
+  }
+};
+
+/*
+ * Docking, from the validator's side (ADR-017 §2, ADR-018 D7, build order T1).
+ *
+ * The sim half of the station phase starts here rather than at the transfer
+ * bus, because every later piece assumes an order that got past this: the bus
+ * carries dock records, and a dock record exists only because a dock order was
+ * allowed. The reasons are on the wire from the moment they are enumerated, so
+ * what each of them means has to be pinned before anything returns one.
+ */
+TEST_CLASS(DockValidationTests)
+{
+public:
+  TEST_METHOD(AGridWithNoStationRefusesEveryDock)
+  {
+    // Open space, a gate, a planet: nothing to dock at, and the reason says so
+    // rather than leaving the player to infer it from a distance check.
+    World world;
+    world.Reset(1);
+    const ShipId ship = SpawnAt(world, HullClass::Corvette, 100.0f, 0.0f);
+
+    const OrderVerdict verdict = ValidateOrder(world.Validation(), DockOrder({ship}, 7));
+    Assert::IsFalse(verdict.accepted);
+    Assert::IsTrue(verdict.reason == OrderReason::UnknownStation);
+  }
+
+  TEST_METHOD(ADockNamingAnotherGridsAnchorIsUnknownStation)
+  {
+    World world;
+    world.Reset(2);
+    const ShipId station = SpawnAt(world, HullClass::Structure, 0.0f, 0.0f);
+    const ShipId ship = SpawnAt(world, HullClass::Corvette, 100.0f, 0.0f);
+    world.SetAnchor(11, station, {});
+
+    Assert::IsTrue(ValidateOrder(world.Validation(), DockOrder({ship}, 11)).accepted,
+                   L"this grid's own anchor is dockable");
+
+    const OrderVerdict elsewhere = ValidateOrder(world.Validation(), DockOrder({ship}, 12));
+    Assert::IsFalse(elsewhere.accepted);
+    Assert::IsTrue(elsewhere.reason == OrderReason::UnknownStation,
+                   L"an anchor that is not this grid's is not a station you are far from");
+  }
+
+  TEST_METHOD(TheRadiusIsWhereTheRefusalTurnsOver)
+  {
+    World world;
+    world.Reset(3);
+    const ShipId station = SpawnAt(world, HullClass::Structure, 0.0f, 0.0f);
+    const ShipId inside = SpawnAt(world, HullClass::Interceptor, 4000.0f, 0.0f);
+    const ShipId outside = SpawnAt(world, HullClass::Interceptor, 12000.0f, 0.0f);
+    world.SetAnchor(21, station, {});
+
+    // One interceptor's footprint is nothing, so the radius is the flat base.
+    Assert::AreEqual(static_cast<float>(DOCK_RADIUS_METRES),
+                     DockRadiusMetres(world.Validation(), DockOrder({inside}, 21)), 0.5f);
+
+    Assert::IsTrue(ValidateOrder(world.Validation(), DockOrder({inside}, 21)).accepted);
+
+    const OrderVerdict far = ValidateOrder(world.Validation(), DockOrder({outside}, 21));
+    Assert::IsFalse(far.accepted);
+    Assert::IsTrue(far.reason == OrderReason::NotAtStation);
+
+    // Together, instant, close by: *every* member, not the nearest one.
+    const OrderVerdict mixed = ValidateOrder(world.Validation(), DockOrder({inside, outside}, 21));
+    Assert::IsFalse(mixed.accepted, L"a fleet docks together or not at all");
+    Assert::IsTrue(mixed.reason == OrderReason::NotAtStation);
+  }
+
+  TEST_METHOD(TheRadiusGrowsWithTheFleetItIsJudging)
+  {
+    /*
+     * ADR-018 D7's whole point. The game's own starting fleet spans kilometres
+     * in a Battleship-paced Line, and a flat 5 km could not be satisfied by it
+     * however it was flown -- the rear of the formation is further from the
+     * structure than the rule allowed before the nose arrived.
+     *
+     * So the radius is the fleet's own solved footprint plus a margin, and this
+     * is the assertion that it actually scales rather than being a constant
+     * with a `max` in front of it.
+     */
+    World world;
+    world.Reset(4);
+    const ShipId station = SpawnAt(world, HullClass::Structure, 0.0f, 0.0f);
+    world.SetAnchor(31, station, {});
+
+    OrderSubmit small = DockOrder({}, 31);
+    OrderSubmit large = DockOrder({}, 31);
+    for (std::uint32_t index = 0; index < 24; ++index)
+    {
+      const ShipId light = SpawnAt(world, HullClass::Interceptor, 10.0f * static_cast<float>(index), 0.0f);
+      Assert::IsTrue(small.AddShip(light));
+    }
+    for (std::uint32_t index = 0; index < 24; ++index)
+    {
+      const ShipId heavy = SpawnAt(world, HullClass::Battleship, -10.0f * static_cast<float>(index), 0.0f);
+      Assert::IsTrue(large.AddShip(heavy));
+    }
+
+    const float lightRadius = DockRadiusMetres(world.Validation(), small);
+    const float heavyRadius = DockRadiusMetres(world.Validation(), large);
+
+    Assert::IsTrue(heavyRadius > lightRadius, L"heavier ships stand further apart, so they dock from further out");
+    Assert::IsTrue(heavyRadius > static_cast<float>(DOCK_RADIUS_METRES),
+                   L"a capital line is exactly the case the flat radius could not serve");
+    Assert::IsTrue(lightRadius >= static_cast<float>(DOCK_RADIUS_METRES),
+                   L"and the base is a floor, never a ceiling");
+  }
+
+  TEST_METHOD(ADockCannotBeQueued)
+  {
+    // The queue holds the legs of one movement plan, not a program of verbs
+    // (ADR-017 §2). "Fly there then dock" is the client feeding one step at a
+    // time, which is a different thing from the server running a program.
+    World world;
+    world.Reset(5);
+    const ShipId station = SpawnAt(world, HullClass::Structure, 0.0f, 0.0f);
+    const ShipId ship = SpawnAt(world, HullClass::Corvette, 100.0f, 0.0f);
+    world.SetAnchor(41, station, {});
+
+    OrderSubmit order = DockOrder({ship}, 41);
+    order.queueMode = QueueMode::Append;
+
+    const OrderVerdict verdict = ValidateOrder(world.Validation(), order);
+    Assert::IsFalse(verdict.accepted);
+    Assert::IsTrue(verdict.reason == OrderReason::InvalidQueueMode);
+  }
+
+  TEST_METHOD(TheCheckOrderIsTheContractEvenWhenSeveralThingsAreWrong)
+  {
+    /*
+     * ADR-017 §8 extends ADR-005 §4a's sequence, and the sequence is the
+     * contract because the reason is what the player reads: an order that
+     * breaks three rules has to name the same one on both machines.
+     *
+     * Each case below breaks the rule under test *and* every rule after it.
+     */
+    World world;
+    world.Reset(6);
+    const ShipId station = SpawnAt(world, HullClass::Structure, 0.0f, 0.0f);
+    const ShipId far = SpawnAt(world, HullClass::Corvette, 12000.0f, 0.0f);
+    world.SetAnchor(51, station, {});
+
+    // Nothing selected beats every later complaint.
+    OrderSubmit empty = DockOrder({}, 99);
+    empty.queueMode = QueueMode::Append;
+    Assert::IsTrue(ValidateOrder(world.Validation(), empty).reason == OrderReason::EmptySelection);
+
+    // Queue mode is checked before the formation, the station and the distance.
+    OrderSubmit queued = DockOrder({far}, 99);
+    queued.queueMode = QueueMode::Append;
+    queued.formation = static_cast<FormationId>(200);
+    Assert::IsTrue(ValidateOrder(world.Validation(), queued).reason == OrderReason::InvalidQueueMode);
+
+    // Formation before the station.
+    OrderSubmit badFormation = DockOrder({far}, 99);
+    badFormation.formation = static_cast<FormationId>(200);
+    Assert::IsTrue(ValidateOrder(world.Validation(), badFormation).reason == OrderReason::InvalidFormation);
+
+    // The station before the distance: "no such station here" is a better
+    // answer than "too far from it" when both are true.
+    Assert::IsTrue(ValidateOrder(world.Validation(), DockOrder({far}, 99)).reason == OrderReason::UnknownStation);
+
+    // And ship resolution before the distance, so a stale selection says so.
+    OrderSubmit ghost = DockOrder({far, static_cast<ShipId>(4242)}, 51);
+    Assert::IsTrue(ValidateOrder(world.Validation(), ghost).reason == OrderReason::UnknownShip);
+
+    // Only when everything else is right does the distance get to answer.
+    Assert::IsTrue(ValidateOrder(world.Validation(), DockOrder({far}, 51)).reason == OrderReason::NotAtStation);
+  }
+
+  TEST_METHOD(TheClientAndTheServerRefuseADockForTheSameReason)
+  {
+    /*
+     * Parity, over the reasons the station phase adds. The server's view comes
+     * out of its own tables; the client's is assembled from what a snapshot
+     * carried -- the same ids and marks, in the order the wire put them, which
+     * is not the table's.
+     *
+     * This is the check that the *inputs* remain equivalent: a radius derived
+     * from a solve, and a distance measured against a quantised structure
+     * position, both have to survive the trip through the wire's integers.
+     */
+    World world;
+    world.Reset(8);
+    const ShipId station = SpawnAt(world, HullClass::Structure, 0.0f, 0.0f);
+    const ShipId near = SpawnAt(world, HullClass::Frigate, 3000.0f, -1200.0f);
+    const ShipId far = SpawnAt(world, HullClass::Battleship, 9000.0f, 9000.0f);
+    world.SetAnchor(61, station, {});
+
+    const ShipId replicated[] = {far, near, station};
+    const ShipMark marks[] = {MarkAt(9000.0f, 9000.0f, HullClass::Battleship),
+                              MarkAt(3000.0f, -1200.0f, HullClass::Frigate),
+                              MarkAt(0.0f, 0.0f, HullClass::Structure)};
+
+    OrderSubmit cases[5];
+    cases[0] = DockOrder({near}, 61);
+    cases[1] = DockOrder({far}, 61);
+    cases[2] = DockOrder({near, far}, 61);
+    cases[3] = DockOrder({near}, 62);
+    cases[4] = DockOrder({}, 61);
+
+    bool sawAccept = false;
+    bool sawRefusal = false;
+    for (const OrderSubmit& order : cases)
+    {
+      const OrderVerdict server = ValidateOrder(world.Validation(), order);
+      const OrderVerdict client = ValidateOrder(DockViewOf(replicated, marks, 61), order);
+
+      Assert::AreEqual(server.accepted, client.accepted);
+      Assert::IsTrue(server.reason == client.reason);
+
+      // The radius is the other half of parity: the client draws this circle
+      // and the server judges against it, so a different number is a different
+      // promise.
+      Assert::AreEqual(DockRadiusMetres(world.Validation(), order),
+                       DockRadiusMetres(DockViewOf(replicated, marks, 61), order), 0.01f);
+
+      sawAccept = sawAccept || server.accepted;
+      sawRefusal = sawRefusal || !server.accepted;
+    }
+    Assert::IsTrue(sawAccept && sawRefusal, L"a matrix that is all one answer proves nothing");
+  }
+
+  TEST_METHOD(AViewWithoutMarksCannotWaveADockThrough)
+  {
+    /*
+     * The failure mode worth naming: `shipMarks` is optional, so a caller can
+     * build a view that cannot answer "where is this ship". A dock judged
+     * against such a view must be refused rather than accepted on the
+     * technicality that there was nothing to measure.
+     */
+    const ShipId ids[] = {5};
+    ValidationView blind;
+    blind.shipIds = ids;
+    blind.stationAnchor = 71;
+
+    const OrderVerdict verdict = ValidateOrder(blind, DockOrder({5}, 71));
+    Assert::IsFalse(verdict.accepted);
+    Assert::IsTrue(verdict.reason == OrderReason::NotAtStation);
   }
 };
 
@@ -482,8 +783,13 @@ public:
     {
       FormationStation east[4] = {};
       FormationStation north[4] = {};
-      SolveFormation(formation, ids, &ClassLookup::Of, &table, XMFLOAT2{0.0f, 0.0f}, 0.0f, east);
-      SolveFormation(formation, ids, &ClassLookup::Of, &table, XMFLOAT2{0.0f, 0.0f}, quarter, north);
+      // Asserted rather than discarded: the count is what says the solve placed
+      // everybody, and comparing two arrangements that are short the same ship
+      // would agree about a rotation neither of them performed.
+      Assert::AreEqual<std::uint32_t>(
+        4, SolveFormation(formation, ids, &ClassLookup::Of, &table, XMFLOAT2{0.0f, 0.0f}, 0.0f, east));
+      Assert::AreEqual<std::uint32_t>(
+        4, SolveFormation(formation, ids, &ClassLookup::Of, &table, XMFLOAT2{0.0f, 0.0f}, quarter, north));
 
       for (std::uint32_t index = 0; index < 4; ++index)
       {
@@ -1628,7 +1934,7 @@ public:
         spawn.xMetres = 0.0f;
         spawn.yMetres = 0.0f;
         spawn.headingRadians = 0.0f; // Already pointing at +x, which is where it is sent.
-        const ShipId ship = world.Spawn(spawn);
+        const ShipId ship = world.Spawn(spawn, NextShipId(world));
 
         OrderSubmit move;
         move.orderSeq = 1;
@@ -1684,7 +1990,7 @@ public:
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Battleship;
     spawn.headingRadians = XM_PI; // Pointing at -x; the target is at +x.
-    const ShipId ship = world.Spawn(spawn);
+    const ShipId ship = world.Spawn(spawn, NextShipId(world));
 
     const float distance = 900.0f;
     OrderSubmit move;
@@ -1790,7 +2096,7 @@ public:
         ShipSpawn spawn;
         spawn.hullClass = hull;
         spawn.headingRadians = 0.0f; // Straight run: already pointing at the target.
-        const ShipId ship = world.Spawn(spawn);
+        const ShipId ship = world.Spawn(spawn, NextShipId(world));
 
         OrderSubmit move;
         move.orderSeq = 1;
@@ -1945,7 +2251,7 @@ public:
     world.Reset(8);
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Corvette;
-    const ShipId ship = world.Spawn(spawn);
+    const ShipId ship = world.Spawn(spawn, NextShipId(world));
 
     OrderSubmit move;
     move.orderSeq = 1;
@@ -1975,7 +2281,7 @@ public:
     world.Reset(12);
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Battleship;
-    const ShipId ship = world.Spawn(spawn);
+    const ShipId ship = world.Spawn(spawn, NextShipId(world));
 
     OrderSubmit move;
     move.orderSeq = 5;
@@ -2063,11 +2369,11 @@ public:
 TEST_CLASS(OrderKindTests)
 {
 public:
-  TEST_METHOD(EveryKindIsNamedAndOnlyMoveHasContent)
+  TEST_METHOD(EveryKindIsNamedAndOnlyTheBuiltOnesHaveContent)
   {
     // A greyed ATTACK button still has to be *named* by something, and the
     // engine may not name it -- so a null here is a button with no word on it.
-    Assert::AreEqual<std::size_t>(4, std::size(ORDER_KIND_IDS));
+    Assert::AreEqual<std::size_t>(6, std::size(ORDER_KIND_IDS));
     for (const OrderKind kind : ORDER_KIND_IDS)
     {
       Assert::IsNotNull(OrderKindName(kind));
@@ -2075,6 +2381,8 @@ public:
     }
 
     Assert::IsTrue(OrderKindHasContent(OrderKind::Move));
+    Assert::IsTrue(OrderKindHasContent(OrderKind::Dock), L"the station phase built this one");
+    Assert::IsTrue(OrderKindHasContent(OrderKind::Warp), L"and U3a filled in the number ADR-016 published");
     Assert::IsFalse(OrderKindHasContent(OrderKind::Attack));
     Assert::IsFalse(OrderKindHasContent(OrderKind::Stance));
     Assert::IsFalse(OrderKindHasContent(OrderKind::Abilities));
@@ -2096,7 +2404,7 @@ public:
     world.Reset(4);
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Corvette;
-    const ShipId ship = world.Spawn(spawn);
+    const ShipId ship = world.Spawn(spawn, NextShipId(world));
 
     for (const OrderKind kind : ORDER_KIND_IDS)
     {
@@ -2107,9 +2415,22 @@ public:
       order.target.xCm = Neuron::MetresToCentimetres(1000.0f);
 
       const auto verdict = world.SubmitOrder(order);
-      if (OrderKindHasContent(kind))
+      if (kind == OrderKind::Move)
       {
-        Assert::IsTrue(verdict.accepted, L"the one kind with content has to work");
+        Assert::IsTrue(verdict.accepted, L"the kind this world can act on has to work");
+      }
+      else if (OrderKindHasContent(kind))
+      {
+        /*
+         * Dock and Warp. Refused here -- this world is not a station's grid and
+         * it can reach nowhere -- but refused *for their own reasons*, which is
+         * the whole distinction being drawn: a built kind that cannot be
+         * satisfied says why, and a reserved one says it does not exist.
+         */
+        Assert::IsFalse(verdict.accepted);
+        const bool ownReason =
+          verdict.reason == OrderReason::UnknownStation || verdict.reason == OrderReason::UnknownAnchor;
+        Assert::IsTrue(ownReason, L"a built kind is refused on its merits, not as unknown");
       }
       else
       {
@@ -2129,6 +2450,14 @@ public:
     Assert::IsNull(OrderKindParameterName(OrderKind::Attack));
     Assert::IsNotNull(OrderKindParameterName(OrderKind::Stance));
     Assert::IsNotNull(OrderKindParameterName(OrderKind::Abilities));
+
+    // Dock varies by formation too, and not decoratively: the radius it is
+    // judged against is derived from the solved formation (ADR-018 D7).
+    Assert::AreEqual(std::string_view{"Formation"}, std::string_view{OrderKindParameterName(OrderKind::Dock)});
+
+    // And so does Warp: the fleet arrives in a formation, solved at the
+    // anchor's authored warp-in point.
+    Assert::AreEqual(std::string_view{"Formation"}, std::string_view{OrderKindParameterName(OrderKind::Warp)});
   }
 
   TEST_METHOD(TheKindsAreOnTheSchemaAndNumberedFromZero)
@@ -2141,7 +2470,8 @@ public:
       Assert::AreEqual<std::size_t>(index, static_cast<std::size_t>(ORDER_KIND_IDS[index]),
                                     L"contiguous from zero, in the order a surface shows them");
     }
-    Assert::IsTrue(GAME_SCHEMA_TEXT.find("OrderKind:Move=0,Attack=1,Stance=2,Abilities=3") != std::string_view::npos);
+    Assert::IsTrue(GAME_SCHEMA_TEXT.find("OrderKind:Move=0,Attack=1,Stance=2,Abilities=3,Warp=4,Dock=5") !=
+                   std::string_view::npos);
   }
 };
 

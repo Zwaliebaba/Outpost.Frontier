@@ -56,6 +56,7 @@ std::uint64_t ComputeWorldHash(const World& _world) noexcept
   const std::span<const Guidance> guidances = _world.Guidances();
   const std::span<const std::uint8_t> hulls = _world.Hulls();
   const std::span<const std::uint8_t> shields = _world.Shields();
+  const std::span<const std::uint32_t> protectedUntil = _world.ProtectedUntil();
 
   for (std::size_t slot = 0; slot < ids.size(); ++slot)
   {
@@ -77,6 +78,12 @@ std::uint64_t ComputeWorldHash(const World& _world) noexcept
 
     hash = Neuron::HashValue(hulls[slot], hash);
     hash = Neuron::HashValue(shields[slot], hash);
+
+    // Undock protection (ADR-017 §5). Simulation state, not presentation: it
+    // decides what a future combat model may do to this ship, and two worlds
+    // that disagree about who is protected have already diverged about the
+    // fight that follows.
+    hash = Neuron::HashValue(protectedUntil[slot], hash);
   }
 
   /*
@@ -94,34 +101,34 @@ std::uint64_t ComputeWorldHash(const World& _world) noexcept
    * full. The window in which two worlds could agree here and differ in fact is
    * one tick wide, and the tick that closes it is the one that catches them.
    */
-  const auto foldGroup = [](const OrderGroup& group, std::uint64_t _hash) noexcept
+  const auto foldGroup = [](const OrderGroup& _group, std::uint64_t _hash) noexcept
   {
-    _hash = Neuron::HashValue(group.serverOrderId, _hash);
-    _hash = Neuron::HashValue(group.clientOrderSeq, _hash);
-    _hash = Neuron::HashValue(static_cast<std::uint8_t>(group.formation), _hash);
-    _hash = Neuron::HashValue(static_cast<std::uint8_t>(group.state), _hash);
-    _hash = Neuron::HashValue(group.legStartTick, _hash);
+    _hash = Neuron::HashValue(_group.serverOrderId, _hash);
+    _hash = Neuron::HashValue(_group.clientOrderSeq, _hash);
+    _hash = Neuron::HashValue(static_cast<std::uint8_t>(_group.formation), _hash);
+    _hash = Neuron::HashValue(static_cast<std::uint8_t>(_group.state), _hash);
+    _hash = Neuron::HashValue(_group.legStartTick, _hash);
     // The leg's deadline is state, not a constant, since S12 made it
     // proportional to the leg. A replay that diverged on it would advance a leg
     // a tick apart and then diverge on everything.
-    _hash = Neuron::HashValue(group.legDeadlineTick, _hash);
+    _hash = Neuron::HashValue(_group.legDeadlineTick, _hash);
     // Both decide the future, so both are folded: `doneTick` decides the tick
     // the group leaves the table, and `solvedMemberCount` decides whether the
     // next ingest re-solves the formation. Two worlds equal in everything else
     // but differing here would diverge exactly there.
-    _hash = Neuron::HashValue(group.doneTick, _hash);
-    _hash = Neuron::HashValue(group.solvedMemberCount, _hash);
-    _hash = Neuron::HashValue(group.memberCount, _hash);
-    for (std::uint16_t index = 0; index < group.memberCount; ++index)
+    _hash = Neuron::HashValue(_group.doneTick, _hash);
+    _hash = Neuron::HashValue(_group.solvedMemberCount, _hash);
+    _hash = Neuron::HashValue(_group.memberCount, _hash);
+    for (std::uint16_t index = 0; index < _group.memberCount; ++index)
     {
-      _hash = Neuron::HashValue(group.members[index], _hash);
+      _hash = Neuron::HashValue(_group.members[index], _hash);
     }
-    _hash = Neuron::HashValue(group.legCount, _hash);
-    _hash = Neuron::HashValue(group.legIndex, _hash);
-    for (std::uint8_t index = 0; index < group.legCount; ++index)
+    _hash = Neuron::HashValue(_group.legCount, _hash);
+    _hash = Neuron::HashValue(_group.legIndex, _hash);
+    for (std::uint8_t index = 0; index < _group.legCount; ++index)
     {
-      _hash = FoldVector2(group.legs[index].anchorMetres, _hash);
-      _hash = FoldFloat(group.legs[index].facingRadians, _hash);
+      _hash = FoldVector2(_group.legs[index].anchorMetres, _hash);
+      _hash = FoldFloat(_group.legs[index].facingRadians, _hash);
     }
     return _hash;
   };

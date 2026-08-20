@@ -8,7 +8,12 @@ security/sovereignty/service semantics; the fifth-project revisit gains its trip
 · given its mechanism by [ADR-020](ADR-020-ui-architecture.md) §6 (2026-08-19): a screen's
 seam budget is **three shapes, not three methods**; a **badge class index**, never a literal
 colour, crosses the seam; and the fifth-project question reopens when a screen needs a game
-*rule* rather than game *data* to render
+*rule* rather than game *data* to render · the "generic relevance hook on `Simulation`" its
+Consequences reserved is designed by [ADR-022](ADR-022-interest-and-delta.md) §4
+(2026-08-19), and lands as this seam's own pattern rather than an exception to it: the game
+**ranks** (relevance is game semantics) and the engine **truncates** (budget is link
+semantics), so a hostility rule stays a GameLogic edit and a bandwidth change stays an
+engine one
 **Depends on:** the fixed project structure, ADR-004 (wire), ADR-008 (composition root)
 **Supersedes:** Dependency Map ruling #2 ("NeuronClient links GameLogic from day one") and
 every consequence drawn from it.
@@ -95,7 +100,10 @@ makes those libraries worth having.
    - `PollOrderFeedback(OrderFeedback&)`. The snapshot's order-state records, as six numbers
      per order. It is what promotes a PENDING ghost when the ack is lost and what retires one
      whose order has finished — order records exist only while an order does, so absence is
-     itself the signal. Polled rather than pushed, so the ghost list changes at a point in the
+     itself the signal. *That signal needs the record to outlive the event it reports*, which
+     is why a finished group **lingers** in the sim's table for 30 ticks before retirement
+     (ADR-005 §1): a client retires its ghost on seeing `Done`, and a table that dropped the
+     row the tick it finished would race the read at exactly the rate the link is slow. Polled rather than pushed, so the ghost list changes at a point in the
      frame the client chose. `state` crosses as a number the engine compares for change and
      never names.
    - `ReasonText(u16) → const char*`. The bounce toast has to say *why*, and the reason code is
@@ -148,6 +156,27 @@ makes those libraries worth having.
    acted on. The row draws them rather than hiding them because `puck-and-wheel.png` §3 keeps
    the wheel's sectors in fixed positions "so the ring stays learnable as a shape rather than a
    lookup" — and a row whose buttons moved as content arrived is the same mistake in a line.
+
+   **The fourth call's argument was tested on 2026-08-19, and it held.** The paragraph above
+   worried about "a second game with four stances"; what actually arrived was *this* game
+   growing three — `StanceId{Balanced, Aggressive, Evasive}` — and the cost in the engine was
+   **zero lines**. The words are `StanceName`'s, the numbers are the game's, the kind stays
+   reserved (`OrderKindHasContent` refuses it and so does `ValidateOrder`, from the other
+   side), and nothing about it reaches the wire. A client that had cycled `parameter` from
+   zero, as §2c's shortcut tempted, would have needed an edit and a rebuild to show three
+   postures instead of two.
+
+   Two implementation rules the same slice made explicit, both of them this ADR's principle
+   applied one level down:
+
+   - **The lists are held per kind, not for the selected one.** The context bar states every
+     standing parameter at once (`STANCE AGGRESSIVE ▸ FORMATION LINE` on the print), so a
+     readout that existed only while its verb was selected would blank the moment the player
+     reached for MOVE.
+   - **They are indexed by the kind's slot in the answer, never by the kind value.** Using the
+     value as an array index is assuming the game numbers its commands densely from zero —
+     the identical assumption `CycleParameter` was named to avoid, arriving as a subscript
+     instead of as a loop.
 
 3. **BounceParity survives intact.** The client still runs the *identical* validation function
    — it is reached through an interface instead of a link-time symbol. Same code, same reason

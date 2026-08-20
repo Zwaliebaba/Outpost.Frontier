@@ -130,7 +130,8 @@ inline constexpr std::uint16_t NO_ETA = 0xffffu;
  * about, and cannot drift when padding does.
  *
  * The comment it replaces was right: a field added here costs ships. This one
- * cost two -- the fleet cap fell from 47 to 45, still above the 41 the MVP
+ * cost two -- the fleet cap fell from 47 to 45 (and to 43 when ADR-017 §5's
+ * status byte widened the entity record), still above the 41 the MVP
  * fields and the static assert below still checks it.
  */
 inline constexpr std::size_t ORDER_STATE_RECORD_BYTES = 14;
@@ -155,6 +156,18 @@ static_assert(sizeof(OrderStateRecord::serverOrderId) + sizeof(OrderStateRecord:
  */
 inline constexpr std::uint16_t MAX_ORDERS_PER_SNAPSHOT = 16;
 inline constexpr std::size_t ORDER_AREA_BYTES = MAX_ORDERS_PER_SNAPSHOT * ORDER_STATE_RECORD_BYTES;
+
+/*
+ * What the game means by `EntityRecord::statusBits` (ADR-017 §5, ADR-014 §4).
+ *
+ * The engine carries the byte and reads none of it; the bits are defined here
+ * because a bit's *meaning* is game semantics. Bit 0 is undock protection --
+ * immunity to damage, drawn as a shimmer -- and the other seven are where
+ * in-warp, combat-flagged and [ADR-022](../Design/ADR/ADR-022-interest-and-delta.md)'s
+ * two relationship bits will live, which is why this is a byte and not a
+ * widened `typeId`.
+ */
+inline constexpr std::uint8_t SHIP_STATUS_PROTECTED = 1u << 0;
 
 inline constexpr std::uint16_t MAX_SHIPS_PER_SNAPSHOT = static_cast<std::uint16_t>(
     (SNAPSHOT_BUDGET_BYTES - SNAPSHOT_HEADER_BYTES - ORDER_AREA_BYTES) / Neuron::ENTITY_RECORD_BYTES);

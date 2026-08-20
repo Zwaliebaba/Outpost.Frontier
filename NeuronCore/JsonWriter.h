@@ -44,6 +44,16 @@ public:
   void Null();
 
   // Convenience for the common object-member case.
+  /*
+   * A string literal is a `const char*`, and `const char*` converts to `bool`
+   * by a *standard* conversion while it converts to `string_view` only by a
+   * user-defined one -- so without this overload `Member("kind", "star")`
+   * silently writes `true`. It is not a hypothetical: it wrote `true` into
+   * every celestial and every anchor of the first baked universe, and only the
+   * round-trip caught it.
+   */
+  void Member(std::string_view _name, const char* _value);
+
   void Member(std::string_view _name, bool _value);
   void Member(std::string_view _name, std::int64_t _value);
   void Member(std::string_view _name, double _value);

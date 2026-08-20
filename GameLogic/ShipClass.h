@@ -82,6 +82,27 @@ struct ShipClassInfo
   /// stations are never in contact. A test holds both bounds.
   float collisionRadiusMetres = 0.0f;
 
+  /*
+   * Warp (ADR-016 §5, build order U3a), in metres per second and in seconds.
+   *
+   * Two numbers because warp is two phases and only one of them is a journey:
+   * the fleet **spools** where it stands -- cancellable, visible, the window in
+   * which a warp can still be called off -- and then it is simply gone until it
+   * arrives. Both scale with the hull for the same reason speed and turn rate
+   * do, and the envelope suite asserts the *shape* (capitals spool slower and
+   * warp slower) rather than the values, so retuning is not rewriting tests.
+   *
+   * Metres per second at astronomical scale: a system is billions of metres
+   * across, so these are large numbers rather than small ones -- 1.5e9 m/s
+   * crosses one astronomical unit in about a hundred seconds.
+   *
+   * Zero for `Structure`, which never goes anywhere. A fleet's transit is timed
+   * by its *slowest* member, so a structure in a warp order would freeze it --
+   * which is one more reason a station is not a thing you can select into one.
+   */
+  float warpSpeedMetresPerSec = 0.0f;
+  float spoolSeconds = 0.0f;
+
   /// Cosmetic hover height above the plane (ADR-001 §2, S14), in metres.
   /// Presentation only, like `pickRadiusMetres`: nothing in `Tick` may read it,
   /// it is never replicated, and the selection ring -- and since ADR-015 the

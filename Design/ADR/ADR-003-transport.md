@@ -2,7 +2,11 @@
 
 **Status:** Accepted · 2026-08-17 · Amended at S13 (2026-08-18): owner directive — QUIC only,
 `UdpTransport` deleted; §3's transport flag and §4's permanent-fallback decision are
-superseded below
+superseded below · Amended 2026-08-19 by **[ADR-022](ADR-022-interest-and-delta.md)** (§1's
+"exactly one reliable ordered channel" becomes two — `Bulk` carries keyframes so they never
+queue behind orders) and **[ADR-023](ADR-023-remote-play.md)** (§1's `Listen`/`Connect` take
+descriptors, and §3's unconditional `NO_CERTIFICATE_VALIDATION` becomes a policy that is
+legal only against loopback)
 **Depends on:** ADR-002 (tick/snapshot cadence)
 **Feeds:** ADR-004 (wire protocol), ADR-007 (threading), ADR-008 (hosting)
 

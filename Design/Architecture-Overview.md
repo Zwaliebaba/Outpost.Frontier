@@ -1,10 +1,20 @@
 # Outpost: Frontier — Architecture Overview (MVP)
 
-**Status:** Session output 2026-08-17 · **revised 2026-08-18 after S9** · governed by
-[ADR-001…014](ADR/)
+**Status:** Session output 2026-08-17 · **revised 2026-08-18 after S9 · refreshed 2026-08-20
+against the tree** · governed by [ADR-001…023](ADR/)
+
+**Scope note.** This overview describes the **MVP** shape and is deliberately not rewritten as
+each phase lands. The universe and station phases have moved the picture in ways it does not
+draw — many grids per session rather than one (ADR-016 §4, ADR-019), an off-grid station
+roster (ADR-017), a transfer bus between worlds — and the documents that track those are
+[Universe-Build-Order.md](Universe-Build-Order.md),
+[Station-Build-Order.md](Station-Build-Order.md) and the ADRs themselves. What is below is
+still true of the executable's process model, its threading, and its one data flow, which is
+what this document is for.
 
 One Windows x64 executable hosts an authoritative game server and a DX12 client that talk
-exclusively over a UDP loopback socket behind a QUIC-shaped transport. The simulation is a 2D
+exclusively over a **QUIC loopback connection** (`QuicTransport`; the `UdpTransport` scaffold
+this document originally named was deleted by the S13 owner directive, ADR-003 §4). The simulation is a 2D
 plane rendered as flat-shaded 3D under a 30° orthographic camera. Splitting server from client
 later is a packaging change because there is no other channel between them to unwind.
 
@@ -15,12 +25,12 @@ flowchart LR
     subgraph EXE["Outpost.exe — composition root (ADR-008)"]
         subgraph MAINT["Main thread (ADR-007)"]
             IN[Win32 input] --> CA
-            CA["ClientApp<br/>(NeuronClient)"] --> RW["Extract →<br/>RenderWorld"] --> GPU["DX12 passes<br/>Clear·Opaque·Nebula·Overlay·Ui (ADR-006)"]
+            CA["ClientApp<br/>(NeuronClient)"] --> RW["Extract →<br/>RenderWorld"] --> GPU["DX12 passes<br/>Clear·UiWorld·Opaque·Nebula·Overlay·Ui (ADR-006)"]
         end
         subgraph SIMT["Sim thread (ADR-007)"]
             SH["ServerHost<br/>(NeuronServer)"] --> W["Game::World<br/>authoritative (ADR-005)"]
         end
-        CA <-- "UDP 127.0.0.1:7777<br/>Transport (ADR-003)" --> SH
+        CA <-- "QUIC 127.0.0.1:7777<br/>Transport (ADR-003)" --> SH
     end
     subgraph FUT["Packaging change, later"]
         OS["OutpostServer.exe = same ServerHost"]
@@ -128,8 +138,8 @@ them is not owed, and no slice does it.
 
 | Project | One-line charter |
 |---|---|
-| **NeuronCore** | Engine primitives, zero game semantics: time, logging, telemetry lanes, ByteReader/Writer, **JSON parser/writer**, PCG32, task pool, `Transport` + UDP/QUIC implementations, framing wire messages. No math layer — DirectXMath is used natively (ADR-010). |
-| **GameLogic** | The deterministic planar sim: world tables, ship classes, orders/groups, formation solve, validation + reason codes, game wire schemas, snapshot emit/apply, universe definition + parsing. *All of it is built.* The universe model and parser landed with S5b; the world — SoA tables, the closed eleven-class registry, seek-with-arrival steering, the replay hash — with S6; snapshots with S7; and orders, validation, the Line solve and the group table with S9. |
+| **NeuronCore** | Engine primitives, zero game semantics: time, logging, telemetry lanes, ByteReader/Writer, **JSON parser/writer**, PCG32, task pool, `Transport` + its `QuicTransport` implementation, framing wire messages, and the owner-thread assert. No math layer — DirectXMath is used natively (ADR-010). |
+| **GameLogic** | The deterministic planar sim: world tables, ship classes, orders/groups, formation solve, validation + reason codes, game wire schemas, snapshot emit/apply, universe definition + parsing — and, since the universe and station phases, the procedural bake, the many-grids `WorldRegistry`, the transfer bus, station rosters and docking, fleet summaries, the event record and the route solver. *All of it is built.* The universe model and parser landed with S5b; the world — SoA tables, the closed eleven-class registry, seek-with-arrival steering, the replay hash — with S6; snapshots with S7; and orders, validation, the Line solve and the group table with S9. |
 | **NeuronServer** | `ServerHost`: session table, tick-loop orchestration, connection handling, snapshot fan-out. |
 | **NeuronClient** | `ClientApp`: window/device, frame loop, snapshot buffering + interpolation, Extract, passes, camera, picking and selection, the order puck and its ghosts, HUD *(S11)*, audio *(S15)*. It owns the gesture and the promise; **it owns no meaning** — which command a puck makes, whether an order is allowed, where a formation puts things and what a reason code is called are all the game's answers, reached through `WorldView`. |
 | **Outpost.exe** | Composition root: `Outpost.json` → config structs → `ServerHost.Start()` → `ClientApp.Run()` → ordered shutdown. No argv, no environment (ADR-012). |
@@ -147,7 +157,8 @@ Budget: the tick must fit 50 ms with 1,024 entities; at MVP scale it is microsec
 **Main thread, every frame** (vsync or free):
 `Pump Win32 → Poll transport → Game (camera, selection, orders) → Extract (interpolate →
 InstanceRecords + overlay marks) → AudioUpdate (retire/start voices, X3DAudio from the same
-interpolated state) → Record (5 PSOs, one direct queue) → Present (flip, 2 in flight)`.
+interpolated state) → Record (six passes over one direct queue) → Present (flip, 2 in
+flight)`.
 The `GAME/EXTRACT/RENDER/UI` stage timings are measured from the first slice — they are the
 corpus debug HUD's budget rows; `AUDIO` joins them as a fifth.
 

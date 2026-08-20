@@ -93,6 +93,36 @@ public:
     return true;
   }
 
+  /*
+   * Present-and-valid, or nothing.
+   *
+   * `ReadInt64` **requires**: a missing key is a diagnostic, which is right for
+   * a position and wrong for a field added after content was authored. Reading
+   * an optional field through it silently made every pre-bake universe file
+   * invalid -- which is exactly what happened, and what the hand-authored
+   * test universe caught.
+   */
+  [[nodiscard]] bool ReadOptionalInt64(const JsonValue& _parent, std::string_view _name, const std::string& _path,
+                                       std::int64_t _min, std::int64_t _max, std::int64_t& _outValue)
+  {
+    if (!_parent.Member(_name).Valid())
+    {
+      return false;
+    }
+    return ReadInt64(_parent, _name, _path, _min, _max, _outValue);
+  }
+
+  /// The same, for an id.
+  [[nodiscard]] bool ReadOptionalId(const JsonValue& _parent, std::string_view _name, const std::string& _path,
+                                    std::uint16_t& _outId)
+  {
+    if (!_parent.Member(_name).Valid())
+    {
+      return false;
+    }
+    return ReadId(_parent, _name, _path, _outId);
+  }
+
   [[nodiscard]] bool ReadId(const JsonValue& _parent, std::string_view _name, const std::string& _path, std::uint16_t& _outId)
   {
     std::int64_t value = 0;
@@ -122,9 +152,12 @@ public:
     return true;
   }
 
-  [[nodiscard]] bool ReadPosition(const JsonValue& _parent, const std::string& _path, UniversePos& _outPosition)
+  /// `_key` because an anchor's universe position is called `origin` -- it is
+  /// where a grid sits, not where a body is -- and the two read the same way.
+  [[nodiscard]] bool ReadPosition(const JsonValue& _parent, const std::string& _path, UniversePos& _outPosition,
+                                  std::string_view _key = "position")
   {
-    const JsonValue position = Require(_parent, "position", JsonKind::Object, _path);
+    const JsonValue position = Require(_parent, _key, JsonKind::Object, _path);
     if (!position.Valid())
     {
       return false;
@@ -132,14 +165,14 @@ public:
 
     // A universe coordinate has no range to check beyond its own type: the whole
     // int64 plane is legal ground (ADR-009 §1).
-    constexpr std::int64_t lowest = std::numeric_limits<std::int64_t>::min();
-    constexpr std::int64_t highest = std::numeric_limits<std::int64_t>::max();
+    constexpr std::int64_t LOWEST = std::numeric_limits<std::int64_t>::min();
+    constexpr std::int64_t HIGHEST = std::numeric_limits<std::int64_t>::max();
 
-    const std::string path = _path + ".position";
+    const std::string path = _path + "." + std::string(_key);
     std::int64_t x = 0;
     std::int64_t y = 0;
-    const bool readX = ReadInt64(position, "x", path, lowest, highest, x);
-    const bool readY = ReadInt64(position, "y", path, lowest, highest, y);
+    const bool readX = ReadInt64(position, "x", path, LOWEST, HIGHEST, x);
+    const bool readY = ReadInt64(position, "y", path, LOWEST, HIGHEST, y);
     if (!readX || !readY)
     {
       return false;
@@ -337,11 +370,31 @@ void ReadRegions(Reader& _reader, const JsonValue& _root, UniverseDef& _outUnive
       _reader.Fail(entry, path, "must be an object");
       continue;
     }
-    RejectUnknownKeys(_reader, entry, {"id", "name"}, path);
+    RejectUnknownKeys(_reader, entry, {"id", "name", "securityFloor", "securityCeiling"}, path);
 
     Region region;
     const bool haveId = _reader.ReadId(entry, "id", path, region.id);
     const bool haveName = _reader.ReadName(entry, "name", path, region.name);
+
+    // The band is optional: hand-authored content that predates the bake has
+    // none, and a region with no stated band is simply unbanded rather than a
+    // parse failure.
+    std::int64_t floorValue = 0;
+    std::int64_t ceilingValue = 0;
+    if (_reader.ReadOptionalInt64(entry, "securityFloor", path, 0, 100, floorValue))
+    {
+      region.securityFloor = static_cast<std::uint8_t>(floorValue);
+    }
+    if (_reader.ReadOptionalInt64(entry, "securityCeiling", path, 0, 100, ceilingValue))
+    {
+      region.securityCeiling = static_cast<std::uint8_t>(ceilingValue);
+    }
+    if (region.securityCeiling < region.securityFloor)
+    {
+      _reader.Fail(entry, path, "securityCeiling is below securityFloor");
+      continue;
+    }
+
     if (!haveId || !haveName)
     {
       continue;
@@ -352,6 +405,169 @@ void ReadRegions(Reader& _reader, const JsonValue& _root, UniverseDef& _outUnive
       continue;
     }
     _outUniverse.regions.push_back(std::move(region));
+  }
+}
+
+void ReadConstellations(Reader& _reader, const JsonValue& _root, UniverseDef& _outUniverse)
+{
+  const JsonValue constellations = _root.Member("constellations");
+  if (!constellations.Valid())
+  {
+    return; // Optional: the hand-authored one-system universe has none.
+  }
+  if (!constellations.IsArray())
+  {
+    _reader.Fail(constellations, "constellations", "must be a list");
+    return;
+  }
+
+  std::unordered_set<ConstellationId> seen;
+  for (std::size_t i = 0; i < constellations.Count(); ++i)
+  {
+    const JsonValue entry = constellations.At(i);
+    const std::string path = IndexedPath("", "constellations", i);
+    if (!entry.IsObject())
+    {
+      _reader.Fail(entry, path, "must be an object");
+      continue;
+    }
+    RejectUnknownKeys(_reader, entry, {"id", "region", "name", "centre"}, path);
+
+    Constellation constellation;
+    const bool haveId = _reader.ReadId(entry, "id", path, constellation.id);
+    const bool haveRegion = _reader.ReadId(entry, "region", path, constellation.region);
+    const bool haveName = _reader.ReadName(entry, "name", path, constellation.name);
+    const bool haveCentre = _reader.ReadPosition(entry, path, constellation.centre, "centre");
+    if (!haveId || !haveRegion || !haveName || !haveCentre)
+    {
+      continue;
+    }
+    if (!seen.insert(constellation.id).second)
+    {
+      _reader.Fail(entry, path, "duplicate constellation id " + std::to_string(constellation.id));
+      continue;
+    }
+    _outUniverse.constellations.push_back(std::move(constellation));
+  }
+}
+
+/// A local offset in centimetres. Anchors carry three of them, and the grid
+/// bound is checked here rather than in `ResolveReferences` because an offset
+/// outside the grid is malformed content, not a dangling reference.
+[[nodiscard]] bool ReadOffsetCm(Reader& _reader, const JsonValue& _parent, std::string_view _key, const std::string& _path,
+                                LocalOffsetCm& _outOffset)
+{
+  const JsonValue offset = _reader.Require(_parent, _key, JsonKind::Object, _path);
+  if (!offset.Valid())
+  {
+    return false;
+  }
+  const std::string path = _path + "." + std::string(_key);
+  RejectUnknownKeys(_reader, offset, {"xCm", "yCm"}, path);
+
+  constexpr std::int64_t BOUND = GRID_HALF_EXTENT_METRES * 100;
+  std::int64_t x = 0;
+  std::int64_t y = 0;
+  const bool readX = _reader.ReadInt64(offset, "xCm", path, -BOUND, BOUND, x);
+  const bool readY = _reader.ReadInt64(offset, "yCm", path, -BOUND, BOUND, y);
+  _outOffset = LocalOffsetCm{static_cast<std::int32_t>(x), static_cast<std::int32_t>(y)};
+  return readX && readY;
+}
+
+[[nodiscard]] bool ParseAnchorKindName(std::string_view _text, AnchorKind& _outKind) noexcept
+{
+  if (_text == "station")
+  {
+    _outKind = AnchorKind::Station;
+    return true;
+  }
+  if (_text == "planet")
+  {
+    _outKind = AnchorKind::Planet;
+    return true;
+  }
+  if (_text == "gate")
+  {
+    _outKind = AnchorKind::Gate;
+    return true;
+  }
+  return false; // `site` is reserved and never baked (ADR-016 §3).
+}
+
+void ReadAnchors(Reader& _reader, const JsonValue& _system, const std::string& _systemPath, SolarSystem& _outSystem)
+{
+  const JsonValue anchors = _system.Member("anchors");
+  if (!anchors.Valid())
+  {
+    return; // Optional, for the same reason constellations are.
+  }
+  if (!anchors.IsArray())
+  {
+    _reader.Fail(anchors, _systemPath + ".anchors", "must be a list");
+    return;
+  }
+
+  for (std::size_t i = 0; i < anchors.Count(); ++i)
+  {
+    const JsonValue entry = anchors.At(i);
+    const std::string path = IndexedPath(_systemPath, "anchors", i);
+    if (!entry.IsObject())
+    {
+      _reader.Fail(entry, path, "must be an object");
+      continue;
+    }
+    RejectUnknownKeys(_reader, entry,
+                      {"id", "kind", "owner", "origin", "warpIn", "warpInFacingTurns16", "arrivalSpreadRadiusCm", "undock",
+                       "undockFacingTurns16", "occupantIdBase", "occupantCount"},
+                      path);
+
+    Anchor anchor;
+    anchor.system = _outSystem.id;
+    const bool haveId = _reader.ReadId(entry, "id", path, anchor.id);
+    std::string kindText;
+    const bool haveKind = _reader.ReadName(entry, "kind", path, kindText);
+    const bool haveOwner = _reader.ReadId(entry, "owner", path, anchor.owner);
+    const bool haveOrigin = _reader.ReadPosition(entry, path, anchor.origin, "origin");
+    const bool haveWarpIn = ReadOffsetCm(_reader, entry, "warpIn", path, anchor.warpInPoint);
+
+    if (haveKind && !ParseAnchorKindName(kindText, anchor.kind))
+    {
+      _reader.Fail(entry, path + ".kind", "'" + kindText + "' is not station, planet or gate");
+      continue;
+    }
+
+    std::int64_t facing = 0;
+    const bool haveFacing = _reader.ReadInt64(entry, "warpInFacingTurns16", path, 0, 65535, facing);
+    anchor.warpInFacingTurns16 = static_cast<std::uint16_t>(facing);
+
+    std::int64_t spread = 0;
+    if (_reader.ReadOptionalInt64(entry, "arrivalSpreadRadiusCm", path, 0, GRID_HALF_EXTENT_METRES * 100, spread))
+    {
+      anchor.arrivalSpreadRadiusCm = static_cast<std::int32_t>(spread);
+    }
+
+    bool haveUndock = true;
+    if (anchor.kind == AnchorKind::Station)
+    {
+      haveUndock = ReadOffsetCm(_reader, entry, "undock", path, anchor.undockPoint);
+      std::int64_t undockFacing = 0;
+      haveUndock = _reader.ReadInt64(entry, "undockFacingTurns16", path, 0, 65535, undockFacing) && haveUndock;
+      anchor.undockFacingTurns16 = static_cast<std::uint16_t>(undockFacing);
+    }
+
+    std::int64_t idBase = 0;
+    std::int64_t occupants = 0;
+    const bool haveIdBase = _reader.ReadInt64(entry, "occupantIdBase", path, 0, 0xffffffffll, idBase);
+    const bool haveOccupants = _reader.ReadInt64(entry, "occupantCount", path, 0, 65535, occupants);
+    anchor.occupantIdBase = static_cast<std::uint32_t>(idBase);
+    anchor.occupantCount = static_cast<std::uint16_t>(occupants);
+
+    if (!haveId || !haveKind || !haveOwner || !haveOrigin || !haveWarpIn || !haveFacing || !haveUndock || !haveIdBase ||
+        !haveOccupants)
+    {
+      continue;
+    }
+    _outSystem.anchors.push_back(anchor);
   }
 }
 
@@ -378,12 +594,34 @@ void ReadSystems(Reader& _reader, const JsonValue& _root, UniverseDef& _outUnive
       _reader.Fail(entry, path, "must be an object");
       continue;
     }
-    RejectUnknownKeys(_reader, entry, {"id", "region", "name", "centre", "celestials", "stations", "gates"}, path);
+    RejectUnknownKeys(_reader, entry,
+                      {"id", "region", "constellation", "name", "security", "starter", "centre", "celestials", "stations",
+                       "gates", "anchors"},
+                      path);
 
     SolarSystem system;
     const bool haveId = _reader.ReadId(entry, "id", path, system.id);
     const bool haveRegion = _reader.ReadId(entry, "region", path, system.region);
     const bool haveName = _reader.ReadName(entry, "name", path, system.name);
+
+    (void)_reader.ReadOptionalId(entry, "constellation", path, system.constellation);
+    std::int64_t security = 0;
+    if (_reader.ReadOptionalInt64(entry, "security", path, 0, 100, security))
+    {
+      system.security = static_cast<std::uint8_t>(security);
+    }
+    const JsonValue starter = entry.Member("starter");
+    if (starter.Valid())
+    {
+      if (starter.Kind() != JsonKind::Bool)
+      {
+        _reader.Fail(starter, path + ".starter", "must be true or false");
+      }
+      else
+      {
+        system.starter = starter.AsBool();
+      }
+    }
 
     const JsonValue centre = _reader.Require(entry, "centre", JsonKind::Object, path);
     bool haveCentre = false;
@@ -403,6 +641,7 @@ void ReadSystems(Reader& _reader, const JsonValue& _root, UniverseDef& _outUnive
     ReadCelestials(_reader, entry, path, system);
     ReadStations(_reader, entry, path, system);
     ReadGates(_reader, entry, path, system);
+    ReadAnchors(_reader, entry, path, system);
 
     if (!haveId || !haveRegion || !haveName || !haveCentre)
     {
@@ -495,7 +734,7 @@ bool ParseUniverse(std::string_view _json, UniverseDef& _outUniverse, std::vecto
     reader.Fail(root, "", "the universe definition must be an object");
     return false;
   }
-  RejectUnknownKeys(reader, root, {"name", "regions", "systems", "start"}, "");
+  RejectUnknownKeys(reader, root, {"name", "regions", "constellations", "systems", "start"}, "");
 
   (void)reader.ReadName(root, "name", "", _outUniverse.name);
 
@@ -508,6 +747,7 @@ bool ParseUniverse(std::string_view _json, UniverseDef& _outUniverse, std::vecto
   }
 
   ReadRegions(reader, root, _outUniverse);
+  ReadConstellations(reader, root, _outUniverse);
   ReadSystems(reader, root, _outUniverse);
   ResolveReferences(reader, root, _outUniverse);
 

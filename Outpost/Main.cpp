@@ -4,6 +4,7 @@
 #include "ConfigLoad.h"
 #include "ReplicatedWorldView.h"
 #include "SelfTest.h"
+#include "UniverseBake.h"
 #include "ShaderTable.h"
 #include "UniverseLoad.h"
 
@@ -15,6 +16,7 @@
 #include "ShipClass.h"
 #include "Snapshot.h"
 #include "World.h"
+#include "WorldRegistry.h"
 
 #include "ClientApp.h"
 #include "ClientConfig.h"
@@ -122,12 +124,33 @@ void LogResolvedConfig(const Outpost::AppConfig& _config, const Outpost::ConfigP
 class UniverseSimulation final : public Simulation
 {
 public:
-  UniverseSimulation(std::uint64_t _universeHash, WorldMeta _worldMeta, Game::World _world, std::vector<Game::ShipId> _patrolShips)
+  /*
+   * The universe runtime, hosted here (build order U2).
+   *
+   * The registry owns the worlds; this holds the registry and borrows the grid
+   * the wire currently serves. Nothing the client sees changes -- there is
+   * still exactly one grid and it is still the start anchor's -- and that is
+   * the point of doing it now: the shape lands while it costs nothing, so U3a's
+   * warp adds a destination rather than a runtime.
+   */
+  UniverseSimulation(std::uint64_t _universeHash, WorldMeta _worldMeta, const Game::UniverseDef& _universe,
+                     std::uint64_t _sessionSeed)
     : m_universeHash(_universeHash),
+      // Moved rather than copied: `WorldMeta` carries the HUD's display strings
+      // as of main's UI slice, so a copy here is three allocations per boot for
+      // nothing.
       m_worldMeta(std::move(_worldMeta)),
-      m_world(std::move(_world)),
-      m_patrolShips(std::move(_patrolShips))
+      m_startAnchor(_universe.StartAnchorId())
   {
+    Game::RegistryConfig config;
+    config.sessionSeed = _sessionSeed;
+    config.hostId = 0; // ADR-019: three roles, one process, one host.
+    m_registry.Reset(&_universe, config);
+
+    // The session holds a viewer on the grid it serves, so the world is never
+    // torn down under the wire (ADR-016 §7). U3b generalises this to the
+    // player's actual view; U2 builds the hold.
+    m_registry.AddViewer(m_startAnchor);
   }
 
   /*
@@ -173,21 +196,22 @@ public:
       order.target.yCm = Neuron::MetresToCentimetres(WAYPOINTS[leg][1]);
       order.target.facingTurns16 = Neuron::RadiansToHeading(static_cast<float>(leg) * DirectX::XM_PIDIV2);
 
-      const Game::OrderVerdict verdict = m_world.SubmitOrder(order);
+      const Game::OrderVerdict verdict = ServedWorld().SubmitOrder(order);
       if (!verdict.accepted)
       {
         NEURON_LOG_WARNING("scripted patrol refused: %s", Game::OrderReasonText(verdict.reason));
       }
     }
 
-    m_world.Tick(_tick);
+    // One number for every live world (ADR-019 §2). Today that is one world.
+    m_registry.Tick(_tick);
   }
 
   /// The tick argument is the loop's; the world knows its own and they are the
   /// same number. Writing the world's is the one that cannot drift.
   [[nodiscard]] bool WriteSnapshot(std::uint32_t, ByteWriter& _writer) override
   {
-    return Game::WriteSnapshot(m_world, _writer);
+    return Game::WriteSnapshot(ServedWorld(), _writer);
   }
 
   /*
@@ -217,7 +241,7 @@ public:
       return malformed;
     }
 
-    const Game::OrderVerdict decided = m_world.SubmitOrder(order);
+    const Game::OrderVerdict decided = ServedWorld().SubmitOrder(order);
 
     OrderVerdict verdict;
     verdict.accepted = decided.accepted;
@@ -242,58 +266,43 @@ public:
     return m_worldMeta;
   }
 
+  /*
+   * The grid the wire serves.
+   *
+   * Borrowed on every use and never stored (ADR-019 §6.1): a world pointer held
+   * across a tick is code that cannot survive the day the grid lives on another
+   * machine, and the whole reason to borrow now -- while there is one world and
+   * it never moves -- is that the habit is free to form and expensive to
+   * retrofit.
+   */
+  [[nodiscard]] Game::World& ServedWorld()
+  {
+    Game::World* world = m_registry.Borrow(m_startAnchor);
+    ASSERT_TEXT(world != nullptr, L"the session's own start anchor is not in the universe");
+    return *world;
+  }
+
+  /// The fleet, spawned into the start grid with ids the registry allocated
+  /// (ADR-018 D6a), recording the mobile half as it goes.
+  void SpawnStartingFleet();
+
+  /// Gives the worlds to whichever thread runs them next (ADR-007 §7). The last
+  /// thing the composition root does to the simulation, and the reason the sim
+  /// thread's first tick adopts rather than trips.
+  void HandOff() noexcept { m_registry.HandOff(); }
+
 private:
   std::uint64_t m_universeHash = 0;
   WorldMeta m_worldMeta;
-  Game::World m_world;
+
+  Game::WorldRegistry m_registry;
+  Game::AnchorId m_startAnchor = Game::INVALID_ID;
 
   /// The mobile half of the fleet. The station is deliberately absent: sending
   /// a `Structure` a waypoint is harmless -- it has no speed -- but listing it
   /// would imply it might move.
   std::vector<Game::ShipId> m_patrolShips;
 };
-
-/*
- * Spawns the authored stations into the world, in the grid's local frame.
- *
- * Until S7 these were `ScenePlacement`s handed to the renderer -- authored
- * scenery on one side of the seam and an invented fleet on the other. They are
- * ships now: a `Structure` has zero speed and zero turn rate (ADR-005 §1), so a
- * station is a ship-table entry that never moves, and it replicates through the
- * same twenty bytes as everything else. One path instead of two, and a station
- * that can be selected and targeted by the code that already does those things.
- *
- * This remains the one place the universe's exact integer metres become the
- * sim's local floats, and it is deliberately in the composition root: GameLogic
- * owns the coordinates, the engine owns the drawing, and the conversion belongs
- * to the thing that knows both (ADR-014).
- */
-void SpawnStations(const Game::UniverseDef& _universe, Game::World& _world)
-{
-  const Game::GridAnchor anchor = _universe.StartAnchor();
-  const Game::SolarSystem* system = _universe.FindSystem(anchor.system);
-  if (system == nullptr)
-    return;
-
-  for (const Game::Station& station : system->stations)
-  {
-    Game::LocalOffsetCm local;
-    if (!Game::LocalFromUniverse(anchor.origin, station.position, local))
-    {
-      // Refused rather than wrapped (ADR-009 §2). A station further than the
-      // grid's half-extent from the anchor is a content error, and placing it
-      // at a folded coordinate would hide that.
-      NEURON_LOG_WARNING("station '%s' is outside the tactical grid and was not spawned", station.name.c_str());
-      continue;
-    }
-
-    Game::ShipSpawn spawn;
-    spawn.hullClass = Game::HullClass::Structure;
-    spawn.xMetres = static_cast<float>(local.x) * 0.01f;
-    spawn.yMetres = static_cast<float>(local.y) * 0.01f;
-    (void)_world.Spawn(spawn);
-  }
-}
 
 /*
  * The starting fleet, on the grid the universe definition anchored.
@@ -349,17 +358,21 @@ constexpr FleetWing STARTING_FLEET[] = {
   return names;
 }
 
-[[nodiscard]] Game::World MakeStartingWorld(const Game::UniverseDef& _universe, std::uint64_t _seed,
-                                            std::vector<Game::ShipId>& _outPatrolShips)
+void UniverseSimulation::SpawnStartingFleet()
 {
-  Game::World world;
-  world.Reset(_seed);
-
-  // Stations first, so they hold the low ids: nothing depends on it, but a
-  // stable ordering makes a snapshot easier to read by eye when something is
-  // wrong.
-  SpawnStations(_universe, world);
-
+  /*
+   * The authored fleet, into the grid the registry spun up.
+   *
+   * Two things changed with U2 and neither is visible from outside. The station
+   * is no longer spawned here -- it is the start anchor's *authored occupant*,
+   * so the registry put it there on spin-up with the id the bake derived, which
+   * is what makes a torn-down and recreated grid come back identical. And every
+   * ship is spawned *through the registry* rather than into a borrowed world,
+   * because the registry is what allocates the id (ADR-018 D6a -- a ship keeps
+   * its id across grids, and a per-world counter would collide on the first
+   * transfer) and what records where the ship went, and a spawn that did one
+   * without the other would leave the fleet out of "where are my ships".
+   */
   std::uint32_t wing = 0;
   for (const FleetWing& entry : STARTING_FLEET)
   {
@@ -382,13 +395,14 @@ constexpr FleetWing STARTING_FLEET[] = {
       spawn.xMetres = std::cos(wingAngle) * WING_RADIUS_METRES - std::sin(wingAngle) * offset;
       spawn.yMetres = std::sin(wingAngle) * WING_RADIUS_METRES + std::cos(wingAngle) * offset;
 
-      const Game::ShipId id = world.Spawn(spawn);
+      const Game::ShipId id = m_registry.Spawn(m_startAnchor, spawn);
       if (id != Game::INVALID_SHIP_ID)
-        _outPatrolShips.push_back(id);
+      {
+        m_patrolShips.push_back(id);
+      }
     }
     ++wing;
   }
-  return world;
 }
 
 /*
@@ -636,10 +650,35 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     NEURON_LOG_WARNING("%s", warning.c_str());
   LogResolvedConfig(config, paths);
 
+  /*
+   * The bake (build order U1), and it exits: this mode writes content rather
+   * than running the game, so there is no window, no server and no universe to
+   * load -- it is about to make one.
+   *
+   * It lives in the composition root because writing a file is the one thing
+   * GameLogic may not do (ADR-009 §7): the generator is pure and hands back
+   * bytes, and the host is what turns bytes into a path on disk. Config-driven
+   * per ADR-012 -- there is no argv to pass a seed on.
+   */
+  if (config.mode == Outpost::HostMode::Bake)
+  {
+    const int result = Outpost::RunBake(config);
+    Log::Shutdown();
+    return result;
+  }
+
   // The universe, read here and parsed by GameLogic (ADR-009 §7). Both halves
   // load the identical definition, so this happens once and feeds both -- and
   // it happens before anything starts, because a universe that will not parse
   // is not a degraded mode, it is a refusal to run.
+  //
+  // Timed, because R17 is a risk with a threshold rather than a worry: the
+  // committed universe is 2,500 systems of JSON, the fallback if parsing it
+  // costs about a second is a *structural* per-region content split, and a
+  // threshold nobody measures is a threshold nobody notices crossing. The
+  // number is logged on every boot, so CI's self test re-takes it on every push
+  // in the configuration ADR-018 D11 says perf numbers mean.
+  const std::int64_t universeStart = Clock::Counter();
   Outpost::UniverseLoadResult universe;
   std::vector<std::string> universeErrors;
   if (!Outpost::LoadUniverse(config.universeDefinition, universe, universeErrors))
@@ -652,15 +691,31 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     Log::Shutdown();
     return 1;
   }
+  NEURON_LOG_INFO("universe: read, parsed and hashed in %.0f ms (R17's threshold is ~1000 ms)",
+                  Clock::MillisecondsBetween(universeStart, Clock::Counter()));
   LogResolvedUniverse(universe);
 
   // GameLogic implements Simulation and the composition root injects it
   // (ADR-014 §2). Until it does (S5c), the server hosts one that advances
   // nothing but knows its content hash and where its world is anchored -- which
   // is enough to prove the loop, the sessions, the wire and the handshake.
-  std::vector<Game::ShipId> patrolShips;
-  UniverseSimulation simulation{universe.universeHash, MakeWorldMeta(universe.universe),
-                                MakeStartingWorld(universe.universe, universe.universeHash, patrolShips), std::move(patrolShips)};
+  // The session seed is the content hash: same universe, same session, same
+  // worlds -- and a content change is a different session by construction,
+  // which is the honest relationship between the two.
+  UniverseSimulation simulation{universe.universeHash, MakeWorldMeta(universe.universe), universe.universe, universe.universeHash};
+  simulation.SpawnStartingFleet();
+
+  /*
+   * And that is the last thing this thread does to the world (ADR-007 §7).
+   *
+   * Everything above ran on Main -- the registry spun the start grid up, the
+   * fleet was spawned into it -- and everything below runs it on the server's
+   * Sim thread. The hand-off is explicit because the alternative is a rule
+   * nobody can check: the owner-assert adopts the first thread to touch a
+   * world, so without this line the sim's first tick would trip on Main's
+   * fingerprints. It did, in CI, which is how this line came to exist.
+   */
+  simulation.HandOff();
 
   // Before anything opens a window: the self test is a diagnostic, and its
   // answer is an exit code (Build Order S4).
