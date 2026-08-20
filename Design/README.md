@@ -94,9 +94,10 @@ moves between the trees without a rename pass. Three things it changed in these 
 - [Universe-Build-Order.md](Universe-Build-Order.md) — the post-MVP universe phase: U1–U6
   slices delivering ADR-016 (bake, anchors, warp, gates, strategic map, system view), plus
   the named content deliverables (system-view print, `Gate.obj`); milestones W0 (first warp)
-  / W1 (first crossing) / W2 (the universe on screen). **U1, U2 and U3a are built, with
-  U3b's sim half and U5's pure half beside them**; U4 is untouched, U3c is blocked on
-  machinery rather than on a screen, and the rest of what is left is screen work.
+  / W1 (first crossing) / W2 (the universe on screen). **U1, U2, U3a, U3b's sim and wire
+  halves, U4's sim half and U5's pure half are built**; U3c's blockers have cleared and what
+  is left there is the second commander's identity, and the rest of what is left is screen
+  work.
 - [Station-Build-Order.md](Station-Build-Order.md) — the docking phase: T1–T3 slices
   delivering ADR-017 (roster + transfer bus in the sim, the wire and tactical surfaces,
   the hangar screen), interleaved **after U2, before U3a**; milestones H0 (the headless
@@ -200,19 +201,35 @@ session settled procedural generation (2,500 systems baked to authored content),
 model, and the UI surfaces — with [Universe-Build-Order.md](Universe-Build-Order.md) as the
 delivery plan.
 
-**Built so far: U1, U2, U3a, U3b's sim half and U5's pure half.** The bake produces 2,500
-systems and 18,618 anchors into committed content; `WorldRegistry` is the many-grids runtime
-that owns ship ids, the ship→location index and the transfer bus; `OrderKind::Warp` stopped
-being reserved and runs spool → crossing → arrival; `FleetSummary` answers where a
-commander's ships are without subscribing to their grids; and `UniverseRoute` answers the
-strategic map's two non-drawing questions (`SolveRoute`, `FindSystems`) over the bake.
+**Built so far: U1, U2, U3a, U3b's sim and wire halves, U4's sim half and U5's pure half.**
+The bake produces 2,500 systems and 18,618 anchors into committed content; `WorldRegistry` is
+the many-grids runtime that owns ship ids, the ship→location index and the transfer bus;
+`OrderKind::Warp` stopped being reserved and runs spool → crossing → arrival; `FleetSummary`
+answers where a commander's ships are without subscribing to their grids; and `UniverseRoute`
+answers the strategic map's two non-drawing questions (`SolveRoute`, `FindSystems`) over the
+bake.
 
-**What is not built is, with one exception, screen work.** U3b's client half, U5's map itself
-and U6 need a GPU and a person, which is the same wall S5 and R1 have been standing at since
-S8. The exception is **U3c, the second-commander gate** — it is blocked on machinery rather
-than on a screen: it needs T2's per-client `SnapshotSender` and U3b's view subscription, and
-neither exists yet. U4 (gates and the twelfth hull) is untouched. The system-view print
-remains the one missing design artifact.
+**A fleet can leave its system (U4's sim half, 2026-08-20).** `HullClass::Gate = 11` is the
+twelfth hull, every gate anchor authors its entity, a gate grid can reach the far side of its
+own gate, and a `Warp` naming that anchor is judged on where the fleet is standing —
+`NotAtGate` otherwise, which is `UnknownStation`/`NotAtStation`'s pair one verb along. The
+crossing is priced **flat** (`GATE_JUMP_TICKS = 400`, stated in ticks because `20.0 / 0.05`
+truncates to 399 and a flat number should not depend on how it was divided), because between
+systems distance is the map's spacing rather than a journey. Two things fell out of doing it.
+The occupant id block **shrank from eight to two**: 6,000 gate anchors authoring at eight ids
+each would have been 74,848 authored ids against a 32,767-id window, so the content is
+re-baked and the bake now refuses rather than wrapping. And the gate's art **landed with the
+slice** as `Stargate.obj` rather than the `Gate.obj` the ADR named, so the Structure stand-in
+was never used; its export carried a sixth material the five-material palette does not have,
+authored onto `accent`, whose colour it already was.
+
+**What is not built is, with one exception, screen work.** U3b's client half, U4's route feeder
+and icons, U5's map itself and U6 need a GPU and a person, which is the same wall S5 and R1
+have been standing at since S8. The exception is **U3c, the second-commander gate** — and its
+blockers cleared on 2026-08-20: T2's per-client `SnapshotSender` and U3b's view subscription
+are both in the tree, so what is left there is the second commander's *identity*
+(`ServerHost` mints `SOLE_PLAYER_ID`; summaries and rosters answer for everyone) rather than
+the machinery to serve one. The system-view print remains the one missing design artifact.
 
 **Every open design decision in both post-MVP phases is now answered (2026-08-20).** The two
 prints that carried an OPEN list have been ruled on: `station-screen.png` §3's four questions

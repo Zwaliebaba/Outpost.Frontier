@@ -46,6 +46,14 @@ namespace
     _outHull = HullClass::Structure;
     return true;
   }
+  // A gate is the same arrangement one class along (ADR-016 §10, U4): the
+  // structure a fleet has to be standing at, spawned from the anchor's own
+  // block so a torn-down and recreated gate grid is the same gate.
+  if (_kind == AnchorKind::Gate)
+  {
+    _outHull = HullClass::Gate;
+    return true;
+  }
   return false;
 }
 
@@ -145,6 +153,7 @@ WorldRegistry::LiveWorld& WorldRegistry::SpinUp(const Anchor& _anchor)
    */
   HullClass hull = HullClass::Structure;
   ShipId stationShip = INVALID_SHIP_ID;
+  ShipId gateShip = INVALID_SHIP_ID;
   if (AuthoredHull(_anchor.kind, hull))
   {
     for (std::uint16_t index = 0; index < _anchor.occupantCount; ++index)
@@ -162,6 +171,10 @@ WorldRegistry::LiveWorld& WorldRegistry::SpinUp(const Anchor& _anchor)
         {
           stationShip = id; // The first occupant is the structure itself.
         }
+        if (_anchor.kind == AnchorKind::Gate && gateShip == INVALID_SHIP_ID)
+        {
+          gateShip = id; // And on a gate's grid, the gate.
+        }
         RecordLocation(id, _anchor.id);
       }
     }
@@ -174,6 +187,19 @@ WorldRegistry::LiveWorld& WorldRegistry::SpinUp(const Anchor& _anchor)
    * has no idea where in the galaxy it is.
    */
   entry.world->SetAnchor(_anchor.id, stationShip, ReachableFrom(_anchor.id));
+
+  /*
+   * And where the gate leads, on a gate's grid (ADR-016 §5, U4).
+   *
+   * The pair comes from the universe rather than from anything the registry
+   * keeps, for the reason `ReachableFrom` reads it too: the topology is
+   * content, and a runtime that answered "which gate is on the far side" from
+   * its own bookkeeping would be a second copy of the map to keep true.
+   */
+  if (_anchor.kind == AnchorKind::Gate && m_universe != nullptr)
+  {
+    entry.world->SetJump(m_universe->PairedGateAnchor(_anchor.id), gateShip);
+  }
 
   const auto at = std::lower_bound(m_live.begin(), m_live.end(), _anchor.id,
                                    [](const LiveWorld& _entry, AnchorId _id) { return _entry.anchor < _id; });
@@ -448,12 +474,36 @@ std::vector<AnchorId> WorldRegistry::ReachableFrom(AnchorId _anchor) const
   {
     return reachable;
   }
-  reachable.reserve(system->anchors.size());
+  reachable.reserve(system->anchors.size() + 1);
   for (const Anchor& anchor : system->anchors)
   {
     if (anchor.id != _anchor)
     {
       reachable.push_back(anchor.id);
+    }
+  }
+
+  /*
+   * And the far side of the gate, if this grid is one (U4).
+   *
+   * **One id, appended to the same list**, so that `UnknownAnchor` keeps
+   * meaning exactly "not from here" and the validator needs no second question
+   * to decide whether a destination exists. Which of these is a *jump* is said
+   * separately, by `SetJump`, because that changes how the order is judged and
+   * not whether the place can be named.
+   *
+   * One hop and no further: a gate leads to the gate that leads back, and the
+   * anchors around *that* system are reachable from there rather than from
+   * here. Routing across several systems is the client feeding one order per
+   * completed hop (ADR-016 §8) -- there is no server-side planner, and this
+   * list is deliberately not the beginning of one.
+   */
+  if (here->kind == AnchorKind::Gate)
+  {
+    const AnchorId paired = m_universe->PairedGateAnchor(_anchor);
+    if (paired != INVALID_ID)
+    {
+      reachable.push_back(paired);
     }
   }
   return reachable;
@@ -466,6 +516,22 @@ std::uint32_t WorldRegistry::TransitTicks(AnchorId _from, const TransferRequest&
   if (from == nullptr || to == nullptr)
   {
     return 1;
+  }
+
+  /*
+   * A gate jump is flat (ADR-016 §5, U4), and "crosses systems" is what says it
+   * is one -- the validator has already refused any crossing that is not
+   * through this grid's own gate, so a destination in another system arrived
+   * here through one.
+   *
+   * Asked before the distance is measured rather than after, because the
+   * distance between two systems is the map's spacing and not a journey: the
+   * two are light-years apart on the plane and the arithmetic below would
+   * price a hop at hours.
+   */
+  if (from->system != to->system)
+  {
+    return std::max<std::uint32_t>(TRANSFER_FLOOR_TICKS, GATE_JUMP_TICKS);
   }
 
   /*

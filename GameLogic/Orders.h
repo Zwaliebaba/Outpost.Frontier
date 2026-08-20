@@ -196,7 +196,22 @@ enum class OrderReason : std::uint16_t
    * complaint about a different action. A refusal that names the wrong problem
    * costs more than an enumerator does.
    */
-  NoPresence = 15
+  NoPresence = 15,
+
+  /*
+   * A jump was ordered from too far off the gate (ADR-016 §5, U4).
+   *
+   * Distinct from `UnknownAnchor`, which is what naming a destination this grid
+   * cannot reach at all gets: the pair are the same two answers `UnknownStation`
+   * and `NotAtStation` already give for docking -- "there is no such place from
+   * here" and "there is, and you are not at it" -- and a player who is told the
+   * wrong one of those flies the wrong correction.
+   *
+   * Only a *jump* can earn it. An in-system warp is ordered from wherever the
+   * fleet stands, because §5's spool is what it pays instead of proximity; it
+   * is crossing a gate that requires standing at one.
+   */
+  NotAtGate = 16
 };
 
 /// Human text for a reason, for logs and for the toast the client raises. Never

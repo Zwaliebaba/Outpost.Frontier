@@ -272,6 +272,16 @@ public:
     Assert::IsTrue(GAME_SCHEMA_TEXT.find("shipsPerOrder=64") != std::string_view::npos);
     Assert::AreEqual<std::uint32_t>(64, MAX_SHIPS_PER_ORDER, L"the schema string and the cap must not drift apart");
     Assert::AreEqual<std::uint16_t>(16, MAX_ORDERS_PER_SNAPSHOT);
+
+    /*
+     * The hull count, which is on the wire as a `typeId` byte and as the icon
+     * and palette index the byte selects. U4 appended the twelfth (ADR-016
+     * §10), and a build that grew the taxonomy must not match one that did not:
+     * the older build would spawn nothing for the value and draw nothing where
+     * a gate is.
+     */
+    Assert::IsTrue(GAME_SCHEMA_TEXT.find("hull{12 classes") != std::string_view::npos);
+    Assert::AreEqual<std::uint8_t>(12, HULL_CLASS_COUNT, L"the schema string and the taxonomy must not drift apart");
   }
 };
 

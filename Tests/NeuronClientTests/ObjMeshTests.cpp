@@ -302,6 +302,7 @@ public:
         {"Interceptor.obj", 780, 312, 5}, {"Bomber.obj", 796, 376, 5},     {"Corvette.obj", 716, 324, 5},
         {"Frigate.obj", 948, 464, 4},     {"Hauler.obj", 532, 268, 5},     {"Miner.obj", 1162, 508, 5},
         {"Carrier.obj", 1208, 576, 5},    {"Battleship.obj", 1344, 664, 5}, {"Structure.obj", 3704, 1784, 5},
+        {"Stargate.obj", 1888, 1144, 5},
     };
 
     const std::string directory = FindMeshDirectory();
@@ -349,12 +350,13 @@ public:
     // authored one": a minority of the corpus is smooth-shaded (152 of
     // Structure's 1,784 faces carry a different normal per corner), so on those
     // faces the geometric normal legitimately differs from the authored one by
-    // tens of degrees. Measured across the nine meshes the worst alignment is
-    // about +0.70 and none is negative; swapping the cross operands would make
-    // all 5,276 of them negative at once.
+    // tens of degrees. Measured across the ten meshes the worst alignment is
+    // about +0.68 -- the stargate's, which is the tightest in the corpus and
+    // still nowhere near the bound -- and none is negative; swapping the cross
+    // operands would make all 6,420 of them negative at once.
     const std::string directory = FindMeshDirectory();
-    const char* files[] = {"Interceptor.obj", "Bomber.obj",  "Corvette.obj",   "Frigate.obj", "Hauler.obj",
-                           "Miner.obj",       "Carrier.obj", "Battleship.obj", "Structure.obj"};
+    const char* files[] = {"Interceptor.obj", "Bomber.obj",  "Corvette.obj",   "Frigate.obj",  "Hauler.obj",
+                           "Miner.obj",       "Carrier.obj", "Battleship.obj", "Structure.obj", "Stargate.obj"};
 
     std::uint32_t compared = 0;
     for (const char* file : files)
@@ -382,20 +384,29 @@ public:
       }
     }
 
-    // 5,276 triangles across the nine meshes. The bound is a floor rather than
-    // the exact count so a re-export does not fail here instead of failing the
-    // count test above, but it is high enough that a silently empty loop --
-    // which would make every assertion above vacuous -- cannot pass.
+    // 6,420 triangles across the ten meshes -- 5,276 before U4's stargate. The
+    // bound is a floor rather than the exact count so a re-export does not fail
+    // here instead of failing the count test above, but it is high enough that
+    // a silently empty loop -- which would make every assertion above vacuous
+    // -- cannot pass.
     Assert::IsTrue(compared > 5000, L"the comparison must actually have run over the corpus");
   }
 
   TEST_METHOD(OnlyFrigateLacksGlassAndTheRestSharePalettes)
   {
-    // The corpus authors one palette across nine files; a mesh that drifts is a
+    // The corpus authors one palette across ten files; a mesh that drifts is a
     // content bug the renderer would show as a recolour and say nothing about.
+    //
+    // `Stargate.obj` is the newest of them and the one that proves the check is
+    // worth running: it arrived carrying a sixth material, `aperture`, whose
+    // albedo was the accent colour to the last digit and whose only difference
+    // was a `d 0.2` this renderer does not read (ADR-006 §5 is albedo plus a
+    // light term). The palette is five, so the two ring faces that used it were
+    // authored onto `accent` instead -- the same pixels, and a mesh the loader
+    // accepts rather than one it refuses at boot.
     const std::string directory = FindMeshDirectory();
-    const char* files[] = {"Interceptor.obj", "Bomber.obj",  "Corvette.obj",   "Frigate.obj", "Hauler.obj",
-                           "Miner.obj",       "Carrier.obj", "Battleship.obj", "Structure.obj"};
+    const char* files[] = {"Interceptor.obj", "Bomber.obj",  "Corvette.obj",   "Frigate.obj",  "Hauler.obj",
+                           "Miner.obj",       "Carrier.obj", "Battleship.obj", "Structure.obj", "Stargate.obj"};
 
     ObjMesh reference;
     ObjDiagnostic error;

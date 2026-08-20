@@ -69,9 +69,9 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "anchor=AnchorId|0=none,statusBits.bit0=undockProtected,"
     "summary.anchor=whereItIsOrWhereItIsGoing,summary.etaSeconds=s|65535=none}"
     "quantisation{position=cm,velocity=cm/s,heading=turns/65536}"
-    "hull{11 classes,Fighter+Cruiser reserved}"
+    "hull{12 classes,Fighter+Cruiser reserved,Gate=11}"
     "caps{shipsPerOrder=64,ordersPerSnapshot=16,dockRadiusMetres=5000,undockProtectionSeconds=15,"
-    "parkingRingMetres=2500|4000,parkingBearings=12,warpBaseSeconds=5}"
+    "parkingRingMetres=2500|4000,parkingBearings=12,warpBaseSeconds=5,jumpRadiusMetres=2500,gateJumpTicks=400}"
     "enums{OrderKind:Move=0,Attack=1,Stance=2,Abilities=3,Warp=4,Dock=5;FormationId:Line=0,Wedge=1,Claw=2;"
     "QueueMode:Replace=0,Append=1;"
     "OrderState:Underway=0,Arriving=1,Done=2;"
@@ -81,7 +81,7 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "CommandKind:Order=0,Station=1;"
     "OrderReason:Accepted=0,EmptySelection=1,NotOwned=2,UnknownShip=3,QueueFull=4,OutOfBounds=5,"
     "InvalidFormation=6,TooManyShips=7,UnknownKind=8,UnknownStation=9,NotAtStation=10,NotDocked=11,"
-    "InvalidQueueMode=12,CombatEngaged=13,UnknownAnchor=14,NoPresence=15}"
+    "InvalidQueueMode=12,CombatEngaged=13,UnknownAnchor=14,NoPresence=15,NotAtGate=16}"
 
     /*
      * The **order** the checks run in, not just their names (ADR-018 D9/A21).
@@ -94,7 +94,7 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
      * behaviour that must match belongs.
      */
     "checkOrder{order:EmptySelection,TooManyShips,UnknownKind,InvalidQueueMode,InvalidFormation,QueueFull,"
-    "UnknownStation,UnknownAnchor,OutOfBounds,UnknownShip,NotAtStation;"
+    "UnknownStation,UnknownAnchor,OutOfBounds,UnknownShip,NotAtStation,NotAtGate;"
     "station:EmptySelection,TooManyShips,InvalidFormation,UnknownStation,NotDocked}";
 
 /// Stable across runs and builds by construction: FNV-1a over the text above,

@@ -239,6 +239,45 @@ OrderVerdict ValidateOrder(const ValidationView& _view, const OrderSubmit& _orde
     }
   }
 
+  /*
+   * And everyone at the gate, for the one destination that is a jump
+   * (ADR-016 §5, U4).
+   *
+   * The same shape as the dock check immediately above it -- last, in metres,
+   * every named ship resolved first -- because it answers the same kind of
+   * question and a player who fails both should be told the same one twice.
+   * What differs is the radius: `JUMP_RADIUS_METRES` is flat where the dock
+   * radius scales with the fleet, and its own comment says why.
+   *
+   * `jumpAnchor` is `INVALID_ID` on every grid that is not a gate's, so this
+   * costs one comparison on the path everything else takes. An in-system warp
+   * never reaches it, which is the rule: warp is ordered from where you stand,
+   * and only crossing a gate requires standing at one.
+   */
+  if (_order.kind == OrderKind::Warp && _view.jumpAnchor != INVALID_ID && _order.anchor == _view.jumpAnchor)
+  {
+    constexpr auto RADIUS = static_cast<float>(JUMP_RADIUS_METRES);
+    const float gateX = static_cast<float>(_view.gateXCm) * 0.01f;
+    const float gateY = static_cast<float>(_view.gateYCm) * 0.01f;
+    for (std::uint16_t index = 0; index < _order.shipCount; ++index)
+    {
+      const ShipMark* mark = FindMark(_view, _order.shipIds[index]);
+      if (mark == nullptr)
+      {
+        // A view with ids and no marks cannot answer a positional question, and
+        // saying so is the only honest verdict -- the same refusal the dock
+        // check makes, for the same reason.
+        return Refuse(OrderReason::NotAtGate);
+      }
+      const float dx = static_cast<float>(mark->xCm) * 0.01f - gateX;
+      const float dy = static_cast<float>(mark->yCm) * 0.01f - gateY;
+      if (dx * dx + dy * dy > RADIUS * RADIUS)
+      {
+        return Refuse(OrderReason::NotAtGate);
+      }
+    }
+  }
+
   // NotOwned is unreachable in the MVP: there is one player and every ship is
   // theirs. The code exists because ownership is a field, not a redesign, and a
   // reason enum that renumbers when multiplayer lands would renumber the wire.

@@ -270,6 +270,21 @@ struct UniverseDef
   /// -- because a warp order carries one number and nothing else.
   [[nodiscard]] const Anchor* FindAnchor(AnchorId _id) const noexcept;
 
+  /*
+   * Where a gate leads, as the anchor a jump arrives at (ADR-016 §5, U4).
+   *
+   * `INVALID_ID` for an anchor that is not a gate's, and for a gate whose pair
+   * is missing -- which authored content cannot produce, since the bake places
+   * gates as symmetric pairs and the parser refuses an edge to a system that
+   * does not exist, but which a hand-written file could, and a jump to nowhere
+   * must be a refusal rather than a crossing.
+   *
+   * Here rather than in the registry because it is a question about the
+   * universe: the topology is content, and a runtime that answered it from its
+   * own bookkeeping would be keeping a second copy of the map.
+   */
+  [[nodiscard]] AnchorId PairedGateAnchor(AnchorId _gateAnchor) const noexcept;
+
   /// The grid anchor a session starts at: the start station's position
   /// (ADR-009 §9). Invalid system id when the start cannot be resolved.
   [[nodiscard]] GridAnchor StartAnchor() const noexcept;

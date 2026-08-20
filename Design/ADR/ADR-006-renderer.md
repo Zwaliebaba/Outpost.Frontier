@@ -19,7 +19,10 @@ strong silhouettes, emissive accents, sparse space. The corpus already draws a *
 (`overlay-pass.png`), with the Overlay node post-tonemap reading depth as SRV, and an icon/
 de-clutter system scaled for 1,024 entities. The MVP must be an honest subset of that frame,
 not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 shared materials
-`hull/plate/glass/accent/thruster`, Y-up, forward = −Z, ~270–1,800 faces).
+`hull/plate/glass/accent/thruster`, Y-up, forward = −Z, ~270–1,800 faces) — **10 since U4
+added `Stargate.obj`** (1,144 faces), on the same five materials and the same palette; the
+sixth its export carried was authored onto `accent`, whose colour it already was, because the
+loader refuses a material outside the five and this shading model reads albedo only.
 
 ## Decision
 

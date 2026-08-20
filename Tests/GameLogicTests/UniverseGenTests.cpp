@@ -434,8 +434,113 @@ public:
                          L"an undock point sits outside its own grid");
           Assert::AreEqual(static_cast<std::uint16_t>(1), anchor.occupantCount, L"a station anchor should author its structure");
         }
+        else if (anchor.kind == AnchorKind::Gate)
+        {
+          /*
+           * ADR-016 §5's invariant, and U4's half of the one above it: "warp-in
+           * lands inside that radius, so the common case chains seamlessly". A
+           * fleet that warps to a gate to make a hop must arrive able to take
+           * it, or every routed crossing is a jump plus a crawl.
+           */
+          constexpr std::int64_t JUMP_CM = JUMP_RADIUS_METRES * 100;
+          Assert::IsTrue(warpX * warpX + warpY * warpY <= JUMP_CM * JUMP_CM,
+                         L"a gate's warp-in point is outside its own jump radius");
+
+          // And outside the gate itself, for the reason an undock point is
+          // outside its station: a fleet must not arrive in contact.
+          const auto gateContactCm = static_cast<std::int64_t>(ShipClass(HullClass::Gate).collisionRadiusMetres) * 100;
+          Assert::IsTrue(warpX * warpX + warpY * warpY > gateContactCm * gateContactCm,
+                         L"a gate's warp-in point is inside the structure it arrives beside");
+
+          Assert::AreEqual(static_cast<std::uint16_t>(1), anchor.occupantCount, L"a gate anchor should author its gate");
+        }
       }
     }
+  }
+
+  TEST_METHOD(EveryGateLeadsToOneThatLeadsBack)
+  {
+    /*
+     * The pairing U4 jumps across, asserted from the anchor side because that
+     * is the side a warp order names (ADR-016 §3). Three things have to hold at
+     * once for a crossing to be a crossing rather than a one-way trip: the pair
+     * exists, it is in the system the gate says it leads to, and it names this
+     * one back.
+     */
+    const UniverseDef universe = Bake(SmallConfig());
+
+    std::uint32_t checked = 0;
+    for (const SolarSystem& system : universe.systems)
+    {
+      for (const Anchor& anchor : system.anchors)
+      {
+        if (anchor.kind != AnchorKind::Gate)
+        {
+          continue;
+        }
+        const AnchorId paired = universe.PairedGateAnchor(anchor.id);
+        Assert::IsTrue(paired != INVALID_ID, L"a gate leads nowhere");
+
+        const Anchor* far = universe.FindAnchor(paired);
+        Assert::IsNotNull(far, L"a gate leads to an anchor nobody authored");
+        Assert::IsTrue(far->kind == AnchorKind::Gate);
+        Assert::IsTrue(far->system != system.id, L"a gate leads back into its own system");
+        Assert::AreEqual<std::uint16_t>(anchor.id, universe.PairedGateAnchor(paired), L"the pairing is not symmetric");
+        ++checked;
+      }
+    }
+    Assert::IsTrue(checked > 0, L"the test universe has no gates, so this proved nothing");
+
+    // And a non-gate has no far side, which is what makes `jumpAnchor` invalid
+    // on every grid that is not a gate's.
+    for (const SolarSystem& system : universe.systems)
+    {
+      for (const Anchor& anchor : system.anchors)
+      {
+        if (anchor.kind != AnchorKind::Gate)
+        {
+          Assert::AreEqual<std::uint16_t>(INVALID_ID, universe.PairedGateAnchor(anchor.id));
+        }
+      }
+    }
+  }
+
+  TEST_METHOD(TheAuthoredIdSpaceFitsTheWindowAtTheCommittedScale)
+  {
+    /*
+     * The arithmetic `ANCHOR_ID_BLOCK` states, checked against the recipe that
+     * produced the committed file rather than against the small config the rest
+     * of this suite bakes (ADR-018 D6a).
+     *
+     * It is the *worst case* rather than a measurement, so it holds without
+     * baking 2,500 systems in a unit test: a system authors at most two
+     * stations and `MAX_GATES_PER_SYSTEM` gates. This is what U4 had to move --
+     * a block of eight fitted while stations were the only anchors authoring
+     * anything, and stopped fitting the moment 6,000 gates joined them.
+     */
+    const UniverseGenConfig committed;
+    const std::uint32_t worstAnchors = static_cast<std::uint32_t>(committed.systemCount) * (2u + MAX_GATES_PER_SYSTEM);
+    const std::uint32_t worstIds = worstAnchors * ANCHOR_ID_BLOCK;
+
+    Assert::IsTrue(AUTHORED_SHIP_ID_BASE + worstIds < DYNAMIC_SHIP_ID_BASE,
+                   L"authored ids at the committed scale would run into the dynamic id space");
+
+    /*
+     * The bake also refuses rather than wrapping if a recipe ever does exhaust
+     * the window -- which the arithmetic above cannot promise on its own, since
+     * the gate degree cap is allowed to bend where connectivity needs it.
+     *
+     * That branch is deliberately not exercised here. Reaching it needs roughly
+     * 8,700 systems, and the extra-edge pass is quadratic in system count, so
+     * the test would cost more seconds than the guard costs instructions. What
+     * *is* exercised is the posture it belongs to: a recipe that cannot be
+     * satisfied is refused whole, never half-baked.
+     */
+    UniverseGenConfig impossible = SmallConfig();
+    impossible.systemCount = 0;
+    UniverseDef empty;
+    Assert::IsFalse(GenerateUniverse(impossible, empty), L"a recipe with fewer systems than constellations is not satisfiable");
+    Assert::IsTrue(empty.systems.empty());
   }
 
   TEST_METHOD(TheStartIsVestaThreeAndTheStartersAreValid)
