@@ -117,9 +117,11 @@ moves between the trees without a rename pass. Three things it changed in these 
   **partly** done: the wire carries u32 ship ids, while the sim's `ShipId` stays u16 until the
   delta cluster lifts the full-fit constraint (D6's own staging). **Six are open** — A13,
   A15, A16, A18, A20 and A25 — and each lands with U3b, T2, U5 or U3c rather than waiting on
-  a decision. A13 is the one several of the others stand behind: the per-client
-  `SnapshotSender` does not exist yet, and U3b's client half, T2's roster privacy and U3c all
-  need it.
+  a decision. **A13 is two thirds delivered as of 2026-08-20**: the per-client
+  `SnapshotSender` exists and the over-cap refusal is tested loudly; what is left of it is
+  `StationRoster` addressed per viewer, which waits on a frame for the summary family to
+  travel in. That sender is what U3b's client half, T2's roster privacy and U3c all stood
+  behind.
 
 ## Implementation state (2026-08-20)
 

@@ -43,18 +43,37 @@ public:
     ++m_ticks;
   }
 
-  /// Writes a tiny recognisable payload so a test can prove the datagram
-  /// carried the simulation's bytes and not the engine's idea of them. The
-  /// last accepted order rides along, which is what "state in the next
-  /// snapshot" means for a simulation with no world.
-  [[nodiscard]] bool WriteSnapshot(std::uint32_t _tick, ByteWriter& _writer) override
+  /*
+   * Writes a tiny recognisable payload so a test can prove the datagram
+   * carried the simulation's bytes and not the engine's idea of them. The
+   * last accepted order rides along, which is what "state in the next
+   * snapshot" means for a simulation with no world.
+   *
+   * The viewer is written into the payload rather than ignored: it is what
+   * lets a test prove the *sender* knew which client it was serialising for
+   * (ADR-018 A13), which is a claim no amount of identical bytes can make.
+   *
+   * `RefuseSnapshots` makes every write fail the way a grid past the datagram
+   * cap does -- the loud refusal ADR-022 §6 keeps until the delta slice.
+   */
+  [[nodiscard]] bool WriteSnapshot(PlayerId _viewer, std::uint32_t _tick, ByteWriter& _writer) override
   {
+    m_lastViewer.store(_viewer, std::memory_order_relaxed);
+    if (m_refuseSnapshots.load(std::memory_order_relaxed))
+    {
+      return false;
+    }
     _writer.WriteUInt32(_tick);
     _writer.WriteUInt32(SNAPSHOT_MARKER);
     _writer.WriteUInt32(m_lastAcceptedSeq.load(std::memory_order_relaxed));
+    _writer.WriteUInt32(_viewer);
     ++m_snapshotsWritten;
     return _writer.Ok();
   }
+
+  /// Makes the simulation behave like a grid that outgrew one datagram.
+  void RefuseSnapshots(bool _refuse) noexcept { m_refuseSnapshots.store(_refuse, std::memory_order_relaxed); }
+  [[nodiscard]] PlayerId LastViewer() const noexcept { return m_lastViewer.load(std::memory_order_relaxed); }
 
   static constexpr std::uint32_t SNAPSHOT_MARKER = 0xfeedbeefu;
   [[nodiscard]] std::uint32_t SnapshotsWritten() const noexcept { return m_snapshotsWritten.load(std::memory_order_relaxed); }
@@ -120,6 +139,8 @@ private:
   std::atomic<std::uint32_t> m_lastOrderClientId{0};
   std::atomic<std::uint32_t> m_lastAcceptedSeq{0};
   std::atomic<std::uint32_t> m_nextOrderId{0};
+  std::atomic<PlayerId> m_lastViewer{INVALID_PLAYER_ID};
+  std::atomic<bool> m_refuseSnapshots{false};
 };
 
 template <typename Predicate>
@@ -329,7 +350,7 @@ public:
    * something of its own devising -- a snapshot it framed but did not get from
    * the game would still be the right size.
    */
-  TEST_METHOD(BroadcastsTheSimulationsOwnBytesToAJoinedClient)
+  TEST_METHOD(SendsTheSimulationsOwnBytesToAJoinedClient)
   {
     CountingSimulation simulation;
     ServerHost host;
@@ -349,8 +370,10 @@ public:
 
     // Nothing is sent to a room of nobody, so the join has to land first.
     bool joined = false;
+    PlayerId welcomedPlayer = INVALID_PLAYER_ID;
     std::uint32_t snapshotTick = 0;
     std::uint32_t marker = 0;
+    std::uint32_t snapshotViewer = INVALID_PLAYER_ID;
     std::uint32_t snapshotsSeen = 0;
 
     const bool sawSnapshots = WaitUntil(client,
@@ -367,6 +390,11 @@ public:
                                             const WireType type = ReadWireType(reader);
                                             if (type == WireType::Welcome)
                                             {
+                                              Welcome welcome;
+                                              if (Read(reader, welcome))
+                                              {
+                                                welcomedPlayer = welcome.playerId;
+                                              }
                                               joined = true;
                                             }
                                             else if (type == WireType::Snapshot)
@@ -377,10 +405,13 @@ public:
                                               // overwrite a good one.
                                               const std::uint32_t tick = reader.ReadUInt32();
                                               const std::uint32_t payloadMarker = reader.ReadUInt32();
+                                              (void)reader.ReadUInt32(); // the last accepted order
+                                              const std::uint32_t viewer = reader.ReadUInt32();
                                               if (reader.Ok())
                                               {
                                                 snapshotTick = tick;
                                                 marker = payloadMarker;
+                                                snapshotViewer = viewer;
                                                 ++snapshotsSeen;
                                               }
                                             }
@@ -390,12 +421,120 @@ public:
                                           return joined && snapshotsSeen >= 2;
                                         });
 
-    Assert::IsTrue(sawSnapshots, L"the server never broadcast a snapshot to a joined client");
+    Assert::IsTrue(sawSnapshots, L"the server never sent a snapshot to a joined client");
     Assert::AreEqual(CountingSimulation::SNAPSHOT_MARKER, marker, L"the payload was not the simulation's");
     Assert::IsTrue(snapshotTick > 0, L"a snapshot was sent for a tick the world never ran");
     Assert::IsTrue(snapshotTick <= host.TickCount(), L"a snapshot ran ahead of the tick counter");
     Assert::IsTrue(simulation.SnapshotsWritten() >= snapshotsSeen, L"more snapshots arrived than were written");
     Assert::AreEqual<std::uint32_t>(0, host.SnapshotFailureCount());
+
+    /*
+     * The per-client claim, and the only assertion here that a broadcast sender
+     * could not also satisfy (ADR-018 A13, ADR-022 §1).
+     *
+     * The simulation wrote the viewer it was asked to serialise for into the
+     * payload, so this compares the player the handshake named with the player
+     * the snapshot was made for. With identical bytes going to one client there
+     * is no other way to tell a per-client sender from a broadcast one -- which
+     * is exactly why the seam had to grow the viewer before the day two clients
+     * are owed different worlds, not on it.
+     */
+    Assert::IsTrue(welcomedPlayer != INVALID_PLAYER_ID, L"the Welcome named no player");
+    Assert::AreEqual(welcomedPlayer, snapshotViewer, L"the snapshot was serialised for a different viewer than joined");
+    Assert::AreEqual(welcomedPlayer, simulation.LastViewer(), L"the simulation was asked for no particular viewer");
+
+    host.Stop();
+    host.Join();
+  }
+
+  /*
+   * A grid that will not fit one datagram refuses **loudly**, and recovers
+   * (ADR-018 A13, ADR-022 §6).
+   *
+   * The designed behaviour until the interest/delta slice lands is exactly
+   * this: nothing is sent, the tick is counted, and a line names the client.
+   * The two halves are both worth pinning. *Nothing sent*, because a truncated
+   * snapshot is worse than a missing one -- the client reads the absent ships
+   * as despawned and resurrects them next tick. *Counted*, because a server
+   * that has quietly stopped replicating looks from the outside exactly like a
+   * world where nothing is moving, and `SnapshotFailureCount` is what the debug
+   * strip reads to tell those apart.
+   *
+   * It is driven from the refusal outwards rather than by building a fleet past
+   * the cap, because the cap is GameLogic's arithmetic and this suite has no
+   * GameLogic in it (ADR-014). `SnapshotTests` owns the other side: that a
+   * world of `MAX_SHIPS_PER_SNAPSHOT + 5` ships is what makes the game refuse.
+   */
+  TEST_METHOD(AGridPastTheDatagramCapRefusesLoudlyAndRecovers)
+  {
+    CountingSimulation simulation;
+    simulation.RefuseSnapshots(true);
+
+    ServerHost host;
+    ServerConfig config;
+    config.port = 0;
+    Assert::IsTrue(host.Start(config, simulation));
+
+    QuicTransport client;
+    const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
+    Assert::IsTrue(link != INVALID_CONNECTION);
+
+    std::array<std::uint8_t, 256> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::Hello);
+    Write(writer, Hello{PROTOCOL_VERSION, simulation.SchemaHash(), simulation.ContentHash(), "harness"});
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, writer.Written()));
+
+    bool joined = false;
+    std::uint32_t snapshotsSeen = 0;
+    const auto drain = [&]
+    {
+      TransportEvent event;
+      while (client.NextEvent(event))
+      {
+        if (event.type != TransportEvent::Type::Message)
+        {
+          continue;
+        }
+        ByteReader reader{event.payload};
+        const WireType type = ReadWireType(reader);
+        if (type == WireType::Welcome)
+        {
+          joined = true;
+        }
+        else if (type == WireType::Snapshot)
+        {
+          ++snapshotsSeen;
+        }
+      }
+    };
+
+    // Several refused ticks, so this cannot pass on one that merely had not
+    // happened yet.
+    const bool refused = WaitUntil(client,
+                                   [&]
+                                   {
+                                     drain();
+                                     return joined && host.SnapshotFailureCount() >= 3;
+                                   });
+
+    Assert::IsTrue(refused, L"a simulation refusing every snapshot was never counted as failing");
+    Assert::AreEqual<std::uint32_t>(0, snapshotsSeen, L"a refused snapshot still put bytes on the wire");
+
+    // And it is per tick, not a latch: the moment the grid fits again the feed
+    // resumes without the session being rebuilt.
+    const std::uint32_t failuresWhileRefusing = host.SnapshotFailureCount();
+    simulation.RefuseSnapshots(false);
+
+    const bool recovered = WaitUntil(client,
+                                     [&]
+                                     {
+                                       drain();
+                                       return snapshotsSeen >= 2;
+                                     });
+
+    Assert::IsTrue(recovered, L"the feed never resumed once the simulation could write again");
+    Assert::IsTrue(host.SnapshotFailureCount() >= failuresWhileRefusing, L"the failure count went backwards");
 
     host.Stop();
     host.Join();

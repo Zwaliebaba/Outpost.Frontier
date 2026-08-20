@@ -210,9 +210,18 @@ public:
     m_registry.Tick(_tick);
   }
 
-  /// The tick argument is the loop's; the world knows its own and they are the
-  /// same number. Writing the world's is the one that cannot drift.
-  [[nodiscard]] bool WriteSnapshot(std::uint32_t, ByteWriter& _writer) override
+  /*
+   * The tick argument is the loop's; the world knows its own and they are the
+   * same number. Writing the world's is the one that cannot drift.
+   *
+   * The viewer is ignored, and ignoring it is the honest answer today: there is
+   * one grid and one commander, so every viewer is owed the same bytes. It is
+   * in the signature because the *seam* is what U3b's per-grid views and
+   * ADR-022's culling both arrive through (ADR-018 A13) -- when this method
+   * starts answering "which grid is this player watching", the call site above
+   * it does not change.
+   */
+  [[nodiscard]] bool WriteSnapshot(PlayerId, std::uint32_t, ByteWriter& _writer) override
   {
     return Game::WriteSnapshot(ServedWorld(), _writer);
   }

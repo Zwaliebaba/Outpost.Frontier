@@ -90,7 +90,7 @@ SessionInfo* ServerHost::FindSession(ConnectionId _connection)
   return nullptr;
 }
 
-void ServerHost::BroadcastSnapshot(std::uint32_t _tick)
+void ServerHost::SendSnapshots(std::uint32_t _tick)
 {
   if (m_sessions.empty())
   {
@@ -99,33 +99,26 @@ void ServerHost::BroadcastSnapshot(std::uint32_t _tick)
 
   NEURON_SPAN("Snapshot");
 
-  std::array<std::uint8_t, MAX_DATAGRAM_BYTES> buffer{};
-  ByteWriter writer{buffer};
-  WriteWireType(writer, WireType::Snapshot);
-
-  if (!m_simulation->WriteSnapshot(_tick, writer) || !writer.Ok())
+  std::int64_t sent = 0;
+  for (SessionInfo& session : m_sessions)
   {
-    // The simulation refused -- almost certainly because the fleet outgrew one
-    // datagram, which is the point at which ADR-004 §6's growth path (deltas
-    // plus interest management) stops being optional. Loud and counted rather
-    // than a silently missing tick.
-    m_snapshotFailures.fetch_add(1, std::memory_order_relaxed);
-    NEURON_COUNTER("SnapshotDropped", 1);
-    if (m_snapshotFailures.load(std::memory_order_relaxed) == 1)
+    /*
+     * Each client's own sender, asked for that client's own bytes. The refusal
+     * -- the fleet outgrowing one datagram, the point at which ADR-004 §6's
+     * growth path stops being optional -- is counted and logged inside the
+     * sender, which is where "*which* client" is answerable. The host keeps
+     * its own total because the debug strip reads one number for the session.
+     */
+    if (session.sender.Send(*m_simulation, *m_transport, _tick))
     {
-      NEURON_LOG_ERROR("the simulation could not fit a snapshot in one datagram; clients will see nothing move");
+      ++sent;
     }
-    return;
+    else
+    {
+      m_snapshotFailures.fetch_add(1, std::memory_order_relaxed);
+    }
   }
-
-  // Unreliable and unordered on purpose: full snapshots are idempotent, so a
-  // lost one costs a tick of freshness and a resent one would arrive after the
-  // snapshot that superseded it (ADR-004 §6).
-  for (const SessionInfo& session : m_sessions)
-  {
-    SendTo(session.connection, TransportChannel::State, writer);
-  }
-  NEURON_COUNTER("SnapshotsSent", static_cast<std::int64_t>(m_sessions.size()));
+  NEURON_COUNTER("SnapshotsSent", sent);
 }
 
 void ServerHost::SendTo(ConnectionId _connection, TransportChannel _channel, const ByteWriter& _writer)
@@ -180,11 +173,19 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
       return;
     }
 
-    SessionInfo session;
-    session.clientId = m_nextClientId++;
-    session.connection = _event.connection;
+    /*
+     * Who this is (ADR-018 D5). One value until accounts exist -- but a *value*,
+     * not the connection id, and that distinction is the whole point of minting
+     * it now: everything player-keyed can key on this from its first line
+     * instead of keying on a connection and being rewritten the day one drops.
+     *
+     * It is decided here, before the session exists, because the session's own
+     * `SnapshotSender` is constructed with it (ADR-018 A13).
+     */
+    const PlayerId playerId = SOLE_PLAYER_ID;
+
+    SessionInfo& session = m_sessions.emplace_back(m_nextClientId++, playerId, _event.connection);
     session.handshakeComplete = true;
-    m_sessions.push_back(session);
     m_sessionCount.store(static_cast<std::uint32_t>(m_sessions.size()), std::memory_order_relaxed);
 
     Welcome welcome;
@@ -207,15 +208,10 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     welcome.worldBadge = world.worldBadge;
 
     /*
-     * Who this is (ADR-018 D5). One value until accounts exist -- but a *value*,
-     * not the connection id, and that distinction is the whole point of minting
-     * it now: everything player-keyed can key on this from its first line
-     * instead of keying on a connection and being rewritten the day one drops.
-     *
      * The resume token stays zero. There is nothing to authenticate against,
      * and inventing a token now would be inventing a security model with it.
      */
-    welcome.playerId = SOLE_PLAYER_ID;
+    welcome.playerId = session.playerId;
     welcome.resumeToken = 0;
 
     WriteWireType(writer, WireType::Welcome);
@@ -385,7 +381,7 @@ void ServerHost::SimThread()
       NEURON_SPAN("Tick");
       m_simulation->AdvanceTick(tick);
     }
-    BroadcastSnapshot(tick);
+    SendSnapshots(tick);
 
     nextDeadline += tickInterval;
 
@@ -413,7 +409,7 @@ void ServerHost::SimThread()
         }
         // A catch-up tick is a tick, and a client that did not hear about it
         // would interpolate across a gap the server did not actually have.
-        BroadcastSnapshot(extra);
+        SendSnapshots(extra);
         nextDeadline += tickInterval;
         NEURON_COUNTER("TickCatchUp", 1);
       }

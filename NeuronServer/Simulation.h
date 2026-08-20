@@ -2,6 +2,7 @@
 
 #include "ByteWriter.h"
 #include "OrderIntent.h"
+#include "Wire.h"
 
 #include <cstdint>
 #include <span>
@@ -64,15 +65,30 @@ public:
   virtual void AdvanceTick(std::uint32_t _tick) = 0;
 
   /*
-   * Serializes the state a client needs for this tick.
+   * Serializes the state **one viewer** needs for this tick.
+   *
+   * The viewer is here from this method's first line rather than added when it
+   * first matters (ADR-018 A13, ADR-022 §1). A simulation is free to ignore it
+   * -- and today's does, because there is one grid and one player -- but the
+   * *seam* may not, because every replication decision after this one is a
+   * decision about a viewer: which grid they are watching, what they own, what
+   * they last acked. A signature without a viewer is a signature that has to
+   * change at every call site on the day two clients see different worlds.
+   *
+   * `PlayerId` and not `clientId`: the durable player, never the connection
+   * (ADR-018 D5). A snapshot is owed to whoever is commanding, across the
+   * disconnect that D5's grace window is designed to survive.
    *
    * Returns false if it could not -- which at MVP scale means the fleet
    * outgrew one datagram, the point at which ADR-004 §6's growth path stops
    * being optional. A bool rather than a silent short write, because a
    * truncated snapshot is worse than a missing one: the client would read the
    * absent ships as despawned and resurrect them on the next tick.
+   * [ADR-022](../Design/ADR/ADR-022-interest-and-delta.md) §6 replaces this
+   * refusal with priority truncation; until that slice lands it stays exactly
+   * as loud as it is.
    */
-  [[nodiscard]] virtual bool WriteSnapshot(std::uint32_t _tick, ByteWriter& _writer) = 0;
+  [[nodiscard]] virtual bool WriteSnapshot(PlayerId _viewer, std::uint32_t _tick, ByteWriter& _writer) = 0;
 
   /// Validates and applies one order payload. Returning a verdict rather than a
   /// bool keeps the refusal reason with the decision that produced it.
@@ -101,7 +117,7 @@ class NullSimulation final : public Simulation
 {
 public:
   void AdvanceTick(std::uint32_t _tick) override { m_lastTick = _tick; }
-  [[nodiscard]] bool WriteSnapshot(std::uint32_t, ByteWriter&) override { return false; }
+  [[nodiscard]] bool WriteSnapshot(PlayerId, std::uint32_t, ByteWriter&) override { return false; }
 
   [[nodiscard]] OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t>) override
   {

@@ -2,6 +2,7 @@
 
 #include "ServerConfig.h"
 #include "Simulation.h"
+#include "SnapshotSender.h"
 #include "Transport.h"
 
 #include <atomic>
@@ -26,12 +27,37 @@
 namespace Neuron
 {
 
+/*
+ * One connected client, and the feed that serves it.
+ *
+ * The sender is constructed with the session rather than attached to it, so
+ * there is no window in which a session exists without the object that talks to
+ * it (ADR-022 §1). It is a member and not a parallel vector for the reason the
+ * fleet table gives for holding its names beside its hulls: two arrays that
+ * have to be kept the same length eventually are not.
+ */
 struct SessionInfo
 {
+  SessionInfo(std::uint32_t _clientId, PlayerId _playerId, ConnectionId _connection)
+    : clientId(_clientId),
+      playerId(_playerId),
+      connection(_connection),
+      sender(_playerId, _connection)
+  {
+  }
+
+  /// The connection's id, minted when the socket opens and gone with it.
   std::uint32_t clientId = 0;
+
+  /// Who is on the other end, across disconnects (ADR-018 D5). Retained rather
+  /// than only sent, because replication keys on the player and not the socket.
+  PlayerId playerId = INVALID_PLAYER_ID;
+
   ConnectionId connection = INVALID_CONNECTION;
   bool handshakeComplete = false;
   std::uint32_t lastPingTick = 0;
+
+  SnapshotSender sender;
 };
 
 class ServerHost
@@ -75,9 +101,12 @@ public:
   {
     return m_sessionCount.load(std::memory_order_relaxed);
   }
-  /// Ticks whose snapshot could not be sent. Non-zero means clients have seen
-  /// the world stop moving, so it belongs on the HUD next to the others rather
-  /// than only in the log line that fires once.
+  /// Snapshots that could not be sent, counted per client and per tick: with
+  /// one feed per session (A13) a tick that fails for two viewers is two.
+  /// Non-zero means somebody has seen the world stop moving, so it belongs on
+  /// the HUD next to the others rather than only in the log line that fires
+  /// once. *Which* viewer is the sender's own `OverCapCount`; this is the
+  /// session-wide number the strip reads.
   [[nodiscard]] std::uint32_t SnapshotFailureCount() const noexcept
   {
     return m_snapshotFailures.load(std::memory_order_relaxed);
@@ -97,10 +126,17 @@ private:
   void HandleMessage(const TransportEvent& _event);
   void SendTo(ConnectionId _connection, TransportChannel _channel, const class ByteWriter& _writer);
 
-  /// Asks the simulation for a snapshot and sends it to every joined session.
-  /// One serialisation, many sends: the payload is identical for all of them
-  /// until interest management makes it per-client (ADR-004 §6).
-  void BroadcastSnapshot(std::uint32_t _tick);
+  /*
+   * Gives every joined session its own snapshot, through its own sender.
+   *
+   * One serialisation *per client*, not one for all of them (ADR-018 A13,
+   * ADR-022 §1). The bytes are identical today, so this costs a serialisation
+   * per client and buys nothing yet; what it buys is that the day a client is
+   * owed a different world -- a different grid, a culled set, a delta against
+   * what *it* last acked -- the shape is already right and only the sender's
+   * insides change.
+   */
+  void SendSnapshots(std::uint32_t _tick);
   [[nodiscard]] SessionInfo* FindSession(ConnectionId _connection);
 
   ServerConfig m_config;
