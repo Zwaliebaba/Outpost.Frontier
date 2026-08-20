@@ -8,7 +8,11 @@ covers ~1.2–1.6 km for a Battleship, not ~3 km — the window is re-checked ag
 class table); §9's transfer-bus ordering reads as `(applyTick, transferId)` (D17); rosters,
 logs and `StationCommand` carry u32 ship ids and key on `PlayerId` (D5/D6) · **extended
 2026-08-20 by §6a** (owner rulings on the four questions P1 §3 left open for review: the
-wave-2 trigger, the composer's lifetime, wing colour, and the sort inside a wing)
+wave-2 trigger, the composer's lifetime, wing colour, and the sort inside a wing) ·
+**further amended 2026-08-20 by [ADR-024](ADR-024-mining-economy.md)**: §1's roster record
+gains a per-ship cargo manifest (cargo is not damage — the repair rule stands); §6's tab
+family activates **CARGO** and **REFINERY**; and the "no persistence" note ends — the
+universe layer's durable state gains a journal (ADR-024 §7a)
 **Depends on:** ADR-002 (tick), ADR-004 (wire), ADR-005 (orders, validation, determinism),
 ADR-009 (universe model, stations), ADR-012 (JSON, user settings layer), ADR-014 (seam),
 ADR-015 (contact, stations as terrain), ADR-016 (anchors, universe runtime, summaries,
@@ -66,6 +70,8 @@ phase lands **after U2**, pausing the universe track.
 Docking removes ships from the world. A **station roster** at the universe layer — beside
 ADR-016's transit records, as a third place a ship can be: *on a grid, in transit, or
 docked* — holds, per station, the docked ships as `(ShipId, class, wing)` and nothing else.
+*([ADR-024](ADR-024-mining-economy.md) amends the record: it also carries the ship's cargo
+manifest — cargo is not damage, so the repair rule below stands untouched.)*
 Ids persist through docking: the roster keeps them, undock respawns them, and every log,
 order, and roster row means the same ship before and after.
 
@@ -355,7 +361,9 @@ dense order with no RNG draw; parking is as replayable as steering.
 - **No hangar capacity.** Stations dock unlimited ships; a cap is a strategic knob with no
   economy behind it yet. Named so a future scarcity design is a decision, not a discovery.
 - **No economy at the station.** Repair is free because the roster cannot hold damage (§1);
-  refit, trade, and priced repair are stubs on the print.
+  refit, trade, and priced repair are stubs on the print. *(The first economy arrived as
+  [ADR-024](ADR-024-mining-economy.md): CARGO and REFINERY activate beside HANGAR; refit,
+  trade and priced repair stay stubs.)*
 - **No combat interaction beyond the reservations.** `CombatEngaged` is numbered and inert;
   protection is damage-immunity with nothing yet dealing damage; interdiction of the
   dock approach waits for combat. The early-break rule was shaped so combat can arrive
@@ -364,7 +372,8 @@ dense order with no RNG draw; parking is as replayable as steering.
   safe and absolutely private. Both are stated costs of §1, accepted.
 - **No persistence.** The roster is the obvious save anchor — the RESUME card's "Docked at
   Vesta-3" becomes literally true when a save file exists — but no save file exists, and
-  this ADR does not create one.
+  this ADR does not create one. *([ADR-024 §7a](ADR-024-mining-economy.md) creates it: an
+  engine-owned journal plus snapshot at the universe layer.)*
 - **No AI commander.** A disconnect mid-approach halts outside the station (§2), the same
   gap ADR-016 §8 accepted, closed by the same future feature.
 - **No in-space wing reassignment** (§6) and **no per-class dock ceremony** — a Carrier

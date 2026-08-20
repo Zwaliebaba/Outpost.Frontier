@@ -34,7 +34,13 @@ set), ADR-014 (the relevance hook lands as rank-in-the-game, truncate-in-the-eng
 ADR-016 §6 (per-grid becomes per-viewer); **ADR-023** delivers remote play and amends
 ADR-003 §1/§3 (descriptors, and validation that is off only against loopback), ADR-008 §8 (its
 "no architectural work remains" now names what the first remote deployment owes) and
-ADR-012 §3.
+ADR-012 §3; **ADR-024** cashes in ADR-016 §3's reserved `Site` kind (sites bake with an
+authored orbit ring, their bearing epoch-derived) and ADR-012 §D13 (the first hash-guarded
+balance content, `Economy.json`), answers ADR-016's named mined-out-fields and wrecks
+questions (a durable site ledger; bounded, non-durable wrecks), grows ADR-017 §1's roster
+record with a per-ship cargo manifest, activates ADR-017 §6's CARGO and REFINERY tabs, and
+ends ADR-017's "no persistence" note — the universe layer's durable state gains a journal
+(ADR-024 §7a).
 
 **A numbering note.** The interest/delta and remote-play deliverables were written as ADR-021
 and ADR-022 and **renumbered to 022 and 023** when they met ship make-way, which had taken 021
@@ -68,7 +74,7 @@ and delta, this is why.
 | [021](ADR/ADR-021-ship-make-way.md) | Ship make-way *(owner-reported defect)* | **A ship with nowhere to be steps out of a mover's lane and flies home** — a displaced target sought through the ordinary envelope, recomputed each tick and never stored; the corridor is tested against the *berth* so the sidestep cannot undo itself; side chosen by turn time, not distance; the occupied destination stays exempt |
 | [022](ADR/ADR-022-interest-and-delta.md) | Interest & delta *(deliverable A14 — gates shared grids)* | **Culling and delta live in the session role alone**; `SnapshotAck` against a ring of **views as sent**, not world states; keyframes on a new reliable `Bulk` channel because a view switch is a mid-session join; the game **ranks** relevance and the engine **truncates** it; **owned and selected are never culled** and `culledCount` says what is missing; truncate, never refuse; ownership costs **no byte** — two spare `statusBits` carry the relationship |
 | [023](ADR/ADR-023-remote-play.md) | Remote play *(deliverable A22 — blocks first remote deployment)* | **A two-pin key compiled into the build, never a config value**; `Listen`/`Connect` take descriptors and the validation policy is *derived from the address*, so "no validation off-loopback" is unrepresentable rather than discouraged; the token step lives in the front door and the game never sees it; four abuse rules, each closing something in the tree today |
-| [024](ADR/ADR-024-mining-economy.md) | Mining economy *(economy design session — **proposed**; nine owner rulings recorded 2026-08-20 — the six open questions and three review comments — acceptance pending the full read-through)* | **Three ores across 2–3 `Site` anchors per system** (ADR-016 §3's reserved kind cashed in) that **re-form on a daily epoch** — bearing on an authored orbit ring, warp-in, layout, pools — banded by the existing security value with hazards staged pre/post-combat; a fleet `Mine` order with deterministic cycles and a durable site ledger (worlds forget, ledgers do not); every economy number in hash-guarded content (`Economy.json`, ADR-012 §D13), movement staying compiled; per-station Bays, manual transfer, deterministic ME refining with communal station-tier upgrades — Nova-Steel refinable only outside High-Sec; **persistence becomes due**: an engine-owned journal + snapshot at the universe layer, its ADR a named deliverable blocking implementation |
+| [024](ADR/ADR-024-mining-economy.md) | Mining economy *(economy design session — **accepted** 2026-08-20, nine owner rulings recorded across two review rounds)* | **Three ores across 2–3 `Site` anchors per system** (ADR-016 §3's reserved kind cashed in) that **re-form on a daily epoch** — bearing on an authored orbit ring, warp-in, layout, pools — banded by the existing security value with hazards staged pre/post-combat; a fleet `Mine` order with deterministic cycles and a durable site ledger (worlds forget, ledgers do not); every economy number in hash-guarded content (`Economy.json`, ADR-012 §D13), movement staying compiled; per-station Bays, manual transfer, deterministic ME refining with communal station-tier upgrades — Nova-Steel refinable only outside High-Sec; **persistence becomes due**: an engine-owned journal + snapshot at the universe layer, its ADR a named deliverable blocking implementation |
 
 ## Coding standard
 
@@ -105,10 +111,11 @@ moves between the trees without a rename pass. Three things it changed in these 
   loop) / H1 (the hangar loop); deliverables P1 (station-screen print, blocks T3) and P2
   (dock/undock audio). **T1 is built in all three halves and T2's identity cluster is on the
   wire**; T2's client half is not, and T3 is still gated on P1.
-- [Risk-Register.md](Risk-Register.md) — R1–R23 with designed-in mitigations + standing spikes.
+- [Risk-Register.md](Risk-Register.md) — R1–R25 with designed-in mitigations + standing spikes.
   R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised and
   closed**, and R23 — a gating test that flakes — is the one question that did not close
-  with it.
+  with it. **R24 and R25 arrived with ADR-024** — the economy's two: faucet-without-sink
+  inflation, and High-Sec site contention.
 - [Scaling-Readiness-Review.md](Scaling-Readiness-Review.md) — five-lens review of the MVP
   and this corpus for scaling readiness (2026-08-19, **advisory**): consolidated findings
   (`UX-/NET-/CPP-/UI-/SIM-`), a decision list sequenced against the build orders, and the

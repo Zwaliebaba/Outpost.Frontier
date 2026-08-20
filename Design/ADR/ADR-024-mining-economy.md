@@ -1,12 +1,11 @@
 # ADR-024 — The Mining Economy: Ores, Sites, Cargo, and Refining
 
-**Status:** Proposed · 2026-08-20 (economy design session — **for owner review**; this is a
-design document, no code rides with it, and every number in it is a reference tuning the
-envelope suites will assert the *shape* of, not the value) · **nine owner rulings recorded**
-(2026-08-20, two rounds — the final section holds each with its reason: the six questions
-this document left open, then three review comments; **R7 re-forms sites on the epoch**
-(§3a, §3d) and **R9 adds §7a, persistence**). Acceptance of the whole waits on the owner's
-full read-through, and these rulings are normative the day it flips.
+**Status:** Accepted · 2026-08-20 (economy design session, **owner-accepted the same day**
+with **nine owner rulings recorded** across two review rounds — the final section holds
+each with its reason: the six questions this document left open, then three review
+comments; **R7 re-forms sites on the epoch** (§3a, §3d) and **R9 adds §7a, persistence**).
+No code rides with this document, and every number in it is a reference tuning the
+envelope suites will assert the *shape* of, not the value.
 **Depends on:** ADR-002 (tick), ADR-005 (orders, group validation, determinism), ADR-009
 (universe model), ADR-012 (JSON, content hashing, the §D13 balance-becomes-data hook),
 ADR-014 (seam), ADR-015 (contact), ADR-016 (anchors, the reserved `Site` kind, the universe
@@ -14,7 +13,7 @@ runtime, summaries, presence), ADR-017 (docking, the roster, station commands, t
 bus), ADR-018 (persistent service; worlds forget — durable state lives at the universe
 layer; D19 event record), ADR-019 (shard-global tick), ADR-022 (per-viewer interest, the
 summary family)
-**Amends, if accepted:** ADR-016 §3 — `AnchorKind::Site` stops being reserved and the bake
+**Supersedes / amends:** ADR-016 §3 — `AnchorKind::Site` stops being reserved and the bake
 starts baking them; ADR-016's deliberate-gaps list — "mined-out fields" gets its policy (the
 site ledger, §3) and "wrecks" gets its policy (bounded and non-durable, §5); ADR-017 §1 —
 the station roster's "and nothing else" grows a per-ship cargo manifest; ADR-017 §6 — the
@@ -815,16 +814,16 @@ so retuning starts from the invariants rather than the values.
 - **New constants join the envelope suite's guardianship** as table data: cycle seconds,
   unit volumes, hold litres, pool sizes, regen epoch, refund percentages — with
   shape-assertions per §7.
-- **Proposed risk-register rows** (for the owner to promote): *faucet-without-sink
-  inflation* if combat/market phases slip far behind this one (mitigation: the upgrade
-  projects were sized to absorb early surplus; re-run §9's ledger at each phase); *site
-  contention griefing* in High-Sec (fields are finite and shared; mitigation: epoch
-  regen plus grade caps bound the damage — watch it in play).
+- **Risk-register rows R24 and R25 land with acceptance**: *faucet-without-sink
+  inflation* if the combat/market phases slip far behind this one, and *site contention
+  griefing* in High-Sec — each carried in [Risk-Register.md](../Risk-Register.md) with
+  its designed-in mitigation and its early-validation signal.
 - **Two file-registry entries** when implementation starts (`EconomyDef.h`,
   `EconomyParse.{h,cpp}` or folded per ADR-013's judgment), recorded in both registries
   per the standing rule.
-- ADR-016 §3/§4-gaps, ADR-017 §1/§6 and ADR-012 §D13 take amendment notes pointing here
-  **if accepted**; the README's supersession list grows its line at the same moment.
+- ADR-016 §3 and its gaps list, ADR-017 §1/§6 and its persistence note, and ADR-012 §D13
+  carry amendment notes pointing here, and the README's supersession list carries its
+  line — all landed with acceptance (2026-08-20).
 
 ## The review's rulings *(owner, 2026-08-20)*
 

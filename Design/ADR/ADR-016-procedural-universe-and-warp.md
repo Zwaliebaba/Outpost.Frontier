@@ -15,7 +15,11 @@ reserved as a rail, intel-ping provenance deferred with a trigger, landscape-onl
 envelope property)
 · §4 further amended by [ADR-019](ADR-019-shard-topology.md) (2026-08-19): the registry
 becomes host-aware (`HostForAnchor`) and **the world's tick becomes shard-global** rather
-than a per-world counter; §5's transit durations gain a `TRANSFER_FLOOR_TICKS` floor
+than a per-world counter; §5's transit durations gain a `TRANSFER_FLOOR_TICKS` floor ·
+**further amended 2026-08-20 by [ADR-024](ADR-024-mining-economy.md)**: §3's reserved
+`Site` kind is cashed in — sites bake with an authored orbit ring and an epoch-derived
+bearing — and the deliberate-gaps list's "mined-out fields" and "wrecks" questions are
+answered (a durable site ledger at the universe layer; bounded, non-durable wrecks)
 **Depends on:** ADR-001 (plane, grids), ADR-002 (tick), ADR-004 (wire), ADR-005 (orders,
 determinism), ADR-009 (universe model), ADR-012 (JSON), ADR-014 (seam), ADR-015 (contact)
 **Supersedes:** the corpus scale figure F13 (~300 systems across ~6 regions → **2,500 across
@@ -100,6 +104,9 @@ warp-in point : local offset, warp-in facing }`. Ships warp **to anchors only** 
 arbitrary space. That single rule bounds the number of grids a system can ever host, makes
 "where can I go?" a finite, pickable list for the UI, and gives future content its extension
 point: mining fields and PVE encounters are new `Site` anchor rows, zero new architecture.
+*(Cashed in by [ADR-024](ADR-024-mining-economy.md), 2026-08-20 — with one property this
+sentence did not anticipate: a site is the one anchor whose position the bake does not pin;
+its bearing on an authored orbit ring is re-derived each daily epoch.)*
 
 Placement rules: a station's grid **doubles as its planet's primary anchor** — "warp to
 Kessler" and "warp to the Anchorage" land on the same grid, warp-in at a few kilometres'
@@ -333,7 +340,9 @@ not close them.
 
 - **No grid persistence.** A torn-down world forgets everything but its authored occupants.
   The policy question (wrecks, mined-out fields) arrives with the content that needs it —
-  `Site` anchors — and is named here so it is a decision then, not an accident.
+  `Site` anchors — and is named here so it is a decision then, not an accident. *(It is a
+  decision now: [ADR-024](ADR-024-mining-economy.md) — mined-out state lives in a durable
+  site ledger at the universe layer, and wrecks are bounded and non-durable.)*
 - **No intel / fog of war.** Presence-gated viewing is the placeholder posture; the INTEL
   PINGS overlay owns the real design later.
 - **No combat interaction with warp.** Interdiction, scramble, in-warp damage — all waiting
