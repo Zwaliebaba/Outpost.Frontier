@@ -39,6 +39,24 @@ namespace
  * -- it never flies in formation -- so its radius is set against its pick
  * radius instead, at the same "pick is wider than the hull" proportion the
  * capital ships carry.
+ *
+ * `Gate` is the twelfth row (ADR-016 §10, U4), and it is a `Structure`'s
+ * reasoning at the size the art turned out to be. It never moves, so speed,
+ * turn, spacing, warp and hover are all zero; it is picked and it has a
+ * footprint, so those two are not.
+ *
+ * Both of those come off `Stargate.obj` rather than being guessed, the same way
+ * the Structure's do: the ring's silhouette on the plane is 168 m of radius
+ * against the station's 253, so picking rounds up to 175 (the station rounds
+ * 253 up to 260) and contact sits at the same proportion under the silhouette
+ * the station keeps -- 135 m, where 200 of 253 is the station's. That order
+ * matters: a contact radius chosen before the mesh existed would have been a
+ * number the art then had to live with.
+ *
+ * It clears the bake either way. A gate's warp-in point is 1,200 m out
+ * (`GATE_WARP_IN_STANDOFF_METRES`), so a fleet arriving to make a jump lands
+ * nowhere near the structure, and the whole ring sits well inside
+ * `JUMP_RADIUS_METRES`.
  */
 // Hover heights (the second-to-last column) are cosmetic (ADR-001 §2, S14): a
 // small per-class lift so a hull reads as riding above the plane its ring lies
@@ -58,6 +76,7 @@ constexpr std::array<ShipClassInfo, HULL_CLASS_COUNT> CLASS_TABLE = {{
     {"Hauler", 130.0f, 18.0f, 0.30f, 110.0f, 260.0f, 65.0f, 1.2e9f, 12.0f, 24.0f, true},
     {"Miner", 115.0f, 17.0f, 0.32f, 100.0f, 240.0f, 60.0f, 1.1e9f, 13.0f, 22.0f, true},
     {"Structure", 0.0f, 0.0f, 0.0f, 260.0f, 0.0f, 200.0f, 0.0f, 0.0f, 0.0f, true},
+    {"Gate", 0.0f, 0.0f, 0.0f, 175.0f, 0.0f, 135.0f, 0.0f, 0.0f, 0.0f, true},
 }};
 
 // The table is indexed by the enum, so the two have to stay in step. Spelling
@@ -65,7 +84,7 @@ constexpr std::array<ShipClassInfo, HULL_CLASS_COUNT> CLASS_TABLE = {{
 // than quietly shifting every row after it.
 static_assert(CLASS_TABLE.size() == HULL_CLASS_COUNT, "the table is indexed by HullClass");
 static_assert(static_cast<std::uint8_t>(HullClass::Interceptor) == 0, "Interceptor is the first row");
-static_assert(static_cast<std::uint8_t>(HullClass::Structure) == HULL_CLASS_COUNT - 1, "Structure is the last row");
+static_assert(static_cast<std::uint8_t>(HullClass::Gate) == HULL_CLASS_COUNT - 1, "Gate is the last row");
 
 } // namespace
 

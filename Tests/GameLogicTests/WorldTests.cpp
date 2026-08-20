@@ -519,6 +519,31 @@ public:
     const ShipClassInfo& structure = ShipClass(HullClass::Structure);
     Assert::IsTrue(structure.collisionRadiusMetres > 0.0f, L"a station with no footprint is a station ships fly through");
     Assert::IsTrue(structure.collisionRadiusMetres < structure.pickRadiusMetres);
+
+    /*
+     * The twelfth hull (ADR-016 §10, U4). A gate is terrain the same way a
+     * station is -- clickable, in contact, and going nowhere -- so it carries
+     * the two radii and none of the movement, and a table that gave it a warp
+     * speed would let a fleet order one to leave.
+     */
+    const ShipClassInfo& gate = ShipClass(HullClass::Gate);
+    Assert::IsTrue(gate.hasContent, L"a gate that cannot be spawned is a gate no grid can hold");
+    Assert::AreEqual(0.0f, gate.maxSpeedMetresPerSec);
+    Assert::AreEqual(0.0f, gate.accelMetresPerSecSq);
+    Assert::AreEqual(0.0f, gate.turnRateRadiansPerSec);
+    Assert::AreEqual(0.0f, gate.warpSpeedMetresPerSec);
+    Assert::AreEqual(0.0f, gate.spoolSeconds);
+    Assert::AreEqual(0.0f, gate.hoverMetres, L"a gate that hovered would read as a ship");
+    Assert::IsTrue(gate.collisionRadiusMetres > 0.0f, L"a gate ships fly through is scenery, not a place");
+    Assert::IsTrue(gate.collisionRadiusMetres < gate.pickRadiusMetres, L"contact must be tighter than picking");
+    Assert::AreEqual(0.0f, CosmeticBankRadians(HullClass::Gate, 1.0f, 100.0f), L"a hull that cannot turn cannot bank");
+
+    // Appended, never inserted: the value is a wire byte, an icon index and a
+    // palette index at once, so the twelfth has to *be* the twelfth.
+    Assert::AreEqual<std::uint8_t>(11, static_cast<std::uint8_t>(HullClass::Gate));
+    Assert::AreEqual<std::uint8_t>(12, HULL_CLASS_COUNT);
+    HullClass parsed = HullClass::Interceptor;
+    Assert::IsTrue(TryShipClass(11, parsed) && parsed == HullClass::Gate);
   }
 };
 

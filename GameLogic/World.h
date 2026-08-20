@@ -370,8 +370,24 @@ public:
    */
   void SetAnchor(AnchorId _anchor, ShipId _stationShip, std::span<const AnchorId> _reachable);
 
+  /*
+   * The gate on this grid, and where it leads (ADR-016 §5, §10, U4).
+   *
+   * Said separately from `SetAnchor` rather than as two more parameters,
+   * because it is a different sentence: `SetAnchor` says which grid this is and
+   * where a fleet may go from it, and this says that one of those destinations
+   * is reached by crossing something a fleet has to be standing at. A grid is
+   * anchored on one thing, so a gate's grid has exactly one gate and it leads
+   * to exactly one other.
+   *
+   * Left unsaid on every other grid, which is what makes `jumpAnchor` invalid
+   * there and every `Warp` from it judged the ordinary way.
+   */
+  void SetJump(AnchorId _jumpAnchor, ShipId _gateShip);
+
   [[nodiscard]] AnchorId Anchor() const noexcept { return m_anchor; }
   [[nodiscard]] ShipId StationShip() const noexcept { return m_stationShip; }
+  [[nodiscard]] AnchorId JumpAnchor() const noexcept { return m_jumpAnchor; }
 
   /*
    * A move the world issues to itself (ADR-017 §4).
@@ -617,6 +633,12 @@ private:
   /// recreation on another host.
   AnchorId m_anchor = INVALID_ID;
   ShipId m_stationShip = INVALID_SHIP_ID;
+
+  /// The gate's grid, if this is one: where it leads, and which ship is the
+  /// structure a jump has to be ordered from. Identity like the two above it,
+  /// set once on spin-up and never hashed.
+  AnchorId m_jumpAnchor = INVALID_ID;
+  ShipId m_gateShip = INVALID_SHIP_ID;
 
   /// Where a warp from this grid may go. Content, set once, never hashed --
   /// it is the same list in every run of the same universe.

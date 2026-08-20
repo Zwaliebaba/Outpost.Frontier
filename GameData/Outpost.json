@@ -6,14 +6,15 @@
   "universe": { "definition": "GameData/Universe/Frontier.json" },
 
   // The mesh order is the classId order the renderer draws with: ships from
-  // smallest to largest, then the structure. Nothing in the engine knows which
-  // is which -- that is the point (ADR-014).
+  // smallest to largest, then the two hulls that never move -- the station and
+  // the stargate. Nothing in the engine knows which is which -- that is the
+  // point (ADR-014).
   "content": {
     "meshDirectory": "GameData/Meshes",
     "meshes": [
       "Interceptor.obj", "Bomber.obj", "Corvette.obj", "Frigate.obj",
       "Hauler.obj", "Miner.obj", "Carrier.obj", "Battleship.obj",
-      "Structure.obj"
+      "Structure.obj", "Stargate.obj"
     ]
   },
 

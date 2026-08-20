@@ -863,7 +863,7 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
     {Game::HullClass::Corvette, "Corvette.obj"},       {Game::HullClass::Frigate, "Frigate.obj"},
     {Game::HullClass::Hauler, "Hauler.obj"},           {Game::HullClass::Miner, "Miner.obj"},
     {Game::HullClass::Carrier, "Carrier.obj"},         {Game::HullClass::Battleship, "Battleship.obj"},
-    {Game::HullClass::Structure, "Structure.obj"},
+    {Game::HullClass::Structure, "Structure.obj"}, {Game::HullClass::Gate, "Stargate.obj"},
   };
 
   Outpost::ReplicatedWorldView::Desc desc;

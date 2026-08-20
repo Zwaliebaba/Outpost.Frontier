@@ -108,6 +108,17 @@ namespace
   return order;
 }
 
+/// A warp -- or, when the anchor is the grid's jump destination, a jump. One
+/// verb, and which of the two it is is a fact about the destination rather than
+/// about the order (ADR-016 §5).
+[[nodiscard]] OrderSubmit WarpOrder(std::initializer_list<ShipId> _ships, AnchorId _anchor)
+{
+  OrderSubmit order = Order(_ships, 0.0f, 0.0f);
+  order.kind = OrderKind::Warp;
+  order.anchor = _anchor;
+  return order;
+}
+
 /// A ship as the client would hold it: quantised, and carrying its class.
 [[nodiscard]] ShipMark MarkAt(float _xMetres, float _yMetres, HullClass _class)
 {
@@ -240,7 +251,8 @@ public:
                                    OrderReason::UnknownKind,    OrderReason::UnknownStation,
                                    OrderReason::NotAtStation,   OrderReason::NotDocked,
                                    OrderReason::InvalidQueueMode, OrderReason::CombatEngaged,
-                                   OrderReason::UnknownAnchor};
+                                   OrderReason::UnknownAnchor,  OrderReason::NoPresence,
+                                   OrderReason::NotAtGate};
     for (const OrderReason reason : ALL)
     {
       const char* text = OrderReasonText(reason);
@@ -2472,6 +2484,131 @@ public:
     }
     Assert::IsTrue(GAME_SCHEMA_TEXT.find("OrderKind:Move=0,Attack=1,Stance=2,Abilities=3,Warp=4,Dock=5") !=
                    std::string_view::npos);
+  }
+};
+
+/*
+ * The jump (Build Order U4, ADR-016 §5, §10).
+ *
+ * A jump is a `Warp` whose destination is the far side of this grid's gate, and
+ * the only thing that distinguishes it at this layer is that it is judged on
+ * where the fleet is standing. These are the pure half of that -- a hand-built
+ * view, no world -- because the rule has to hold identically on a client that
+ * has no world at all.
+ */
+TEST_CLASS(JumpValidationTests)
+{
+public:
+  /// A gate grid's view: ids and marks off the wire, the destinations it can
+  /// reach, and which of those is the jump.
+  [[nodiscard]] static ValidationView JumpViewOf(std::span<const ShipId> _ids, std::span<const ShipMark> _marks,
+                                                 std::span<const AnchorId> _reachable, AnchorId _jumpAnchor)
+  {
+    ValidationView view;
+    view.shipIds = _ids;
+    view.shipMarks = _marks;
+    view.reachableAnchors = _reachable;
+    view.jumpAnchor = _jumpAnchor;
+    return view; // The gate at the grid centre, which is where the bake anchors it.
+  }
+
+  TEST_METHOD(TheRadiusIsWhereTheJumpRefusalTurnsOver)
+  {
+    const ShipId ids[] = {1, 2};
+    const ShipMark marks[] = {MarkAt(1200.0f, 0.0f, HullClass::Interceptor),  // The gate's own warp-in standoff.
+                              MarkAt(9000.0f, 0.0f, HullClass::Interceptor)};
+    const AnchorId reachable[] = {31, 44};
+    const ValidationView view = JumpViewOf(ids, marks, reachable, 44);
+
+    Assert::IsTrue(ValidateOrder(view, WarpOrder({1}, 44)).accepted,
+                   L"a fleet that warped in to make the hop is already close enough to take it");
+
+    const OrderVerdict far = ValidateOrder(view, WarpOrder({2}, 44));
+    Assert::IsFalse(far.accepted);
+    Assert::IsTrue(far.reason == OrderReason::NotAtGate);
+
+    // Together or not at all, the same way a dock is: the gate takes a fleet.
+    const OrderVerdict mixed = ValidateOrder(view, WarpOrder({1, 2}, 44));
+    Assert::IsFalse(mixed.accepted, L"a fleet jumps together or not at all");
+    Assert::IsTrue(mixed.reason == OrderReason::NotAtGate);
+  }
+
+  TEST_METHOD(AnInSystemWarpFromTheSameSpotIsNotJudgedOnDistance)
+  {
+    /*
+     * The rule the reason code exists to keep separate. Standing nowhere near
+     * the gate refuses a *jump* and does nothing at all to a warp -- warp is
+     * ordered from where the fleet is, and the spool is what it pays instead.
+     */
+    const ShipId ids[] = {1};
+    const ShipMark marks[] = {MarkAt(9000.0f, 0.0f, HullClass::Interceptor)};
+    const AnchorId reachable[] = {31, 44};
+    const ValidationView view = JumpViewOf(ids, marks, reachable, 44);
+
+    Assert::IsTrue(ValidateOrder(view, WarpOrder({1}, 31)).accepted, L"an in-system warp does not need a gate");
+    Assert::IsTrue(ValidateOrder(view, WarpOrder({1}, 44)).reason == OrderReason::NotAtGate);
+  }
+
+  TEST_METHOD(AGridWithNoGateJumpsNowhereAndSaysSoAsUnknownAnchor)
+  {
+    // The station-grid case. There is no jump destination, so the anchor a
+    // player names is simply not reachable -- "there is no such place from
+    // here" rather than "you are not at it", which is a different correction.
+    const ShipId ids[] = {1};
+    const ShipMark marks[] = {MarkAt(0.0f, 0.0f, HullClass::Interceptor)};
+    const AnchorId reachable[] = {31};
+    const ValidationView view = JumpViewOf(ids, marks, reachable, INVALID_ID);
+
+    const OrderVerdict verdict = ValidateOrder(view, WarpOrder({1}, 44));
+    Assert::IsFalse(verdict.accepted);
+    Assert::IsTrue(verdict.reason == OrderReason::UnknownAnchor);
+  }
+
+  TEST_METHOD(TheCheckOrderPutsNotAtGateLast)
+  {
+    /*
+     * The contract the schema text states (ADR-018 D9): an order that breaks
+     * two rules names the same one on both machines. A jump ordered from across
+     * the grid *and* naming a ship the view does not have is `UnknownShip`,
+     * because ship resolution comes before every positional check.
+     */
+    const ShipId ids[] = {1};
+    const ShipMark marks[] = {MarkAt(9000.0f, 0.0f, HullClass::Interceptor)};
+    const AnchorId reachable[] = {44};
+    const ValidationView view = JumpViewOf(ids, marks, reachable, 44);
+
+    Assert::IsTrue(ValidateOrder(view, WarpOrder({7}, 44)).reason == OrderReason::UnknownShip);
+
+    // And an unreachable destination beats both, because whether the place
+    // exists is decided before where anybody is standing.
+    Assert::IsTrue(ValidateOrder(view, WarpOrder({7}, 99)).reason == OrderReason::UnknownAnchor);
+
+    Assert::IsTrue(GAME_SCHEMA_TEXT.find("UnknownShip,NotAtStation,NotAtGate") != std::string_view::npos,
+                   L"the check order is part of the hash, so it has to be stated there too");
+  }
+
+  TEST_METHOD(AViewWithNoMarksCannotAnswerAndRefuses)
+  {
+    // A caller that built a view without marks has asked a positional question
+    // it cannot answer. Accepting would let a fleet jump from anywhere on a
+    // technicality of how the view was assembled.
+    const ShipId ids[] = {1};
+    const AnchorId reachable[] = {44};
+    const ValidationView view = JumpViewOf(ids, {}, reachable, 44);
+
+    Assert::IsTrue(ValidateOrder(view, WarpOrder({1}, 44)).reason == OrderReason::NotAtGate);
+  }
+
+  TEST_METHOD(TheJumpRadiusIsWiderThanTheGateAndIsInTheHash)
+  {
+    // Nothing should have to fly into the structure to qualify -- the radius is
+    // an order of magnitude past the hull. (That it also clears the *bake* --
+    // a gate's warp-in point lands inside it -- is asserted where the bake's
+    // own invariants are, in `UniverseGenTests`.)
+    Assert::IsTrue(static_cast<std::int64_t>(ShipClass(HullClass::Gate).collisionRadiusMetres) < JUMP_RADIUS_METRES);
+
+    Assert::IsTrue(GAME_SCHEMA_TEXT.find("jumpRadiusMetres=2500") != std::string_view::npos,
+                   L"a verdict-affecting constant belongs in the schema hash (ADR-018 D9)");
   }
 };
 

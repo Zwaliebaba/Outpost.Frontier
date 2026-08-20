@@ -1,10 +1,12 @@
 # Universe Build Order — Post-MVP Phase One
 
-**Status:** Session output 2026-08-19 · **U1, U2, U3a, U3b's sim half and U5's pure half
-built** (2026-08-20). What is left in this plan is, with one exception, screen work: U3b's
-client half, U5's map itself and U6 need a GPU and a person. The exception is **U3c**, which
-is blocked on machinery rather than a screen — it needs T2's per-client `SnapshotSender` and
-U3b's view subscription, and neither exists yet. U4 is untouched. The design it delivers is
+**Status:** Session output 2026-08-19 · **U1, U2, U3a, U3b's sim and wire halves, U4's sim
+half and U5's pure half built** (2026-08-20). What is left in this plan is, with one
+exception, screen work: U3b's client half, U4's route feeder and icons, U5's map itself and U6
+need a GPU and a person. The exception is **U3c**, and its blockers have since cleared: it
+needed T2's per-client `SnapshotSender` (A13, built 2026-08-20) and U3b's view subscription
+(built 2026-08-20), so what remains there is the second commander's identity rather than the
+machinery to serve one. The design this plan delivers is
 [ADR-016](ADR/ADR-016-procedural-universe-and-warp.md); where this document and that one
 disagree, the ADR wins on *what* and this one on *when*.
 
@@ -297,6 +299,14 @@ rosters private (client B never receives A's `StationRoster` or summaries), view
 enforced (B cannot subscribe to A's grid), disconnect + reconnect resumes B's session under
 the grace window with the fleet intact; every pre-existing suite green.
 
+**Unblocked 2026-08-20, and worth naming what that leaves.** Both things this slice was
+waiting on are in the tree — the per-client `SnapshotSender` (A13) and U3b's view request with
+its `MayView` gate — so the machinery to serve *a* commander per connection exists. What does
+not is the second commander's identity: `ServerHost` mints `SOLE_PLAYER_ID` for every session,
+and `WorldRegistry::Summaries()` and `Roster()` answer for everyone because there has only
+ever been one of them. That is the work, and the shape ADR-018 D5 gives it — key on
+`PlayerId`, filter rather than restructure — has not moved.
+
 ### U4 — Gates: the twelfth hull and the jump
 `HullClass::Gate = 11` (append; `hull{}` schema bump; ADR-015 contact-radius row; STATIC
 icon; Structure mesh stands in until `Gate.obj` lands — a named content gap). The bake's gate
@@ -314,6 +324,60 @@ the map plans, the client feeds, one order per completed hop — and re-ruled un
 2026-08-20 (§9a.1). So what U4 owes is not a decision but the *behaviour*: the feeder, and
 the halt emitted into ADR-018 D19's event record so "your fleet stopped at KIL-7 while you
 were away" is something the away-log can say rather than something the player discovers.
+
+**Built (U4's sim half, 2026-08-20).** A fleet can leave its system. `HullClass::Gate = 11`
+is the twelfth hull (ADR-016 §10), the bake gives every gate anchor its entity, a gate grid's
+reachable list carries the far side of its own gate, a `Warp` naming that anchor is judged on
+where the fleet is standing, and the crossing is priced flat.
+
+Four things are worth reading rather than inferring from the diff.
+
+**A jump is not a new verb.** It is `OrderKind::Warp` with a destination on the other side of
+a gate, so it inherits the spool, the group table, the ghost, the bus, the arrival solve and
+the hash without any of them learning that systems exist. What distinguishes it is one field —
+`ValidationView::jumpAnchor`, the single reachable anchor that is reached by crossing — and
+the rule that field selects: every member inside `JUMP_RADIUS_METRES` of the gate, or
+`NotAtGate` (reason 16, appended after `NoPresence`). `UnknownAnchor` still means "not from
+here", which is what keeps the two refusals from having to be told apart by the player: they
+are the same pair `UnknownStation` and `NotAtStation` already are.
+
+**Flat, and stated in ticks.** `GATE_JUMP_TICKS = 400` — twenty seconds at 20 Hz, which puts a
+light fleet's hop (spool plus crossing) on the print's ~23 seconds. It is a tick count and not
+a duration because the conversion is where a flat number stops being flat: `20.0 / 0.05` is
+399.99999 in binary floating point and truncates to 399, so the number the design states would
+not have been the number the bus used. Two crossings of very different map lengths are
+asserted to cost the same, which is ADR-009 §3's "between systems is map fiction" made
+mechanical.
+
+**The block shrank from eight ids to two, and U4 is what measured it.** Gate anchors author an
+entity now, and there are 6,000 of them against 3,356 stations; at eight ids each that is
+74,848 authored ids, past the u16 ceiling and far past the 32,767 below `DYNAMIC_SHIP_ID_BASE`.
+Two fits the worst case a recipe at this scale can ask for (~30,000) with the committed
+universe using 18,712, and the bake now refuses rather than wrapping if one ever does not.
+**The content is re-baked** — `Frontier.json` moves only in `occupantIdBase` and
+`occupantCount`, nothing geometric, which the re-bake was diffed to confirm.
+
+**The mesh arrived with the slice** (see ADR-016 §10's amendment): `Stargate.obj`, registered
+behind `Structure.obj` in the content list, with the class's pick and contact radii taken from
+its silhouette rather than guessed ahead of it. Its export carried a sixth material the
+five-material palette does not have; the two faces were authored onto `accent`, whose albedo
+it already matched exactly.
+
+**Still owed by U4, and it is the client half:** the route feeder (Dijkstra over the gate
+graph, one order per completed hop — the pure half of it, search and route-solve, is
+`UniverseRoute` and already built), route progress on the HUD, the STATIC-family tactical icon
+and map glyph, and the halt in the event record, which is a *client* fact today — the server
+sees a fleet arrive at a gate and cannot know a route existed. The client's pre-check cannot
+judge a jump either, but that is not new: `ReplicatedWorldView::PreCheck` builds a view with
+ids alone, so no `Dock` or `Warp` has been pre-checkable since either landed, and the fields
+those need arrive together with the surfaces that raise them.
+
+**Not driven over the wire, on purpose.** A jump is 400 ticks by design, so a loopback
+scenario would add twenty seconds of wall clock to a gate that runs on every push in two
+configurations, to exercise an order path the dock already covers. The crossing runs instead
+in `selfTest`'s device-free half, ticked as fast as the CPU allows in the shipping binary:
+the gate stands on its grid, a fleet at it is let through, a fleet across the grid is refused
+`NotAtGate`, and the crossing lands in the system on the far side.
 
 ### U5 — Strategic map v1 *(depends only on U1 — runs in parallel with U2–U4)*
 **Gate (ADR-018): D7 is delivered — [ADR-020](ADR/ADR-020-ui-architecture.md) — and A20's
@@ -388,7 +452,12 @@ one sitting.
   invent it ad hoc. Owner-reviewed like every other print.
 - **D2 — `Gate.obj` + icons.** Ring/portal silhouette, radially symmetric, the shared
   five-material palette; STATIC-family tactical icon and map glyph. Structure stands in from
-  U4 until this lands.
+  U4 until this lands. **Half delivered 2026-08-20: the mesh, as `Stargate.obj`** — it arrived
+  with U4 rather than after it, so the Structure stand-in was never needed. Ring/portal as
+  specified, 1,888 vertices and 1,144 triangles, on the corpus palette (one sixth material in
+  the export was authored onto `accent`, whose colour it already was — see
+  [ADR-016 §10](ADR/ADR-016-procedural-universe-and-warp.md)). **The icons are still owed**
+  and land with U4's client half, beside the route progress they sit next to.
 - **D3 — Name root lists.** The curated region/constellation vocabularies the bake draws
   from — content authoring inside U1, named here because curation is a task, not a fallout.
 - **D4 — Warp audio cues.** Spool/depart/arrive; lands only after S15 gives audio a home in

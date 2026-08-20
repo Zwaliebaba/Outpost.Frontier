@@ -18,8 +18,11 @@
 #include "Station.h"
 #include "StationMessages.h"
 #include "SummaryMessages.h"
+#include "Universe.h"
+#include "UniverseGen.h"
 #include "World.h"
 #include "WorldHash.h"
+#include "WorldRegistry.h"
 
 #include "ByteReader.h"
 #include "ByteWriter.h"
@@ -28,6 +31,7 @@
 #include "Log.h"
 #include "Telemetry.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <vector>
@@ -276,6 +280,107 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation)
     // that.
     NEURON_LOG_INFO("self test: replay hash %016llx (checkpoint %016llx)", static_cast<unsigned long long>(first.finalHash),
                     static_cast<unsigned long long>(first.checkpointHash));
+  }
+
+  /*
+   * A fleet crosses a gate, in this binary (U4, ADR-016 §5).
+   *
+   * Device-free and off the wire, which is not a shortcut but the only way the
+   * shipping binary can carry this check at all: a jump is `GATE_JUMP_TICKS`
+   * long by design -- twenty seconds at 20 Hz -- so driving one over the real
+   * loopback would add twenty seconds of wall clock to a gate that runs on
+   * every push, in two configurations, to prove a wire path the dock and the
+   * view request already exercise. Ticked here as fast as the CPU allows, the
+   * whole crossing costs microseconds.
+   *
+   * A universe of its own rather than the loaded one: twelve systems bake in
+   * no time, and a check that depended on where the committed content happens
+   * to put a gate would be a check about content.
+   */
+  {
+    Game::UniverseGenConfig recipe;
+    recipe.regionCount = 2;
+    recipe.constellationsPerRegion = 2;
+    recipe.systemCount = 12;
+
+    Game::UniverseDef universe;
+    bool ok = Game::GenerateUniverse(recipe, universe);
+
+    // The first gate with a far side, and the anchor on the other end of it.
+    Game::AnchorId here = Game::INVALID_ID;
+    Game::AnchorId there = Game::INVALID_ID;
+    for (const Game::SolarSystem& system : universe.systems)
+    {
+      for (const Game::Anchor& anchor : system.anchors)
+      {
+        if (here != Game::INVALID_ID || anchor.kind != Game::AnchorKind::Gate)
+        {
+          continue;
+        }
+        const Game::AnchorId paired = universe.PairedGateAnchor(anchor.id);
+        if (paired != Game::INVALID_ID)
+        {
+          here = anchor.id;
+          there = paired;
+        }
+      }
+    }
+    ok = ok && here != Game::INVALID_ID && there != Game::INVALID_ID;
+    _checks.Record("the bake pairs a gate with one that leads back", ok);
+
+    if (ok)
+    {
+      Game::WorldRegistry registry;
+      Game::RegistryConfig config;
+      config.sessionSeed = 0x9A7Eu;
+      registry.Reset(&universe, config);
+
+      Game::ShipSpawn spawn;
+      spawn.hullClass = Game::HullClass::Interceptor;
+      spawn.wing = 1;
+      spawn.xMetres = 800.0f; // Inside the jump radius, where a warp-in lands.
+      const Game::ShipId ship = registry.Spawn(here, spawn);
+
+      // The gate itself is on that grid, spawned from the anchor's own block.
+      const Game::World* gateGrid = registry.Peek(here);
+      const bool gateStands =
+        gateGrid != nullptr &&
+        std::any_of(gateGrid->Classes().begin(), gateGrid->Classes().end(),
+                    [](std::uint8_t _class) { return _class == static_cast<std::uint8_t>(Game::HullClass::Gate); });
+      _checks.Record("a gate grid holds its gate", gateStands);
+
+      Game::OrderSubmit jump;
+      jump.orderSeq = 6001;
+      jump.kind = Game::OrderKind::Warp;
+      jump.anchor = there;
+      bool submitted = ship != Game::INVALID_SHIP_ID && jump.AddShip(ship);
+
+      Game::World* world = registry.Borrow(here);
+      submitted = submitted && world != nullptr && world->SubmitOrder(jump).accepted;
+      _checks.Record("a fleet at the gate is allowed through it", submitted);
+
+      // The refusal beside it, from the same grid: standing across the grid is
+      // `NotAtGate` and nothing else, which is the sentence the player reads.
+      Game::OrderSubmit tooFar = jump;
+      tooFar.orderSeq = 6002;
+      Game::ShipSpawn awaySpawn = spawn;
+      awaySpawn.xMetres = 9000.0f;
+      const Game::ShipId away = registry.Spawn(here, awaySpawn);
+      tooFar.shipCount = 0;
+      const bool refused = away != Game::INVALID_SHIP_ID && tooFar.AddShip(away) && world != nullptr &&
+                           world->SubmitOrder(tooFar).reason == Game::OrderReason::NotAtGate;
+      _checks.Record("a fleet across the grid is refused NotAtGate", refused);
+
+      std::uint32_t tick = 0;
+      bool arrived = false;
+      for (std::uint32_t step = 0; step < 2000 && !arrived; ++step)
+      {
+        registry.Tick(++tick);
+        Game::AnchorId where = Game::INVALID_ID;
+        arrived = registry.LocationOf(ship, where) && where == there;
+      }
+      _checks.Record("the crossing lands the fleet in the system on the far side", arrived);
+    }
   }
 
   /*

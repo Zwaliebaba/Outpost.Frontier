@@ -467,6 +467,8 @@ void World::Reset(std::uint64_t _seed) noexcept
   // be judged against the grid this world used to be.
   m_anchor = INVALID_ID;
   m_stationShip = INVALID_SHIP_ID;
+  m_jumpAnchor = INVALID_ID;
+  m_gateShip = INVALID_SHIP_ID;
   m_reachable.clear();
 
   m_filed.clear();
@@ -573,6 +575,12 @@ void World::SetAnchor(AnchorId _anchor, ShipId _stationShip, std::span<const Anc
   m_anchor = _anchor;
   m_stationShip = _stationShip;
   m_reachable.assign(_reachable.begin(), _reachable.end());
+}
+
+void World::SetJump(AnchorId _jumpAnchor, ShipId _gateShip)
+{
+  m_jumpAnchor = _jumpAnchor;
+  m_gateShip = _gateShip;
 }
 
 void World::ReleaseOwner() noexcept

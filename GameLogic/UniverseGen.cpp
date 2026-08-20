@@ -653,13 +653,29 @@ bool GenerateUniverse(const UniverseGenConfig& _config, UniverseDef& _outUnivers
       anchor.warpInPoint = LocalOffsetCm{static_cast<std::int32_t>(warpIn.x), static_cast<std::int32_t>(warpIn.y)};
       anchor.warpInFacingTurns16 = static_cast<std::uint16_t>(((bearing + ANGLE_STEPS / 2) % ANGLE_STEPS) * (65536u / ANGLE_STEPS));
       anchor.arrivalSpreadRadiusCm = static_cast<std::int32_t>(MetresToCm(ARRIVAL_SPREAD_RADIUS_METRES));
-      // The gate entity is U4's. It takes its block then, in bake order, which
-      // costs a re-bake U4 is already doing ("the bake's gate anchors get their
-      // gate entity") and keeps the u16 window clear until it does.
-      anchor.occupantIdBase = 0;
-      anchor.occupantCount = 0;
+      // The gate entity, which is U4's (ADR-016 §10). Exactly one and never
+      // more: a gate is one structure, and the block's spare id exists so the
+      // next anchor's ids cannot be run into rather than so this one can grow.
+      anchor.occupantCount = 1;
+      anchor.occupantIdBase = nextOccupantIdBase;
+      nextOccupantIdBase += ANCHOR_ID_BLOCK;
       system.anchors.push_back(anchor);
     }
+  }
+
+  /*
+   * The id space, checked rather than assumed (ADR-018 D6a).
+   *
+   * `ANCHOR_ID_BLOCK`'s comment states the worst case a recipe at this scale
+   * can ask for and shows it fitting; this is that claim made mechanical, so a
+   * recipe that asked for more would fail the bake instead of wrapping two
+   * anchors onto the same occupant ids. A collision there would not surface as
+   * a bad file -- it would surface, much later, as two grids disagreeing about
+   * which ship a number means.
+   */
+  if (nextOccupantIdBase > DYNAMIC_SHIP_ID_BASE)
+  {
+    return false;
   }
 
   // ---- Starters and the start -------------------------------------------

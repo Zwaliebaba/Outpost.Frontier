@@ -126,14 +126,16 @@ struct DiagnosticsSettings
  *
  * The mesh list is ordered, and the order *is* the classId the renderer draws
  * with: the engine is game-free (ADR-014), so it has no opinion about which
- * index is a Carrier. Ships come first, smallest to largest, and the structure
- * last -- and the parked-fleet placeholder S5 renders reads it that way.
+ * index is a Carrier. Ships come first, smallest to largest, then the two
+ * things that never move -- the structure, and the stargate U4 added behind it
+ * -- and the parked-fleet placeholder S5 renders reads it that way.
  */
 struct ContentSettings
 {
   std::string meshDirectory = "GameData/Meshes";
-  std::vector<std::string> meshes = {"Interceptor.obj", "Bomber.obj",  "Corvette.obj",   "Frigate.obj",  "Hauler.obj",
-                                     "Miner.obj",       "Carrier.obj", "Battleship.obj", "Structure.obj"};
+  std::vector<std::string> meshes = {"Interceptor.obj", "Bomber.obj",     "Corvette.obj", "Frigate.obj",
+                                     "Hauler.obj",      "Miner.obj",      "Carrier.obj",  "Battleship.obj",
+                                     "Structure.obj",   "Stargate.obj"};
 
   /// Where the WAVs are and which bank names them (ADR-011 §10-11). The bank
   /// lists the files; this says which directory they are relative to, the same

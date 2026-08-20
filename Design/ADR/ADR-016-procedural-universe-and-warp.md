@@ -312,6 +312,23 @@ radially symmetric ring/portal in the shared five-material palette. Until the ar
 Structure mesh stands in: the Fighter/Cruiser precedent, run in reverse — a named content
 gap, not a design gap.
 
+**Amended 2026-08-20 (U4): the art landed, as `Stargate.obj`.** The stand-in was never used —
+the mesh arrived with the slice — so the name is the only thing that moved, and it moved
+because the artist's file is what the content list loads. A ring/portal as specified: 1,888
+vertices, 1,144 triangles, 168 m of silhouette on the plane against the station's 253, which
+is where the class's pick and contact radii now come from. The class's numbers were set from
+the mesh rather than the other way round, which is the order that keeps art from having to
+live with a guess.
+
+It cost one conformance edit, and it is the case the five-material rule exists to catch. The
+export carried a *sixth* material, `aperture`, for the two faces of the portal disc — with the
+accent colour to the last digit and a `d 0.2` this renderer does not read (ADR-006 §5 shades
+albedo plus a light term). `ParseObjMesh` refuses an unknown material by design, so the mesh
+would have failed at boot with a diagnostic rather than drawn wrong; the two faces were
+authored onto `accent` instead, which is the same pixels. **The icon is still owed** — the
+STATIC-family tactical icon and the map glyph are U4's client half, and the mesh landing does
+not close them.
+
 ### What this deliberately does not do, so nobody mistakes it for covered
 
 - **No grid persistence.** A torn-down world forgets everything but its authored occupants.
