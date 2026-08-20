@@ -692,8 +692,13 @@ so it takes the owner's explicit approval under the standing rule, granted case-
 there and not here.
 
 The design itself — journal format, snapshot cadence, crash recovery, the reload-proof
-hash — is **its own ADR and a named deliverable blocking E1** (the ADR-019 pattern: this
-document decides the shape and the venue, not the file format).
+hash — is **its own ADR and a named deliverable blocking E2** (the ADR-019 pattern: this
+document decides the shape and the venue, not the file format). *(This section first said
+"blocking E1", and that was corrected on 2026-08-20 when
+[Economy-Build-Order.md](../Economy-Build-Order.md) was written against it: E1's halves are a
+read-only content file and authored bake content, neither of which has durable state to
+persist. The first durable thing in the phase is **E2's site ledger**, so that is the gate.
+The build order carries it as D-P1.)*
 
 ### 8. The wire and the schema, enumerated once
 
@@ -800,17 +805,20 @@ so retuning starts from the invariants rather than the values.
 
 ## Consequences
 
-- **Delivery, sketched** (a real build order is its own document if this is accepted —
-  the ADR-016/017 pattern): **E1** bake sites + `Economy.json` + `EconomyDef` + hashes +
-  invariants; **E2** the Mine order, cycles, the site ledger, replay coverage; **E3**
-  cargo, the Bay, transfers, `SiteStatus`/`CargoStatus`, the wire cluster; **E4** refine
-  jobs, tiers, projects, and the two screens. E1/E2 are headless-provable end to end in
-  the `selfTest` manner before any screen exists.
+- **Delivery is [Economy-Build-Order.md](../Economy-Build-Order.md)** (written
+  2026-08-20, the ADR-016/017 pattern): **E1a** the economy content layer, **E1b** sites in
+  the bake and the epoch that moves them, **E2** the Mine order, cycles and the site ledger,
+  **E3** cargo, the Bay and the wire cluster, **E4** refining, tiers and projects, **E5** the
+  two screens — milestones **G0** (the headless mining loop) / **G1** (the first alloy) /
+  **G2** (the loop on screen). It **splits the E1 this ADR sketched** and **moves the screens
+  out of E4**, both recorded in its sequencing rationale rather than left as a silent
+  divergence. E1a–E4 are headless-provable in the `selfTest` manner before any screen
+  exists.
 - **Named deliverables:** the **CARGO** and **REFINERY** tab prints (the P1 pattern —
   designed and agreed before their slices build); ore/alloy icons; the site field's
   visual treatment (the Nebula pass parameter set for pockets; rock meshes or impostors
   for fields); and **the persistence ADR** (§7a — journal format, snapshot cadence, crash
-  recovery, the reload-proof hash; **blocks E1**).
+  recovery, the reload-proof hash; **blocks E2** — see the build order's D-P1).
 - **New constants join the envelope suite's guardianship** as table data: cycle seconds,
   unit volumes, hold litres, pool sizes, regen epoch, refund percentages — with
   shape-assertions per §7.

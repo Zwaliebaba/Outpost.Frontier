@@ -111,6 +111,15 @@ moves between the trees without a rename pass. Three things it changed in these 
   loop) / H1 (the hangar loop); deliverables P1 (station-screen print, blocks T3) and P2
   (dock/undock audio). **T1 is built in all three halves and T2's identity cluster is on the
   wire**; T2's client half is not, and T3 is still gated on P1.
+- [Economy-Build-Order.md](Economy-Build-Order.md) — the mining and refining phase: E1a–E5
+  slices delivering ADR-024 (the economy content layer, sites in the bake and the epoch that
+  moves them, the Mine order and the site ledger, cargo and the Bay and the wire cluster,
+  refining with its tiers and projects, the two screens); milestones G0 (the headless mining
+  loop) / G1 (the first alloy) / G2 (the loop on screen); deliverables **D-P1, the persistence
+  ADR — it blocks E2** and is where ADR-024 §7a's journal gets its format — plus the CARGO and
+  REFINERY prints (block E5), icons, the site field's visual treatment, and audio last.
+  **Nothing is built yet.** It splits the E1 the ADR sketched and moves the screens out of E4,
+  both recorded in its sequencing rationale.
 - [Risk-Register.md](Risk-Register.md) — R1–R25 with designed-in mitigations + standing spikes.
   R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised and
   closed**, and R23 — a gating test that flakes — is the one question that did not close
