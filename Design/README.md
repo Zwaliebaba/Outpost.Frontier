@@ -207,6 +207,21 @@ whether anybody happened to walk past a field would change the session's number.
 deliberately still broken and written down where it will be found — **ore does not survive a
 crossing** until E3 gives a station its Bay.
 
+**CI's verdict on E2 (run 155, 2026-08-20):** Debug|x64, Release|x64 and Spike 2 all green,
+`self test: PASSED`, no clang-tidy finding and no failing test, one pre-existing Release
+warning. Content is untouched — `universe ad9555dd776008a6, economy 0b07707ec843431d, mixed
+1965b853a23a5115`, parsed and hashed in **213 ms** — and the replay hash moved to
+**`69c58e2751c0df22`**, which it had to, because the site ledger and the cargo arrays joined
+the world hash; Spike 2 confirms Debug and Release agree on the new number. The tick soak is
+the figure to keep an eye on rather than to celebrate: a capped grid now costs **9.020 ms mean
+/ 16.538 ms worst** against E1b's 7.000 / 8.644, so headroom falls from 7.1 capped grids per
+core to 5.5. Inside the tripwire, and a trend R10 should be read against after E3.
+
+*(The PR carrying E2 is red at the time of writing for a reason outside it: `main`'s head
+`a6dd412` hangs `Outpost --selfTest` in both configurations — 40 minutes with no output, killed
+as an orphan — and merging that base inherited the hang. Run 155 is the same E2 code on the
+base before it.)*
+
 **What the economy phase cost in corrections is worth reading before the next slice**, because
 all four were found by building rather than by review: the ADR's field radius did not fit the
 grid (it read the 40 km grid as a radius when the half-extent is 20,000 m); two authored
@@ -248,7 +263,7 @@ CI now runs headless in the shipping binary on every push (schema self-check, wi
 round-trips, a replay-determinism run, then the whole handshake + order + snapshot loop over
 QUIC loopback), 4× MSAA offscreen + resolve, cosmetic banking/hover, and the STALE marker.
 The merged tree — S14 plus ADR-015's collision and ADR-021's make-way, and now S15's audio —
-runs **593 tests green** across the four suites on MSVC, in Debug and Release alike. *(The suite stands at **650** as of E1b, and E2 adds 38 more; the total CI reports is the one that counts, 2026-08-20.)*
+runs **593 tests green** across the four suites on MSVC, in Debug and Release alike. *(The suite stands at **650** as of E1b; E2 adds 38 more and CI reported the whole suite green with no failing test, 2026-08-20.)*
 
 **The half that needed a person and a GPU is done (2026-08-19):** the MVP definition
 demonstrated in a live session, together with the visual items outstanding since the last
@@ -429,7 +444,7 @@ across four assemblies with zero unique warnings, plus a `selfTest` mode that ru
 handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. The
 suite now stands at **650** — it was 593 before the economy phase, and the growth is again
 GameLogic's (`EconomyParseTests`, `UniverseSiteTests`' twelve, and E2's `MiningTests` with 38
-more that the gating toolchain has yet to count). GameLogic is
+more, all of them green on MSVC in run 155). GameLogic is
 where the growth is, and that is the universe, station and economy phases arriving: it has gone
 from 136 to 301 without a single one of those tests needing a device. Its
 visible half — window open, swapchain presenting, heartbeat live — together with the four

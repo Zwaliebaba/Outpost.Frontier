@@ -391,10 +391,38 @@ existing `OrderTests` methods needed updating and every one of them is the suite
 the kind count is seven, a built kind refused on a world with no field says `NotAtSite`, and
 the check-order string in the schema text moved because two checks were inserted into it.
 
-**What CI has not said yet.** This ran on clang and Linux; the gating toolchain is MSVC on
-Windows, and the numbers that count — the suite total, the replay hash across configurations,
-the self test — come from there. The universe content is untouched by this slice, so
-`universeHash` and `economyHash` are unchanged; `GameSchemaHash` moves, which is the point.
+**What CI said (run 155, commit `97a537a`, 2026-08-20).** Debug|x64, Release|x64 and Spike 2
+all green on MSVC, in ten minutes. `self test: PASSED`, every named check `-- ok`, and the
+step that matters for a slice this size — `nothing recorded: no gate wrote a report` — means
+clang-tidy found nothing and no test failed. One unique warning in Release,
+`NeuronClient\Picking.cpp(51): warning C4723`, which is the same pre-existing one E1b saw.
+Content is untouched, as designed: `content: universe ad9555dd776008a6, economy
+0b07707ec843431d, mixed 1965b853a23a5115`, all three unchanged from E1b. `universe: read,
+parsed and hashed in 213 ms` against R17's ~1000 ms threshold. The replay hash moved to
+**`69c58e2751c0df22` (checkpoint `fa56d9f638cba0fe`)** — it had to, because the ledger and the
+cargo arrays joined the world hash — and Spike 2 confirms Debug and Release agree on it, which
+is the property the number exists to prove.
+
+**The soak is the one figure worth arguing with.** At the capped rung it reads `1024 ships --
+167 ticks, mean 9.020 ms, worst 16.538 ms, 18.0 %`, against E1b's `200 ticks, mean 7.000 ms,
+worst 8.644 ms, 14.0 %`; headroom drops from 7.1 capped grids per core to 5.5, and the rung
+stopped at 167 ticks because it spent `RUNG_BUDGET_MS` rather than because it finished. Some
+of that is a shared runner and some of it is real: `Mining` is a sixth named step over every
+ship, and the soak's population is one in eight Miners. It is comfortably inside the 100 ms
+tripwire and well inside the 50 ms budget, so nothing is owed now — but the *trend* is what
+R10 exists to watch, and E3 adds a per-ship manifest to the same loop. If the capped mean
+crosses ~15 ms the honest next move is to make `Mining` skip a grid with no field in one
+branch rather than per ship.
+
+**Run 156 — the merge commit — is red for a reason that is not this slice's.** `main`'s own
+head `a6dd412` ("Station progress") hangs `Outpost.exe --selfTest` in **both** configurations:
+its run 154 sat in *Run the self test* for 40 minutes with no output before being cancelled,
+and the runner had to kill the process as an orphan. Every gate before it passed there —
+guards, clang-tidy, all three builds, the whole VSTest suite — and the hang leaves no
+`selftest.log`, so CI's own extract steps had nothing to read. Merging that base into this
+branch inherited the hang; run 155 above is the same E2 code on the base before it, green in
+ten minutes with the self test taking nine seconds. Nothing in E2 is implicated and nothing
+here was changed for it: the fix belongs on `main`, and this PR goes green when it lands.
 
 ### E3 — Cargo, the Bay, and the wire cluster · 🏁 G0
 Ships carry manifests; the station roster's record grows one (ADR-017 §1 as amended — cargo is
