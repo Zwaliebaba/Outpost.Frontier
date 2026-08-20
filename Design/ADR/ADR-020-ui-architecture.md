@@ -193,6 +193,33 @@ not supply and which closes the stale-selection hazard the print worried about. 
 proposal is adopted and generalised, so the map's selected system, the route panel's route
 and the hangar's composer get one answer and nobody asks a third time.
 
+5a. **Built so far (2026-08-19): the tactical HUD is the first surface to hold to §5 in
+   full, and it did not need §1's surface stack to do it.** The command row rebuilt itself
+   from the game's lists (`WorldView::OrderKinds`/`OrderOptions`), gained parameter chips with
+   the print's `▾` caret, deferred them past the immediate verbs so **ATTACK stays second**,
+   and grew the `▥ MENU` chip and its stub list. Four conventions above got their first real
+   exercise, and one of them nearly broke:
+
+   - **§5.1 held.** The MENU chip's rects are resolved in `UpdateHud` and drawn in `BuildHud`,
+     one answer for the click and the quads — the same shape `BuildCommandRow`/`HitCommandRow`
+     set.
+   - **§5.2 held, and was the reason for a new pass.** "Build order is draw order is z" is
+     exactly what *cannot* put the ghost's lane under the hulls, because the hulls are not in
+     the Ui pass at all. The fix was a second `UiPass` instance recording into the world target
+     before `Opaque` (ADR-006 §1c) — z by pass, not by field, which keeps the convention
+     rather than bending it.
+   - **§5.3 held.** Everything above is arithmetic over structs; all four tests that pin it
+     (the row's order, the caret, the two gauge-banding cases) run with no device.
+   - **§5.4 gained a real case:** `m_uiConsumedPress`, the frame's "this press landed on chrome
+     above the world", which is **frame** lifetime and is what stops the selection box and the
+     puck also acting on a click that opened the menu. It is the input-claim rule of §2 in one
+     bool, on a surface that predates §2's router.
+
+   **What this does not mean.** The surface stack (§1), the input router (§2), focus and text
+   editing (§3) and the scrolling list (§4) are still unbuilt — the HUD is one surface, and a
+   single live surface needs none of them. They arrive with the first screen that navigates,
+   which is T3.
+
 ### 6. The screen-data contract across the ADR-014 seam
 
 D14 decided screens are engine surfaces, data-fed. The shape of that data, fixed here so U5

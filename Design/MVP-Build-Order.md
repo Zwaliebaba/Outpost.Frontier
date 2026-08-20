@@ -1,7 +1,11 @@
 # MVP Build Order — Vertical Slices
 
 **Status:** Session output 2026-08-17 · **implementation progress appended 2026-08-18 · S14
-landed; play test signed off 2026-08-19 — the MVP is met.**
+landed; play test signed off 2026-08-19 — the MVP is met.** · **This document is closed as a
+plan** (2026-08-20): S1–S15 are all built, and post-MVP work lives in
+[Universe-Build-Order.md](Universe-Build-Order.md) and
+[Station-Build-Order.md](Station-Build-Order.md). What still lands here is a change *inside* a
+slice this document owns — see the two recorded under the MVP sign-off.
 Each slice is independently testable, lands green (`Tests/` + `selfTest` where applicable),
 and is sized at "a few days" or less. Order matters — later slices assume earlier ones.
 Milestones: **M0** = the brief's named first milestone; **M1** = first commanded fleet;
@@ -1579,11 +1583,44 @@ first — which is the only reason the closing note here is a record and not a h
 **What follows the MVP is already moving.** The first post-MVP feature landed beside S14 and
 merged with it: ship collision (ADR-015) — contact radii in the class table, braking and
 deflection inside Steering, a fifth tick system (`Separate`) — recorded in that ADR rather
-than as a slice here, because it belongs to no build order's sequence. The universe phase is
-designed (ADR-016) and has its own plan, [Universe-Build-Order.md](Universe-Build-Order.md),
-with no slice started. **S15 below is built as of 2026-08-19** and stays this document's own
-tail; the station phase (ADR-017) has [its own plan](Station-Build-Order.md) and no slice
-started either.
+than as a slice here, because it belongs to no build order's sequence. **S15 below is built as
+of 2026-08-19** and stays this document's own tail.
+
+**The two phases now have their own plans and their own progress**, and this document is not
+where to read it: the universe phase (ADR-016,
+[Universe-Build-Order.md](Universe-Build-Order.md)) has U1, U2, U3a, U3b's sim half and U5's
+pure half built; the station phase (ADR-017,
+[Station-Build-Order.md](Station-Build-Order.md)) has all of T1 and T2's identity cluster.
+Both plans carry a **Built** line per landed slice, which is where the detail lives.
+
+**Two changes did land inside this document's territory, and are recorded here because
+nothing else covers them.**
+
+*The order table grew a lifetime.* A group that reaches `Done` now **lingers 30 ticks**
+(`ORDER_DONE_LINGER_TICKS`) before it is retired, instead of leaving the table on the tick it
+finishes. S12 built the ghost that retires on *seeing* `Done` in a snapshot (ADR-014 §2c —
+order records exist only while an order does, so absence is the signal), and that reading is
+safe only if the record outlives the event it reports; without the linger the ghost races the
+snapshot at exactly the rate the link is slow. Two consequences worth having in one place:
+`doneTick` is simulation state and folds into the hash — `RetirementReplaysExactly` pins it —
+and snapshot order selection became **two passes, live groups first**, so when the sixteen-slot
+cap bites the record that gets dropped is a corpse serving out its linger rather than the order
+the player just gave. `World.cpp` split in the same work, with the order pipeline moving to
+`WorldOrders.cpp`.
+
+*S11's HUD caught up with its print.* The command row stopped being a fixed list of verbs and
+became the game's own lists, asked once through `WorldView::OrderKinds`/`OrderOptions` and held
+**per kind** rather than for the selected one, indexed by slot rather than by kind value. That
+is what let `StanceId{Balanced, Aggressive, Evasive}` arrive as three words with **no engine
+edit and no wire field** — ADR-014 §2c's argument tested by the game growing a parameter rather
+than by a second game appearing. Six print details landed with it: the row keeps ATTACK second
+with parameter chips deferred past the immediate verbs, only picker buttons carry the `▾`
+caret, the `▥ MENU` chip and its stub list exist, the context bar counts the optimistic window
+(`⏳ N ORDERS PENDING`), world-space gauge bars band on the same two thresholds the roster
+strips use, and the selection ring became the own-fleet phosphor instead of the allied cyan it
+had shipped as. One of them moved the renderer: **the ghost's lane now draws under the hulls**,
+which took ADR-006's reserved pass list a second insertion (`UiWorld`, §1c) — a second `UiPass`
+instance into the world target before `Opaque`, at the same price `Nebula` paid.
 
 ---
 

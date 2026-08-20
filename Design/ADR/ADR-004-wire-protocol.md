@@ -50,10 +50,24 @@ overhead anyway.
    is the message that *carries* the schema hash — so the version is the only thing that can
    refuse the connection, and it does.
 
+   **Both messages put the identity pair last**, after the variable-length strings, so the
+   fields the handshake fails closed on keep fixed offsets from the front of the message. That
+   mattered the day `Welcome` gained the HUD's three display strings (ADR-009 §8): the strings
+   went in front of `playerId`/`resumeToken`, and the arrangement absorbed them without moving
+   anything a truncated read depends on.
+
+   **`CORE_SCHEMA_TEXT` covers this file's layout, and it has to be edited by hand when a field
+   is added.** It was not, for the identity pair — the fields shipped in `Hello`/`Welcome` and
+   in `Wire.cpp`'s read and write, and were missing from the text for a day, so two builds
+   disagreeing about them would have agreed about the core schema hash. `PROTOCOL_VERSION = 2`
+   was doing the refusing throughout, which is why this was a hole in the belt rather than in
+   the braces — but it is exactly the failure the text exists to prevent, and the reason it
+   went unnoticed is that nothing checks the text against the struct. Nothing does yet.
+
 ### Message set (MVP, complete)
 | Channel | C→S | S→C |
 |---|---|---|
-| control | `Hello{ver, schemaHash, name, playerId, resumeToken}` | `Welcome{clientId, tick, tickRate, worldMeta, playerId, resumeToken}` / `UpdateRequired{serverSchemaHash}` / `Refuse{reason}` |
+| control | `Hello{ver, schemaHash, name, playerId, resumeToken}` | `Welcome{clientId, tick, tickRate, worldMeta, worldName, worldDetail, worldBadge, playerId, resumeToken}` / `UpdateRequired{serverSchemaHash}` / `Refuse{reason}` |
 | control | `StationCommand{orderSeq, verb, station, formation, wing, shipIds[]}` (T2) | shares `OrderAck` |
 | control | — | `StationRoster{station, (shipId, classId, wingId)[]}` (T2, ~1 Hz, per viewer) |
 | control | `OrderSubmit` (below) | `OrderAck{orderSeq, verdict, reasonCode, serverOrderId}` |

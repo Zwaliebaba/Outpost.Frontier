@@ -24,9 +24,10 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
 ## Decision
 
 ### Frame structure
-1. **No frame graph.** A frame graph schedules resource churn across many passes; MVP has five.
-   Instead: a **fixed, named pass list** — `Clear → Opaque → Nebula → OverlayWorld → Ui →
-   Present` — each pass a struct with `Record(ctx)`, executed in order on one direct queue. The
+1. **No frame graph.** A frame graph schedules resource churn across many passes; MVP had five (six since §1c).
+   Instead: a **fixed, named pass list** — `Clear → UiWorld → Opaque → Nebula → OverlayWorld →
+   Ui → Present` — each pass a struct with `Record(ctx)`, executed in order on one direct
+   queue. (`UiWorld` arrived after the MVP; §1c.) The
    names and order are the corpus target list with unbuilt nodes absent; `GpuCull`, `DepthPre`,
    `Effects`, `Tonemap` are **reserved slots** documented in code, so growth is insertion, not
    redesign. Revisit a real graph only when transient-resource management hurts.
@@ -70,6 +71,25 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
    must never be. That mapping is round-tripped against the real view-projection in
    `NeuronClientTests`, for the same reason §3a's handedness defect needed a round trip: the
    failure is invisible to review.
+
+1c. **`UiWorld` was the list's second insertion, and it tested a different claim.** `Nebula`
+   proved a *new* node costs a struct and a line. `UiWorld` proved something the list had never
+   been asked: that a node can be an **existing pass type recorded twice, into a different
+   target, at a different point in the order**. It is a second `UiPass` instance — same struct,
+   same shaders, its own instance buffer — recording into the world target before `Opaque`
+   against a multisampled variant of the Ui pipeline.
+
+   *Why the frame needed it:* the order ghost's lane is screen-space geometry that belongs
+   **under** the hulls. Drawn in the `Ui` pass it crosses every ship it passes; drawn here, a
+   ship standing on a lane covers it with its own silhouette. The alternative was a
+   world-space lane in `OverlayWorld` sized by a radius somebody had to guess — §8's own
+   argument for why the two-mechanism split exists, applied one node earlier.
+
+   *What it cost:* one pipeline (`GpuPipelines::UiWorld`, multisampled where the screen-space
+   `Ui` pipeline is single-sampled, because it draws into the MSAA world target §12 resolves),
+   one member, one line in `RecordWorld`, and a `bool _worldLayer` on `UiPass::Record`. No
+   pass was reordered and no existing pass changed — the same result `Nebula` got, from a
+   different direction.
 
 1b. **The clear colour is static.** `AnimatedClearColour` breathed between two blues so slice
    S1 could prove the loop ran with nothing else on screen. From this node onwards there is
@@ -359,7 +379,8 @@ not a different one. Assets: 9 OBJ meshes (per-face normals, triangulated, 5 sha
 
 - The whole MVP renderer is ~5 PSOs (opaque, nebula, overlay-instanced, overlay-polyline,
   ui/text) and no compute — DX12 boilerplate risk is bounded to device/swapchain/upload
-  plumbing (Risk R4).
+  plumbing (Risk R4). **Six as of §1c**, the sixth being the multisampled variant of the
+  ui/text pipeline that draws into the world target; still no compute, still one queue.
 - The nebula's parameters are content (ADR-012), so retuning the look is a config edit and a
   restart. Tint and intensity apply at draw time; resolution, octaves, coverage, contrast and
   seed change the field and are re-baked at boot.

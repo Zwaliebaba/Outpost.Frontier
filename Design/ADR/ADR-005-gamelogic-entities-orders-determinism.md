@@ -40,7 +40,14 @@ much determinism to buy, at what float-handling cost.
      for 9; Fighter and Cruiser are content gaps, noted in README.)
    - `OrderGroup` table — one per accepted order: `serverOrderId u32`, member ship ids,
      `formationId`, up to **4 legs** (pos, facing — the wire cap is the sim cap), per-leg
-     solved stations, `state {Underway, Arriving, Done}`, `legIndex`.
+     solved stations, `state {Underway, Arriving, Done}`, `legIndex`, `doneTick`.
+     A group that reaches `Done` **lingers `ORDER_DONE_LINGER_TICKS` (30) before it is
+     retired**, rather than leaving the table on the tick it finishes. The reason is on the
+     client: a ghost retires on *seeing* `Done` in a snapshot (ADR-014 §2c — absence is the
+     signal), so a row that vanished immediately would race the read. `doneTick` is therefore
+     simulation state and folds into the hash: it decides when the row leaves, and two worlds
+     equal in everything else but differing here diverge exactly there. A finished group also
+     never crowds a live one out of the snapshot's sixteen order slots.
 2. **Systems are free functions run in a fixed, named order** each tick, single-threaded:
    `IngestOrders → GroupAdvance → Steering → Integrate → EmitSnapshot`.
    - *GroupAdvance*: a group's leg completes when every member is within station tolerance or

@@ -128,7 +128,7 @@ CI now runs headless in the shipping binary on every push (schema self-check, wi
 round-trips, a replay-determinism run, then the whole handshake + order + snapshot loop over
 QUIC loopback), 4× MSAA offscreen + resolve, cosmetic banking/hover, and the STALE marker.
 The merged tree — S14 plus ADR-015's collision and ADR-021's make-way, and now S15's audio —
-runs **518 tests green** across the four suites on MSVC, in Debug and Release alike.
+runs **593 tests green** across the four suites on MSVC, in Debug and Release alike.
 
 **The half that needed a person and a GPU is done (2026-08-19):** the MVP definition
 demonstrated in a live session, together with the visual items outstanding since the last
@@ -161,20 +161,42 @@ sound**. Two ADR-011 §8 threading details are deliberately not built and are na
 notes rather than left missing. **Nobody has heard it yet**; the WAVs are synthesised
 placeholders and the manual pass is S15's real acceptance.
 
-**The universe phase is designed and not yet built (ADR-016, 2026-08-19).** The owner design
+**The universe phase is designed and half built (ADR-016, 2026-08-19).** The owner design
 session settled procedural generation (2,500 systems baked to authored content), warp
 (timed, anchor-to-anchor, gate traversal between systems), the multi-grid session, the view
 model, and the UI surfaces — with [Universe-Build-Order.md](Universe-Build-Order.md) as the
-delivery plan. Nothing of it is implemented; U1 (the bake) and U5 (strategic map) are the
-open starting points, and the system-view print is the one missing design artifact.
+delivery plan.
 
-**The station phase is designed and not yet built (ADR-017, 2026-08-19).** A second owner
-design session settled docking: docked ships as an off-grid roster, the dock order (together,
-instant, inside the radius, client-fed approach), undock with 15-second command-broken
-protection and deterministic self-parking on a berth ring, and the hangar screen where
-emergent fleets and wings are recombined. [Station-Build-Order.md](Station-Build-Order.md)
-is the delivery plan, interleaved after U2 and before U3a — it introduces the transfer bus
-warp will inherit. The station-screen print (P1) is its one missing design artifact.
+**Built so far: U1, U2, U3a, U3b's sim half and U5's pure half.** The bake produces 2,500
+systems and 18,618 anchors into committed content; `WorldRegistry` is the many-grids runtime
+that owns ship ids, the ship→location index and the transfer bus; `OrderKind::Warp` stopped
+being reserved and runs spool → crossing → arrival; `FleetSummary` answers where a
+commander's ships are without subscribing to their grids; and `UniverseRoute` answers the
+strategic map's two non-drawing questions (`SolveRoute`, `FindSystems`) over the bake.
+
+**What is not built is, with one exception, screen work.** U3b's client half, U5's map itself
+and U6 need a GPU and a person, which is the same wall S5 and R1 have been standing at since
+S8. The exception is **U3c, the second-commander gate** — it is blocked on machinery rather
+than on a screen: it needs T2's per-client `SnapshotSender` and U3b's view subscription, and
+neither exists yet. U4 (gates and the twelfth hull) is untouched. The system-view print
+remains the one missing design artifact.
+
+**The station phase is designed and its simulation is built (ADR-017, 2026-08-19).** A second
+owner design session settled docking: docked ships as an off-grid roster, the dock order
+(together, instant, inside the radius, client-fed approach), undock with 15-second
+command-broken protection and deterministic self-parking on a berth ring, and the hangar
+screen where emergent fleets and wings are recombined.
+[Station-Build-Order.md](Station-Build-Order.md) is the delivery plan, interleaved after U2
+and before U3a — it introduces the transfer bus warp inherited.
+
+**Built so far: all three halves of T1, and T2's identity cluster on the wire.** Docking, the
+transfer bus, undocking with its fifteen seconds, the parking ring and the event record are
+in the sim; `PlayerId` and the reserved resume token are on `Hello`/`Welcome`, and the schema
+text grew the verdict-affecting constants and the check-order sequence (ADR-018 D9/A21).
+**T2's client half is not built** — the DOCK context action, the approach chain, the fades,
+the shimmer and the DOCKED roster blocks are all screen work — and neither is its per-client
+`SnapshotSender`, which is the piece U3c waits on. T3, the hangar screen, is still gated on
+the station-screen print (P1), its one missing design artifact.
 
 **The first post-MVP feature is in the tree: ship collision (ADR-015, 2026-08-18).** Ships no
 longer fly through each other — per-class contact radii in the class table, braking and
@@ -202,10 +224,50 @@ bit-identically across two runs. Two deliberate non-changes: a hull berthed on t
 destination still keeps its berth (ADR-015 §5's outcome, now pinned by its own test), and
 `Steering` still knows nothing about groups.
 
+**And the tactical HUD caught up with its print (2026-08-19).** The command row stopped being
+a fixed list of verbs and became **the game's own lists, drawn by the engine**: `WorldView`
+gained `OrderKinds` and `OrderOptions`, the game answers both with numbers to send and names
+to show, and the client indexes its per-kind tables by *slot* rather than by the kind value —
+because using an opaque number as an array index is assuming the game counts densely from
+zero. That is ADR-014 §2b/§2c stated as a seam rather than as a paragraph, and it is what let
+`STANCE` arrive as three words (`StanceId{Balanced, Aggressive, Evasive}`) with no engine
+edit and no wire field: the kind stays reserved, `ValidateOrder` still refuses it, and the
+context bar states the standing posture the same way it has always stated `FORMATION LINE`
+before a Move is sent.
+
+Six other things landed with it, each of them a print detail that had been approximated: the
+row keeps the print's order (**ATTACK second**, parameter chips deferred past the immediate
+verbs, so muscle memory forms on the right shape); only picker buttons carry the `▾` caret;
+the `▥ MENU` chip and its stub list exist because a HUD with no menu affordance is a dead end
+on a machine with no Escape key; the context bar counts the optimistic window (`⏳ N ORDERS
+PENDING`); world-space gauge bars band on **the same two thresholds** the roster strips use,
+so a wing's strip and its ships cannot disagree about where "worn" begins; and the selection
+ring became the own-fleet phosphor rather than the allied cyan it had shipped as — allied cyan
+is reserved, and a player reading colour fast would have parsed their own selection as someone
+else's ship.
+
+**One of those changed the renderer's shape**, which is the part worth knowing: the ghost's
+lane now draws *under* the hulls. ADR-006's fixed pass list gained a node — a second `UiPass`
+instance recording into the world target before `Opaque`, against a multisampled `UiWorld`
+pipeline — so a ship standing on a lane covers it with its own silhouette instead of with a
+radius somebody had to guess. The pass list is **Clear · UiWorld · Opaque · Nebula ·
+OverlayWorld · Ui**, and this is the second insertion into the reserved list after `Nebula`,
+at the same price: one pipeline, one instance, one line in `RecordWorld`.
+
+**Two sim changes rode along.** `World.cpp` split, with the order pipeline moving to
+**`WorldOrders.cpp`** — one header, two translation units, which ADR-013 §3's uniqueness rule
+permits and its registry now records. And a finished order **lingers before it is retired**
+(`ORDER_DONE_LINGER_TICKS`, 30 ticks): a client ghost retires on *seeing* `Done` in a
+snapshot, so an order table that dropped the row the tick it finished would have raced the
+thing that reads it. Three tests pin it, including that retirement replays exactly — the
+linger is simulation state, so it is in the hash.
+
 **Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
 handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. The
-suite now stands at **518** — 297 client, 136 GameLogic, 75 core, 10 server. Its
+suite now stands at **593** — 300 client, 208 GameLogic, 75 core, 10 server. GameLogic is
+where the growth is, and that is the universe and station phases arriving: it has gone from 136
+to 208 without a single one of those tests needing a device. Its
 visible half — window open, swapchain presenting, heartbeat live — together with the four
 other criteria that need a GPU and a person (five minutes clean under the debug layer,
 PresentMon showing the flip model, a clean exit, and the 60-second tick cadence on an idle
@@ -220,8 +282,8 @@ passes — are still open and listed under S5 in the build order.
 **Continuous integration:** `.github/workflows/build.yml` builds **Debug|x64 and Release|x64**
 (the Release leg arrived with ADR-018 D11; both legs gate, the Debug leg having been
 non-blocking for a day while R22 was open — the note at the top of that file says why),
-restores NuGet per project, runs **seven source guards** before compiling anything,
-builds the four libraries, builds `Outpost.exe` once an entry point exists, builds and runs the
+restores NuGet per project, runs **seven source guards and a gating clang-tidy sweep over
+GameLogic** before compiling anything, builds the four libraries, builds `Outpost.exe` once an entry point exists, builds and runs the
 tests, runs the self test, and surfaces failing tests, deduplicated warnings, the two
 configurations' replay hashes and **R10's tick-soak table** in the job summary. The soak's
 first run put the authoritative Release number on the record: **a 1,024-ship grid ticks in

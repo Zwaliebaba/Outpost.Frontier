@@ -185,7 +185,7 @@ clang-tidy --quiet NeuronCore/YourNewFile.cpp -- -I . -D _WIN32 -D _DEBUG /std:c
 
 | Path | What it is |
 |---|---|
-| `NeuronCore/` | Engine primitives shared by client and server — zero game semantics. Foundation, containers, tasking, telemetry, byte IO, JSON, `Transport` (+ UDP/QUIC). |
+| `NeuronCore/` | Engine primitives shared by client and server — zero game semantics. Foundation, containers, tasking, telemetry, byte IO, JSON, the owner-thread assert, `Transport` (+ its `QuicTransport` implementation — the `UdpTransport` scaffold was deleted at S13, ADR-003 §4). |
 | `GameLogic/` | The deterministic planar simulation. Depends on NeuronCore only. |
 | `NeuronServer/` | `ServerHost` — sessions, tick-loop orchestration, snapshot fan-out. |
 | `NeuronClient/` | `ClientApp` — window, D3D12, camera, picking, HUD, audio, interpolation. |

@@ -1,6 +1,10 @@
 # Universe Build Order — Post-MVP Phase One
 
-**Status:** Session output 2026-08-19 · **U1 and U2 built.** The design it delivers is
+**Status:** Session output 2026-08-19 · **U1, U2, U3a, U3b's sim half and U5's pure half
+built** (2026-08-20). What is left in this plan is, with one exception, screen work: U3b's
+client half, U5's map itself and U6 need a GPU and a person. The exception is **U3c**, which
+is blocked on machinery rather than a screen — it needs T2's per-client `SnapshotSender` and
+U3b's view subscription, and neither exists yet. U4 is untouched. The design it delivers is
 [ADR-016](ADR/ADR-016-procedural-universe-and-warp.md); where this document and that one
 disagree, the ADR wins on *what* and this one on *when*.
 

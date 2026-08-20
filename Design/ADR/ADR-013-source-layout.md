@@ -59,16 +59,33 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
 
    | Project | Naming | Files |
    |---|---|---|
-   | NeuronCore | plain area names | `Debug.h` `Log.h` `Clock.h` `Hash.h` `Random.h` `OwnerThread.h` `OwnerThread.cpp` `Arena.h` `RingBuffer.h` `TaskPool.h` `Telemetry.h` `ByteReader.h` `ByteWriter.h` `Json.h` `JsonWriter.h` `EntityRecord.h` `OrderIntent.h` `Transport.h` `QuicTransport.h` `Wire.h` `FileSys.h` `FileSys.cpp` `NeuronHelper.h` |
-   | GameLogic | type + family names | `Ids.h` `ShipClass.h` `World.h` `ReplicatedView.h` `Orders.h` `Validate.h` `Formation.h` `Eta.h` `WorldHash.h` `Snapshot.h` `OrderMessages.h` `SchemaHash.h` `Universe.h` `UniverseParse.h` `UniverseGen.h` `UniverseRoute.h` `WorldRegistry.h` `Transfer.h` `Station.h` `StationMessages.h` `FleetSummary.h` `EventRecord.h` |
-   | NeuronServer | type names | `Simulation.h` `ServerHost.h` `ServerConfig.h` `Session.h` `SnapshotSender.h` |
-   | NeuronClient | type names (`Gpu`, `Hud`, `Audio` read as domain words, R4) | `ClientApp.h` `ClientConfig.h` `WorldView.h` `Window.h` `ClearColour.h` `ClientConnection.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuCom.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuMeshes.h` `GpuNebula.h` `GpuPasses.h` `GpuPipelines.h` `ObjMesh.h` `NebulaField.h` `GlyphAtlas.h` `IsoCamera.h` `Picking.h` `Selection.h` `OverlayMark.h` `InputMap.h` `UiDrawList.h` `UiLayout.h` `ToastStack.h` `HudRoster.h` `HudPalette.h` `DebugStrip.h` `GhostLane.h` `CommandRow.h` `OrderPuck.h` `OrderGhost.h` `AudioSystem.h` `AudioBank.h` `AudioListener.h` |
+   | NeuronCore | plain area names | `NeuronCore.h` `Debug.h` `Log.h` `Clock.h` `Hash.h` `Random.h` `OwnerThread.h` `OwnerThread.cpp` `Arena.h` `RingBuffer.h` `TaskPool.h` `Telemetry.h` `ByteReader.h` `ByteWriter.h` `Json.h` `JsonWriter.h` `EntityRecord.h` `OrderIntent.h` `Transport.h` `QuicTransport.h` `Wire.h` `FileSys.h` `FileSys.cpp` `NeuronHelper.h` |
+   | GameLogic | type + family names | `Ids.h` `ShipClass.h` `World.h` `WorldOrders.cpp` `ReplicatedView.h` `Orders.h` `Validate.h` `Formation.h` `Eta.h` `WorldHash.h` `Snapshot.h` `OrderMessages.h` `SchemaHash.h` `Universe.h` `UniverseParse.h` `UniverseGen.h` `UniverseRoute.h` `WorldRegistry.h` `Transfer.h` `Station.h` `StationMessages.h` `FleetSummary.h` `EventRecord.h` |
+   | NeuronServer | type names | `NeuronServer.h` `Simulation.h` `ServerHost.h` `ServerConfig.h` — plus two **reserved names, not yet files**: `Session.h` (per-connection state, still a struct inside `ServerHost.cpp`) and `SnapshotSender.h` (the per-client path ADR-018 A13 and [ADR-022](ADR-022-interest-and-delta.md) §1 both require; today `ServerHost` serialises once and fans the same bytes out) |
+   | NeuronClient | type names (`Gpu`, `Hud` read as domain words, R4) | `NeuronClient.h` `ClientApp.h` `ClientConfig.h` `WorldView.h` `Window.h` `ClearColour.h` `ClientConnection.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuCom.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuMeshes.h` `GpuNebula.h` `GpuPasses.h` `GpuPipelines.h` `DirectXHelper.h` `ObjMesh.h` `NebulaField.h` `GlyphAtlas.h` `IsoCamera.h` `Picking.h` `Selection.h` `OverlayMark.h` `InputMap.h` `UiDrawList.h` `UiLayout.h` `ToastStack.h` `HudRoster.h` `HudPalette.h` `DebugStrip.h` `GhostLane.h` `CommandRow.h` `OrderPuck.h` `OrderGhost.h` `AudioDevice.h` `AudioListener.h` `SoundBank.h` `VoicePool.h` `WavClip.h` — plus vendored `d3dx12.h`, exempt by name (R4) |
    | Outpost | — | `Main.cpp` `AppConfig.h` `AppConfig.cpp` `ConfigLoad.h` `ConfigLoad.cpp` `UniverseLoad.h` `UniverseLoad.cpp` `ReplicatedWorldView.h` `ReplicatedWorldView.cpp` `ShaderTable.h` `ShaderTable.cpp` `SelfTest.h` `SelfTest.cpp` `TickSoak.h` `TickSoak.cpp` `UniverseBake.h` `UniverseBake.cpp` |
    | Outpost/Shaders | stage suffix on the pass name | `OpaqueVS.hlsl` `OpaquePS.hlsl` `NebulaVS.hlsl` `NebulaPS.hlsl` `OverlayVS.hlsl` `OverlayPS.hlsl` `UiVS.hlsl` `UiPS.hlsl` — plus `Opaque.hlsli` `Nebula.hlsli` `Overlay.hlsli` `Ui.hlsli` `FrameConstants.hlsli` `PassConstants.hlsli` for what stages share |
    | Outpost/CompiledShaders | generated; one per `.hlsl`, same stem | `OpaqueVS.h` `OpaquePS.h` `NebulaVS.h` `NebulaPS.h` `OverlayVS.h` `OverlayPS.h` `UiVS.h` `UiPS.h`, each defining `g_p<stem>` |
 
    If a genuine collision ever appears, the **newer** file is renamed to a more specific type name; the
    table above is the registry to check first.
+
+   **The audio names in this table were wrong for a day, and how they got wrong is the lesson.**
+   It listed `AudioSystem.h` and `AudioBank.h` — names written *before* S15 built anything,
+   which then shipped as `AudioDevice.h`, `SoundBank.h`, `VoicePool.h` and `WavClip.h` because
+   the slice split the work four ways instead of two. A registry that records intentions
+   alongside facts, without saying which is which, decays the moment a slice designs itself
+   better than its plan did. The two `NeuronServer` names above are therefore marked
+   **reserved, not yet files** in the row itself, so the distinction survives the next reader.
+
+   **A header may have more than one `.cpp`, and one does.** `World.h` is implemented by
+   `World.cpp` and `WorldOrders.cpp` — the order pipeline moved out when `World.cpp` passed a
+   size worth splitting. Nothing in §3 forbids it: the rule is that *file names* are unique
+   repo-wide, not that they pair one-to-one with headers, and `WorldOrders` is a genuine type-
+   family name for what is in it rather than a decoration like `World2` or `WorldImpl` (which
+   R2 would refuse anyway). The registry lists the extra `.cpp` explicitly for the same reason
+   it lists `OwnerThread.cpp` and `FileSys.cpp`: a file you would not predict from the header
+   list is exactly the one a reader needs told about.
 
    **Some rows reserve a name rather than describe a file**, which is the point of §4: the
    registry has to be written *before* the file exists or it cannot prevent anything. Not yet in

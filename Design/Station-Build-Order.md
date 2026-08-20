@@ -1,6 +1,12 @@
 # Station Build Order — the Docking Phase
 
-**Status:** Session output 2026-08-19 · **T1 in progress — its docking half is built.** The design it delivers is
+**Status:** Session output 2026-08-19 · **T1 built in full, and T2's identity cluster is on
+the wire** (2026-08-20). Docking, the transfer bus, undocking and its fifteen seconds, the
+parking ring and the event record are in the sim; `PlayerId` and the reserved resume token are
+on `Hello`/`Welcome`, and the schema text carries the verdict-affecting constants and the
+check-order sequence (D9/A21). **What T2 still owes is its client half and its per-client
+`SnapshotSender`** — the first is screen work, the second is what U3c waits on. T3 is still
+gated on P1. The design it delivers is
 [ADR-017](ADR/ADR-017-station-docking.md); where this document and that one disagree, the
 ADR wins on *what* and this one on *when*.
 
