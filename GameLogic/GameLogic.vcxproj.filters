@@ -29,6 +29,9 @@
     <ClCompile Include="StationMessages.cpp">
       <Filter>Wire</Filter>
     </ClCompile>
+    <ClCompile Include="SummaryMessages.cpp">
+      <Filter>Wire</Filter>
+    </ClCompile>
     <ClCompile Include="FleetSummary.cpp">
       <Filter>Wire</Filter>
     </ClCompile>
@@ -108,6 +111,9 @@
       <Filter>Universe</Filter>
     </ClInclude>
     <ClInclude Include="StationMessages.h">
+      <Filter>Wire</Filter>
+    </ClInclude>
+    <ClInclude Include="SummaryMessages.h">
       <Filter>Wire</Filter>
     </ClInclude>
     <ClInclude Include="FleetSummary.h">

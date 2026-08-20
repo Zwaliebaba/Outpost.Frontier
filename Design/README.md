@@ -112,16 +112,15 @@ moves between the trees without a rename pass. Three things it changed in these 
   (`UX-/NET-/CPP-/UI-/SIM-`), a decision list sequenced against the build orders, and the
   fourteen questions the owner answered the same day — **the answers are normative as
   [ADR-018](ADR/ADR-018-scaling-baseline.md)**; the review stays the evidence record.
-  **Nineteen of the register's twenty-six actions are delivered, and every design deliverable
-  in it is written** — A1–A10, A12, A14, A17, A19, A21, A22, A23, A24 and A26 — with A11
-  **partly** done: the wire carries u32 ship ids, while the sim's `ShipId` stays u16 until the
-  delta cluster lifts the full-fit constraint (D6's own staging). **Six are open** — A13,
-  A15, A16, A18, A20 and A25 — and each lands with U3b, T2, U5 or U3c rather than waiting on
-  a decision. **A13 is two thirds delivered as of 2026-08-20**: the per-client
-  `SnapshotSender` exists and the over-cap refusal is tested loudly; what is left of it is
-  `StationRoster` addressed per viewer, which waits on a frame for the summary family to
-  travel in. That sender is what U3b's client half, T2's roster privacy and U3c all stood
-  behind.
+  **Twenty of the register's twenty-six actions are delivered, and every design deliverable
+  in it is written** — A1–A10, A12–A14, A17, A19, A21, A22, A23, A24 and A26 — with A11
+  **partly** done: the wire carries u32 ship ids, while the sim's `ShipId` stays u16 until
+  the delta cluster lifts the full-fit constraint (D6's own staging). **A13 closed
+  2026-08-20** — the per-client `SnapshotSender`, the over-cap refusal tested loudly, and
+  `StationRoster` addressed per viewer through the summary family's own frame — which is
+  what U3b's client half, T2's roster privacy and U3c were all standing behind. **Five
+  remain: A15, A16, A18, A20 and A25**, each landing with U3b, T2, U5 or U3c rather than
+  waiting on a decision.
 
 ## Implementation state (2026-08-20)
 

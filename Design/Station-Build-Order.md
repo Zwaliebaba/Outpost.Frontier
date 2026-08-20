@@ -166,7 +166,14 @@ the check-order sequence (D9/A21)**. `EntityRecord.id` stays u16 in this cluster
 allocator's u16 window holds until the delta cluster widens the record (D6). The roster is
 sent **per viewer through the per-client `SnapshotSender`** (A13): ADR-017 §1's privacy
 rule is a wire fact from the first message, and sessions survive disconnect for the D5
-grace window.
+grace window. **Built 2026-08-20 (A13).** The sender is per client, the seam takes a
+`PlayerId` viewer, and the roster travels in the summary family's own frame under one engine
+wire type (`Summary`) with a game-side kind byte — so `FleetSummary` rides the same frame
+rather than needing a second one. The composition root asks the registry where *this*
+commander's ships are and sends a roster for each station a `Docked` row names, which is
+what makes the frame self-consistent. What T2 still owes is its client half: the DOCK
+context action, the approach chain, the fades, the shimmer and the DOCKED roster blocks are
+screen work, and nothing reads these bytes yet.
 Client: DOCK as a **context action on the station structure** (the command row stays as
 printed), the client-feeds approach chain (Move to perimeter → Dock when every member is
 in radius, surfaced as a DOCKING chip), the ~1 s dock/undock fades in the existing overlay

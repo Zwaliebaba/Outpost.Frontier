@@ -10,11 +10,14 @@
 
 // GameLogic, reached only from here: the executable is the one project
 // entitled to know both halves (ADR-014 §1).
+#include "FleetSummary.h"
 #include "OrderMessages.h"
 #include "Orders.h"
 #include "SchemaHash.h"
 #include "ShipClass.h"
 #include "Snapshot.h"
+#include "StationMessages.h"
+#include "SummaryMessages.h"
 #include "World.h"
 #include "WorldRegistry.h"
 
@@ -227,6 +230,100 @@ public:
   }
 
   /*
+   * What this commander is owed at the summary cadence (ADR-016 §6, A13).
+   *
+   * Two members of the family answer together, and they answer *about each
+   * other*: `Summaries()` says where the commander's ships are, and every row
+   * that says `Docked` names a station whose roster says which ships those are.
+   * So the docked rows are also the enumeration of the rosters worth sending --
+   * no separate walk, and a frame that cannot disagree with itself.
+   *
+   * **Per viewer is the whole point** (ADR-017 §1). Today the registry answers
+   * for the one commander there is, so the filter is the identity function and
+   * the privacy rule costs nothing; what matters is that the *question* is
+   * asked per viewer, because on the broadcast sender this replaced, a roster
+   * reaching everyone would have been a leak nothing could catch until U3c
+   * first ran two clients.
+   *
+   * Fleet summaries go in first and rosters fill what is left. That order is a
+   * decision rather than an accident: "where is everything" is small, always
+   * useful and the answer the strategic surfaces read, while a roster is one
+   * station's detail. What does not fit is dropped and **counted**, because
+   * paging the family is ADR-016 §6's own problem to solve -- the same sentence
+   * `WriteStationRoster` already uses about a hangar outgrowing one message --
+   * and a drop nobody counted is a hangar screen that is quietly short.
+   */
+  [[nodiscard]] bool WriteSummaries(PlayerId _viewer, std::uint32_t, ByteWriter& _writer) override
+  {
+    const std::vector<Game::FleetSummary> summaries = m_registry.Summaries();
+    if (summaries.empty())
+    {
+      return false; // Nothing to say. An empty frame is a message with no content.
+    }
+
+    // Measure before writing anything, the way `WriteSnapshot` does: a frame
+    // whose header promised records it could not fit reads as truncated.
+    std::size_t budget = _writer.BytesRemaining();
+    if (budget < Game::SUMMARY_FRAME_HEADER_BYTES)
+    {
+      return false;
+    }
+    budget -= Game::SUMMARY_FRAME_HEADER_BYTES;
+
+    const std::size_t summariesBytes = Game::SUMMARY_RECORD_HEADER_BYTES + Game::FleetSummariesBytes(summaries.size());
+    if (summariesBytes > budget)
+    {
+      return false;
+    }
+    budget -= summariesBytes;
+
+    std::vector<Game::AnchorId> rosters;
+    std::uint32_t dropped = 0;
+    for (const Game::FleetSummary& row : summaries)
+    {
+      if (row.state != Game::FleetState::Docked)
+      {
+        continue;
+      }
+      const std::span<const Game::RosterEntry> docked = m_registry.Roster(row.anchor);
+      const std::size_t bytes = Game::SUMMARY_RECORD_HEADER_BYTES + Game::StationRosterBytes(docked.size());
+      if (bytes > budget || rosters.size() + 1 >= Game::MAX_SUMMARY_RECORDS)
+      {
+        ++dropped;
+        continue;
+      }
+      budget -= bytes;
+      rosters.push_back(row.anchor);
+    }
+
+    if (dropped > 0 && !m_summaryDropLogged)
+    {
+      m_summaryDropLogged = true;
+      NEURON_LOG_WARNING("player %u: %u station roster(s) did not fit one summary frame; the family needs paging (ADR-016 §6)",
+                         _viewer, dropped);
+    }
+
+    const auto records = static_cast<std::uint8_t>(rosters.size() + 1);
+    if (!Game::BeginSummaryFrame(records, _writer))
+    {
+      return false;
+    }
+    if (!Game::BeginSummaryRecord(Game::SummaryKind::FleetSummaries, _writer) || !Game::WriteFleetSummaries(summaries, _writer))
+    {
+      return false;
+    }
+    for (const Game::AnchorId anchor : rosters)
+    {
+      if (!Game::BeginSummaryRecord(Game::SummaryKind::StationRoster, _writer) ||
+          !Game::WriteStationRoster(anchor, m_registry.Roster(anchor), _writer))
+      {
+        return false;
+      }
+    }
+    return _writer.Ok();
+  }
+
+  /*
    * Decode, validate, queue -- and say which order it was (ADR-004 §7).
    *
    * The engine handed over bytes it did not read. Everything that turns them
@@ -314,6 +411,11 @@ private:
   /// a `Structure` a waypoint is harmless -- it has no speed -- but listing it
   /// would imply it might move.
   std::vector<Game::ShipId> m_patrolShips;
+
+  /// Said once, not once a second: a summary frame that cannot hold every
+  /// roster will not hold them next second either, and a warning at 1 Hz is a
+  /// log nobody reads the rest of.
+  bool m_summaryDropLogged = false;
 };
 
 /*

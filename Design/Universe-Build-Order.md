@@ -228,7 +228,9 @@ warps and the view follows it to arrival; the unwatched fleet's roster block tra
 summary; `selfTest` drives a headless warp over the real loopback and observes the grid
 switch and the summaries; every pre-existing suite green.
 **ADR-018 additions:** `SnapshotSender` is **per-client from its first line** (A13 — the
-per-grid stream and per-player summaries are already per-client facts); the presence-edge
+per-grid stream and per-player summaries are already per-client facts; **built 2026-08-20**,
+along with the summary family's frame, so `FleetSummary` already reaches its viewer at ~1 Hz
+and what U3b's client half inherits is a feed rather than a thing to build); the presence-edge
 rules render (D16: presence lost under a pinned camera → the map; every fleet in transit →
 the map); warp events emit into the **per-commander event record** (A17) and the alerts
 taxonomy gains its universe rows with the toast **action payload** (A18); summaries and
@@ -254,9 +256,10 @@ source of truth. And a station standing on its own grid is not a fleet: authored
 subtracted, or every station in the universe would read as a parked one-ship fleet.
 
 **Still owed by U3b:** everything on screen — view subscription, the grid-switch notice,
-auto-follow, roster location blocks, warp ghosts, the settle over the interpolation refill —
-and the per-client `SnapshotSender` those and T2's roster privacy both need. That half is
-renderer and session work rather than simulation work.
+auto-follow, roster location blocks, warp ghosts, the settle over the interpolation refill.
+The per-client `SnapshotSender` those and T2's roster privacy both needed **landed
+2026-08-20 with A13**, and the summaries already go out on it, so what is left of this slice
+is renderer work rather than session work.
 
 ### U3c — The second-commander gate *(ADR-018 A25, new)*
 Two real clients against one shard: distinct `PlayerId`s, each commanding its own fleets on

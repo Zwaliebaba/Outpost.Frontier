@@ -71,6 +71,26 @@ public:
     return _writer.Ok();
   }
 
+  /*
+   * A summary frame carrying nothing but the viewer it was written for.
+   *
+   * The engine never learns what is inside one (ADR-014 §5) -- a roster and a
+   * fleet summary are the game's, under the game's hash -- so a test at this
+   * level can put anything in it, and the useful thing to put in it is the
+   * question this suite can actually answer: *which client was this written
+   * for, and which client received it.*
+   */
+  [[nodiscard]] bool WriteSummaries(PlayerId _viewer, std::uint32_t, ByteWriter& _writer) override
+  {
+    ++m_summariesWritten;
+    _writer.WriteUInt32(SUMMARY_MARKER);
+    _writer.WriteUInt32(_viewer);
+    return _writer.Ok();
+  }
+
+  static constexpr std::uint32_t SUMMARY_MARKER = 0xd0cca5e5u;
+  [[nodiscard]] std::uint32_t SummariesWritten() const noexcept { return m_summariesWritten.load(std::memory_order_relaxed); }
+
   /// Makes the simulation behave like a grid that outgrew one datagram.
   void RefuseSnapshots(bool _refuse) noexcept { m_refuseSnapshots.store(_refuse, std::memory_order_relaxed); }
   [[nodiscard]] PlayerId LastViewer() const noexcept { return m_lastViewer.load(std::memory_order_relaxed); }
@@ -139,6 +159,7 @@ private:
   std::atomic<std::uint32_t> m_lastOrderClientId{0};
   std::atomic<std::uint32_t> m_lastAcceptedSeq{0};
   std::atomic<std::uint32_t> m_nextOrderId{0};
+  std::atomic<std::uint32_t> m_summariesWritten{0};
   std::atomic<PlayerId> m_lastViewer{INVALID_PLAYER_ID};
   std::atomic<bool> m_refuseSnapshots{false};
 };
@@ -442,6 +463,109 @@ public:
     Assert::IsTrue(welcomedPlayer != INVALID_PLAYER_ID, L"the Welcome named no player");
     Assert::AreEqual(welcomedPlayer, snapshotViewer, L"the snapshot was serialised for a different viewer than joined");
     Assert::AreEqual(welcomedPlayer, simulation.LastViewer(), L"the simulation was asked for no particular viewer");
+
+    host.Stop();
+    host.Join();
+  }
+
+  /*
+   * The summary family reaches its viewer, and reaches it at its own cadence
+   * (ADR-016 §6, ADR-017 §1, ADR-018 A13).
+   *
+   * ADR-017 §1's privacy rule -- other commanders cannot see what is docked at
+   * a station -- is a *wire* fact, and the wire is the only place it can be
+   * checked. It is checked here rather than left to U3c's two clients because
+   * on the broadcast sender this replaced, the rule was satisfied by accident:
+   * with one client, "everyone gets it" and "its owner gets it" are the same
+   * observation, and the day they stop being the same is the day a leak ships.
+   * What this test can prove today is the half that does not need a second
+   * client -- that the frame was *written for* the player who joined, and
+   * arrived on that player's connection -- and that is exactly the half that
+   * had no mechanism before A13.
+   *
+   * The cadence is the other claim. A summary is not a snapshot: 20 Hz for the
+   * grid you are watching, about 1 Hz for everywhere else, which is what makes
+   * showing a fleet you are *not* watching affordable at all.
+   */
+  TEST_METHOD(ASummaryFrameIsWrittenForItsViewerAndArrivesAtItsOwnCadence)
+  {
+    CountingSimulation simulation;
+    ServerHost host;
+    ServerConfig config;
+    config.port = 0;
+    Assert::IsTrue(host.Start(config, simulation));
+
+    QuicTransport client;
+    const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
+    Assert::IsTrue(link != INVALID_CONNECTION);
+
+    std::array<std::uint8_t, 256> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::Hello);
+    Write(writer, Hello{PROTOCOL_VERSION, simulation.SchemaHash(), simulation.ContentHash(), "harness"});
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, writer.Written()));
+
+    bool joined = false;
+    PlayerId welcomedPlayer = INVALID_PLAYER_ID;
+    std::uint32_t snapshotsSeen = 0;
+    std::uint32_t summariesSeen = 0;
+    std::uint32_t summaryViewer = INVALID_PLAYER_ID;
+    std::uint32_t summaryMarker = 0;
+
+    const bool sawSummaries = WaitUntil(client,
+                                        [&]
+                                        {
+                                          TransportEvent event;
+                                          while (client.NextEvent(event))
+                                          {
+                                            if (event.type != TransportEvent::Type::Message)
+                                            {
+                                              continue;
+                                            }
+                                            ByteReader reader{event.payload};
+                                            const WireType type = ReadWireType(reader);
+                                            if (type == WireType::Welcome)
+                                            {
+                                              Welcome welcome;
+                                              if (Read(reader, welcome))
+                                              {
+                                                welcomedPlayer = welcome.playerId;
+                                              }
+                                              joined = true;
+                                            }
+                                            else if (type == WireType::Snapshot)
+                                            {
+                                              ++snapshotsSeen;
+                                            }
+                                            else if (type == WireType::Summary)
+                                            {
+                                              const std::uint32_t marker = reader.ReadUInt32();
+                                              const std::uint32_t viewer = reader.ReadUInt32();
+                                              if (reader.Ok())
+                                              {
+                                                summaryMarker = marker;
+                                                summaryViewer = viewer;
+                                                ++summariesSeen;
+                                              }
+                                            }
+                                          }
+                                          // Two, so a single frame that happened
+                                          // to be sent cannot pass this.
+                                          return joined && summariesSeen >= 2;
+                                        });
+
+    Assert::IsTrue(sawSummaries, L"no summary frame reached a joined client");
+    Assert::AreEqual(CountingSimulation::SUMMARY_MARKER, summaryMarker, L"the payload was not the simulation's");
+    Assert::IsTrue(welcomedPlayer != INVALID_PLAYER_ID, L"the Welcome named no player");
+    Assert::AreEqual(welcomedPlayer, summaryViewer, L"the frame was written for a player other than the one it reached");
+
+    // The cadence, stated as the relationship rather than as a count of ticks:
+    // by the time two frames have arrived, many more snapshots have. Asserting
+    // the ratio rather than an exact number keeps this from failing on a slow
+    // runner, which is the failure mode a timing test earns its keep by not
+    // having.
+    Assert::IsTrue(snapshotsSeen > summariesSeen * 4,
+                   L"summaries arrived at anything like the snapshot rate; the ~1 Hz cadence is not being applied");
 
     host.Stop();
     host.Join();

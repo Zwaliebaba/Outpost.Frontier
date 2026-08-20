@@ -70,7 +70,27 @@ enum class WireType : std::uint16_t
    * it through unread, which is what lets a local refusal and a server refusal
    * say the same thing (ADR-014 §3).
    */
-  OrderAck = 10
+  OrderAck = 10,
+
+  /*
+   * A per-viewer game payload at the summary cadence (ADR-016 §6, ADR-018 A13).
+   *
+   * Opaque for the same reason `Snapshot` is, and **one type for the whole
+   * family** rather than one per message kind: a roster, a fleet summary and
+   * whatever ADR-016 §6 adds next are all "what this viewer is owed at about
+   * 1 Hz", and which of them a payload carries is a distinction the game draws
+   * inside its own bytes under its own hash. An enumerator per kind would spend
+   * a slot of this enum on every game concept that ever wants a slow feed,
+   * which is exactly the coupling ADR-014 §5 keeps out of NeuronCore.
+   *
+   * Adding it did **not** bump `PROTOCOL_VERSION`, and the reason is worth
+   * stating because it is the first question a reader has: the version covers
+   * breaking *framing* changes, and no existing message's layout moved. A build
+   * that predates this type ignores it (the client's dispatch has always had a
+   * `default`), and what actually fails a mismatch closed is the *game* schema
+   * hash -- the frame's format is `GAME_SCHEMA_TEXT`'s, not this library's.
+   */
+  Summary = 11
 };
 
 /// Why a server turned a client away. On the wire, so the values are fixed.
@@ -291,7 +311,11 @@ inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,
                                                      // is fully described here because every field of it is a
                                                      // number this library defines the meaning of.
                                                      "OrderSubmit{u16 type,opaque payload}"
-                                                     "OrderAck{u32 orderSeq,u32 serverOrderId,u16 reasonCode,u8 accepted}";
+                                                     "OrderAck{u32 orderSeq,u32 serverOrderId,u16 reasonCode,u8 accepted}"
+                                                     // Type word only, again: one type for ADR-016 §6's whole
+                                                     // summary family, and which member a payload carries is a
+                                                     // byte inside the game's own schema.
+                                                     "Summary{u16 type,opaque payload}";
 
 [[nodiscard]] std::uint64_t CoreSchemaHash() noexcept;
 

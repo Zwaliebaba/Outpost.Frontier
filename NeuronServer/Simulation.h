@@ -90,6 +90,29 @@ public:
    */
   [[nodiscard]] virtual bool WriteSnapshot(PlayerId _viewer, std::uint32_t _tick, ByteWriter& _writer) = 0;
 
+  /*
+   * Serializes what one viewer is owed at the **summary cadence** -- the slow,
+   * per-viewer feed that answers questions a snapshot deliberately does not
+   * (ADR-016 §6). Returns false when this viewer has nothing to say, and the
+   * engine sends nothing rather than an empty frame.
+   *
+   * Opaque, like the snapshot, and framed under one wire type for the whole
+   * family: which member a payload carries is a byte inside these bytes, under
+   * the game's own schema hash. The engine decides *when* -- cadence is a link
+   * decision -- and the game decides *what*, which is ADR-022 §4's split
+   * applied to the one part of replication that exists today.
+   *
+   * Defaulted rather than pure, for `World()`'s reason: a simulation with no
+   * summaries is a real thing, and `NullSimulation` is one.
+   */
+  [[nodiscard]] virtual bool WriteSummaries(PlayerId _viewer, std::uint32_t _tick, ByteWriter& _writer)
+  {
+    (void)_viewer;
+    (void)_tick;
+    (void)_writer;
+    return false;
+  }
+
   /// Validates and applies one order payload. Returning a verdict rather than a
   /// bool keeps the refusal reason with the decision that produced it.
   [[nodiscard]] virtual OrderVerdict ApplyOrderBytes(std::uint32_t _clientId, std::span<const std::uint8_t> _payload) = 0;

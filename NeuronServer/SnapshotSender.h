@@ -37,6 +37,15 @@ namespace Neuron
 
 class Simulation;
 
+/*
+ * How often a viewer's summary frame goes out (ADR-016 §6, ADR-017 §1: "~1 Hz").
+ *
+ * Twenty ticks at ADR-002's fixed 20 Hz. The number is the engine's rather than
+ * the game's because cadence is a link decision and not a game rule -- the same
+ * split ADR-022 §4 draws between ranking and truncating.
+ */
+inline constexpr std::uint32_t SUMMARY_INTERVAL_TICKS = 20;
+
 class SnapshotSender
 {
 public:
@@ -63,6 +72,12 @@ public:
    */
   [[nodiscard]] bool Send(Simulation& _simulation, Transport& _transport, std::uint32_t _tick);
 
+  /// Summary frames actually put on the wire for this viewer.
+  [[nodiscard]] std::uint32_t SummariesSent() const noexcept
+  {
+    return m_summariesSent;
+  }
+
   /// Who this feed serves (ADR-018 D5). The durable player, never the
   /// connection: everything replication keys on outlives a socket.
   [[nodiscard]] PlayerId Viewer() const noexcept
@@ -85,10 +100,27 @@ public:
   }
 
 private:
+  /*
+   * Sends this viewer's summary frame when one is due (ADR-016 §6).
+   *
+   * Staggered by the viewer's own id rather than fired for everyone on the same
+   * tick. At one commander that is indistinguishable; at the shard ADR-018 D1
+   * targets it is the difference between a flat trickle and a spike once a
+   * second in which every session serialises at once, and it costs a modulo.
+   *
+   * Unreliable, like the snapshot and for the opposite of ADR-022 §3c's reason:
+   * a keyframe takes a reliable stream because everything after it is a delta
+   * against it, while a lost summary costs a second of staleness on a screen
+   * that is about to be told again. Putting it on `Control` would park a roster
+   * in front of the player's orders.
+   */
+  void SendSummaries(Simulation& _simulation, Transport& _transport, std::uint32_t _tick);
+
   PlayerId m_viewer = INVALID_PLAYER_ID;
   ConnectionId m_connection = INVALID_CONNECTION;
 
   std::uint32_t m_sent = 0;
+  std::uint32_t m_summariesSent = 0;
   std::uint32_t m_overCap = 0;
 
   /// Logged once per client rather than once per process: with two viewers,
