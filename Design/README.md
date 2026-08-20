@@ -140,8 +140,9 @@ prerequisites fell out of it, both gaps rather than additions: `Welcome` grew **
 (PROTOCOL_VERSION 3) because a client had no number with which to address the station it
 could see, and `ReplicatedShip` grew **`statusBits`** because the protection bit reached the
 wire and stopped there. **P1 also turns out to exist** — the station-screen print landed
-2026-08-19 and this file called it missing until now; T3 is gated on the print's own four
-review questions, not on a missing artifact.
+2026-08-19 and this file called it missing until now. Its four open review questions were
+answered the same day as [ADR-017 §6a](ADR/ADR-017-station-docking.md), so **every design
+gate in the station phase is now cleared** and what is left of it is screen work.
 
 **Three things landed on 2026-08-20, none of them a slice.** R22 closed and the Debug leg went
 back to gating, leaving R23 behind it. The build stopped relying on a hand-maintained
@@ -227,10 +228,13 @@ in the sim; `PlayerId` and the reserved resume token are on `Hello`/`Welcome`, a
 text grew the verdict-affecting constants and the check-order sequence (ADR-018 D9/A21).
 **T2's client half is not built** — the DOCK context action, the approach chain, the fades,
 the shimmer and the DOCKED roster blocks are all screen work. Its per-client `SnapshotSender`,
-the piece U3c waited on, landed with A13. T3, the hangar screen, is gated on the four
-questions [P1](ScreenPrints/station-screen.png) marks open for review — the wave-2 trigger,
-whether the composer survives a screen switch, wing colour identity, and the sort inside a
-wing — rather than on a missing print.
+the piece U3c waited on, landed with A13. T3, the hangar screen, **has no design gate left**: the
+four questions [P1](ScreenPrints/station-screen.png) marked open for review were answered on
+2026-08-20 as [ADR-017 §6a](ADR/ADR-017-station-docking.md) — the wave-2 trigger (the point
+clears, bounded by a timeout so §4's full-ring hold cannot stall it), the composer's lifetime
+(persists, reconciled against the roster), wing colour (none — colour already means
+relationship), and the sort inside a wing (class descending, then ship id, because names are
+client-side).
 
 **The first post-MVP feature is in the tree: ship collision (ADR-015, 2026-08-18).** Ships no
 longer fly through each other — per-class contact radii in the class table, braking and

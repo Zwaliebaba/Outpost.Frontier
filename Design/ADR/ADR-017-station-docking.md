@@ -6,7 +6,9 @@
 pure function on both halves (D7); §5's protection arithmetic corrected (fifteen seconds
 covers ~1.2–1.6 km for a Battleship, not ~3 km — the window is re-checked against the
 class table); §9's transfer-bus ordering reads as `(applyTick, transferId)` (D17); rosters,
-logs and `StationCommand` carry u32 ship ids and key on `PlayerId` (D5/D6)
+logs and `StationCommand` carry u32 ship ids and key on `PlayerId` (D5/D6) · **extended
+2026-08-20 by §6a** (owner rulings on the four questions P1 §3 left open for review: the
+wave-2 trigger, the composer's lifetime, wing colour, and the sort inside a wing)
 **Depends on:** ADR-002 (tick), ADR-004 (wire), ADR-005 (orders, validation, determinism),
 ADR-009 (universe model, stations), ADR-012 (JSON, user settings layer), ADR-014 (seam),
 ADR-015 (contact, stations as terrain), ADR-016 (anchors, universe runtime, summaries,
@@ -227,6 +229,75 @@ machinery if play demands it.
 for any station holding your ships, viewed or not, because the roster it reads is
 replicated regardless (§8). Undocking remotely spawns the fleet under its summary; the
 roster block offers VIEW as usual.
+
+### 6a. The four the print left open *(owner rulings, 2026-08-20)*
+
+P1 landed on 2026-08-19 and its §3 marked four questions **OPEN — FOR THE PRINT REVIEW**:
+questions the print was right not to answer alone, because each is a rule about behaviour
+rather than a matter of layout. They are answered here, where §6 is, so T3 builds against a
+decision rather than against a proposal. The print's drawing stands unchanged on all four —
+what was missing was the sentence behind it.
+
+**6a.1 — A wave launches when the undock point clears, with a timeout.** A hangar is
+uncapped (see "what this deliberately does not do") and an undock order caps at 64
+(`MAX_SHIPS_PER_ORDER`), so undocking a full hangar is more than one order and something has
+to say when the next one goes. The rule is **§4's own clearance predicate, applied to the
+undock point instead of to a berth**: the next wave launches when its solved formation at the
+point clears every hull there. One function, two call sites, nothing new to keep in step —
+and it self-scales, because an Interceptor wave clears in a second and a Battleship wave takes
+exactly as long as a Battleship wave takes. A flat delay was rejected for being wrong at both
+ends: short enough for Interceptors spawns capitals inside each other, long enough for
+capitals makes a light wave wait for nothing.
+
+**The timeout is the part that matters, and it exists because §4 has a full-ring case.** When
+all 24 berths are taken the fleet *holds at the undock point* — that is §4's designed outcome,
+not an error — and a wave gated purely on the point clearing would then wait forever, on a
+screen with nothing to say why. So the gate is bounded: if the point has not cleared within
+`UNDOCK_WAVE_TIMEOUT_SECONDS`, the wave launches anyway and `Separate` resolves the overlap,
+which ADR-015 §3 already names as one of its three jobs ("authored overlap in spawn layouts").
+That keeps **"undocking is never refused for clutter"** true, which is the position §4 took
+and the one the print draws a diagram to promise.
+
+**The gate is the client's, and nothing bounces on it.** Waves are client-fed, the way the
+approach chain and ADR-016 §8's routes are: each wave is an ordinary `StationCommand{Undock}`
+that `ValidateStationCommand` judges on its own terms, and clearance is not one of them. So
+this is pacing, not validation — a client that timed a wave badly spawns ships that `Separate`
+eases apart, and no verdict changes. That is why the predicate does **not** need to become a
+shared pure function the way `DockRadiusMetres` and `ValidateStationCommand` did: `FindBerth`
+stays `World`'s, and the client answers "is the point clear" from what it already holds — the
+replicated hull positions and classes, plus `SolveFormation`, both of which are pure and on
+both machines already. T3 should not go looking for a server call that is deliberately absent.
+
+**6a.2 — The composer persists within a session, and reconciles against the roster.** A
+half-built selection survives navigation and clears on undock, as the print proposed — plus
+the clause that makes it safe: **on every open, rows the roster no longer holds are dropped.**
+The hazard the print named is real (a selection naming ships that undocked from another
+surface meanwhile, so UNDOCK bounces on ships still listed), and the fix costs nothing,
+because the composer is a set of ship ids and §8's ~1 Hz roster is already the authority on
+which ids are docked. Clearing on every navigation was rejected: re-picking a thirty-ship
+mixed selection after one glance at the map is a real cost on the one screen whose whole
+purpose is composing selections. ADR-020 asked for the composer's retained-state lifetime as
+a rule rather than a per-print proposal; "persists, reconciled" is that rule.
+
+**6a.3 — No per-wing colour. Position is identity.** Chips are not tinted by wing, and the
+reason is that **colour in this tree already means relationship** — own-fleet phosphor, allied
+cyan reserved — and it has already cost once: the selection ring shipped as allied cyan and
+was changed to phosphor because a player reading colour fast parses their own selection as
+someone else's ship. Wing tint would put a second meaning on that channel on the one screen
+where a player is picking ships to send somewhere. It also does not scale: wings run 1..255
+(§6) and no legible, accessible palette covers that. Identity is carried by the column a chip
+sits in and the wing's own tag beside its name. This is the same rule ADR-020's seam already
+states from the other direction — a badge **class index** crosses to the engine, never a
+colour.
+
+**6a.4 — Sort inside a wing: class descending, then ship id.** Heaviest first, which is what
+P1 draws (BBS, DST, FRG, INT reading down a column) and what a player composing by class
+scans for. The tiebreak is the **ship id and deliberately not the name**: names live in the
+user settings layer (§6), client-side and per-machine, so sorting by them would make two
+clients of the same commander show the same wing in different orders, and would reshuffle the
+list the moment somebody renamed a ship. The id is the one key both machines share, and
+sorting by it matches `Formation.h` already assigning stations by ascending `ShipId` — the
+list a player reads and the formation it flies in are ordered by the same number.
 
 ### 7. Presence and the view
 

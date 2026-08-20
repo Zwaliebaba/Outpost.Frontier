@@ -9,8 +9,9 @@ acked order stream are on the wire; and `selfTest` drives the whole headless loo
 QUIC loopback — dock, roster, undock, respawn, shimmer bit, roster follows. **What T2 still
 owes is its client half**, which is screen work: the DOCK context action, the approach chain,
 the fades, the shimmer and the DOCKED roster blocks. **P1 exists** — `ScreenPrints/
-station-screen.png`, landed 2026-08-19 — so T3 is gated on its four open review questions
-rather than on a missing artifact. The design it delivers is
+station-screen.png`, landed 2026-08-19 — and its four open review questions were answered
+2026-08-20 ([ADR-017 §6a](ADR/ADR-017-station-docking.md)), so **T3 has no design gate left**:
+what remains of this phase is screen work. The design it delivers is
 [ADR-017](ADR/ADR-017-station-docking.md); where this document and that one disagree, the
 ADR wins on *what* and this one on *when*.
 
@@ -240,10 +241,13 @@ station from the roster block and jump to it with VIEW.
   wings; and the parking diagram on the screen because ADR-017 §4 made the player a promise
   about self-parking that they have to be able to see. No hull bars anywhere — the roster
   holds no damage state, which is the one rule that shapes the layout.
-  **T3 is gated on its §3 review questions, not on the print:** the wave-2 trigger (does
-  wave 2 launch when wave 1 clears the point, or on a flat delay?), whether the composer
-  survives a screen switch, whether wings carry a colour identity, and the sort inside a
-  wing. All four are owner calls the ADR is silent on.
+  **Its §3 review questions are answered** — owner rulings, 2026-08-20, recorded as
+  [ADR-017 §6a](ADR/ADR-017-station-docking.md): a wave launches when the undock point clears
+  by §4's own predicate, bounded by a timeout so §4's full-ring hold cannot stall it forever;
+  the composer persists within a session and reconciles against the roster on every open; no
+  per-wing colour, because colour already means relationship and has already cost once; and
+  ships sort class-descending then by **ship id**, not by name, because names are client-side.
+  **T3 has no design gate left.**
 - **P2 — Dock and undock audio cues.** Bay ambience, the dock thunk, the undock release.
   Lands only after S15 gives audio its bank format. Deliberately last, like D4.
 
