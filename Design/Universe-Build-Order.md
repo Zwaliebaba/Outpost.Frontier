@@ -1,6 +1,10 @@
 # Universe Build Order — Post-MVP Phase One
 
-**Status:** Session output 2026-08-19 · **no slice started.** The design it delivers is
+**Status:** Session output 2026-08-19 · **U1, U2, U3a, U3b's sim half and U5's pure half
+built** (2026-08-20). What is left in this plan is, with one exception, screen work: U3b's
+client half, U5's map itself and U6 need a GPU and a person. The exception is **U3c**, which
+is blocked on machinery rather than a screen — it needs T2's per-client `SnapshotSender` and
+U3b's view subscription, and neither exists yet. U4 is untouched. The design it delivers is
 [ADR-016](ADR/ADR-016-procedural-universe-and-warp.md); where this document and that one
 disagree, the ADR wins on *what* and this one on *when*.
 
@@ -18,15 +22,23 @@ are done: **A2** (CI is a Debug/Release matrix and spike 2 is a standing job), *
 shader build is dxc/SM 6.x in both configurations), **A1**
 ([ADR-019](ADR/ADR-019-shard-topology.md)), and **A4** — the soak, measured: a grid at the
 1,024 cap ticks in **10.6 ms mean / 21.9 ms worst, 21 % of the budget**, so the tick has ~5×
-headroom at the cap and **no broadphase is owed before U2**. Two things A4 still owes: the
-authoritative MSVC Release figure (A2's leg now produces it) and an in-repo soak so the
-number is re-taken rather than remembered — the natural home is U2's own suite, where the
-question becomes M grids rather than one.
+headroom at the cap and **no broadphase is owed before U2**. **A4's in-repo soak landed the
+same day** (`Outpost/TickSoak.h/.cpp`): the self test runs the 41 / 256 / 512 / 1,024 ladder
+in the shipping binary on every push, CI tables it per configuration, and the capped-grid
+figure D1c wants — how many grids fit one core — is printed beside it. So the number is now
+re-taken rather than remembered — **and the first run closed A4's last owed item**, the
+authoritative MSVC **Release** figure: a capped grid ticks in **7.728 ms mean / 13.6 ms worst,
+15 % of the budget, ~6.5 grids per core**, better than the cross-build indicated. (Debug is
+78.3 ms, 10.1× that, which is D11 in one number.) **U2 inherits the
+instrument, not the chore:** the ladder measures one grid, and the question U2 makes
+interesting is M grids — extending it is a line in the soak rather than a new harness.
+**A24 also landed**, so the build invariants the determinism story cites are stated in two
+property sheets and held by CI rather than by prose.
 
 The rules are the MVP build order's, unchanged: each slice is independently testable, lands
 green (`Tests/` + `selfTest` where applicable), is sized at "a few days" or less, and later
-slices assume earlier ones. Landed slices will carry a **Built** line naming what is in the
-tree and what is still owed — none exists yet, and this sentence is the reminder to add them.
+slices assume earlier ones. Landed slices carry a **Built** line naming what is in the
+tree and what is still owed.
 Test placement follows the Dependency Map: bake and warp logic prove themselves in
 `GameLogicTests`, wire changes in `NeuronCoreTests`/`NeuronServerTests`, map and view math in
 `NeuronClientTests`, and anything needing the real loopback in `selfTest`.
@@ -66,6 +78,25 @@ from its anchor** (D6a), is a bake output the invariants suite checks for unique
 anchor record carries what the **deterministic per-order arrival offset** rule needs (D18)
 so contention never forces an anchor-schema migration.
 
+**Built (U1, 2026-08-19).** `GameLogic/UniverseGen.h/.cpp` generates and writes; bake mode
+lives in `Outpost/UniverseBake.h/.cpp` and is selected from config; `Universe.h` grew the
+`Anchor` and `Constellation` records and `UniverseParse.cpp` reads them back.
+`GameData/Universe/Frontier.json` **is the committed universe**: 50 regions, 250
+constellations, 2,500 systems, 12,453 planets, 3,356 stations, 6,000 gates and **18,618
+anchors** in ~14.2 MB, `universeHash db10606904062335`. Parse + hash of that file measured in
+**Release: 167 ms** — against ADR-018 D11's ~1 s ceiling, so **no per-region content split is
+owed** (Debug is ~10× that, which is the same ratio A4's soak found and the reason the number
+is quoted from Release). `Tests/GameLogicTests/UniverseGenTests.cpp` holds the invariants,
+including the round-trip against the *committed* file rather than a freshly generated one.
+Two bugs are worth remembering because neither was visible by eye: a `Member(key, "star")`
+call binding to the `bool` overload and writing `true` into every celestial (caught only by
+the round-trip, and fixed by giving `JsonWriter` a `const char*` overload), and int64
+overflow squaring universe-plane deltas — 1.2e16² does not fit — which made "nearest" mean
+"furthest" **and was then reintroduced in the test written to check the property it broke**.
+`DistanceSquared` now takes an explicit shift and the scales are named constants.
+**Still owed:** `Ids.h`'s scale comment is corrected, but the deterministic per-order arrival
+offset (D18) has only the anchor fields reserved for it — the rule itself is U3a's.
+
 ### U2 — Anchors and the world registry
 **Gate (ADR-018): both cleared — A1 is delivered
 ([ADR-019](ADR/ADR-019-shard-topology.md)) and A4's soak is measured** (a capped grid costs
@@ -100,6 +131,27 @@ viewer-held worlds (D8); the **world-isolation invariant** stated in the registr
 with a **permuted-world-tick-order bit-identity test** holding it (D1a); ADR-007 §7's
 owner-assert built and armed on every world.
 
+**Built (U2, 2026-08-19).** `GameLogic/WorldRegistry.h/.cpp` is the runtime: worlds keyed by
+`AnchorId`, borrowed and never held, spun up with their anchor's authored occupants at the
+bake-derived ids, torn down when the last ship leaves and nobody is watching, ticked with one
+shard number in anchor-id order. `NeuronCore/OwnerThread.h/.cpp` is ADR-007 §7's owner-assert,
+armed on `World::Tick`/`Spawn`/`Despawn`/`SubmitOrder`. `World::Spawn` now takes an injected
+id (D6a) and `World` no longer mints one. `Outpost/Main.cpp`'s `UniverseSimulation` hosts the
+registry and borrows the served grid on every use; the exe no longer spawns stations, because
+the start anchor's station is its *authored occupant*.
+`Tests/GameLogicTests/RegistryTests.cpp` holds the nine invariants, including A7's empty-world
+quiescence, D8's viewer-held exclusion from the hash, and D1a's permuted-tick-order bit
+identity. The CI determinism guard was **split rather than extended**: `UniversePos` stays
+banned everywhere outside the universe files, and only the *content* name `UniverseDef` gains
+the registry as an exception — it looks an anchor up and does no math on a position.
+One thing the id-space arithmetic caught before it shipped: giving every anchor a 64-id block
+put the highest authored id at 1.19M, far past the u16 window D6 keeps. Blocks now go only to
+anchors that author something (3,356 of 18,618) and are 8 wide, so the highest authored id is
+26,848 against a dynamic base of 32,768.
+**Still owed:** the viewer hold exists and is exercised by the tests, but nothing calls
+`AddViewer`/`RemoveViewer` for a *player's* view until U3b; `HostForAnchor` returns 0 and
+`TransferId` has no bus behind it until T1.
+
 ### U3a — In-system warp (sim)
 `OrderKind::Warp` (appended; schema bump) with an anchor-reference payload; validation shared
 by both halves with the new reasons (`UnknownAnchor`; ordering added to the check-order
@@ -115,6 +167,51 @@ warp speed. Replay harness and `WorldHash`-level suites extend to cover transfer
 warps in both directions; spool cancellation; slowest-member timing; arrival lands every
 ship inside tolerance of its station with no contact pair; validation-parity matrix over the
 new reasons; `etaSeconds` on the order record tracks transit to zero.
+
+
+**Built (U3a, 2026-08-19).** `OrderKind::Warp` stopped being reserved and filled in the
+number ADR-016 published, with `OrderReason::UnknownAnchor = 14` after the station phase's
+five. The class table grew `warpSpeedMetresPerSec` and `spoolSeconds`, scaled the way speed
+and turn rate already are; the envelope claim is asserted as a comparison (a battleship
+spools longer and travels slower) rather than against values, so retuning is not rewriting
+tests.
+
+`ValidationView` gained `reachableAnchors` — **a list of ids, not the universe**. Both halves
+load the identical definition and could each look a destination up, but naming that type in
+the validator would put the universe inside the one function that must round the same way on
+both machines. The registry resolves reachability (same system, itself excluded — leaving a
+system is what gates are for, and that is U4's) and hands the world the list once at spin-up,
+because it is content and never changes.
+
+The three phases are the ADR's. A warp **spools where it stands**: it takes the group table
+like any order, so it is acked, replaced by the next order and drawn as a ghost, but it has
+no legs — the fleet holds, which is what makes "cancelled by a replacing order" mean
+something. When the spool runs out the ships leave through the same seam a dock uses, and the
+registry stamps the record's `applyTick` at the **arrival** tick: base plus universe distance
+over the slowest member's warp speed. In between the fleet is *nowhere* — `LocationOf` says
+so — and the crossing is on the bus, which is why the in-flight bus is in the hash. Arrival is
+a formation solve at the anchor's authored warp-in point.
+
+One thing that needed care rather than cleverness: `TransferOut` despawns, despawning forgets
+the ship in its group, and forgetting the last member **erases the group**. Departing while
+iterating the group table would have deleted the entry being read, so the departures are
+collected first and executed after.
+
+The distance is computed in `double` and the reason is arithmetic: two anchors in one system
+are up to ~1e12 metres apart and squaring that overflows `int64`, while `double` counts
+integers exactly to 9e15. What it must never become is `float`, which stops counting metres
+exactly at about sixteen million of them.
+
+**Also built with U3a:** ADR-019 §4b's `TRANSFER_FLOOR_TICKS` (20 ticks, one second), which
+that ADR names as a constraint U3a and U4 must respect when they set their timing tables. It
+is not a game-feel number — it is the slack a cross-host transfer needs to be delivered in,
+and there is one host, which is exactly when a timing table gets tuned under a floor without
+anybody noticing. A test asks the nearest pair of anchors in a system, which is the case that
+would breach it.
+
+**Still owed by U3a:** nothing. `etaSeconds` during transit landed with U3b's summaries
+below, which is where it belongs: a fleet mid-crossing is in no world, so no grid's order
+records can carry it.
 
 ### U3b — Warp on the wire and on screen
 Per-grid snapshots (grid identity in the header — the smear guard), the view request,
@@ -136,6 +233,30 @@ rules render (D16: presence lost under a pinned camera → the map; every fleet 
 the map); warp events emit into the **per-commander event record** (A17) and the alerts
 taxonomy gains its universe rows with the toast **action payload** (A18); summaries and
 view rights key on `PlayerId` (D5, minted in T2's cluster).
+
+**Built (U3b's sim half, 2026-08-19).** `GameLogic/FleetSummary.h/.cpp` and
+`WorldRegistry::Summaries()` — the summary family ADR-016 §6 named, with `StationRoster` as
+its first resident and this as its second.
+
+One row per (place, state) over the three places a ship can be: standing on a grid, docked at
+a station, crossing to somewhere. A fleet is emergent, so a row is a *count grouped by place*
+rather than a record of an entity — there is no fleet id, and nothing to keep in step with the
+snapshot. Ordered by anchor and then state, so two runs of one script produce the same bytes
+and a client can diff two messages without sorting.
+
+The `InTransit` row carries the anchor a fleet is **going to** and the ETA no grid could give.
+That is the number U3a owed: a fleet mid-crossing is in no world at all, so the estimate is a
+fact about the bus rather than about a grid's order records.
+
+Two things the summary deliberately does *not* say. It does not report what a fleet is doing
+on its grid — that is the snapshot's business, and a summary that tried would be a second
+source of truth. And a station standing on its own grid is not a fleet: authored occupants are
+subtracted, or every station in the universe would read as a parked one-ship fleet.
+
+**Still owed by U3b:** everything on screen — view subscription, the grid-switch notice,
+auto-follow, roster location blocks, warp ghosts, the settle over the interpolation refill —
+and the per-client `SnapshotSender` those and T2's roster privacy both need. That half is
+renderer and session work rather than simulation work.
 
 ### U3c — The second-commander gate *(ADR-018 A25, new)*
 Two real clients against one shard: distinct `PlayerId`s, each commanding its own fleets on
@@ -182,6 +303,31 @@ content* — constellation hulls disjoint, labels legible, which is U1's cluster
 paying off on screen; a destination set on the map produces a real crossing; the full 2,500
 render inside the frame budget with the `Ui` span proving it.
 
+**Built (U5's pure half, 2026-08-19).** `GameLogic/UniverseRoute.h/.cpp`: the two questions
+the strategic map asks that are not about drawing — "which system did you mean" and "how do I
+get there" — as pure functions over the baked universe, which is where ADR-018 D14 puts them.
+A search that lived in the client would be a second search the day a route is planned from
+anywhere else, and a route solver that lived there could not be replayed.
+
+Breadth-first, because a gate is a gate; when jumps stop being equal (a security-weighted
+route, a toll, a blockade) this becomes Dijkstra over the same graph and the signature does
+not move. **Ties break by system id**, which is not an implementation detail: two equally
+short routes have to be *the same* route on the server and the client, or the line drawn on
+the map is not the line the fleet flies. Search is substring and case-folded — the names are
+`ROOT-N` and a player who remembers the number types the number — ordered by id and capped, so
+a one-letter query cannot ask the screen for 2,500 rows.
+
+Seven tests, including "every system reaches every other", which is U1's connectivity
+invariant asked from the planner's side rather than the generator's, and "every step of a
+route is a gate that exists", because a plan the fleet cannot fly is worse than no plan.
+
+**Still owed by U5, and it is most of it:** the screen. Region/constellation/system pinch
+levels, gate links, labels, the security overlay, the selected-system panel, fleet markers,
+the route line, TACTICAL ⇄ MAP — all engine surface work, and its acceptance is a *visual*
+checkpoint against the print plus a frame-budget measurement, neither of which can be done
+without a GPU. The neutral topology that crosses the seam at boot (D14) is not built either:
+it is an engine type, and it should land with the surface that consumes it.
+
 ### U6 — System view and focus polish
 **Prerequisite: the system-view print (D1) — designed and agreed before this slice builds.**
 The screen: sun, orbit rings at presentation scale, anchor icons (planets, stations, gates),
@@ -215,12 +361,23 @@ one sitting.
   durations (which U3a and U4 must respect when they set spool, transit and jump times);
   one client connection through the session front door, so **the client wire does not
   change**. Its §6 is U2's acceptance.
-- **D6 — The interest/delta ADR** *(ADR-018 A14 — drafted during the station phase; its
-  implementation slice follows U3c and gates shared grids)*. Scope fixed by ADR-018 D4:
-  snapshot-ack and baseline ownership, the keyframe/initial-sync path, `Simulation`'s
-  relevance hook, the degradation rule, the interest guarantee (owned + selected never
-  culled; unreplicated presence stated via counted chips), `lastOrderSeqProcessed` out of
-  the world hash, `EntityRecord` → u32 id, the ownership field.
+- ~~**D6 — The interest/delta ADR** *(ADR-018 A14 — drafted during the station phase; its
+  implementation slice follows U3c and gates shared grids)*.~~ **Delivered 2026-08-19:
+  [ADR-022](ADR/ADR-022-interest-and-delta.md).** Culling and delta belong to the **session
+  role** and nowhere else (ADR-019 §5d), because relevance is a property of a viewer and the
+  sim tier has none. `SnapshotAck` on datagrams; the baseline is the **view as sent**, not the
+  world as it was — the subtlety that makes interest and delta safe together. Keyframes take a
+  new reliable **`Bulk`** channel (a view switch *is* a mid-session join, and 21 KB is not a
+  datagram-shaped object) so they never queue behind the player's orders. The relevance hook
+  **ranks in the game and truncates in the engine**. Owned and selected ships are never culled
+  — that is pre-check parity, not politeness — and `culledCount` says how many the player is
+  not being shown. Whole-snapshot refusal becomes priority truncation. `lastOrderSeqProcessed`
+  leaves the world hash (one replay re-baseline). And ownership costs **no byte**: two spare
+  `statusBits` carry the viewer-relative relationship the icon sheet reads.
+
+  **What this changes for U3b/T2, which come first:** the per-client sender (A13) and the
+  per-viewer roster are not optimisations to add later — they are the shapes this design
+  assumes already exist.
 - ~~**D7 — The UI-architecture ADR** *(ADR-018 A19 — blocks U5 here and T3 in the station
   order)*.~~ **Delivered 2026-08-19: [ADR-020](ADR/ADR-020-ui-architecture.md).** A surface
   is a value on a small stack (pushing one already present pops back to it, so `◀ TACTICAL`

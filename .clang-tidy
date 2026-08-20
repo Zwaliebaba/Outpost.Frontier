@@ -8,15 +8,33 @@
 # overlap: clang-tidy has no check that reports a wrong brace position or an over-long line, and
 # clang-format cannot see that a parameter is missing its `_`.
 #
-# ── Status: nothing runs this automatically ────────────────────────────────────────────────
+# ── Status: CI runs this over GameLogic, and it gates ──────────────────────────────────────
 #
-# There is no clang-tidy step in CI and the .vcxproj files do not enable MSBuild code analysis.
-# Run it by hand ON THE FILES YOU WROTE:
+# There is a `Run clang-tidy` step in CI since ADR-018 A24. It sweeps GameLogic and **fails the
+# step on a finding** -- it landed non-blocking, came back clean on its second run, and was
+# promoted, which was the promise it made. It covers GameLogic only; the engine projects reach
+# D3D12, C++/WinRT, XAudio2 and msquic headers and have not been through it, so widening the
+# step should land the same way: non-blocking until a run is clean. The .vcxproj files still do
+# not enable MSBuild code analysis. Run it by hand ON THE FILES YOU WROTE:
 #
 #   clang-tidy --quiet NeuronCore/YourNewFile.cpp -- -I . -D _WIN32 -D _DEBUG /std:c++latest
 #
+# GameLogic has been swept clean under clang-tidy 18 (Linux) and LLVM 20.1.8 (the CI runner),
+# so a finding there is new work rather than archaeology. What that cost: two identifier
+# findings (local constexpr constants, a lambda parameter), one truncating division split out
+# of the float expression it fed so the intent reads, the `-performance-enum-size` exclusion
+# below, and -- from the Windows run only, which is the argument for having it -- a `noexcept`
+# on `ComputeUniverseHash` that its own per-list allocation could not keep.
+#
 # Unlike the sibling tree there is nothing grandfathered here — this is a greenfield repository,
-# so a whole-tree pass should come back clean and a finding is a defect, not archaeology.
+# so a whole-tree pass should come back clean and a finding is a defect, not archaeology. That
+# claim has now been tested on one project under two toolchains; the engine projects are still
+# untested, and the version spread is itself a finding: the newer clang-tidy saw a defect the
+# older one did not, so "clean" is always clean *under something*.
+
+# Two rules of AGENTS.md §1 this file cannot express — R2's banned type suffixes and R7's file
+# naming and .vcxproj/.filters registration — have their own CI step, because a check that
+# exists somewhere is worth more than a rule everyone is asked to remember.
 #
 # readability-identifier-length is deliberately NOT enabled. Its defaults reject the domain
 # vocabulary this codebase is built on — x, y, _a, _b — and short names here are precise, not lazy.
@@ -29,7 +47,8 @@ Checks: >
   modernize-use-override,
   -bugprone-easily-swappable-parameters,
   -bugprone-narrowing-conversions,
-  -clang-analyzer-optin.performance.Padding
+  -clang-analyzer-optin.performance.Padding,
+  -performance-enum-size
 
 # `-clang-analyzer-optin.performance.Padding` is a judgement call, not a mechanical exclusion. It
 # is an OPT-IN analyzer that arrives with clang-tidy's defaults because this list does not begin
@@ -40,6 +59,13 @@ Checks: >
 # `-bugprone-narrowing-conversions` is off because quantisation is pervasive and deliberate:
 # metres to centimetres, radians to turns16, float to the integer wire types. It would fire on
 # most of the serialization layer, where the narrowing IS the design.
+#
+# `-performance-enum-size` is off for the same reason as the padding check, and was turned off by
+# the first run that ever happened (the CI step, ADR-018 A24): it asks `OrderReason` to become a
+# u8 because eight enumerators fit in one, and `OrderReason` is two bytes because ADR-004 §7 says
+# the reason code on the wire is two bytes. Every closed taxonomy in this tree is a wire value
+# first and a C++ type second, so "no enumerator needs that many bits yet" is an argument for
+# renumbering a protocol, which is the change this repository must not make casually.
 #
 # NOTE ON THE FORMAT: `Checks:` is a FOLDED scalar, so a `#` line indented under it is not a
 # comment — it folds into the value and corrupts the check list. Every comment belongs here.

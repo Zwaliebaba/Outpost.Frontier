@@ -3,7 +3,11 @@
 **Status:** Accepted · 2026-08-17 · amended by [ADR-018](ADR-018-scaling-baseline.md)
 (2026-08-19): the schema text grows the verdict-affecting constants and the check-order
 sequence (D9); the §6 growth path gets an owner and a scope — the interest/delta ADR (D4);
-ship-id width staging on the wire (D6)
+ship-id width staging on the wire (D6) · **§6's growth path is designed as of
+[ADR-022](ADR-022-interest-and-delta.md)** (2026-08-19): `SnapshotAck`, baselines held as
+*views as sent*, keyframes on a new reliable `Bulk` channel, priority truncation replacing
+whole-snapshot refusal, `EntityRecord.id` → u32, and the relationship bits that spend no
+byte at all
 **Depends on:** ADR-002 (tick), ADR-003 (channels & 1,152 B datagram cap)
 **Feeds:** ADR-005 (schema ownership), HUD feedback loop
 
@@ -40,11 +44,32 @@ overhead anyway.
 4. **Control channel:** `[u16 length][u16 type][payload]` per message.
    **Datagram channel:** `[u16 type][payload]`, one message per datagram, ≤ 1,152 B total.
 5. **Protocol constants:** `ProtocolVersion u16` (breaking framing changes only), ALPN `opf/1`.
+   **Version 2 as of T2:** `Hello`/`Welcome` grew `PlayerId` and a reserved resume token
+   (ADR-018 D5/A12), so a build that predates them reads past the end of a message it thinks
+   it understands. The schema hash cannot catch this — it covers game payloads, and `Hello`
+   is the message that *carries* the schema hash — so the version is the only thing that can
+   refuse the connection, and it does.
+
+   **Both messages put the identity pair last**, after the variable-length strings, so the
+   fields the handshake fails closed on keep fixed offsets from the front of the message. That
+   mattered the day `Welcome` gained the HUD's three display strings (ADR-009 §8): the strings
+   went in front of `playerId`/`resumeToken`, and the arrangement absorbed them without moving
+   anything a truncated read depends on.
+
+   **`CORE_SCHEMA_TEXT` covers this file's layout, and it has to be edited by hand when a field
+   is added.** It was not, for the identity pair — the fields shipped in `Hello`/`Welcome` and
+   in `Wire.cpp`'s read and write, and were missing from the text for a day, so two builds
+   disagreeing about them would have agreed about the core schema hash. `PROTOCOL_VERSION = 2`
+   was doing the refusing throughout, which is why this was a hole in the belt rather than in
+   the braces — but it is exactly the failure the text exists to prevent, and the reason it
+   went unnoticed is that nothing checks the text against the struct. Nothing does yet.
 
 ### Message set (MVP, complete)
 | Channel | C→S | S→C |
 |---|---|---|
-| control | `Hello{ver, schemaHash, name}` | `Welcome{clientId, tick, tickRate, worldMeta}` / `UpdateRequired{serverSchemaHash}` / `Refuse{reason}` |
+| control | `Hello{ver, schemaHash, name, playerId, resumeToken}` | `Welcome{clientId, tick, tickRate, worldMeta, worldName, worldDetail, worldBadge, playerId, resumeToken}` / `UpdateRequired{serverSchemaHash}` / `Refuse{reason}` |
+| control | `StationCommand{orderSeq, verb, station, formation, wing, shipIds[]}` (T2) | shares `OrderAck` |
+| control | — | `StationRoster{station, (shipId, classId, wingId)[]}` (T2, ~1 Hz, per viewer) |
 | control | `OrderSubmit` (below) | `OrderAck{orderSeq, verdict, reasonCode, serverOrderId}` |
 | control | `Goodbye{reason}` | `Goodbye{reason}` |
 | datagram | `Ping{clientSendUs}` | `Pong{clientSendUs, serverTick}` |

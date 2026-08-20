@@ -5,7 +5,11 @@ nothing: the ADRs remain the authority, and every recommendation below is a prop
 owner to accept, amend, or decline. **Decided 2026-08-19:** the owner answered all fourteen
 questions the same day; the answers are recorded in
 [ADR-018](ADR/ADR-018-scaling-baseline.md), whose action register (A1–A26) supersedes the
-decision list below wherever they differ. Headline answers: **MMO shard (hundreds of
+decision list below wherever they differ. **As of 2026-08-20 the register is the live record
+and this document is history:** twenty of the twenty-six actions are struck through — A11 only
+partly, since the sim's own ship ids stay `u16` until the delta cluster widens the record — and
+the six that are not (**A13, A15, A16, A18, A20, A25**) are each named against the slice that
+carries them. Read the register for status; read this for the reasoning that produced it. Headline answers: **MMO shard (hundreds of
 commanders), persistent service**; two-client gate right after U3b; 1,024 stays normative;
 `PlayerId` now; **u32 ship ids everywhere, staged**; footprint-derived dock radius; worlds
 forget; strict behaviour gate; official service first (pinned key, Win11/Server 2022+

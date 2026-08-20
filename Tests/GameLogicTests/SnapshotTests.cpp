@@ -34,6 +34,21 @@ namespace GameLogicTests
 namespace
 {
 
+/*
+ * The id the world would have minted before ADR-018 D6a moved allocation to the
+ * registry: sequential from zero, per world.
+ *
+ * Sequential rather than "lowest free" on purpose -- the world used to mint
+ * monotonically, and reusing a despawned id would quietly change what a test
+ * about identity is testing. Per world rather than globally for a sharper
+ * reason: the replay suites run a scenario twice and compare hashes, and a
+ * counter that kept climbing between runs would make every one of them fail.
+ */
+[[nodiscard]] ShipId NextShipId(const World& _world) noexcept
+{
+  return static_cast<ShipId>(_world.ShipCount());
+}
+
 const HullClass SNAPSHOT_HULLS[] = {HullClass::Interceptor, HullClass::Bomber, HullClass::Corvette, HullClass::Frigate,
                                     HullClass::Hauler,      HullClass::Miner,  HullClass::Carrier,  HullClass::Battleship};
 
@@ -50,7 +65,7 @@ void BuildFlyingWorld(World& _world, int _shipCount, std::vector<ShipId>& _outId
     spawn.xMetres = static_cast<float>(i * 97 - 2000);
     spawn.yMetres = static_cast<float>(i * -53 + 1100);
     spawn.headingRadians = static_cast<float>(i) * 0.3f;
-    _outIds.push_back(_world.Spawn(spawn));
+    _outIds.push_back(_world.Spawn(spawn, NextShipId(_world)));
   }
 
   OrderSubmit move;
@@ -186,7 +201,7 @@ public:
     {
       ShipSpawn spawn;
       spawn.hullClass = HullClass::Interceptor;
-      (void)world.Spawn(spawn);
+      (void)world.Spawn(spawn, NextShipId(world));
     }
 
     std::array<std::uint8_t, 4096> buffer{};
@@ -280,7 +295,7 @@ public:
     world.Reset(7);
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Corvette;
-    const ShipId ship = world.Spawn(spawn);
+    const ShipId ship = world.Spawn(spawn, NextShipId(world));
     const ShipId ships[] = {ship};
 
     OrderSubmit move;
@@ -340,7 +355,7 @@ public:
     world.Reset(3);
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Interceptor;
-    const ShipId ship = world.Spawn(spawn);
+    const ShipId ship = world.Spawn(spawn, NextShipId(world));
     const ShipId ships[] = {ship};
 
     OrderSubmit move;
@@ -393,7 +408,7 @@ public:
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Structure; // Never moves, so only heading changes.
     spawn.headingRadians = before;
-    (void)world.Spawn(spawn);
+    (void)world.Spawn(spawn, NextShipId(world));
 
     ReplicatedView view;
     std::array<std::uint8_t, 256> buffer{};
@@ -408,7 +423,7 @@ public:
     turned.Reset(1);
     ShipSpawn turnedSpawn = spawn;
     turnedSpawn.headingRadians = after;
-    (void)turned.Spawn(turnedSpawn);
+    (void)turned.Spawn(turnedSpawn, NextShipId(turned));
     turned.Tick(11);
 
     std::array<std::uint8_t, 256> secondBuffer{};
@@ -511,7 +526,7 @@ public:
       spawn.hullClass = wing == INVALID_WING_ID ? HullClass::Structure : HullClass::Corvette;
       spawn.wing = wing;
       spawn.xMetres = static_cast<float>(ids.size()) * 120.0f;
-      ids.push_back(world.Spawn(spawn));
+      ids.push_back(world.Spawn(spawn, NextShipId(world)));
       Assert::IsTrue(ids.back() != INVALID_SHIP_ID);
     }
     world.Tick(1);
@@ -616,7 +631,7 @@ public:
     world.Reset(7);
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Corvette;
-    (void)world.Spawn(spawn);
+    (void)world.Spawn(spawn, NextShipId(world));
     world.Tick(1);
 
     ReplicatedView view;
@@ -674,7 +689,7 @@ public:
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Interceptor;
     spawn.headingRadians = 0.0f;
-    const ShipId ship = world.Spawn(spawn);
+    const ShipId ship = world.Spawn(spawn, NextShipId(world));
 
     OrderSubmit turn;
     turn.orderSeq = 1;

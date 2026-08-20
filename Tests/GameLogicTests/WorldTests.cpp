@@ -35,6 +35,21 @@ namespace GameLogicTests
 namespace
 {
 
+/*
+ * The id the world would have minted before ADR-018 D6a moved allocation to the
+ * registry: sequential from zero, per world.
+ *
+ * Sequential rather than "lowest free" on purpose -- the world used to mint
+ * monotonically, and reusing a despawned id would quietly change what a test
+ * about identity is testing. Per world rather than globally for a sharper
+ * reason: the replay suites run a scenario twice and compare hashes, and a
+ * counter that kept climbing between runs would make every one of them fail.
+ */
+[[nodiscard]] ShipId NextShipId(const World& _world) noexcept
+{
+  return static_cast<ShipId>(_world.ShipCount());
+}
+
 constexpr float PI = 3.14159265358979323846f;
 
 [[nodiscard]] float WrappedDelta(float _from, float _to) noexcept
@@ -62,7 +77,7 @@ constexpr float PI = 3.14159265358979323846f;
   ShipSpawn spawn;
   spawn.hullClass = _hullClass;
   spawn.headingRadians = _headingRadians;
-  return _world.Spawn(spawn);
+  return _world.Spawn(spawn, NextShipId(_world));
 }
 
 /// One ship of a class, where the contact scenarios need it.
@@ -73,7 +88,7 @@ constexpr float PI = 3.14159265358979323846f;
   spawn.xMetres = _x;
   spawn.yMetres = _y;
   spawn.headingRadians = _headingRadians;
-  return _world.Spawn(spawn);
+  return _world.Spawn(spawn, NextShipId(_world));
 }
 
 /// Centre distance between two ships, by slot lookup.
@@ -140,7 +155,7 @@ const HullClass PLAYABLE[] = {HullClass::Interceptor, HullClass::Bomber, HullCla
     spawn.xMetres = static_cast<float>(i * 211 - 1600);
     spawn.yMetres = static_cast<float>(i * -137 + 900);
     spawn.headingRadians = static_cast<float>(i) * 0.41f;
-    const ShipId id = world.Spawn(spawn);
+    const ShipId id = world.Spawn(spawn, NextShipId(world));
     if (id != INVALID_SHIP_ID)
     {
       ships.push_back(id);
@@ -1005,9 +1020,9 @@ public:
     world.Reset(1);
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Fighter;
-    Assert::AreEqual<ShipId>(INVALID_SHIP_ID, world.Spawn(spawn));
+    Assert::AreEqual<ShipId>(INVALID_SHIP_ID, world.Spawn(spawn, NextShipId(world)));
     spawn.hullClass = HullClass::Cruiser;
-    Assert::AreEqual<ShipId>(INVALID_SHIP_ID, world.Spawn(spawn));
+    Assert::AreEqual<ShipId>(INVALID_SHIP_ID, world.Spawn(spawn, NextShipId(world)));
     Assert::AreEqual<std::uint32_t>(0, world.ShipCount());
   }
 
@@ -1056,7 +1071,7 @@ public:
     spawn.xMetres = 1234.0f;
     spawn.yMetres = -567.0f;
     spawn.headingRadians = 1.0f;
-    const ShipId ship = world.Spawn(spawn);
+    const ShipId ship = world.Spawn(spawn, NextShipId(world));
     Assert::IsTrue(ship != INVALID_SHIP_ID);
 
     for (std::uint32_t tick = 1; tick <= 100; ++tick)

@@ -82,6 +82,24 @@ const Station* UniverseDef::FindStation(SystemId _system, StationId _station) co
   return nullptr;
 }
 
+const Anchor* UniverseDef::FindAnchor(AnchorId _id) const noexcept
+{
+  // Linear across systems, then across their anchors. The universe is read at
+  // boot and warp orders are rare; an index would be a second thing to keep
+  // true for a lookup nobody measures.
+  for (const SolarSystem& system : systems)
+  {
+    for (const Anchor& anchor : system.anchors)
+    {
+      if (anchor.id == _id)
+      {
+        return &anchor;
+      }
+    }
+  }
+  return nullptr;
+}
+
 GridAnchor UniverseDef::StartAnchor() const noexcept
 {
   const Station* station = FindStation(start.system, start.station);
@@ -92,7 +110,24 @@ GridAnchor UniverseDef::StartAnchor() const noexcept
   return GridAnchor{start.system, station->position};
 }
 
-std::uint64_t ComputeUniverseHash(const UniverseDef& _universe) noexcept
+AnchorId UniverseDef::StartAnchorId() const noexcept
+{
+  const SolarSystem* system = FindSystem(start.system);
+  if (system == nullptr)
+  {
+    return INVALID_ID;
+  }
+  for (const Anchor& anchor : system->anchors)
+  {
+    if (anchor.kind == AnchorKind::Station && anchor.owner == start.station)
+    {
+      return anchor.id;
+    }
+  }
+  return INVALID_ID;
+}
+
+std::uint64_t ComputeUniverseHash(const UniverseDef& _universe)
 {
   std::uint64_t hash = HashName(_universe.name, Neuron::FNV_OFFSET_BASIS_64);
 
@@ -102,6 +137,18 @@ std::uint64_t ComputeUniverseHash(const UniverseDef& _universe) noexcept
     const Region& region = _universe.regions[index];
     hash = HashValue(region.id, hash);
     hash = HashName(region.name, hash);
+    hash = HashValue(region.securityFloor, hash);
+    hash = HashValue(region.securityCeiling, hash);
+  }
+
+  hash = HashValue(static_cast<std::uint32_t>(_universe.constellations.size()), hash);
+  for (const std::size_t index : OrderById(_universe.constellations))
+  {
+    const Constellation& constellation = _universe.constellations[index];
+    hash = HashValue(constellation.id, hash);
+    hash = HashValue(constellation.region, hash);
+    hash = HashName(constellation.name, hash);
+    hash = HashPosition(constellation.centre, hash);
   }
 
   hash = HashValue(static_cast<std::uint32_t>(_universe.systems.size()), hash);
@@ -110,7 +157,10 @@ std::uint64_t ComputeUniverseHash(const UniverseDef& _universe) noexcept
     const SolarSystem& system = _universe.systems[systemIndex];
     hash = HashValue(system.id, hash);
     hash = HashValue(system.region, hash);
+    hash = HashValue(system.constellation, hash);
     hash = HashName(system.name, hash);
+    hash = HashValue(system.security, hash);
+    hash = HashValue(static_cast<std::uint8_t>(system.starter ? 1 : 0), hash);
     hash = HashPosition(system.centre, hash);
 
     hash = HashValue(static_cast<std::uint32_t>(system.celestials.size()), hash);
@@ -141,6 +191,32 @@ std::uint64_t ComputeUniverseHash(const UniverseDef& _universe) noexcept
       hash = HashValue(gate.toSystem, hash);
       hash = HashName(gate.name, hash);
       hash = HashPosition(gate.position, hash);
+    }
+
+    /*
+     * Anchors are content, and the most load-bearing content there is: a warp
+     * order names one, so two halves disagreeing about where an anchor's grid
+     * sits is two halves flying to different places. They fold here rather than
+     * being left out as "derived", because they are not derived -- the bake
+     * chose them.
+     */
+    hash = HashValue(static_cast<std::uint32_t>(system.anchors.size()), hash);
+    for (const std::size_t index : OrderById(system.anchors))
+    {
+      const Anchor& anchor = system.anchors[index];
+      hash = HashValue(anchor.id, hash);
+      hash = HashValue(static_cast<std::uint8_t>(anchor.kind), hash);
+      hash = HashValue(anchor.owner, hash);
+      hash = HashPosition(anchor.origin, hash);
+      hash = HashValue(anchor.warpInPoint.x, hash);
+      hash = HashValue(anchor.warpInPoint.y, hash);
+      hash = HashValue(anchor.warpInFacingTurns16, hash);
+      hash = HashValue(anchor.arrivalSpreadRadiusCm, hash);
+      hash = HashValue(anchor.undockPoint.x, hash);
+      hash = HashValue(anchor.undockPoint.y, hash);
+      hash = HashValue(anchor.undockFacingTurns16, hash);
+      hash = HashValue(anchor.occupantIdBase, hash);
+      hash = HashValue(anchor.occupantCount, hash);
     }
   }
 

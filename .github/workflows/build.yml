@@ -15,10 +15,12 @@ name: Build
 # The source-level guards run on the Debug leg only: they read source, not
 # object code, so running them twice would only make the log longer.
 #
-# The Debug leg is currently NON-BLOCKING (see `continue-on-error` below) while
-# R22 is open, so a green run on this workflow certifies Release only. That is a
-# temporary, deliberate, and loudly-announced reduction in coverage, not a
-# silenced failure.
+# **Both legs gate again as of 2026-08-20.** The Debug leg spent a day
+# non-blocking while R22's intermittent hang was open, during which a green run
+# certified Release only; the deadlock behind it was found and removed, the
+# Debug legs since have been green, and the owner closed the row. A green run on
+# this workflow means both configurations passed, which is what it should always
+# have meant.
 
 on:
   push:
@@ -45,18 +47,6 @@ jobs:
     # changes the compiler it shows up as a diff in the summary rather than as a
     # mystery. Pin this the first time that log says something new.
     runs-on: windows-latest
-
-    # The Debug leg does not gate the run, by owner decision (2026-08-19), until
-    # R22's intermittent Debug test hang is root-caused -- that needs a Windows
-    # machine and the hang dump, which CI cannot supply. This is a deliberate and
-    # temporary reduction in what a green run means: **green currently certifies
-    # Release only**. It is not a way of hiding the failure -- the Debug leg still
-    # builds, still runs, still uploads its dump, and the last step of this job
-    # writes an unmissable banner into the summary when it fails.
-    #
-    # Remove this line the day R22 closes. If it is still here and R22 is closed,
-    # that is a bug in someone's discipline, not in the build.
-    continue-on-error: ${{ matrix.configuration == 'Debug' }}
 
     # A hang must cost 45 minutes, not the 6-hour default. Added when the Debug
     # leg was found stuck in `Run tests` for over 100 minutes on a docs-only
@@ -145,7 +135,11 @@ jobs:
                         'stdlib','stdnoreturn','string','tgmath','threads','time','uchar','wchar','wctype',
                         'complex','new','memory','vector','string_view','span','bit','chrono','thread','mutex')
           $bad = @()
-          foreach ($dir in 'NeuronCore', 'GameLogic', 'NeuronServer', 'NeuronClient', 'Outpost')
+          # Derived from the tree, not spelled here (ADR-018 A24): a project
+          # added by a later slice is guarded the day its folder appears.
+          $projects = Get-ChildItem -Directory | Where-Object { Test-Path "$($_.Name)/$($_.Name).vcxproj" } | ForEach-Object { $_.Name }
+          Write-Host "guarding $($projects.Count) projects: $($projects -join ', ')"
+          foreach ($dir in $projects)
           {
             Get-ChildItem -Path $dir -Filter *.h -ErrorAction SilentlyContinue | ForEach-Object {
               if ($reserved -contains $_.BaseName.ToLower()) { $bad += "$dir/$($_.Name)" }
@@ -170,7 +164,8 @@ jobs:
         run: |
           $seen = @{}
           $bad = @()
-          foreach ($dir in 'NeuronCore', 'GameLogic', 'NeuronServer', 'NeuronClient', 'Outpost', 'Tests')
+          $projects = Get-ChildItem -Directory | Where-Object { Test-Path "$($_.Name)/$($_.Name).vcxproj" } | ForEach-Object { $_.Name }
+          foreach ($dir in ($projects + 'Tests'))
           {
             Get-ChildItem -Path $dir -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
               # pch.h/pch.cpp sit at every project root by design (ADR-013 §1)
@@ -202,7 +197,11 @@ jobs:
         run: |
           $seen = @{}
           $bad = @()
-          foreach ($dir in 'NeuronCore', 'NeuronClient', 'NeuronServer')
+          # "Engine project" is a property of the name, so the tree can be asked
+          # rather than told (ADR-018 A24): a fourth Neuron* library is guarded
+          # the day it lands.
+          $engine = Get-ChildItem -Directory -Filter 'Neuron*' | Where-Object { Test-Path "$($_.Name)/$($_.Name).vcxproj" } | ForEach-Object { $_.Name }
+          foreach ($dir in $engine)
           {
             Get-ChildItem -Path $dir -Filter *.h -ErrorAction SilentlyContinue | ForEach-Object {
               $file = $_.Name
@@ -239,14 +238,19 @@ jobs:
         shell: pwsh
         run: |
           $bad = @()
-          foreach ($project in 'NeuronCore', 'NeuronServer', 'NeuronClient')
+          $engine = Get-ChildItem -Directory -Filter 'Neuron*' | Where-Object { Test-Path "$($_.Name)/$($_.Name).vcxproj" } | ForEach-Object { $_.Name }
+          foreach ($project in $engine)
           {
             $file = "$project/$project.vcxproj"
             if ((Get-Content $file -Raw) -match 'GameLogic') { $bad += $file }
           }
           # The test projects too: a test that links GameLogic to drive an
           # engine library proves the opposite of what the seam suite claims.
-          foreach ($project in 'NeuronCoreTests', 'NeuronServerTests', 'NeuronClientTests')
+          # Derived the same way, so an engine suite added later is covered.
+          $engineTests = Get-ChildItem -Path Tests -Directory -Filter 'Neuron*' |
+            Where-Object { Test-Path "Tests/$($_.Name)/$($_.Name).vcxproj" } | ForEach-Object { $_.Name }
+          Write-Host "guarding $($engine.Count) engine projects and $($engineTests.Count) engine test projects"
+          foreach ($project in $engineTests)
           {
             $file = "Tests/$project/$project.vcxproj"
             if ((Get-Content $file -Raw) -match 'GameLogic') { $bad += $file }
@@ -262,7 +266,7 @@ jobs:
             ForEach-Object { [regex]::Escape($_.BaseName) }
           $pattern = '#include\s*"(' + ($gameHeaders -join '|') + ')\.h"'
           Write-Host "guarding $($gameHeaders.Count) GameLogic headers"
-          foreach ($dir in 'NeuronCore', 'NeuronServer', 'NeuronClient')
+          foreach ($dir in $engine)
           {
             Get-ChildItem -Path $dir -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
               if ((Get-Content $_.FullName -Raw) -match $pattern) { $bad += $_.FullName }
@@ -316,12 +320,37 @@ jobs:
 
           # ADR-009 §2: universe coordinates are exact int64 metres and belong to
           # placement, not to per-tick math. The tick runs in local float metres.
-          foreach ($file in @('GameLogic/World.h', 'GameLogic/World.cpp', 'GameLogic/ShipClass.h',
-                              'GameLogic/ShipClass.cpp', 'GameLogic/WorldHash.h', 'GameLogic/WorldHash.cpp'))
+          #
+          # Stated as an exclusion rather than a list (ADR-018 A24): every
+          # GameLogic file is per-tick code unless its job *is* the universe, so
+          # a file added by U1 or T1 is guarded the day it lands instead of on
+          # the day someone remembers to extend a list here.
+          #
+          # Two names, two exclusions, because they are two different rules.
+          # `UniversePos` is the *coordinate*, and nothing outside the universe
+          # files may touch one -- that is the arithmetic ADR-009 §2 is about,
+          # and it has no exceptions. `UniverseDef` is the *content*, and one
+          # two files outside the universe legitimately read it: the registry,
+          # whose whole job is turning anchors into worlds (U2), and the route
+          # solver, whose whole job is answering questions about the topology
+          # (U5). Neither does math on a position -- one looks an anchor up, the
+          # other walks a graph of ids -- which is why they appear in the second
+          # list and not the first.
+          $posOwned = @('Universe.h', 'Universe.cpp', 'UniverseParse.h', 'UniverseParse.cpp', 'UniverseGen.h', 'UniverseGen.cpp')
+          $defOwned = $posOwned + @('WorldRegistry.h', 'WorldRegistry.cpp', 'UniverseRoute.h', 'UniverseRoute.cpp')
+          $guarded = Get-ChildItem -Path GameLogic -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne 'pch.h' -and $_.Name -ne 'pch.cpp' }
+          Write-Host "guarding $($guarded.Count) GameLogic files against universe coordinates"
+          foreach ($file in $guarded)
           {
-            if ((Test-Path $file) -and ((Get-Content $file -Raw) -match '\b(UniversePos|UniverseDef)\b'))
+            $text = Get-Content $file.FullName -Raw
+            if ($file.Name -notin $posOwned -and $text -match '\bUniversePos\b')
             {
-              $bad += "$($file): universe coordinates in per-tick simulation code"
+              $bad += "$($file.Name): universe coordinates in per-tick simulation code"
+            }
+            if ($file.Name -notin $defOwned -and $text -match '\bUniverseDef\b')
+            {
+              $bad += "$($file.Name): the universe definition in per-tick simulation code"
             }
           }
 
@@ -331,6 +360,251 @@ jobs:
             throw 'GameLogic broke a determinism rule'
           }
           Write-Host 'GameLogic reads no clock, draws no unseeded randomness, and keeps the universe out of the tick'
+
+      # AGENTS.md §1 names two rules its own .clang-tidy config cannot express,
+      # and says a reviewer therefore has to carry them. This is that reviewer.
+      #
+      #   R2 - clang-tidy can require an absent prefix but cannot ban a present
+      #        suffix, so `FooBase` and `FooImpl` slip past it entirely.
+      #   R7 - nothing checks that a new file is PascalCase .h/.cpp, and nothing
+      #        checks the .vcxproj *and* .filters entries that must accompany it.
+      #        The first run of this step found AudioTests.cpp in the project and
+      #        not in the filters, which is exactly the miss §8's checklist
+      #        predicts and exactly the kind a person does not catch twice.
+      - name: Check the naming rules clang-tidy cannot express
+        if: matrix.configuration == 'Debug'
+        shell: pwsh
+        run: |
+          # Vendored SDK code keeps its own spelling (AGENTS.md R4) and is not
+          # ours to rename: d3dx12.h is Microsoft's D3D12 helper header, and
+          # every CD3DX12_* type in it would fail R2 by design.
+          $vendored = @('d3dx12.h')
+          $pch = @('pch.h', 'pch.cpp')
+
+          $projects = @(Get-ChildItem -Directory | Where-Object { Test-Path "$($_.Name)/$($_.Name).vcxproj" } | ForEach-Object { $_.Name })
+          $projects += @(Get-ChildItem -Path Tests -Directory | Where-Object { Test-Path "Tests/$($_.Name)/$($_.Name).vcxproj" } |
+                         ForEach-Object { "Tests/$($_.Name)" })
+
+          $bad = @()
+          $checked = 0
+          foreach ($dir in $projects)
+          {
+            $leaf = Split-Path $dir -Leaf
+            $projectFile = "$dir/$leaf.vcxproj"
+            $projectText = Get-Content $projectFile -Raw
+            $filtersFile = "$projectFile.filters"
+            $filtersText = if (Test-Path $filtersFile) { Get-Content $filtersFile -Raw } else { $null }
+
+            # -Include needs a wildcard path to work without -Recurse, and
+            # recursing is wrong here: a project folder is flat by ADR-013 §1,
+            # and Outpost/CompiledShaders holds generated headers that are
+            # build output rather than source.
+            $sources = @(Get-ChildItem -Path "$dir/*" -Include *.h, *.cpp -File)
+            $sources += @(Get-ChildItem -Path "$dir/Shaders/*" -Include *.hlsl, *.hlsli -File -ErrorAction SilentlyContinue)
+            foreach ($file in $sources)
+            {
+              if ($vendored -contains $file.Name) { continue }
+              $checked++
+
+              # R7: PascalCase, and registered in both places. Shaders live one
+              # level down and are checked for registration only -- ADR-013 §1's
+              # flat rule is about code, and the .hlsl set is its own tree.
+              if (($pch -notcontains $file.Name) -and ($file.Extension -in @('.h', '.cpp')) -and
+                  ($file.Name -cnotmatch '^[A-Z][A-Za-z0-9]*\.(h|cpp)$'))
+              {
+                $bad += "$dir/$($file.Name): file names are PascalCase .h/.cpp (AGENTS.md R7)"
+              }
+              # Anchored on the closing quote and on whatever precedes the
+              # name, because a shader is listed as Shaders\UiVS.hlsl while a
+              # source file is listed bare -- and matching the name alone would
+              # let AudioTests.cpp be satisfied by an entry for something that
+              # merely ends the same way.
+              $listed = '["\\]' + [regex]::Escape($file.Name) + '"'
+              if ($projectText -notmatch $listed)
+              {
+                $bad += "$dir/$($file.Name): not listed in $leaf.vcxproj (AGENTS.md §3)"
+              }
+              if ($null -ne $filtersText -and $filtersText -notmatch $listed)
+              {
+                $bad += "$dir/$($file.Name): not listed in $leaf.vcxproj.filters (AGENTS.md §3)"
+              }
+
+              # R2: no I/C/S/E prefix, no Base/Abstract/Impl suffix. A bare
+              # `struct Impl;` is the pimpl idiom the corpus sanctions and is
+              # not a suffix on anything, so the pattern requires a name before
+              # it. C++ only: HLSL has its own vocabulary.
+              if ($file.Extension -notin @('.h', '.cpp')) { continue }
+              $number = 0
+              foreach ($line in Get-Content $file.FullName)
+              {
+                $number++
+                if ($line -cmatch '\b(class|struct|using)\s+([ICSE][A-Z]\w*)')
+                {
+                  $bad += "$dir/$($file.Name):${number}: $($Matches[2]) carries a type prefix (AGENTS.md R2)"
+                }
+                if ($line -cmatch '\b(class|struct|using)\s+(\w+(Base|Abstract|Impl))\b')
+                {
+                  $bad += "$dir/$($file.Name):${number}: $($Matches[2]) carries a banned suffix (AGENTS.md R2)"
+                }
+              }
+            }
+          }
+
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_" }
+            throw 'the naming convention was broken (AGENTS.md §1)'
+          }
+          Write-Host "$checked files: names conform, and each is in its .vcxproj and .filters"
+
+      # The clang-tidy step AGENTS.md §1 has anticipated since the first commit
+      # ("Nothing runs either automatically yet. Until a CI step exists, §1 is
+      # enforced by review"), and ADR-018 A24 asks for.
+      #
+      # It landed non-blocking, on the argument that this tree had never been
+      # through clang-tidy on Windows and a gate over an unanswered question is
+      # a gate that gets deleted the week it first fires. **The question is
+      # answered and the `continue-on-error` is gone**, which is the promise
+      # that step made to itself.
+      #
+      # The two runs it took are worth keeping. The first found something the
+      # same sweep under clang-tidy 18 on Linux had not (the runner carries LLVM
+      # 20.1.8): `ComputeUniverseHash` promising `noexcept` while allocating a
+      # vector per entity list, which is `std::terminate` on `bad_alloc` on the
+      # boot path that reads the biggest file this game owns. The second came
+      # back clean in ~90 s. So the version spread is itself a finding -- "clean"
+      # is always clean *under something* -- and it is the argument for running
+      # this where it runs rather than where it was written.
+      #
+      # It still covers GameLogic only. Widening to the engine projects, which
+      # reach D3D12, C++/WinRT, XAudio2 and msquic headers, is its own piece of
+      # work and should land the same way: non-blocking until a run is clean.
+      - name: Run clang-tidy
+        if: matrix.configuration == 'Debug'
+        shell: pwsh
+        run: |
+          # Findings arrive on stderr and clang-tidy exits non-zero on them
+          # (WarningsAsErrors in .clang-tidy). Neither is an error *here* -- this
+          # step's job is to collect them, not to trip over them -- so the
+          # GitHub pwsh wrapper's stop-on-error default is stood down for the
+          # duration and the step decides its own exit code at the end.
+          $ErrorActionPreference = 'Continue'
+
+          $candidates = @(
+            "$env:ProgramFiles\LLVM\bin\clang-tidy.exe",
+            "${env:ProgramFiles(x86)}\LLVM\bin\clang-tidy.exe"
+          )
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          if ($vs) { $candidates += (Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang-tidy.exe') }
+
+          $tidy = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $tidy)
+          {
+            Write-Host '::warning::clang-tidy is not on this image -- §1 is still enforced by review'
+            '## clang-tidy not available on the runner' | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            exit 0
+          }
+          Write-Host "using $tidy"
+          Write-Host (& $tidy --version | Out-String)
+
+          # The MSVC environment, so clang-cl finds the CRT and the Windows SDK.
+          $devcmd = Join-Path $vs 'Common7\Tools\VsDevCmd.bat'
+          cmd /c "`"$devcmd`" -arch=amd64 -host_arch=amd64 -no_logo && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') { Set-Item -Path "env:$($Matches[1])" -Value $Matches[2] }
+          }
+
+          $findings = @()
+          foreach ($file in Get-ChildItem -Path GameLogic -Filter *.cpp -File | Where-Object { $_.Name -ne 'pch.cpp' })
+          {
+            $output = & $tidy --quiet $file.FullName -- --driver-mode=cl /std:c++latest /EHsc /D_DEBUG /DWIN32 /D_WINDOWS `
+                        "/I$($PWD.Path)\GameLogic" "/I$($PWD.Path)\NeuronCore" 2>&1
+            $findings += @($output | Where-Object { $_ -match ': (warning|error): ' })
+          }
+
+          if ($findings.Count -eq 0)
+          {
+            Write-Host 'clang-tidy: GameLogic is clean'
+            exit 0
+          }
+
+          # Also to a file, and the file is re-printed at the *end* of the job.
+          #
+          # Not belt and braces: a finding printed here sits in the middle of a
+          # several-thousand-line log, and the tools that read a failed job read
+          # its tail. A gate whose findings cannot be read from the failure is a
+          # gate that gets worked around, so the failure has to carry them.
+          $findings | Out-File -Encoding utf8 clang-tidy.log
+
+          $findings | ForEach-Object { Write-Host "::error::$_" }
+          $lines = @("## clang-tidy: $($findings.Count) finding(s) in GameLogic", '```') +
+                   ($findings | Select-Object -First 40) + @('```')
+          $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          throw "clang-tidy found $($findings.Count) finding(s) in GameLogic (AGENTS.md §1)"
+
+      # ADR-018 A24 / review finding CPP-4. Nine projects each carried an
+      # identical copy of the toolset and the language switches, and the two
+      # settings the determinism story actually rests on -- /fp:precise and the
+      # absence of /arch -- were not written anywhere at all: they were MSVC
+      # defaults that the documents described as though they had been chosen.
+      #
+      # The two property sheets are now the only place they are spelled, and
+      # this is what keeps them there. It matters more than the usual guard
+      # because Visual Studio rewrites project files on its own -- it did
+      # exactly that to Outpost.vcxproj.filters during the shader move -- so
+      # "we removed the duplicates once" is not a state that survives without a
+      # check. A project that re-grows one of these lines fails here, naming it.
+      - name: Check the build invariants are centralised
+        if: matrix.configuration == 'Debug'
+        shell: pwsh
+        run: |
+          $bad = @()
+
+          # The sheets exist and still say what the projects rely on them saying.
+          $required = @{
+            'Outpost.Toolset.props' = @('PlatformToolset')
+            'Outpost.Compile.props' = @('LanguageStandard', 'ConformanceMode', 'FloatingPointModel', 'EnableEnhancedInstructionSet')
+          }
+          foreach ($sheet in $required.Keys)
+          {
+            if (-not (Test-Path $sheet)) { $bad += "$sheet is missing"; continue }
+            $text = Get-Content $sheet -Raw
+            foreach ($setting in $required[$sheet])
+            {
+              if ($text -notmatch "<$setting>") { $bad += "$sheet no longer sets $setting" }
+            }
+          }
+
+          # Every project imports both, and spells neither.
+          $centralised = @('PlatformToolset', 'LanguageStandard', 'ConformanceMode', 'FloatingPointModel', 'EnableEnhancedInstructionSet')
+          $projects = @(Get-ChildItem -Directory | Where-Object { Test-Path "$($_.Name)/$($_.Name).vcxproj" } |
+                        ForEach-Object { "$($_.Name)/$($_.Name).vcxproj" })
+          $projects += @(Get-ChildItem -Path Tests -Directory | Where-Object { Test-Path "Tests/$($_.Name)/$($_.Name).vcxproj" } |
+                         ForEach-Object { "Tests/$($_.Name)/$($_.Name).vcxproj" })
+          Write-Host "checking $($projects.Count) projects"
+
+          foreach ($project in $projects)
+          {
+            $text = Get-Content $project -Raw
+            foreach ($sheet in 'Outpost.Toolset.props', 'Outpost.Compile.props')
+            {
+              if ($text -notmatch [regex]::Escape($sheet)) { $bad += "$project does not import $sheet" }
+            }
+            foreach ($setting in $centralised)
+            {
+              if ($text -match "<$setting>")
+              {
+                $bad += "$project spells <$setting> itself; it belongs to the property sheet"
+              }
+            }
+          }
+
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_" }
+            throw 'the build invariants have escaped their property sheets (ADR-018 A24)'
+          }
+          Write-Host 'toolset, language, conformance, /fp and /arch are stated once and imported everywhere'
 
       # SolutionDir is passed explicitly (trailing backslash required): each
       # project lists the libraries it includes as $(SolutionDir)<Project>,
@@ -387,6 +661,66 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "build failed for $t" }
           }
 
+      # The other half of A24, and the half that checks the invariant where it
+      # actually takes effect. The step above proves the switches are written in
+      # one place; this proves they reached cl.exe, by reading them back off the
+      # command lines MSBuild logged at diagnostic verbosity.
+      #
+      # Deliberately asymmetric about what it does with what it finds. Absence
+      # of evidence is not failure: if a future MSBuild moves the command line
+      # into a response file the log will stop carrying it, and a guard that
+      # goes red over its own log format teaches everyone to ignore it. A
+      # *contradiction* is failure: an /arch: or an /fp:fast on any command line
+      # means a translation unit is being built outside ADR-005 §6's determinism
+      # envelope, which is the defect this exists to catch and cannot be a log
+      # format question.
+      - name: Check the switches reached the compiler
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path build.log)) { Write-Host 'no build.log -- nothing to read'; exit 0 }
+
+          # Scoped to lines that are compiler command lines, identified by the
+          # switch the property sheet itself puts there. Searching the whole log
+          # would be searching MSBuild's property dumps too, and a guard that
+          # can fire on its own diagnostics is worse than no guard.
+          $commandLines = @(Select-String -Path build.log -Pattern '/std:c\+\+latest' | ForEach-Object { $_.Line })
+          Write-Host "$($commandLines.Count) compiler command line(s) carrying /std:c++latest"
+
+          if ($commandLines.Count -eq 0)
+          {
+            Write-Host '::warning::build.log carries no compiler command lines -- the switches could not be read back here'
+            exit 0
+          }
+
+          $precise    = @($commandLines | Where-Object { $_ -match '/fp:precise' }).Count
+          $permissive = @($commandLines | Where-Object { $_ -match '/permissive-' }).Count
+          $fast       = @($commandLines | Where-Object { $_ -match '/fp:fast' }).Count
+          $arch       = @($commandLines | Where-Object { $_ -match '/arch:' }).Count
+          Write-Host "/fp:precise $precise, /permissive- $permissive, /fp:fast $fast, /arch: $arch"
+
+          $bad = @()
+          if ($fast -gt 0) { $bad += "/fp:fast is on $fast compiler command line(s) - ADR-005 §6" }
+          if ($arch -gt 0) { $bad += "/arch: is on $arch compiler command line(s) - ADR-005 §6" }
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_" }
+            throw 'a translation unit is being built outside the determinism envelope (ADR-018 A24)'
+          }
+          if ($precise -ne $commandLines.Count)
+          {
+            # A warning rather than a failure: the two counts disagreeing means
+            # either the sheet missed a translation unit or a line matched that
+            # is not a command line, and only a person reading the log can say
+            # which. Guessing wrong in the strict direction reddens a leg that
+            # gates on a log-format question, which is how a guard gets deleted.
+            Write-Host "::warning::/fp:precise is on $precise of $($commandLines.Count) matched lines - worth a look"
+          }
+          else
+          {
+            Write-Host 'every command line carries /fp:precise and none carries /arch: or /fp:fast'
+          }
+
       # Located through vswhere rather than assumed on PATH: vstest.console.exe
       # lives inside the VS install and its path carries the VS version.
       - name: Run tests
@@ -440,6 +774,12 @@ jobs:
 
             Write-Host '--- failing tests ---'
             $detail | ForEach-Object { Write-Host $_ }
+
+            # And to a file the end of the job prints back, for the same reason
+            # clang-tidy's findings go to one: this is a thousand lines from the
+            # end of the log, and the tail is what a reader of a failed job gets.
+            $failures = $totals + @('') + $detail
+            $failures | Out-File -Encoding utf8 test-failures.log
 
             $lines = @('## Tests failed (${{ matrix.configuration }})', '```') + $totals + @('') + $detail + @('```')
             $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
@@ -506,6 +846,62 @@ jobs:
           Write-Host "${{ matrix.configuration }}: final=$final checkpoint=$checkpoint"
           "${{ matrix.configuration }} $final $checkpoint" | Out-File -Encoding ascii "replay-hash-${{ matrix.configuration }}.txt"
 
+      # R10's tick-budget soak (ADR-018 A4). The self test measures it; this
+      # lifts the table into the run summary, because a number that only exists
+      # inside a 1,500-line log is a number nobody re-reads -- which is exactly
+      # how the hand-run figure this replaces went stale. D11 scopes the
+      # acceptance figure to Release; the Debug row is printed beside it so the
+      # ratio between the two configurations stays visible rather than becoming
+      # folklore.
+      - name: Record the tick soak
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path selftest.log)) { Write-Host 'no selftest.log -- nothing to record'; exit 0 }
+          $rows = Select-String -Path selftest.log -Pattern 'soak (\d+) ships -- (\d+) ticks, mean ([0-9.]+) ms, worst ([0-9.]+) ms' |
+            ForEach-Object {
+              $g = $_.Matches[0].Groups
+              [pscustomobject]@{ Ships = [int]$g[1].Value; Ticks = [int]$g[2].Value; Mean = [double]$g[3].Value; Worst = [double]$g[4].Value }
+            }
+          if (-not $rows) { Write-Host 'no soak rows in selftest.log'; exit 0 }
+
+          $lines = @("## Tick soak (${{ matrix.configuration }}) - R10 / ADR-018 D1c", '',
+                     '| ships | ticks | mean ms | worst ms | % of the 50 ms tick |', '|---|---|---|---|---|')
+          foreach ($row in $rows)
+          {
+            $lines += ('| {0} | {1} | {2:N3} | {3:N3} | {4:N1} % |' -f $row.Ships, $row.Ticks, $row.Mean, $row.Worst, (100.0 * $row.Mean / 50.0))
+            Write-Host ("soak {0} ships: mean {1} ms, worst {2} ms over {3} ticks" -f $row.Ships, $row.Mean, $row.Worst, $row.Ticks)
+          }
+          $capped = $rows | Where-Object { $_.Ships -eq 1024 } | Select-Object -First 1
+          if ($capped)
+          {
+            $lines += ''
+            $lines += ('A capped grid costs {0:N1} % of the tick, so {1:N1} of them fit one core at 20 Hz.' -f
+                       (100.0 * $capped.Mean / 50.0), (50.0 / $capped.Mean))
+          }
+          $lines += ''
+          $lines += 'Measured on a shared runner: read it as an order of magnitude, and as a trend across runs.'
+          $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+      # R17's parse threshold (build order U1). The committed universe is 2,500
+      # systems of JSON and the fallback if it costs about a second to read is a
+      # structural per-region content split -- so the number belongs in the run
+      # summary beside the tick soak, measured in the configuration D11 says
+      # perf numbers mean, rather than in a note someone took once.
+      - name: Record the universe parse
+        if: always()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path selftest.log)) { Write-Host 'no selftest.log -- nothing to record'; exit 0 }
+          $line = Select-String -Path selftest.log -Pattern 'universe: read, parsed and hashed in (\d+) ms' | Select-Object -First 1
+          if (-not $line) { Write-Host 'no universe timing in selftest.log'; exit 0 }
+          $ms = [int]$line.Matches[0].Groups[1].Value
+          Write-Host "universe parse+hash: $ms ms (${{ matrix.configuration }})"
+          $verdict = if ($ms -lt 1000) { 'inside R17''s ~1000 ms threshold - no per-region content split is owed' }
+                     else { '**over R17''s ~1000 ms threshold** - the per-region split is the designed fallback' }
+          @("## Universe parse (${{ matrix.configuration }}) - R17", '', "Read, parsed and hashed in **$ms ms**: $verdict.") |
+            Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
       - name: Upload the replay hash
         if: always()
         uses: actions/upload-artifact@v4
@@ -554,29 +950,29 @@ jobs:
             $shown | ForEach-Object { Write-Host $_ }
           }
 
-      # continue-on-error makes the run green; it must not make the failure
-      # quiet. Anyone reading the summary sees what did not pass and why it was
-      # allowed through.
-      - name: Say plainly that Debug failed and was not allowed to gate
-        if: failure() && matrix.configuration == 'Debug'
+      # Whatever failed, again, where a reader of a failed job will actually
+      # find it: the last thing the job printed.
+      #
+      # Both of these are already reported where they happen -- and both happen
+      # a thousand lines from the end of a log whose tail is what tooling and
+      # people actually read. A gate whose failures cannot be read *from the
+      # failure* is a gate that gets worked around; this step is what stops that
+      # being true of either of them.
+      - name: Say what failed
+        if: always()
         shell: pwsh
         run: |
-          $lines = @(
-            '## :warning: Debug|x64 FAILED - and did not fail the run',
-            '',
-            'The Debug leg is **non-blocking** by owner decision (2026-08-19) while',
-            'Risk-Register **R22** is open: the Debug test run hangs intermittently, and',
-            'root-causing it needs a Windows machine and the hang dump attached to this run.',
-            '',
-            '**A green tick on this run certifies Release only.** Debug coverage is not',
-            'being reported. The dump and per-test blame output are in the',
-            '`build-log-Debug-x64` artifact.',
-            '',
-            'When R22 closes, delete `continue-on-error` from the build job.'
-          )
-          $lines | ForEach-Object { Write-Host $_ }
-          $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
-          Write-Host '::warning title=Debug leg failed (non-blocking, R22)::Green certifies Release only until R22 closes'
+          $said = $false
+          foreach ($report in @(@{ file = 'clang-tidy.log'; title = 'clang-tidy findings' },
+                                @{ file = 'test-failures.log'; title = 'failing tests' }))
+          {
+            if (-not (Test-Path $report.file)) { continue }
+            $said = $true
+            Write-Host "--- $($report.title) ---"
+            Get-Content $report.file | ForEach-Object { Write-Host $_ }
+            Write-Host "--- end of $($report.title) ---"
+          }
+          if (-not $said) { Write-Host 'nothing recorded: no gate wrote a report' }
 
       - name: Upload build log
         if: always()
@@ -585,6 +981,8 @@ jobs:
           name: build-log-${{ matrix.configuration }}-x64
           path: |
             build.log
+            clang-tidy.log
+            test-failures.log
             test.log
             selftest.log
             TestResults/**

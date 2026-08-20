@@ -1,6 +1,12 @@
 # Station Build Order — the Docking Phase
 
-**Status:** Session output 2026-08-19 · **no slice started.** The design it delivers is
+**Status:** Session output 2026-08-19 · **T1 built in full, and T2's identity cluster is on
+the wire** (2026-08-20). Docking, the transfer bus, undocking and its fifteen seconds, the
+parking ring and the event record are in the sim; `PlayerId` and the reserved resume token are
+on `Hello`/`Welcome`, and the schema text carries the verdict-affecting constants and the
+check-order sequence (D9/A21). **What T2 still owes is its client half and its per-client
+`SnapshotSender`** — the first is screen work, the second is what U3c waits on. T3 is still
+gated on P1. The design it delivers is
 [ADR-017](ADR/ADR-017-station-docking.md); where this document and that one disagree, the
 ADR wins on *what* and this one on *when*.
 
@@ -19,8 +25,8 @@ and its roster goes through the per-client sender (A13); T3 is gated on the
 UI-architecture ADR (A19, deliverable D7 in the universe order).
 
 The rules are the MVP build order's, unchanged: each slice independently testable, lands
-green, sized at "a few days" or less, later slices assume earlier ones. Landed slices will
-carry a **Built** line — none exists yet. Test placement follows the Dependency Map: sim
+green, sized at "a few days" or less, later slices assume earlier ones. Landed slices
+carry a **Built** line. Test placement follows the Dependency Map: sim
 truth in `GameLogicTests`, wire in `NeuronCoreTests`/`NeuronServerTests`, screens in
 `NeuronClientTests`, the loopback loop in `selfTest`.
 
@@ -62,6 +68,90 @@ order; a full-ring scenario holding at the undock point with no contact pair; th
 validation-parity matrix over every new reason; repair-by-construction asserted (dock a
 damaged ship — when gauges exist to damage — undock full).
 
+**Built (T1, the docking half, 2026-08-19).** The vocabulary and the crossing, which are
+what every remaining piece of this slice stands on.
+
+`OrderKind` grew `Warp = 4` (reserved — ADR-016 published the number before this phase
+landed, and renumbering it to close the gap would have made a written-down wire value a lie)
+and `Dock = 5`. `OrderReason` grew 9–13, `CombatEngaged` inert as designed.
+`OrderSubmit` carries an `AnchorId` — one field for both verbs, so the client's "act on that
+structure" gesture fills the same slot whichever verb it resolves to — and it is on the wire,
+with the schema text bumped for both.
+
+`ValidateOrder` decides a Dock: Replace-only, the station has to be this grid's, and every
+member has to be inside `DockRadiusMetres` — `max(DOCK_RADIUS_METRES, footprint + margin)`
+over the order's **own solved formation** (ADR-018 D7), exposed as a function because the
+client draws the circle the server judges against. The check order is ADR-017 §8's, pinned by
+a test that breaks each rule *and every rule after it*. `ValidationView` grew optional
+`shipMarks` (quantised position + class) and the grid's station: optional so a caller with
+only ids can still validate the orders that only need ids, and refused rather than waved
+through when a Dock is asked of a view that cannot answer where a ship is.
+
+`GameLogic/Transfer.h` is the transfer bus, arriving with this phase as ADR-017 §9 says
+rather than with warp. A world files requests during its tick (`World::TransferOut` removes
+a ship preserving its id, class and wing — the seam undock and warp both inherit); the
+registry stamps `(hostId, counter)` because the counter is the host's; records apply
+**between** ticks in `(applyTick, transferId)` order (ADR-018 D17), which is what makes "no
+world reads another mid-tick" true rather than hoped. Station rosters live at the universe
+layer beside the bus, and both fold into `WorldRegistry::Hash` — a station grid tears down
+with a full roster and the roster is untouched, which is the other half of "worlds forget".
+
+Two gaps the tests found rather than review. Spawning into a *borrowed* world left the ship
+out of the ship→location index, so "where are my ships" could not answer for the starting
+fleet; `WorldRegistry::Spawn`/`Despawn` now exist beside `Borrow` and are the path. And a
+despawn that bypassed them leaked a stale index entry past the grid's teardown, so teardown
+sweeps the index by anchor — skipping the ships docked there, which do not leave with the
+grid.
+
+**Built (T1, the undock half, 2026-08-19).** `GameLogic/Station.h/.cpp` is the roster and
+the commands over it. `RosterView` + `ValidateStationCommand` is the shared pure function
+both halves call — no `World` in the header, which is what makes the client able to call it
+— with its own check-order contract (`EmptySelection` → `TooManyShips` → `InvalidFormation`
+→ `UnknownStation` → `NotDocked`) held by the same kind of test the order side has.
+
+An accepted `Undock` files a transfer and the fleet **leaves the roster at filing**, which
+is a dock run backwards: leave the source when the record is written, arrive at the
+destination when it applies. That also makes a second undock naming the same ship in the
+same tick a refusal rather than a race. At the apply point the fleet is solved together at
+the anchor's **authored undock point and facing**, spawned with its own ids, classes and
+wings, and stamped `protectedUntilTick` — fifteen seconds computed from `World::TICK_SECONDS`
+rather than written as a tick count, so the window stays fifteen seconds if the tick rate
+moves. A transfer record now carries a **fleet** rather than a ship, because "together, one
+moment" should be a fact about the record and not about how the records happened to be
+ordered — and because the arrival solve needs every member at once to place any of them.
+
+`AssignWing` applies on the spot and files nothing: a wing is a number a ship carries, so
+nothing crosses. `OrderGroup` gained `systemIssued`, and ingesting a *player's* order clears
+protection on the ships it names while a system order does not — without that distinction
+the parking order would disarm the fleet it parks.
+
+**Built (T1, the parking ring and the event record, 2026-08-19).** `World::FindBerth`
+scans §4's 24 candidates — two rings, twelve bearings, fanning out from the undock bearing,
+inner ring before outer — and the first **free** one wins. Free means the fleet's *solved*
+formation there clears every hull on the grid by ADR-015's own clearance factor, and lands
+inside no other group's final-leg intention. That second clause is what makes two same-tick
+undocks pick different berths with no reserved-berth state to store or hash.
+
+The suite found the hole in that immediately: two fleets undocking on the same tick both
+arrive **before any ingest runs**, so the first one's parking order was still *pending* and
+therefore invisible to the second, and both were sent to the same berth. The scan reads the
+pending queue as well now — a pending order is a live intention by every definition that
+matters: it has been accepted, it is world state, and it becomes a group on the next tick.
+
+All 24 taken means the fleet holds at the undock point, and that is a design position rather
+than an edge case: undocking is never refused for clutter. A test fills the ring and asserts
+exactly that — no parking order, the fleet still there, still protected.
+
+`GameLogic/EventRecord.h/.cpp` is ADR-018 D19's producer, emitting on dock, undock, wing
+assignment and berth hold. Three numbers and no text — a string here could not be
+translated and the client already knows how to name a station — and `count` is what makes
+"eight ships docked at Vesta-3" one line instead of eight. It is **outside the registry
+hash**: an event describes something the simulation already did, and folding the description
+in as well would make a replay depend on how talkative the build was.
+
+**Still owed by T1:** repair-by-construction asserted against real gauges, which needs
+gauges to exist first. Everything else in ADR-017's sim half is built.
+
 ### T2 — The wire and the tactical surfaces 🏁 H0
 One clustered schema bump (ADR-017 §8, **widened by ADR-018 into the identity cluster**):
 `OrderKind{+Warp reserved, +Dock}`, `OrderReason{9–13}` (including reserved
@@ -90,8 +180,12 @@ expiry; a mid-approach disconnect halts the fleet outside; the snapshot budget a
 hold at the narrowed cap and a 43-ship snapshot round-trips inside one datagram; every
 pre-existing suite green. **ADR-018 additions:** the **over-cap refusal is tested loudly**
 (a grid pushed past the snapshot cap refuses with a counted, logged event — the designed
-behaviour until the interest/delta slice, A13/SIM-4); the roster message is observed to
-reach **only** its owner's connection; a dock validated at fleet scale (the 41-ship
+behaviour until the interest/delta slice, A13/SIM-4 — now designed as
+[ADR-022](ADR/ADR-022-interest-and-delta.md), whose §6 replaces this refusal with priority
+truncation, and whose §1 is why the sender T2 writes must be **per client from its first
+line**); the roster message is observed to reach **only** its owner's connection — which
+ADR-022 §1 restates as a rule rather than a test: on a broadcast-shaped sender that privacy
+promise is a silent leak nothing catches, because nothing before U3c runs two clients; a dock validated at fleet scale (the 41-ship
 starting fleet, footprint-derived radius) round-trips with parity.
 
 ### T3 — The hangar screen 🏁 H1

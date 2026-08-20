@@ -18,6 +18,12 @@ ships**); ADR-016 §4's transfer bus (it arrives with **this** phase — dock an
 its first records, and U3a inherits it for warp).
 **Delivery plan:** [Station-Build-Order.md](../Station-Build-Order.md) (T1–T3, milestones
 H0/H1), interleaved into the universe phase after U2.
+**Built so far (2026-08-19, T1's sim half):** §1's roster, §2's `Dock` order and its
+footprint-derived radius, §3's `Undock` and §6's `AssignWing` as shared-validated station
+commands, §5's protection window and its player-command break, and §9's transfer bus with
+its `(applyTick, transferId)` order, and §4's parking ring with its deterministic berth
+scan. **Not yet built:** §6's hangar screen, which is T3's, and the wire half of §8, which is
+T2's.
 
 ## Context
 
@@ -186,7 +192,12 @@ it is recorded here for the same reason `ORDER_STATE_RECORD_BYTES` records its o
 added here costs ships"): the next person to want a status bit should find the price already
 on the page. Two consumers of that shrinking margin are already designed — ADR-016 §6's
 per-grid snapshot header, and any future gauge — so **the delta encoding ADR-004 reserved is
-the growth path**, not another byte. If T2 measures the margin as too thin to land on,
+the growth path**, not another byte. *(That growth path is
+[ADR-022](ADR-022-interest-and-delta.md) as of 2026-08-19, and it spends the margin question
+differently than expected: ownership costs **no byte at all** — two spare bits of this very
+`statusBits` carry the viewer-relative relationship the icon sheet actually reads, rather than
+an owner id nobody looks at every tick. §1's roster privacy becomes a testable property in the
+same slice, because the per-viewer sender it needs is the sender interest culling requires.)* If T2 measures the margin as too thin to land on,
 packing the bit into a spare high bit of `groupId` (wings are 1..255 but a session fields
 eight) is the named fallback, rejected as the default only because a bitfield hidden in an
 id field is exactly the mistake `groupId`'s own comment was written to prevent.

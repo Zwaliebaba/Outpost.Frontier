@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!--
+    Which toolchain builds this tree (ADR-018 A24, review finding CPP-4).
+
+    Separate from Outpost.Compile.props because MSBuild gives the two settings
+    two different homes, and putting either in the other's place fails quietly.
+    PlatformToolset has to be defined before Microsoft.Cpp.props consumes it, so
+    this file is imported ahead of Microsoft.Cpp.Default.props; the compiler
+    switches have to survive the toolset's own defaults, so those live in a
+    property sheet imported after Microsoft.Cpp.props. A toolset set too late
+    does not error - it silently falls back to whatever the installed VS
+    defaults to, which on the runner is the same number and so would look like
+    it worked.
+
+    Nine projects each carried their own copy of this line, twice (once per
+    configuration). One file is the point: the pin is a decision, and a decision
+    stated in nine places is a decision nobody can change.
+  -->
+  <PropertyGroup Label="OutpostToolchain">
+    <!--
+      v145 (VS 2026). Pinned here and deliberately *not* pinned in the CI
+      workflow: A2 records why. The runner image is whatever GitHub ships, and a
+      wrong image pin trades a floating toolchain for a broken build, so the
+      workflow prints image, VS, MSBuild and dxc versions every run and the pin
+      can be taken from evidence when it is wanted.
+    -->
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+</Project>

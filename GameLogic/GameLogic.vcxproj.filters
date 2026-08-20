@@ -20,6 +20,18 @@
     <ClCompile Include="ShipClass.cpp">
       <Filter>World</Filter>
     </ClCompile>
+    <ClCompile Include="Station.cpp">
+      <Filter>Orders</Filter>
+    </ClCompile>
+    <ClCompile Include="EventRecord.cpp">
+      <Filter>Universe</Filter>
+    </ClCompile>
+    <ClCompile Include="StationMessages.cpp">
+      <Filter>Wire</Filter>
+    </ClCompile>
+    <ClCompile Include="FleetSummary.cpp">
+      <Filter>Wire</Filter>
+    </ClCompile>
     <ClCompile Include="ReplicatedView.cpp">
       <Filter>Wire</Filter>
     </ClCompile>
@@ -27,6 +39,9 @@
       <Filter>Wire</Filter>
     </ClCompile>
     <ClCompile Include="World.cpp">
+      <Filter>World</Filter>
+    </ClCompile>
+    <ClCompile Include="WorldRegistry.cpp">
       <Filter>World</Filter>
     </ClCompile>
     <ClCompile Include="WorldOrders.cpp">
@@ -38,7 +53,13 @@
     <ClCompile Include="Universe.cpp">
       <Filter>Universe</Filter>
     </ClCompile>
+    <ClCompile Include="UniverseGen.cpp">
+      <Filter>Universe</Filter>
+    </ClCompile>
     <ClCompile Include="UniverseParse.cpp">
+      <Filter>Universe</Filter>
+    </ClCompile>
+    <ClCompile Include="UniverseRoute.cpp">
       <Filter>Universe</Filter>
     </ClCompile>
   </ItemGroup>
@@ -77,13 +98,37 @@
     <ClInclude Include="World.h">
       <Filter>World</Filter>
     </ClInclude>
+    <ClInclude Include="Transfer.h">
+      <Filter>World</Filter>
+    </ClInclude>
+    <ClInclude Include="Station.h">
+      <Filter>Orders</Filter>
+    </ClInclude>
+    <ClInclude Include="EventRecord.h">
+      <Filter>Universe</Filter>
+    </ClInclude>
+    <ClInclude Include="StationMessages.h">
+      <Filter>Wire</Filter>
+    </ClInclude>
+    <ClInclude Include="FleetSummary.h">
+      <Filter>Wire</Filter>
+    </ClInclude>
+    <ClInclude Include="WorldRegistry.h">
+      <Filter>World</Filter>
+    </ClInclude>
     <ClInclude Include="WorldHash.h">
       <Filter>World</Filter>
     </ClInclude>
     <ClInclude Include="Universe.h">
       <Filter>Universe</Filter>
     </ClInclude>
+    <ClInclude Include="UniverseGen.h">
+      <Filter>Universe</Filter>
+    </ClInclude>
     <ClInclude Include="UniverseParse.h">
+      <Filter>Universe</Filter>
+    </ClInclude>
+    <ClInclude Include="UniverseRoute.h">
       <Filter>Universe</Filter>
     </ClInclude>
   </ItemGroup>

@@ -206,6 +206,18 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     welcome.worldDetail = world.worldDetail;
     welcome.worldBadge = world.worldBadge;
 
+    /*
+     * Who this is (ADR-018 D5). One value until accounts exist -- but a *value*,
+     * not the connection id, and that distinction is the whole point of minting
+     * it now: everything player-keyed can key on this from its first line
+     * instead of keying on a connection and being rewritten the day one drops.
+     *
+     * The resume token stays zero. There is nothing to authenticate against,
+     * and inventing a token now would be inventing a security model with it.
+     */
+    welcome.playerId = SOLE_PLAYER_ID;
+    welcome.resumeToken = 0;
+
     WriteWireType(writer, WireType::Welcome);
     Write(writer, welcome);
     SendTo(_event.connection, TransportChannel::Control, writer);

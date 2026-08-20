@@ -165,6 +165,11 @@ void JsonWriter::Null()
   EndValue();
 }
 
+void JsonWriter::Member(std::string_view _name, const char* _value)
+{
+  Member(_name, _value == nullptr ? std::string_view{} : std::string_view(_value));
+}
+
 void JsonWriter::Member(std::string_view _name, bool _value)
 {
   Key(_name);

@@ -21,7 +21,17 @@
 namespace Neuron
 {
 
-inline constexpr std::uint16_t PROTOCOL_VERSION = 1;
+/*
+ * Breaking framing changes only (ADR-004 §5), and this is one.
+ *
+ * **2 as of the station phase's identity cluster** (ADR-018 D5/A12): `Hello`
+ * and `Welcome` grew a `PlayerId` and a reserved resume token, so a build that
+ * predates them reads past the end of a message it thinks it understands. The
+ * schema hash does not cover this -- it covers *game payloads*, and `Hello` is
+ * the message that carries the schema hash in the first place -- so the version
+ * is the only thing that can refuse the connection, and it does.
+ */
+inline constexpr std::uint16_t PROTOCOL_VERSION = 2;
 
 enum class WireType : std::uint16_t
 {
@@ -74,12 +84,60 @@ enum class RefuseReason : std::uint16_t
 
 /// Client's opening message. The hashes are what make a mismatched build fail
 /// at the door rather than halfway through a session (ADR-004 §3).
+/*
+ * Durable identity, distinct from the connection (ADR-018 D5).
+ *
+ * `clientId` names a *connection*: it is minted when one opens and it is gone
+ * when the socket is. `PlayerId` names whoever is on the other end, across
+ * disconnects and across sessions. The two are one number apart today -- there
+ * is one player and accounts do not exist -- and the whole point of minting the
+ * distinction now is that everything player-keyed (presence, view rights,
+ * rosters, fleet summaries, order and transfer logs) can key on the durable one
+ * from its first line, instead of keying on a connection and being rewritten
+ * the day one drops.
+ *
+ * Zero is "no player", so a zeroed handshake is detectably anonymous rather
+ * than accidentally player one.
+ */
+using PlayerId = std::uint32_t;
+inline constexpr PlayerId INVALID_PLAYER_ID = 0;
+
+/*
+ * The one player there is (ADR-018 D5).
+ *
+ * A named constant rather than a literal `1` at the two places that use it,
+ * because the day accounts arrive this is the symbol whose definition changes
+ * and the call sites that must be found.
+ */
+inline constexpr PlayerId SOLE_PLAYER_ID = 1;
+
+/// How long a session outlives its transport (ADR-018 D5). Reserved: the field
+/// that carries a resume token exists, nothing mints one yet, and this is the
+/// window the reconnect print promises when something does.
+inline constexpr std::uint32_t SESSION_GRACE_SECONDS = 120;
+
 struct Hello
 {
   std::uint16_t protocolVersion = PROTOCOL_VERSION;
   std::uint64_t schemaHash = 0;
   std::uint64_t contentHash = 0;
   std::string playerName;
+
+  /// Who is connecting, if they already know (ADR-018 D5). `INVALID_PLAYER_ID`
+  /// on a first connection; the id the last `Welcome` carried on a resume.
+  PlayerId playerId = INVALID_PLAYER_ID;
+
+  /*
+   * The resume token. **Reserved and always zero** -- there is nothing to
+   * authenticate against and inventing a token now would be inventing a
+   * security model to go with it.
+   *
+   * It is in the message anyway because the alternative is a schema bump on the
+   * day sessions first survive a disconnect, and this cluster is the one the
+   * design already chose to spend (ADR-017 §8, widened by D5/A12). A field that
+   * ships as zero costs eight bytes on one message per connection.
+   */
+  std::uint64_t resumeToken = 0;
 };
 
 /*
@@ -122,6 +180,19 @@ struct Welcome
   std::string worldName;
   std::string worldDetail;
   std::string worldBadge;
+
+  /// Who the server decided this is (ADR-018 D5). The client keeps it and
+  /// offers it back on a resume; everything player-keyed is keyed on this and
+  /// never on `clientId`, which is the connection and not the person.
+  ///
+  /// Last, after the variable-length strings, for the same reason `Hello` puts
+  /// its pair last: the fields the handshake fails closed on keep fixed offsets
+  /// from the front of the message.
+  PlayerId playerId = INVALID_PLAYER_ID;
+
+  /// The token to offer back. Reserved, always zero, and paired with `Hello`'s
+  /// for the same reason.
+  std::uint64_t resumeToken = 0;
 };
 
 struct UpdateRequired
@@ -199,10 +270,12 @@ void Write(ByteWriter& _writer, const Goodbye& _message) noexcept;
  * or retyped must change the string beside it, or two builds will disagree
  * silently instead of refusing each other at the handshake.
  */
-inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,u64 schemaHash,u64 contentHash,str playerName}"
+inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,u64 schemaHash,u64 contentHash,str playerName,"
+                                                     "u32 playerId,u64 resumeToken}"
                                                      "Welcome{u32 clientId,u32 tick,u16 tickRate,u64 schemaHash,u64 contentHash,"
                                                      "u16 worldId,i64 anchorX,i64 anchorY,"
-                                                     "str worldName,str worldDetail,str worldBadge}"
+                                                     "str worldName,str worldDetail,str worldBadge,"
+                                                     "u32 playerId,u64 resumeToken}"
                                                      "UpdateRequired{u64 serverSchemaHash,u64 serverContentHash}"
                                                      "Refuse{u16 reason}"
                                                      "Ping{u64 clientSendMicroseconds}"

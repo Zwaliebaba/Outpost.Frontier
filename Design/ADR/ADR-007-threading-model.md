@@ -3,7 +3,8 @@
 **Status:** Accepted · 2026-08-17 · amended by [ADR-018](ADR-018-scaling-baseline.md)
 (2026-08-19): world-level fan-out across the universe registry's worlds is §4's
 pre-approved first parallel consumer, under the world-isolation invariant and the replay
-gate (D1a); the §7 owner-assert is built with U2 (A8)
+gate (D1a); the §7 owner-assert is built with U2 (A8) · **§7's owner-assert exists as of U2**
+(2026-08-19): `NeuronCore/OwnerThread.h/.cpp`, armed on every `World` mutation entry point
 **Depends on:** ADR-002 (tick loop), ADR-003 (Poll contract), ADR-005 (single-writer worlds)
 **Feeds:** ADR-008 (lifecycle), telemetry design
 
@@ -51,7 +52,15 @@ must not paint over those seams — but also must not build 23 threads for a dem
    *immutable* config at boot and nothing else. This makes process separation a packaging
    change by construction: there is no in-proc channel to replace.
 7. **Enforcement is mechanical, not aspirational:** worlds carry an owner-thread id in debug;
-   mutation entry points assert `NEURON_ASSERT_OWNER(world)`. Telemetry and logging are the
+   mutation entry points assert `NEURON_ASSERT_OWNER(world)`. *Built with U2:*
+   `Neuron::OwnerThread` (`Claim`/`Release`/`OwnedByThisThread`), embedded in `World` and
+   asserted on `Tick`, `Spawn`, `Despawn` and `SubmitOrder`. It lives in NeuronCore because a
+   thread id is an OS concept and GameLogic is OS-free — the game embeds the object and never
+   reads an id. In Release the whole type is empty and every call compiles away, and in
+   *either* configuration nothing in it is hashed, replicated or replayed: an owner id in the
+   world hash would make a replay depend on which thread ran it, which is the opposite of the
+   property the assert exists to protect. Unclaimed counts as owned, so the rule cannot fire
+   during construction — the one path that cannot violate it. Telemetry and logging are the
    only cross-thread sinks, both lock-free SPSC rings drained by the owner (log flush on a
    drain by whichever thread owns the sink file — Main in MVP).
 8. **Lane registry from day one.** Threads register named lanes at startup

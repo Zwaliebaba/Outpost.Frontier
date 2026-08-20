@@ -28,6 +28,7 @@ bool WriteOrderSubmit(const OrderSubmit& _order, Neuron::ByteWriter& _writer) no
   _writer.WriteInt32(_order.target.xCm);
   _writer.WriteInt32(_order.target.yCm);
   _writer.WriteUInt16(_order.target.facingTurns16);
+  _writer.WriteUInt16(_order.anchor);
   return _writer.Ok();
 }
 
@@ -63,6 +64,11 @@ bool ReadOrderSubmit(Neuron::ByteReader& _reader, OrderSubmit& _outOrder) noexce
   _outOrder.target.xCm = _reader.ReadInt32();
   _outOrder.target.yCm = _reader.ReadInt32();
   _outOrder.target.facingTurns16 = _reader.ReadUInt16();
+
+  // Unchecked, like the enums above and for the same reason: an anchor that is
+  // not this grid's is owed `UnknownStation`, and a decoder that called it
+  // malformed would answer a question the player asked with a protocol error.
+  _outOrder.anchor = _reader.ReadUInt16();
   return _reader.Ok();
 }
 

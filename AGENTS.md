@@ -144,23 +144,40 @@ private:
 does not repeat the settings, so there is nothing to drift. [`.clang-format`](.clang-format)
 owns whitespace; the two never overlap.
 
-**Nothing runs either automatically yet.** Until a CI step exists, §1 is enforced by review:
-check your own diff against the table before handing it back. Run clang-tidy on the files you
-wrote, not on the tree:
+**Both now run in CI** (ADR-018 A24), in two steps that do different jobs. Run clang-tidy
+yourself on the files you wrote, not on the tree, before you push:
 
 ```
 clang-tidy --quiet NeuronCore/YourNewFile.cpp -- -I . -D _WIN32 -D _DEBUG /std:c++latest
 ```
 
-Two rules the config cannot express, and that a reviewer therefore has to carry:
+- **`Run clang-tidy`** sweeps GameLogic with the config above, and **it gates** — a finding
+  fails the step. It landed non-blocking and earned the promotion in two runs: the first
+  (LLVM 20.1.8 on the runner, ~90 s) found one thing the same sweep under clang-tidy 18 on
+  Linux had not — `ComputeUniverseHash` promising `noexcept` while allocating per entity list,
+  which is `std::terminate` on `bad_alloc` on the boot path that reads the biggest file this
+  game owns — and the second came back clean.
 
-- **R2 (type prefixes)** — clang-tidy can require an *absent* prefix but cannot ban a *present*
-  suffix, so `FooBase` slips through. Grep declarations, `using` and `typedef` aliases
-  included, for `\b(class|struct|using)\s+[ICSE][A-Z]` and for trailing
-  `Base`/`Abstract`/`Impl`.
-- **R7 (file naming)** — nothing checks that a new file is PascalCase and `.h`/`.cpp`. Look at
-  the filename when you add one, and at the `.vcxproj` **and** `.filters` entries that must
-  accompany it (§3).
+  Two things to take from that. **A finding here is real**: GameLogic is clean under both
+  toolchains, so anything the step says is yours. And **"clean" is always clean under
+  something** — the newer clang-tidy saw a defect the older one did not, which is why the run
+  that counts is CI's. The step covers **GameLogic only**; widening it to the engine projects
+  (D3D12, C++/WinRT, XAudio2, msquic headers) is its own piece of work, and should land the
+  same way this did: non-blocking until a run comes back clean.
+- **`Check the naming rules clang-tidy cannot express`** is blocking, and carries the two
+  rules the config cannot state:
+  - **R2 (type prefixes)** — clang-tidy can require an *absent* prefix but cannot ban a
+    *present* suffix, so `FooBase` slips through it entirely. The step greps declarations,
+    `using` and `typedef` aliases included, for `\b(class|struct|using)\s+[ICSE][A-Z]` and for
+    a name ending `Base`/`Abstract`/`Impl`. A bare `struct Impl;` is the pimpl idiom this
+    corpus sanctions and is not a suffix on anything, so it passes.
+  - **R7 (file naming)** — that a new file is PascalCase `.h`/`.cpp`, and that it is listed in
+    the `.vcxproj` **and** the `.filters` (§3). Shaders are checked for the registration half
+    too. Its first run found three files registered in one place and not the other, which is
+    the miss §8's checklist exists to prevent and the one a person does not catch twice.
+
+  Vendored SDK code is exempt by name (`d3dx12.h`): R4 says an external SDK keeps its own
+  spelling, and every `CD3DX12_*` type in that header would fail R2 by design.
 
 ---
 
@@ -168,7 +185,7 @@ Two rules the config cannot express, and that a reviewer therefore has to carry:
 
 | Path | What it is |
 |---|---|
-| `NeuronCore/` | Engine primitives shared by client and server — zero game semantics. Foundation, containers, tasking, telemetry, byte IO, JSON, `Transport` (+ UDP/QUIC). |
+| `NeuronCore/` | Engine primitives shared by client and server — zero game semantics. Foundation, containers, tasking, telemetry, byte IO, JSON, the owner-thread assert, `Transport` (+ its `QuicTransport` implementation — the `UdpTransport` scaffold was deleted at S13, ADR-003 §4). |
 | `GameLogic/` | The deterministic planar simulation. Depends on NeuronCore only. |
 | `NeuronServer/` | `ServerHost` — sessions, tick-loop orchestration, snapshot fan-out. |
 | `NeuronClient/` | `ClientApp` — window, D3D12, camera, picking, HUD, audio, interpolation. |
@@ -227,8 +244,13 @@ Format the lines you write. Do not reformat files you are only passing through.
 
 ## 5. C++ rules for this codebase
 
-- **C++ latest** (`/std:c++latest`), MSVC v145, x64 only, `ConformanceMode` on. Do not turn
-  conformance off to make something compile.
+- **C++ latest** (`/std:c++latest`), MSVC v145, x64 only, `ConformanceMode` on, `/fp:precise`,
+  no `/arch`. Do not turn conformance off to make something compile. **None of these are
+  spelled in a `.vcxproj`** (ADR-018 A24): `Outpost.Toolset.props` holds the toolset and
+  `Outpost.Compile.props` the four compiler switches, every project imports both, and CI fails
+  a project that re-grows a copy. If you add a project, import both sheets — the toolset one
+  ahead of `Microsoft.Cpp.Default.props`, the compile one from each `PropertySheets` group;
+  those two positions are not interchangeable.
 - **Math is DirectXMath, used natively** — no wrapper types, functions, or aliases. Store
   `XMFLOAT2/3/4`, `XMFLOAT4X4`; compute in `XMVECTOR`/`XMMATRIX` as locals and parameters with
   the `XM_CALLCONV` conventions. Never a stored `XMVECTOR` or a `std::vector<XMVECTOR>`.
@@ -296,10 +318,18 @@ msbuild Outpost.slnx /p:Configuration=Release /p:Platform=x64
 vstest.console.exe x64\Debug\NeuronCoreTests.dll x64\Debug\NeuronServerTests.dll
 ```
 
-**CI** ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds **Debug|x64 only**
-on every push and runs all four test projects. Release is not built — x64 is the only platform
-and, this early, a Release job would double the wall clock to catch almost nothing. Add it when
-optimised-only breakage becomes a real risk.
+**CI** ([`.github/workflows/build.yml`](.github/workflows/build.yml)) builds **Debug|x64 and
+Release|x64** on every push and runs all four test projects on each. Release joined it with
+ADR-018 D11, because the numbers that now gate phases — R17's parse threshold, U5's frame
+budget, D1c's tick budget — are 5-20x away from themselves in Debug, and a shard ships Release
+binaries. Two things to know about what a green tick means today:
+
+- **Both legs gate.** A green tick means Debug and Release both passed. The Debug leg spent a
+  day non-blocking while R22's intermittent hang was open — during which a green tick certified
+  Release only — and it gates again as of 2026-08-20, the row having closed on green Debug runs
+  rather than on an argument.
+- **The source-level guards run on the Debug leg only**, since they read source rather than
+  object code.
 
 Two things CI does that a local build does not, and that are easy to trip over:
 
@@ -310,7 +340,7 @@ Two things CI does that a local build does not, and that are easy to trip over:
   application, so until `Main.cpp` exists the link fails on `WinMain`; the step detects this
   and skips rather than leaving CI permanently red. It started building itself when slice S1
   landed, with no edit to the workflow.
-- **Five guards run before anything is compiled**, because each of them replaces a defect that
+- **Seven guards run before anything is compiled**, because each of them replaces a defect that
   was found the hard way and could only be found at link or run time:
   - a header whose stem matches a **standard** one (§3) — the alternative is two dozen errors
     inside `<ctime>` naming nothing of ours;
@@ -325,7 +355,15 @@ Two things CI does that a local build does not, and that are easy to trip over:
   - **GameLogic reading a clock, drawing unseeded randomness, calling an `XM*Est`, or naming a
     `UniversePos` in per-tick code** (ADR-005, ADR-009 §2, ADR-010 §6) — the leaks that make a
     replay lie, caught by the build rather than by the suite going red for an unexplained
-    reason months later.
+    reason months later;
+  - **the naming rules `.clang-tidy` cannot state** — R2's prefixes and suffixes, R7's file
+    names and their `.vcxproj`/`.filters` entries (§1's Enforcement note);
+  - **a `.vcxproj` that spells a centralised build setting** or stops importing a property
+    sheet (§5, ADR-018 A24) — the invariant the determinism story rests on, held by something
+    other than everyone remembering.
+
+  Their file lists are **derived from the tree**, not spelled in the workflow: a project folder
+  or a GameLogic header added by a later slice is guarded the day it lands (ADR-018 A24).
 - **Failing tests are printed with their assertion messages**, and `test.log` is uploaded with
   `build.log`. Without that the one line that matters sits somewhere inside a 1,500-line log,
   which is worth knowing before you conclude a red job is a build failure.
