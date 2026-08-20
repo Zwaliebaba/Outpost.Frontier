@@ -1,12 +1,16 @@
 # Station Build Order — the Docking Phase
 
-**Status:** Session output 2026-08-19 · **T1 built in full, and T2's identity cluster is on
-the wire** (2026-08-20). Docking, the transfer bus, undocking and its fifteen seconds, the
-parking ring and the event record are in the sim; `PlayerId` and the reserved resume token are
-on `Hello`/`Welcome`, and the schema text carries the verdict-affecting constants and the
-check-order sequence (D9/A21). **What T2 still owes is its client half and its per-client
-`SnapshotSender`** — the first is screen work, the second is what U3c waits on. T3 is still
-gated on P1. The design it delivers is
+**Status:** Session output 2026-08-19 · **T1 built in full and T2's wire half complete**
+(2026-08-20) — **🏁 H0's loop runs end to end**, with three of its named criteria still
+outstanding (see T2's accept). Docking, the transfer bus, undocking and its fifteen seconds,
+the parking ring and the event record are in the sim; the identity cluster, the per-client
+`SnapshotSender`, the summary family's frame and the station command's own path onto the
+acked order stream are on the wire; and `selfTest` drives the whole headless loop over real
+QUIC loopback — dock, roster, undock, respawn, shimmer bit, roster follows. **What T2 still
+owes is its client half**, which is screen work: the DOCK context action, the approach chain,
+the fades, the shimmer and the DOCKED roster blocks. **P1 exists** — `ScreenPrints/
+station-screen.png`, landed 2026-08-19 — so T3 is gated on its four open review questions
+rather than on a missing artifact. The design it delivers is
 [ADR-017](ADR/ADR-017-station-docking.md); where this document and that one disagree, the
 ADR wins on *what* and this one on *when*.
 
@@ -21,8 +25,8 @@ footprint-derived dock radius (D7), the `(applyTick, transferId)` bus order (D17
 ids in every durable artifact (D6/A11), and the first event-record emissions (A17); T2's
 schema cluster is the **identity cluster** — `PlayerId` plus the reserved token/resume
 field (D5/A12), the schema text growing the verdict constants and check order (D9/A21) —
-and its roster goes through the per-client sender (A13); T3 is gated on the
-UI-architecture ADR (A19, deliverable D7 in the universe order).
+and its roster goes through the per-client sender (A13, delivered); T3 is gated on the
+UI-architecture ADR (A19, deliverable D7 in the universe order — delivered).
 
 The rules are the MVP build order's, unchanged: each slice independently testable, lands
 green, sized at "a few days" or less, later slices assume earlier ones. Landed slices
@@ -171,9 +175,20 @@ grace window. **Built 2026-08-20 (A13).** The sender is per client, the seam tak
 wire type (`Summary`) with a game-side kind byte — so `FleetSummary` rides the same frame
 rather than needing a second one. The composition root asks the registry where *this*
 commander's ships are and sends a roster for each station a `Docked` row names, which is
-what makes the frame self-consistent. What T2 still owes is its client half: the DOCK
-context action, the approach chain, the fades, the shimmer and the DOCKED roster blocks are
-screen work, and nothing reads these bytes yet.
+what makes the frame self-consistent. **And its own path onto that stream, 2026-08-20.** ADR-017 §8 put `StationCommand` on the
+acked *order* stream — one sequence, one `OrderAck`, one reason enum — and until this slice
+nothing carried it: the format and its validator were written and tested, and no line in
+`NeuronServer`, `NeuronClient` or `Outpost` mentioned either, so **UNDOCK could not be
+commanded at all**. Both messages open `u32 orderSeq` and then a byte whose value spaces
+overlap (`Move` and `Undock` are both zero), so `CommandKind` now leads the payload — the
+same one-engine-type, game-owned-byte shape the summary family uses. Two prerequisites came
+out of doing it: `Welcome` grew **`gridAnchor`** (PROTOCOL_VERSION 3), because a client that
+could be *told* about a station still had no number to address one with —
+`ValidationView::stationAnchor` was filled by `World` on the server and by nothing on the
+client — and `ReplicatedShip` grew **`statusBits`**, because the protection bit was on the
+wire and stopped at the view, so the shimmer had nothing to draw from. What T2 still owes is
+its client half: the DOCK context action, the approach chain, the fades, the shimmer and the
+DOCKED roster blocks are screen work.
 Client: DOCK as a **context action on the station structure** (the command row stays as
 printed), the client-feeds approach chain (Move to perimeter → Dock when every member is
 in radius, surfaced as a DOCKING chip), the ~1 s dock/undock fades in the existing overlay
@@ -218,9 +233,17 @@ station from the roster block and jump to it with VIEW.
 
 ## Content & design deliverables (not slices — tracked so they cannot be quietly dropped)
 
-- **P1 — The station-screen print.** The hangar is a new full-screen surface and must not
-  be invented ad hoc at T3. Owner-reviewed like every print. Required elements listed in
-  ADR-017 §6.
+- ~~**P1 — The station-screen print.**~~ **Delivered 2026-08-19:**
+  [`ScreenPrints/station-screen.png`](ScreenPrints/station-screen.png). Tabs rather than
+  tiles so the hangar's layout never reshuffles as station services land; wings as columns
+  because the wing is the unit a player undocks; the undock composer accumulating across
+  wings; and the parking diagram on the screen because ADR-017 §4 made the player a promise
+  about self-parking that they have to be able to see. No hull bars anywhere — the roster
+  holds no damage state, which is the one rule that shapes the layout.
+  **T3 is gated on its §3 review questions, not on the print:** the wave-2 trigger (does
+  wave 2 launch when wave 1 clears the point, or on a flat delay?), whether the composer
+  survives a screen switch, whether wings carry a colour identity, and the sort inside a
+  wing. All four are owner calls the ADR is silent on.
 - **P2 — Dock and undock audio cues.** Bay ambience, the dock thunk, the undock release.
   Lands only after S15 gives audio its bank format. Deliberately last, like D4.
 

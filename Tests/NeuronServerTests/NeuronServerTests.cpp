@@ -142,10 +142,11 @@ public:
 
   /// A world with a far, negative anchor: the plane is signed and full-width
   /// (ADR-009 §1), so a narrowed field folds here instead of in a session.
-  /// The display strings ride along so the test proves they arrive verbatim.
+  /// The display strings ride along so the test proves they arrive verbatim,
+  /// and `gridAnchor` — which grid, as opposed to where it is — rides with them.
   [[nodiscard]] WorldMeta World() const override
   {
-    return WorldMeta{42, -4200000000ll, 1750000000ll, "Testfall-9", "Proving Grounds 0.0", "SEC -1.0"};
+    return WorldMeta{42, 8317, -4200000000ll, 1750000000ll, "Testfall-9", "Proving Grounds 0.0", "SEC -1.0"};
   }
 
   [[nodiscard]] std::uint32_t Ticks() const noexcept { return m_ticks.load(std::memory_order_relaxed); }
@@ -316,6 +317,8 @@ public:
     // frame to place a replicated position in.
     const WorldMeta world = simulation.World();
     Assert::AreEqual<std::uint16_t>(world.worldId, welcome.worldId);
+    Assert::AreEqual<std::uint16_t>(world.gridAnchor, welcome.gridAnchor,
+                                    L"which grid, as opposed to where it is -- the number a Dock names");
     Assert::AreEqual(world.anchorX, welcome.anchorX);
     Assert::AreEqual(world.anchorY, welcome.anchorY);
     Assert::AreEqual(world.worldName, welcome.worldName);

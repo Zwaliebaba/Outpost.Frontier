@@ -42,6 +42,7 @@ namespace
   ship.hullGauge = _record.gaugeA;
   ship.shieldGauge = _record.gaugeB;
   ship.wing = _record.groupId;
+  ship.statusBits = _record.statusBits;
   return ship;
 }
 
@@ -168,6 +169,9 @@ void ReplicatedView::SampleAt(double _renderTick, std::vector<ReplicatedShip>& _
       }
       ship.hullGauge = blend < 0.5f ? ship.hullGauge : target.hullGauge;
       ship.shieldGauge = blend < 0.5f ? ship.shieldGauge : target.shieldGauge;
+      // Same rule as the gauges, and for a stronger reason: a bit has no
+      // halfway. The shimmer turns on at the tick the authority says it did.
+      ship.statusBits = blend < 0.5f ? ship.statusBits : target.statusBits;
       _outShips.push_back(ship);
     }
     return;

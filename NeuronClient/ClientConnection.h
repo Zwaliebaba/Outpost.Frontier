@@ -89,6 +89,13 @@ public:
   {
     return m_worldId;
   }
+
+  /// Which anchor this grid stands on. `WorldId()` describes where the grid is;
+  /// this is the number a Dock or a station command names (ADR-017 §2, §3).
+  [[nodiscard]] std::uint16_t GridAnchor() const noexcept
+  {
+    return m_gridAnchor;
+  }
   [[nodiscard]] std::int64_t AnchorX() const noexcept
   {
     return m_anchorX;
@@ -120,6 +127,20 @@ public:
    */
   [[nodiscard]] std::span<const std::vector<std::uint8_t>> PendingSnapshots() const noexcept { return m_pendingSnapshots; }
   void ClearPendingSnapshots() noexcept { m_pendingSnapshots.clear(); }
+
+  /*
+   * Summary payloads, held the same way and looked into just as little.
+   *
+   * A separate queue rather than a shared one, because the two feeds have
+   * different cadences and different lifetimes: a snapshot is superseded by the
+   * next tick's and the freshest is the only one worth keeping, while a summary
+   * arrives about once a second and describes places the client is *not*
+   * watching. Dropping the oldest is right for one and wrong for the other, so
+   * they do not share a policy.
+   */
+  [[nodiscard]] std::span<const std::vector<std::uint8_t>> PendingSummaries() const noexcept { return m_pendingSummaries; }
+  void ClearPendingSummaries() noexcept { m_pendingSummaries.clear(); }
+  [[nodiscard]] std::uint64_t SummaryCount() const noexcept { return m_summaryCount; }
 
   /*
    * Sends one order, framed and reliable.
@@ -200,6 +221,14 @@ private:
   /// the newest is the only one that has to arrive.
   static constexpr std::size_t MAX_PENDING_SNAPSHOTS = 8;
   std::vector<std::vector<std::uint8_t>> m_pendingSnapshots;
+
+  /// Summaries waiting to be read. Capped like the snapshots, and for the one
+  /// reason that is the same: a queue nobody drains must not grow without
+  /// bound. The oldest goes, because a newer roster for a station describes it
+  /// better than an older one does.
+  static constexpr std::size_t MAX_PENDING_SUMMARIES = 8;
+  std::vector<std::vector<std::uint8_t>> m_pendingSummaries;
+  std::uint64_t m_summaryCount = 0;
   std::uint64_t m_snapshotCount = 0;
   std::uint64_t m_snapshotOverflowCount = 0;
 
@@ -211,6 +240,7 @@ private:
   std::uint64_t m_orderSendCount = 0;
   std::uint64_t m_orderAckCount = 0;
   std::uint16_t m_worldId = 0;
+  std::uint16_t m_gridAnchor = 0;
   std::int64_t m_anchorX = 0;
   std::int64_t m_anchorY = 0;
   std::string m_worldName;

@@ -47,6 +47,24 @@ namespace Neuron
 struct WorldMeta
 {
   std::uint16_t worldId = 0;
+
+  /*
+   * Which anchor this grid stands on, as a number the client can name back.
+   *
+   * `worldId` says *where in the universe* and this says *which grid* -- two
+   * different questions that happened to have one field until a client needed
+   * to address a grid rather than describe it. It is here because a station
+   * command names the station it is addressed to (ADR-017 §3) and a Dock names
+   * the anchor it is docking at (ADR-017 §2), and until this shipped the client
+   * had no way to learn either: `ValidationView::stationAnchor` was filled by
+   * `World` on the server and by nothing at all on the client, so a Dock could
+   * be validated but never composed.
+   *
+   * Engine-neutral, like everything else here: "the id of the thing this grid
+   * is anchored on". What an anchor *is* stays GameLogic's (ADR-014).
+   */
+  std::uint16_t gridAnchor = 0;
+
   std::int64_t anchorX = 0; // The tactical grid's origin, in whole world units.
   std::int64_t anchorY = 0;
 

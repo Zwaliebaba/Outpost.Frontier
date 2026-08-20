@@ -129,6 +129,20 @@ green in CI, **and the post-MVP audio slice S15 with them**. The per-slice detai
 built, and what a "done" slice still owes — lives in [MVP-Build-Order.md](MVP-Build-Order.md);
 it is not repeated here.
 
+**T2's wire half is complete and H0's loop runs (2026-08-20).** `StationCommand` had a
+format, a validator and tests, and no line of `NeuronServer`, `NeuronClient` or `Outpost`
+mentioned either — so **UNDOCK could not be commanded over the wire at all**. It has its path
+now, through a `CommandKind` byte leading the acked stream's payload, and `selfTest` drives
+the whole headless loop over real QUIC loopback: dock a fleet, watch it leave the snapshot,
+read its roster off the summary feed, undock a subset on the same acked stream, and watch the
+pair come back wearing the protection bit while the ships that never left do not. Two
+prerequisites fell out of it, both gaps rather than additions: `Welcome` grew **`gridAnchor`**
+(PROTOCOL_VERSION 3) because a client had no number with which to address the station it
+could see, and `ReplicatedShip` grew **`statusBits`** because the protection bit reached the
+wire and stopped there. **P1 also turns out to exist** — the station-screen print landed
+2026-08-19 and this file called it missing until now; T3 is gated on the print's own four
+review questions, not on a missing artifact.
+
 **Three things landed on 2026-08-20, none of them a slice.** R22 closed and the Debug leg went
 back to gating, leaving R23 behind it. The build stopped relying on a hand-maintained
 deployment: `Outpost.vcxproj` gained a `CopyGameData` target, so content and `Outpost.json`
@@ -207,14 +221,16 @@ screen where emergent fleets and wings are recombined.
 [Station-Build-Order.md](Station-Build-Order.md) is the delivery plan, interleaved after U2
 and before U3a — it introduces the transfer bus warp inherited.
 
-**Built so far: all three halves of T1, and T2's identity cluster on the wire.** Docking, the
+**Built so far: all three halves of T1, and T2's wire half in full.** Docking, the
 transfer bus, undocking with its fifteen seconds, the parking ring and the event record are
 in the sim; `PlayerId` and the reserved resume token are on `Hello`/`Welcome`, and the schema
 text grew the verdict-affecting constants and the check-order sequence (ADR-018 D9/A21).
 **T2's client half is not built** — the DOCK context action, the approach chain, the fades,
-the shimmer and the DOCKED roster blocks are all screen work — and neither is its per-client
-`SnapshotSender`, which is the piece U3c waits on. T3, the hangar screen, is still gated on
-the station-screen print (P1), its one missing design artifact.
+the shimmer and the DOCKED roster blocks are all screen work. Its per-client `SnapshotSender`,
+the piece U3c waited on, landed with A13. T3, the hangar screen, is gated on the four
+questions [P1](ScreenPrints/station-screen.png) marks open for review — the wave-2 trigger,
+whether the composer survives a screen switch, wing colour identity, and the sort inside a
+wing — rather than on a missing print.
 
 **The first post-MVP feature is in the tree: ship collision (ADR-015, 2026-08-18).** Ships no
 longer fly through each other — per-class contact radii in the class table, braking and

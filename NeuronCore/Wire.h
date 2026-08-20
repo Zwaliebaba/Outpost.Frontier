@@ -30,8 +30,17 @@ namespace Neuron
  * schema hash does not cover this -- it covers *game payloads*, and `Hello` is
  * the message that carries the schema hash in the first place -- so the version
  * is the only thing that can refuse the connection, and it does.
+ *
+ * **3 as of the station phase's wire half:** `Welcome` grew `gridAnchor`
+ * between `worldId` and the plane coordinates, which moves every field after it
+ * -- a build reading a v2 `Welcome` as v3 would take two bytes of `anchorX` for
+ * the anchor and then be shifted for the rest of the message. This is the
+ * framing change the version exists for, and unlike the `Summary` type word it
+ * really is one. The field is what lets a client *address* the grid it is on
+ * rather than only describe it, which is what a Dock and a station command both
+ * need (ADR-017 §2, §3).
  */
-inline constexpr std::uint16_t PROTOCOL_VERSION = 2;
+inline constexpr std::uint16_t PROTOCOL_VERSION = 3;
 
 enum class WireType : std::uint16_t
 {
@@ -186,6 +195,12 @@ struct Welcome
   std::uint64_t schemaHash = 0;
   std::uint64_t contentHash = 0;
   std::uint16_t worldId = 0;
+
+  /// Which anchor this grid stands on (ADR-016 §3), so the client can name it
+  /// back in a Dock or a station command. `worldId` says where in the universe;
+  /// this says which grid.
+  std::uint16_t gridAnchor = 0;
+
   std::int64_t anchorX = 0;
   std::int64_t anchorY = 0;
 
@@ -293,7 +308,7 @@ void Write(ByteWriter& _writer, const Goodbye& _message) noexcept;
 inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,u64 schemaHash,u64 contentHash,str playerName,"
                                                      "u32 playerId,u64 resumeToken}"
                                                      "Welcome{u32 clientId,u32 tick,u16 tickRate,u64 schemaHash,u64 contentHash,"
-                                                     "u16 worldId,i64 anchorX,i64 anchorY,"
+                                                     "u16 worldId,u16 gridAnchor,i64 anchorX,i64 anchorY,"
                                                      "str worldName,str worldDetail,str worldBadge,"
                                                      "u32 playerId,u64 resumeToken}"
                                                      "UpdateRequired{u64 serverSchemaHash,u64 serverContentHash}"

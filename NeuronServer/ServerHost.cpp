@@ -199,6 +199,7 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     // before any snapshot arrives (ADR-009 §8).
     const WorldMeta world = m_simulation->World();
     welcome.worldId = world.worldId;
+    welcome.gridAnchor = world.gridAnchor;
     welcome.anchorX = world.anchorX;
     welcome.anchorY = world.anchorY;
     // The display strings ride along unread, like the id and the anchor: what

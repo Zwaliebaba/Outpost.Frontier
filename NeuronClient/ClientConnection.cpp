@@ -165,6 +165,7 @@ void ClientConnection::HandleMessage(const TransportEvent& _event)
     m_serverTick = welcome.tick;
     m_serverTickRate = welcome.tickRate;
     m_worldId = welcome.worldId;
+    m_gridAnchor = welcome.gridAnchor;
     m_anchorX = welcome.anchorX;
     m_anchorY = welcome.anchorY;
     m_worldName = welcome.worldName;
@@ -210,6 +211,26 @@ void ClientConnection::HandleMessage(const TransportEvent& _event)
       ++m_snapshotOverflowCount;
     }
     m_pendingSnapshots.emplace_back(payload.begin(), payload.end());
+    return;
+  }
+
+  case WireType::Summary:
+  {
+    // Opaque, exactly as the snapshot is: which member of ADR-016 §6's family
+    // this holds is a byte the *game* reads, and a connection that looked would
+    // have learned what a station is (ADR-014 §5).
+    const std::span<const std::uint8_t> payload = reader.Remaining();
+    if (payload.empty())
+    {
+      return;
+    }
+
+    ++m_summaryCount;
+    if (m_pendingSummaries.size() >= MAX_PENDING_SUMMARIES)
+    {
+      m_pendingSummaries.erase(m_pendingSummaries.begin());
+    }
+    m_pendingSummaries.emplace_back(payload.begin(), payload.end());
     return;
   }
 

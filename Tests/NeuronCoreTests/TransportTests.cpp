@@ -272,7 +272,11 @@ public:
     constexpr std::int64_t ANCHOR_Y = 9223372036854775807ll;
 
     WriteWireType(writer, WireType::Welcome);
-    Write(writer, Welcome{7, 1234, 20, 0xaaaa, 0xbbbb, 9, ANCHOR_X, ANCHOR_Y, "Vesta-3", "Frontier 0.4", "SEC 0.4"});
+    // `gridAnchor` sits between `worldId` and the plane coordinates, which is a
+    // field every later one is offset by: this call is positional on purpose, so
+    // a field inserted anywhere in the message stops compiling here rather than
+    // silently reading two bytes of something else (PROTOCOL_VERSION 3).
+    Write(writer, Welcome{7, 1234, 20, 0xaaaa, 0xbbbb, 9, 8317, ANCHOR_X, ANCHOR_Y, "Vesta-3", "Frontier 0.4", "SEC 0.4"});
 
     ByteReader reader{writer.Written()};
     Assert::IsTrue(ReadWireType(reader) == WireType::Welcome);
@@ -285,6 +289,7 @@ public:
     Assert::AreEqual<std::uint64_t>(0xaaaa, welcome.schemaHash);
     Assert::AreEqual<std::uint64_t>(0xbbbb, welcome.contentHash);
     Assert::AreEqual<std::uint16_t>(9, welcome.worldId);
+    Assert::AreEqual<std::uint16_t>(8317, welcome.gridAnchor, L"the grid's anchor, which is what a Dock names");
     Assert::AreEqual(ANCHOR_X, welcome.anchorX);
     Assert::AreEqual(ANCHOR_Y, welcome.anchorY);
     Assert::AreEqual(std::string{"Vesta-3"}, welcome.worldName);

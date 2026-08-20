@@ -341,13 +341,32 @@ public:
   {
     Neuron::ByteReader reader{_payload};
 
+    /*
+     * Which of the two messages this stream carries (ADR-017 §8).
+     *
+     * A station command shares the order stream -- one sequence counter, one
+     * `OrderAck`, one reason enum -- so the kind byte is the first thing read
+     * and the *only* thing that could say which decoder to run. Both payloads
+     * open with `u32 orderSeq` and then a byte whose value spaces overlap, so
+     * guessing from the body would read an Undock as a Move.
+     */
+    Game::CommandKind kind = Game::CommandKind::Order;
+    if (!Game::ReadCommandKind(reader, kind))
+    {
+      NEURON_LOG_WARNING("order payload names no command kind (%zu bytes)", _payload.size());
+      return Malformed();
+    }
+
+    if (kind == Game::CommandKind::Station)
+    {
+      return ApplyStationCommand(reader, _payload.size());
+    }
+
     Game::OrderSubmit order;
     if (!Game::ReadOrderSubmit(reader, order))
     {
       NEURON_LOG_WARNING("malformed order payload (%zu bytes)", _payload.size());
-      OrderVerdict malformed;
-      malformed.reasonCode = static_cast<std::uint16_t>(Game::OrderReason::UnknownKind);
-      return malformed;
+      return Malformed();
     }
 
     const Game::OrderVerdict decided = ServedWorld().SubmitOrder(order);
@@ -358,6 +377,56 @@ public:
     verdict.serverOrderId = decided.serverOrderId;
     verdict.orderSeq = order.orderSeq;
     return verdict;
+  }
+
+  /*
+   * The station half of the acked stream (ADR-017 §3, §6).
+   *
+   * The whole verb goes through `WorldRegistry::SubmitStationCommand`, which
+   * runs the *same* `ValidateStationCommand` the client's pre-check runs over
+   * its replicated `RosterView` -- the station surfaces' half of ADR-014 §3's
+   * bounce parity, bought the way the order side bought it: one function, two
+   * callers, no forked rules.
+   *
+   * A station command is universe-layer work and never a world's: an Undock
+   * files a transfer against the registry and an AssignWing writes a roster row,
+   * and neither touches the grid this session happens to be serving. That is
+   * why this does not go through `ServedWorld()`.
+   */
+  [[nodiscard]] OrderVerdict ApplyStationCommand(Neuron::ByteReader& _reader, std::size_t _payloadBytes)
+  {
+    Game::StationCommand command;
+    if (!Game::ReadStationCommand(_reader, command))
+    {
+      NEURON_LOG_WARNING("malformed station command (%zu bytes)", _payloadBytes);
+      return Malformed();
+    }
+
+    const Game::OrderVerdict decided = m_registry.SubmitStationCommand(command);
+
+    OrderVerdict verdict;
+    verdict.accepted = decided.accepted;
+    verdict.reasonCode = static_cast<std::uint16_t>(decided.reason);
+    verdict.serverOrderId = decided.serverOrderId;
+    // The client's own counter, shared with orders, which is what lets one ack
+    // stream serve both without a ghost being confused with a command.
+    verdict.orderSeq = command.orderSeq;
+    return verdict;
+  }
+
+  /*
+   * A payload the decoder would not take.
+   *
+   * `UnknownKind` and an `orderSeq` of zero, which is deliberate on both
+   * counts: there is no sequence to echo when the bytes did not parse, and the
+   * client's ghost then falls back on the snapshot's `lastOrderSeqProcessed`,
+   * which will never mention it.
+   */
+  [[nodiscard]] static OrderVerdict Malformed() noexcept
+  {
+    OrderVerdict malformed;
+    malformed.reasonCode = static_cast<std::uint16_t>(Game::OrderReason::UnknownKind);
+    return malformed;
   }
 
   [[nodiscard]] std::uint64_t SchemaHash() const override
@@ -690,6 +759,10 @@ WorldMeta MakeWorldMeta(const Game::UniverseDef& _universe)
 
   WorldMeta meta;
   meta.worldId = anchor.system;
+  // Which grid, as opposed to where it is. The client needs a number it can put
+  // in a Dock's `anchor` field and in a station command's `station` field
+  // (ADR-017 §2, §3); before this it had neither.
+  meta.gridAnchor = anchor.id;
   meta.anchorX = anchor.origin.x;
   meta.anchorY = anchor.origin.y;
 
