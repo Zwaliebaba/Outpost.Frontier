@@ -31,9 +31,12 @@
 
 #include <DirectXMath.h>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <iterator>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
@@ -344,6 +347,142 @@ constexpr FleetWing STARTING_FLEET[] = {
     {Game::HullClass::Carrier, "MARROW"},    {Game::HullClass::Battleship, "ECHO"},
 };
 
+constexpr std::size_t WING_COUNT = std::size(STARTING_FLEET);
+constexpr std::uint32_t SHIPS_PER_WING = 5;
+
+/// The tangential room a wing takes up on the ring: its line from end to end,
+/// plus a hull radius at each end, which is what has to clear its neighbour.
+[[nodiscard]] float WingWidthMetres(const FleetWing& _wing)
+{
+  const Game::ShipClassInfo& info = Game::ShipClass(_wing.hullClass);
+  return static_cast<float>(SHIPS_PER_WING - 1) * info.formationSpacingMetres + 2.0f * info.collisionRadiusMetres;
+}
+
+/*
+ * Which slot on the ring each wing parks in, indexed by its place in the table
+ * above.
+ *
+ * The wings used to take the slots in table order, which put the two widest
+ * next to each other and parked the fleet in an invalid state: MARROW's line
+ * end and ECHO's sat 221 m apart against a 227 m contact, and `Separate` healed
+ * the 6 m on tick 1 (ADR-015 §5, which left the re-park to the scenario owner).
+ * The overlap was the visible end of the real fault, which is that the ring
+ * divides evenly among wings that are not evenly sized: a Battleship wing is
+ * 1,920 m end to end and an Interceptor wing 280 m, and 45 degrees was handed
+ * to both. The table happened to run smallest hull to largest, so the two
+ * capitals landed adjacent -- the worst arrangement of the eight.
+ *
+ * So the ring is dealt widest-with-narrowest: the widest wing takes a slot, the
+ * narrowest takes the next, and so on inward, which leaves every capital
+ * flanked by two of the smallest wings there are. At the authored radius that
+ * turns a 6 m overlap into 90 m of clearance, and the tightest pair stops being
+ * a pair of capitals.
+ *
+ * Derived rather than authored on purpose. An order hand-picked today is an
+ * arrangement the next person breaks by adding the reserved Fighter and Cruiser
+ * wings or by retuning one spacing in the class table -- which is exactly how
+ * this defect arrived. Widening the ring does not substitute for it: the wing
+ * lines are chords, so past a point they cross rather than separate, and this
+ * overlap gets *worse* between 1,400 m and 1,800 m.
+ */
+[[nodiscard]] std::array<std::size_t, WING_COUNT> WingRingSlots()
+{
+  std::array<std::size_t, WING_COUNT> byWidth{};
+  for (std::size_t index = 0; index < WING_COUNT; ++index)
+  {
+    byWidth[index] = index;
+  }
+
+  std::sort(byWidth.begin(), byWidth.end(),
+            [](std::size_t _a, std::size_t _b)
+            {
+              const float widthA = WingWidthMetres(STARTING_FLEET[_a]);
+              const float widthB = WingWidthMetres(STARTING_FLEET[_b]);
+              // Table position breaks the tie, so this is a total order and two wings of
+              // equal width cannot trade slots between runs. The fleet feeds the world
+              // hash; a layout that sorted unstably would be a replay that disagreed with
+              // itself for no reason anyone could see.
+              return widthA != widthB ? widthA > widthB : _a < _b;
+            });
+
+  std::array<std::size_t, WING_COUNT> slotOf{};
+  std::size_t widest = 0;
+  std::size_t narrowest = WING_COUNT;
+  for (std::size_t slot = 0; widest < narrowest; ++slot)
+  {
+    // Even slots take the next-widest wing and odd slots the next-narrowest,
+    // which is the alternation: the two ends of the sorted list meet as
+    // neighbours, so a capital never stands beside another capital.
+    const std::size_t wing = (slot % 2 == 0) ? byWidth[widest++] : byWidth[--narrowest];
+    slotOf[wing] = slot;
+  }
+  return slotOf;
+}
+
+/// One parked hull, kept only as long as it takes to measure the layout.
+struct ParkedHull
+{
+  float xMetres = 0.0f;
+  float yMetres = 0.0f;
+  float radiusMetres = 0.0f;
+  std::size_t wing = 0;
+  const char* wingName = "";
+};
+
+/*
+ * Measure the parked fleet, and put the number in the log.
+ *
+ * ADR-015 §5's phrasing about the overlap it found is the reason this exists:
+ * "invisible until something measured it". `Separate` is a repair, so authored
+ * content that parks two hulls inside each other reads as a fleet that shuffles
+ * on tick 1 rather than as content that is wrong -- which is a defect that
+ * hides in a working game. Measuring it every boot costs 780 pairs, once.
+ *
+ * Cross-wing pairs only. Two ships in one wing stand a formation spacing apart
+ * against radii of at most a quarter of it, so their clearance is half the
+ * spacing by construction and the class table's own test already holds that
+ * bound. What this reports is the number the *ring* controls.
+ */
+void ReportParkedFleet(const std::vector<ParkedHull>& _parked)
+{
+  float tightest = std::numeric_limits<float>::max();
+  const ParkedHull* nearestA = nullptr;
+  const ParkedHull* nearestB = nullptr;
+
+  for (std::size_t a = 0; a + 1 < _parked.size(); ++a)
+  {
+    for (std::size_t b = a + 1; b < _parked.size(); ++b)
+    {
+      if (_parked[a].wing == _parked[b].wing)
+      {
+        continue;
+      }
+
+      const float dx = _parked[a].xMetres - _parked[b].xMetres;
+      const float dy = _parked[a].yMetres - _parked[b].yMetres;
+      const float clearance = std::sqrt(dx * dx + dy * dy) - (_parked[a].radiusMetres + _parked[b].radiusMetres);
+
+      if (clearance < 0.0f)
+      {
+        NEURON_LOG_WARNING("parked fleet: %s and %s overlap by %.1f m; Separate will heal it on tick 1", _parked[a].wingName,
+                           _parked[b].wingName, -clearance);
+      }
+      if (clearance < tightest)
+      {
+        tightest = clearance;
+        nearestA = &_parked[a];
+        nearestB = &_parked[b];
+      }
+    }
+  }
+
+  if (nearestA != nullptr && nearestB != nullptr)
+  {
+    NEURON_LOG_INFO("parked fleet: %zu hulls, tightest cross-wing clearance %.1f m (%s to %s)", _parked.size(), tightest,
+                    nearestA->wingName, nearestB->wingName);
+  }
+}
+
 /// The names as the world view wants them: indexed by `WingId`, so index 0 is
 /// `INVALID_WING_ID` and is a placeholder nothing draws.
 [[nodiscard]] std::vector<std::string> WingNames()
@@ -373,13 +512,22 @@ void UniverseSimulation::SpawnStartingFleet()
    * transfer) and what records where the ship went, and a spawn that did one
    * without the other would leave the fleet out of "where are my ships".
    */
+  // Where each wing stands. Read here rather than folded into the loop because
+  // the ring order and the table order are two different things now: the table
+  // still decides `WingId`, the call sign and the roster row, so ids and names
+  // are exactly what they were before the re-park.
+  const std::array<std::size_t, WING_COUNT> ringSlot = WingRingSlots();
+
+  std::vector<ParkedHull> parked;
+  parked.reserve(WING_COUNT * SHIPS_PER_WING);
+
   std::uint32_t wing = 0;
   for (const FleetWing& entry : STARTING_FLEET)
   {
     const Game::HullClass hullClass = entry.hullClass;
-    constexpr std::uint32_t SHIPS_PER_WING = 5;
-    const float wingAngle = (static_cast<float>(wing) / static_cast<float>(std::size(STARTING_FLEET))) * DirectX::XM_2PI;
-    const float spacing = Game::ShipClass(hullClass).formationSpacingMetres;
+    const float wingAngle = (static_cast<float>(ringSlot[wing]) / static_cast<float>(WING_COUNT)) * DirectX::XM_2PI;
+    const Game::ShipClassInfo& info = Game::ShipClass(hullClass);
+    const float spacing = info.formationSpacingMetres;
 
     for (std::uint32_t index = 0; index < SHIPS_PER_WING; ++index)
     {
@@ -399,10 +547,13 @@ void UniverseSimulation::SpawnStartingFleet()
       if (id != Game::INVALID_SHIP_ID)
       {
         m_patrolShips.push_back(id);
+        parked.push_back({spawn.xMetres, spawn.yMetres, info.collisionRadiusMetres, wing, entry.name});
       }
     }
     ++wing;
   }
+
+  ReportParkedFleet(parked);
 }
 
 /*

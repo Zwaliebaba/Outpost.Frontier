@@ -215,9 +215,13 @@ plus a converging-crowd replay test joined `GameLogicTests`; nothing on the wire
 things worth knowing: a target with a hull parked on it now ends with the mover parked
 adjacent and the leg expiring by its deadline (the obstructed-footprint item stays open, only
 its failure mode improved), and the authored starting fleet carried a real 6 m overlap between
-the Carrier and Battleship wings' line ends that `Separate` now heals on tick 1 — re-parking
-that layout is the owner's call. Originally verified on a Linux clang cross-build of GameLogic;
-since the merge with S14 the full MSVC build and all four suites (collision and S14 together)
+the Carrier and Battleship wings' line ends that `Separate` now heals on tick 1 — **re-parked
+2026-08-20 on the owner's call**: the ring deals its slots widest-with-narrowest rather than in
+table order, which moves the tightest cross-wing pair from −5.9 m to +90.3 m and leaves ship
+ids, wing ids and call signs exactly as they were. The boot log now states the number every
+run, because ADR-015 found that overlap only by measuring for it. Originally verified on a
+Linux clang cross-build of GameLogic; since the merge with S14 the full MSVC build and all
+four suites (collision and S14 together)
 have run green locally, with CI's run standing behind it as usual.
 
 **And its other half followed: ship make-way (ADR-021, 2026-08-19).** ADR-015 gave the mover
