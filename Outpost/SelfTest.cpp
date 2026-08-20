@@ -182,7 +182,10 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation)
     order.target.yCm = 654321;
     order.target.facingTurns16 = 0x1234;
 
-    std::array<std::uint8_t, Game::MAX_ORDER_SUBMIT_BYTES> buffer{};
+    // The kind byte is part of the payload now (ADR-017 §8), so the round trip
+    // has to carry it: writing it and then reading the body straight back would
+    // be a check that passes only because it skipped the field under test.
+    std::array<std::uint8_t, Game::COMMAND_KIND_BYTES + Game::MAX_ORDER_SUBMIT_BYTES> buffer{};
     Neuron::ByteWriter writer{buffer};
     bool ok = Game::WriteCommandKind(Game::CommandKind::Order, writer) && Game::WriteOrderSubmit(order, writer);
 
@@ -190,7 +193,9 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation)
     if (ok)
     {
       Neuron::ByteReader reader{writer.Written()};
-      ok = Game::ReadOrderSubmit(reader, read);
+      Game::CommandKind kind = Game::CommandKind::Station;
+      ok = Game::ReadCommandKind(reader, kind) && kind == Game::CommandKind::Order && Game::ReadOrderSubmit(reader, read) &&
+           reader.FullyConsumed();
     }
     ok = ok && read.orderSeq == order.orderSeq && read.kind == order.kind && read.formation == order.formation &&
          read.queueMode == order.queueMode && read.shipCount == order.shipCount && read.shipIds[0] == 3 && read.shipIds[1] == 9 &&
