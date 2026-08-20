@@ -1,6 +1,6 @@
 # Economy Build Order — the Mining and Refining Phase
 
-**Status:** Session output 2026-08-20 · **nothing built yet.** The design this plan delivers
+**Status:** Session output 2026-08-20 · **E1a is built** (2026-08-20); the rest is not. The design this plan delivers
 is [ADR-024](ADR/ADR-024-mining-economy.md), accepted 2026-08-20 with nine owner rulings;
 where this document and that one disagree, the **ADR wins on *what*** and this one on
 ***when***. Two refinements of the ADR's own delivery sketch are recorded in the sequencing
@@ -80,6 +80,55 @@ same `economyHash`, and a single changed integer does not. Diagnostics: a malfor
 reports *all* of its faults in one pass, each with a line and a path. Parse + hash of the
 committed file **measured in Release and recorded here** (ADR-018 D11), and a headless boot
 logs both hashes.
+
+**Built (E1a, 2026-08-20).** The economy stopped being prose.
+`GameData/Economy/Economy.json` is the authored content; `GameLogic/EconomyDef.h/.cpp`
+holds what it parses into plus `ComputeEconomyHash` and `MixContentHashes`;
+`GameLogic/EconomyParse.h/.cpp` is the pure `bytes → EconomyDef` function in
+`ParseUniverse`'s shape; `Outpost/EconomyLoad.h/.cpp` opens the file the way
+`UniverseLoad` does; and `Tests/GameLogicTests/EconomyParseTests.cpp` is the suite.
+**`economyHash 162c9e8874ee3435`.** The handshake carries
+`Mix(universeHash, economyHash)` through the existing `contentHash` — no wire field, no
+schema bump — and the boot log states all three numbers, because a mixed hash cannot say
+which file drifted.
+
+**One design decision paid for itself immediately.** Everything parses into storage
+**indexed by its taxonomy** — ore, alloy, archetype, grade and tier are enum-indexed arrays,
+recipe inputs and project costs are arrays indexed by ore and alloy with zero meaning
+"not required" — so hash order-independence is a property of the *shape* rather than of
+remembering to sort. Reordering the ore list, stripping every comment and reflowing the
+whitespace all leave the hash where it was; changing one litre moves it. The one place a
+list survives is `refining.batches`, and it is sorted at parse time for the same reason.
+
+**Two defects were caught before the gating toolchain saw them**, both by looking rather
+than by luck. `.gitattributes` says `* text=auto`, so the committed file is LF here and CRLF
+in a Windows working tree — and the suite's fixtures search for **multi-line** snippets, so
+it would have passed where it was written and failed where it gates. The test reader
+normalises line endings out, and the mirror below exercises the CRLF path. And
+`Assert::AreEqual` on a `std::uint8_t` is a compile error under CppUnitTest in a corpus with
+no `ToString` specialisation for narrow types; that assertion is widened to `unsigned`, with
+the reason written beside it.
+
+**What was verified, and how.** GameLogic's economy files compile clean under **clang 18 on
+Linux** — the same cross-build route ADR-015's collision work was first proven on — with
+**clang-tidy clean** against the repository config, and the source guards (R2 prefixes and
+suffixes, repo-wide file-name uniqueness, no clock or unseeded randomness in GameLogic,
+no namespace-scope constant declared twice) run by hand and green. Two scratch harnesses ran
+the real content through the real parser: the **invariants harness** (parse, hash, and every
+ADR-024 §7 shape assertion) and a **mirror of the MSVC suite** (all seven refusal fixtures,
+the three-faults-in-one-pass case, and the hash properties including the CRLF variant), both
+**green, 0 failures**. Every new file is registered in the `.vcxproj` *and* the `.filters`,
+and in both file-name registries.
+
+**What is still owed, and is not a small print.** **MSVC has not built this and
+`GameLogicTests` has not run** — there is no Windows toolchain in the environment this was
+written in, so CI's Debug and Release legs are the first real gate, exactly as AGENTS.md §6
+means it. `Outpost/Main.cpp`, `AppConfig` and `EconomyLoad` are **not compile-verified at
+all**: they are Windows-only translation units, reviewed by reading the diff and no more than
+that. And the Accept's **Release parse-and-hash measurement is not taken** — it needs a
+Release boot on Windows — so that one acceptance item stays open until CI or an owner run
+reports the number.
+
 
 ### E1b — Sites in the bake, and the epoch that moves them
 `AnchorKind::Site` stops being reserved — it already holds value 3 in `Universe.h`, so this

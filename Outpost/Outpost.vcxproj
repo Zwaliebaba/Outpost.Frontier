@@ -135,6 +135,7 @@
     <ClCompile Include="ReplicatedWorldView.cpp" />
     <ClCompile Include="ShaderTable.cpp" />
     <ClCompile Include="UniverseBake.cpp" />
+    <ClCompile Include="EconomyLoad.cpp" />
     <ClCompile Include="UniverseLoad.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="SelfTest.cpp" />
@@ -147,6 +148,7 @@
     <ClInclude Include="ReplicatedWorldView.h" />
     <ClInclude Include="ShaderTable.h" />
     <ClInclude Include="UniverseBake.h" />
+    <ClInclude Include="EconomyLoad.h" />
     <ClInclude Include="UniverseLoad.h" />
     <ClInclude Include="SelfTest.h" />
     <ClInclude Include="TickSoak.h" />

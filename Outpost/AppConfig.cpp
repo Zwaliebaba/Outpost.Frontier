@@ -329,7 +329,8 @@ void ApplyConfigLayer(const JsonValue& _root, AppConfig& _config, ConfigDiagnost
     return;
   }
 
-  WarnUnknownKeys(_root, {"mode", "selfTest", "logging", "universe", "content", "server", "client"}, "", _diagnostics);
+  WarnUnknownKeys(_root, {"mode", "selfTest", "logging", "universe", "economy", "content", "server", "client"}, "",
+                  _diagnostics);
 
   const JsonValue mode = _root.Member("mode");
   if (mode.Valid())
@@ -374,6 +375,13 @@ void ApplyConfigLayer(const JsonValue& _root, AppConfig& _config, ConfigDiagnost
   {
     WarnUnknownKeys(universe, {"definition"}, "universe", _diagnostics);
     ReadText(universe, "definition", _config.universeDefinition, "universe", _diagnostics);
+  }
+
+  const JsonValue economy = _root.Member("economy");
+  if (economy.Valid())
+  {
+    WarnUnknownKeys(economy, {"definition"}, "economy", _diagnostics);
+    ReadText(economy, "definition", _config.economyDefinition, "economy", _diagnostics);
   }
 
   const JsonValue server = _root.Member("server");

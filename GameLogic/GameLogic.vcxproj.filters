@@ -11,6 +11,12 @@
     <ClCompile Include="Validate.cpp">
       <Filter>Orders</Filter>
     </ClCompile>
+    <ClCompile Include="EconomyDef.cpp">
+      <Filter>Economy</Filter>
+    </ClCompile>
+    <ClCompile Include="EconomyParse.cpp">
+      <Filter>Economy</Filter>
+    </ClCompile>
     <ClCompile Include="Eta.cpp">
       <Filter>Orders</Filter>
     </ClCompile>
@@ -79,6 +85,12 @@
     </ClInclude>
     <ClInclude Include="Validate.h">
       <Filter>Orders</Filter>
+    </ClInclude>
+    <ClInclude Include="EconomyDef.h">
+      <Filter>Economy</Filter>
+    </ClInclude>
+    <ClInclude Include="EconomyParse.h">
+      <Filter>Economy</Filter>
     </ClInclude>
     <ClInclude Include="Eta.h">
       <Filter>Orders</Filter>
@@ -153,6 +165,9 @@
     </Filter>
     <Filter Include="Universe">
       <UniqueIdentifier>{b8e2074d-51ca-4f36-97a1-6d0e3b82fc19}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Economy">
+      <UniqueIdentifier>{5a9c02f1-7e34-4b6d-a0c8-93f15d6e2b47}</UniqueIdentifier>
     </Filter>
     <Filter Include="Project Files">
       <UniqueIdentifier>{82cd3cec-43b8-470b-bcd8-733fcb751dea}</UniqueIdentifier>
