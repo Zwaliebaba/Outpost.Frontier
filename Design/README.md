@@ -160,6 +160,13 @@ as the deliverable ADR-024 §7a named: persistence, drawn at **identity and loca
 durable, intention and motion are not**, which ends the "no save file exists" era ADR-017
 opened. [Economy-Build-Order.md](Economy-Build-Order.md) is the delivery plan.
 
+**Both are green in CI (run 150, 2026-08-20)**: 650 tests across the four suites in Debug and
+Release, the self test passing end to end, the replay hash matching across configurations, and
+the universe parsing in **183 ms in Release** — a third more content than U1 for a tenth more
+time, so R17's per-region split stays reserved. The tick soak is unchanged in character
+(7.000 ms for a capped grid), which answers the question 6,223 new anchors raise: a site costs
+the tick nothing until somebody warps to it.
+
 **Built so far: E1a and E1b.** `Economy.json` is the **first hash-guarded balance content in
 the tree** — ADR-012 §D13's hook cashed in, with `economyHash` mixed into the handshake's
 existing `contentHash` so an economy mismatch is refused with no wire field added. And
@@ -212,7 +219,7 @@ CI now runs headless in the shipping binary on every push (schema self-check, wi
 round-trips, a replay-determinism run, then the whole handshake + order + snapshot loop over
 QUIC loopback), 4× MSAA offscreen + resolve, cosmetic banking/hover, and the STALE marker.
 The merged tree — S14 plus ADR-015's collision and ADR-021's make-way, and now S15's audio —
-runs **593 tests green** across the four suites on MSVC, in Debug and Release alike.
+runs **593 tests green** across the four suites on MSVC, in Debug and Release alike. *(The suite stands at **650** as of the economy phase, 2026-08-20.)*
 
 **The half that needed a person and a GPU is done (2026-08-19):** the MVP definition
 demonstrated in a live session, together with the visual items outstanding since the last
@@ -390,7 +397,7 @@ linger is simulation state, so it is in the hash.
 **Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
 handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. The
-suite now stands at **593** — 300 client, 208 GameLogic, 75 core, 10 server. GameLogic is
+suite now stands at **650** — it was 593 before the economy phase, and the growth is again GameLogic's (`EconomyParseTests`, and `UniverseSiteTests`' twelve). GameLogic is
 where the growth is, and that is the universe and station phases arriving: it has gone from 136
 to 208 without a single one of those tests needing a device. Its
 visible half — window open, swapchain presenting, heartbeat live — together with the four

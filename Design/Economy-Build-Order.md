@@ -1,6 +1,6 @@
 # Economy Build Order — the Mining and Refining Phase
 
-**Status:** Session output 2026-08-20 · **E1a and E1b are built** (2026-08-20); the rest is not. The design this plan delivers
+**Status:** Session output 2026-08-20 · **E1a and E1b are built and green in CI** (run 150, 2026-08-20); the rest is not. The design this plan delivers
 is [ADR-024](ADR/ADR-024-mining-economy.md), accepted 2026-08-20 with nine owner rulings;
 where this document and that one disagree, the **ADR wins on *what*** and this one on
 ***when***. Two refinements of the ADR's own delivery sketch are recorded in the sequencing
@@ -120,15 +120,27 @@ the three-faults-in-one-pass case, and the hash properties including the CRLF va
 **green, 0 failures**. Every new file is registered in the `.vcxproj` *and* the `.filters`,
 and in both file-name registries.
 
-**What CI has since said, and what it has not.** E1a was written with no Windows toolchain
-in the environment, so its first record here said plainly that MSVC had not built it. That is
-no longer true: on run 148 the **Release leg built the libraries and `Outpost.exe`**, which
-covers `Outpost/Main.cpp`, `AppConfig` and `EconomyLoad` — the three translation units this
-slice could only review by reading — and **all seven source guards passed**. What is still
-owed is the half a compile cannot give: **`GameLogicTests` has not reported**, so the suite's
-verdict on `EconomyParseTests` is outstanding, and the Accept's **Release parse-and-hash
-measurement is not taken**, since it needs a Release boot rather than a Release build. Those
-two acceptance items stay open until a run reports them.
+**CI has reported, and E1a's accept is met (run 150, 2026-08-20).** This slice was written
+with no Windows toolchain in the environment, so its first record here said plainly that MSVC
+had not built it and the suite had not run. **Both legs are green now**, and the two items
+that were owed are closed:
+
+- **The suite runs and passes.** 650 tests across the four assemblies, Debug and Release
+  alike, against 593 before the economy phase — `EconomyParseTests` among them, so the CRLF
+  and narrow-`AreEqual` defects this slice fixed by prediction were fixed correctly rather
+  than plausibly.
+- **The economy parses in 0 ms**, which is the honest number for a 12 KB file and the reason
+  §7's custody split costs the boot nothing.
+
+And the three-hash boot line works exactly as designed, which was the whole argument for
+mixing rather than adding a wire field:
+
+```
+content: universe ad9555dd776008a6, economy 0b07707ec843431d, mixed 1965b853a23a5115
+```
+
+A mismatch is refused by machinery that already existed, and the log still names *which* file
+drifted.
 
 *(E1a's own first CI run, 145, shows as **cancelled** rather than green, and the cause is worth
 recording because it repeated: this workflow runs one build per branch, so pushing the next
@@ -230,16 +242,30 @@ widening a gating guard costs the protection it exists for, a **narrower rule re
 `World.h`, `World.cpp` and `WorldOrders.cpp` may no longer name `SiteEpoch` at all, which turns
 ADR-024 §3d's "an epoch never applies under a live grid" from a promise into a check.
 
-With that fixed, run 148 got **all seven source guards green** and the **Release leg built both
-the libraries and `Outpost.exe`** -- so MSVC compiles this slice, including
-`Outpost/UniverseBake.cpp` and `Outpost/SelfTest.cpp`, the two Windows-only units E1b could
-only review by reading. **The suite has not reported yet**, so `UniverseSiteTests`' twelve
-methods are green on the cross-build mirror and unproven on the gate.
+**With that fixed, run 150 is green on both legs and E1b's accept is met.** Every number the
+accept asked for, measured rather than extrapolated:
 
-And the parse figure the accept wants is a **Release MSVC** number: what exists is **185-220 ms
-on Linux clang -O2** for the 18.93 MB file, against U1's 167 ms Release for 14.2 MB, so the
-~1 s ceiling (ADR-018 D11) looks comfortable and **no per-region content split appears owed** --
-but an extrapolation is not a measurement, and this line does not treat it as one.
+- **650 tests pass**, Debug and Release alike, `UniverseSiteTests`' twelve among them. The
+  cross-build mirror had said the same thing; the gate now agrees.
+- **The universe parses and hashes in 183 ms in Release** -- for a file a third larger than
+  U1's, against U1's 167 ms for 14.2 MB. That is 33 % more content for 10 % more time, well
+  inside R17's ~1,000 ms threshold, so **no per-region content split is owed**. The
+  cross-build guess had been 185-220 ms, which is close enough to be worth recording and not
+  close enough to have been trusted.
+- **The self test passes end to end**, including the gate-crossing checks that walk the baked
+  anchors -- so site anchors did not disturb the topology U4 built on.
+- **`universeHash ad9555dd776008a6`** is what the shipping binary reads out of the committed
+  file, which closes the loop between the Linux bake and the Windows boot.
+- **The replay hash matches across configurations** (`909bf3b4962d0b6a`, checkpoint
+  `24b96ed08459db12`): standing spike 2 compares Debug against Release and passed, so the
+  re-bake did not cost determinism.
+- **One unique warning in the whole build**, and it is not this slice's:
+  `NeuronClient\Picking.cpp(51): warning C4723`, which predates the economy phase.
+
+The tick soak came back at **7.000 ms mean / 8.644 ms worst for a 1,024-ship grid, 14.0 % of
+the tick, 7.1 capped grids per core** -- unchanged in character from A4's 7.728 ms, which is
+the answer to the question this slice quietly raised: 6,223 more anchors in the content cost
+the tick nothing, because a site is not a world until somebody warps to it.
 
 *One defect was found by reading while CI ran*, and it is the kind two toolchains hide:
 `UniverseGen.cpp` calls `std::begin`/`std::end` on the grade table without including

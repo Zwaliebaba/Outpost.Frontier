@@ -85,7 +85,7 @@ lives in `Outpost/UniverseBake.h/.cpp` and is selected from config; `Universe.h`
 `Anchor` and `Constellation` records and `UniverseParse.cpp` reads them back.
 `GameData/Universe/Frontier.json` **is the committed universe**: 50 regions, 250
 constellations, 2,500 systems, 12,453 planets, 3,356 stations, 6,000 gates and **18,618
-anchors** in ~14.2 MB, `universeHash db10606904062335`. *(**Superseded by E1b, 2026-08-20**: the economy phase re-baked this file to add 6,223 `Site` anchors, so the committed universe is now **24,841 anchors in 18.93 MB at `universeHash ad9555dd776008a6`**. Nothing U1 produced changed — the re-bake is purely additive and every station, planet and gate anchor kept its id — but the numbers quoted here are U1's, not the tree's. See [Economy-Build-Order.md](Economy-Build-Order.md)'s E1b.)* Parse + hash of that file measured in
+anchors** in ~14.2 MB, `universeHash db10606904062335`. *(**Superseded by E1b, 2026-08-20**: the economy phase re-baked this file to add 6,223 `Site` anchors, so the committed universe is now **24,841 anchors in 18.93 MB at `universeHash ad9555dd776008a6`**. Nothing U1 produced changed — the re-bake is purely additive and every station, planet and gate anchor kept its id, and the bigger file still parses in **183 ms in Release** against the 167 ms below — but the numbers quoted here are U1's, not the tree's. See [Economy-Build-Order.md](Economy-Build-Order.md)'s E1b.)* Parse + hash of that file measured in
 **Release: 167 ms** — against ADR-018 D11's ~1 s ceiling, so **no per-region content split is
 owed** (Debug is ~10× that, which is the same ratio A4's soak found and the reason the number
 is quoted from Release). `Tests/GameLogicTests/UniverseGenTests.cpp` holds the invariants,
