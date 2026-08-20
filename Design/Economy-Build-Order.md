@@ -225,8 +225,8 @@ extrapolation.
 
 
 ### E2 — Mining in the sim, and the site ledger
-**Gated on the persistence ADR** (below): the site ledger is this tree's first durable state,
-and its shape is that ADR's to decide.
+**Its gate is cleared:** [ADR-025](ADR/ADR-025-persistence.md) is accepted, so the site
+ledger has a shape to be written in rather than a decision to wait on.
 
 `OrderKind::Mine = 6` joins the vocabulary with the **ore filter** as its parameter, offered
 through the existing `OrderKinds`/`OrderOptions` seam so the command surface names it without
@@ -317,8 +317,7 @@ pocket's dampening legible as a thing happening to *you* rather than a number in
 
 ## Content & design deliverables (not slices — tracked so they cannot be quietly dropped)
 
-- ~~**D-P1 — The persistence ADR.**~~ **Delivered 2026-08-20 (proposed, awaiting owner
-  review):** [ADR-025](ADR/ADR-025-persistence.md). Journal format, snapshot cadence, crash
+- ~~**D-P1 — The persistence ADR.**~~ **Delivered and accepted 2026-08-20:** [ADR-025](ADR/ADR-025-persistence.md). Journal format, snapshot cadence, crash
   recovery and the reload proof, for the engine-owned journal ADR-024 §7a ruled on. **It blocks
   E2**, not E1 — ADR-024 §7a said "blocks E1", corrected there and here: E1a is a read-only
   content file and E1b is authored content, so neither has durable state to persist; the first

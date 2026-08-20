@@ -1,8 +1,9 @@
 # ADR-025 — Persistence: the Journal, the Snapshot, and What a World May Forget
 
-**Status:** Proposed · 2026-08-20 · **deliverable D-P1** of
-[Economy-Build-Order.md](../Economy-Build-Order.md), where it **blocks E2** — the site ledger
-is the first durable state this tree will own. Nothing is built.
+**Status:** Accepted · 2026-08-20 (owner-accepted the day it was written) · **deliverable
+D-P1** of [Economy-Build-Order.md](../Economy-Build-Order.md), whose **E2 gate it now
+clears** — the site ledger is the first durable state this tree will own. Nothing is built;
+what acceptance changes is that E2 may build against this rather than around it.
 **Depends on:** ADR-002 (tick), ADR-004 (little-endian byte discipline), ADR-005
 (determinism, the replay contract), ADR-007 (single-writer worlds, foreign threads enqueue),
 ADR-008 (boot and shutdown ordering), ADR-012 (JSON config, no argv, no environment),
@@ -343,8 +344,8 @@ quietly amnesiac.
   `JOURNAL_FLUSH_MILLISECONDS` (1,000), `SNAPSHOT_INTERVAL_SECONDS` (300),
   `CHECKPOINT_INTERVAL_TICKS` (1,200) — table data, retunable as table edits.
 - **`Outpost.json` grows a `persistence` block** (§7), and `AppConfig` grows with it.
-- **A proposed risk-register row, R26**: *a torn journal or a refused load takes a shard's
-  state with it.* Mitigation is designed in — CRC per frame, snapshot rotation with no
+- **Risk-register row R26 lands with acceptance**: *a torn journal or a refused load takes a
+  shard's state with it.* Mitigation is designed in — CRC per frame, snapshot rotation with no
   both-files-bad window, refusal rather than partial load, and the `selfTest` restart scenario
   — and the early-validation signal is that restart scenario running on every push.
 - **The replay contract is untouched.** The journal is not a replay log (§3) and the
