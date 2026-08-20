@@ -121,12 +121,20 @@ moves between the trees without a rename pass. Three things it changed in these 
   `SnapshotSender` does not exist yet, and U3b's client half, T2's roster privacy and U3c all
   need it.
 
-## Implementation state (2026-08-19)
+## Implementation state (2026-08-20)
 
 **Every MVP slice is in the tree: S1 through S14** (with the inserted S2b, S5b, S5c and S5d),
 green in CI, **and the post-MVP audio slice S15 with them**. The per-slice detail — what was
 built, and what a "done" slice still owes — lives in [MVP-Build-Order.md](MVP-Build-Order.md);
 it is not repeated here.
+
+**Three things landed on 2026-08-20, none of them a slice.** R22 closed and the Debug leg went
+back to gating, leaving R23 behind it. The build stopped relying on a hand-maintained
+deployment: `Outpost.vcxproj` gained a `CopyGameData` target, so content and `Outpost.json`
+arrive beside the executable and a fresh clone can press F5 — the MVP-Build-Order note that
+recorded that gap is closed. And the boot fleet was re-parked on the owner's call, closing the
+one item ADR-015 left open (see the ship-collision entry below). The next move is **A13**, the
+per-client `SnapshotSender`.
 
 **The MVP is met — the play test was signed off 2026-08-19.** The lap the Architecture Overview
 calls "the one data flow" runs end to end — right-drag to plane point, pre-check, PENDING
