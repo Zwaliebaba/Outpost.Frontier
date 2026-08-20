@@ -15,10 +15,12 @@ name: Build
 # The source-level guards run on the Debug leg only: they read source, not
 # object code, so running them twice would only make the log longer.
 #
-# The Debug leg is currently NON-BLOCKING (see `continue-on-error` below) while
-# R22 is open, so a green run on this workflow certifies Release only. That is a
-# temporary, deliberate, and loudly-announced reduction in coverage, not a
-# silenced failure.
+# **Both legs gate again as of 2026-08-20.** The Debug leg spent a day
+# non-blocking while R22's intermittent hang was open, during which a green run
+# certified Release only; the deadlock behind it was found and removed, the
+# Debug legs since have been green, and the owner closed the row. A green run on
+# this workflow means both configurations passed, which is what it should always
+# have meant.
 
 on:
   push:
@@ -45,18 +47,6 @@ jobs:
     # changes the compiler it shows up as a diff in the summary rather than as a
     # mystery. Pin this the first time that log says something new.
     runs-on: windows-latest
-
-    # The Debug leg does not gate the run, by owner decision (2026-08-19), until
-    # R22's intermittent Debug test hang is root-caused -- that needs a Windows
-    # machine and the hang dump, which CI cannot supply. This is a deliberate and
-    # temporary reduction in what a green run means: **green currently certifies
-    # Release only**. It is not a way of hiding the failure -- the Debug leg still
-    # builds, still runs, still uploads its dump, and the last step of this job
-    # writes an unmissable banner into the summary when it fails.
-    #
-    # Remove this line the day R22 closes. If it is still here and R22 is closed,
-    # that is a bug in someone's discipline, not in the build.
-    continue-on-error: ${{ matrix.configuration == 'Debug' }}
 
     # A hang must cost 45 minutes, not the 6-hour default. Added when the Debug
     # leg was found stuck in `Run tests` for over 100 minutes on a docs-only
@@ -959,30 +949,6 @@ jobs:
             '```' | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
             $shown | ForEach-Object { Write-Host $_ }
           }
-
-      # continue-on-error makes the run green; it must not make the failure
-      # quiet. Anyone reading the summary sees what did not pass and why it was
-      # allowed through.
-      - name: Say plainly that Debug failed and was not allowed to gate
-        if: failure() && matrix.configuration == 'Debug'
-        shell: pwsh
-        run: |
-          $lines = @(
-            '## :warning: Debug|x64 FAILED - and did not fail the run',
-            '',
-            'The Debug leg is **non-blocking** by owner decision (2026-08-19) while',
-            'Risk-Register **R22** is open: the Debug test run hangs intermittently, and',
-            'root-causing it needs a Windows machine and the hang dump attached to this run.',
-            '',
-            '**A green tick on this run certifies Release only.** Debug coverage is not',
-            'being reported. The dump and per-test blame output are in the',
-            '`build-log-Debug-x64` artifact.',
-            '',
-            'When R22 closes, delete `continue-on-error` from the build job.'
-          )
-          $lines | ForEach-Object { Write-Host $_ }
-          $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
-          Write-Host '::warning title=Debug leg failed (non-blocking, R22)::Green certifies Release only until R22 closes'
 
       # Whatever failed, again, where a reader of a failed job will actually
       # find it: the last thing the job printed.

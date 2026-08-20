@@ -324,10 +324,10 @@ ADR-018 D11, because the numbers that now gate phases — R17's parse threshold,
 budget, D1c's tick budget — are 5-20x away from themselves in Debug, and a shard ships Release
 binaries. Two things to know about what a green tick means today:
 
-- **The Debug leg does not gate the run** while R22 is open (an intermittent Debug test hang
-  that needs a Windows machine and the hang dump to root-cause). It still builds, runs and
-  uploads its dump, and its failure writes an unmissable banner into the summary — but a green
-  run currently certifies **Release only**. That is temporary and deliberate.
+- **Both legs gate.** A green tick means Debug and Release both passed. The Debug leg spent a
+  day non-blocking while R22's intermittent hang was open — during which a green tick certified
+  Release only — and it gates again as of 2026-08-20, the row having closed on green Debug runs
+  rather than on an argument.
 - **The source-level guards run on the Debug leg only**, since they read source rather than
   object code.
 

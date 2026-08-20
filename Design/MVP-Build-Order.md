@@ -33,7 +33,7 @@ open**, and none of them blocks the MVP or M1 — both are met:
 | 3 | **No sim-side stall injector** — F10 cuts the client's *feed*, which is indistinguishable from the client's side but does not pause the authority | S7 | Only matters the day something tests the server stalling rather than the link going quiet |
 | 4 | **What the puck should do when a station lands inside a gate or another fleet** | S10 | A design decision nobody has taken; `puck-and-wheel.png` §6 lists it OPEN |
 | 5 | **Nobody has heard the audio** — the manual pass is S15's real acceptance, and the two WAVs are synthesised placeholders | S15 | Landed 2026-08-19; no listening pass since |
-| 6 | **The Debug CI leg does not gate** (`continue-on-error`) while R22 is open, so a green tick certifies **Release only** | — | Risk-Register R22. A confirmed deadlock was removed from the file R22 names, but confirming it *was* the CI hang needs green Debug legs, not an argument |
+| 6 | ~~**The Debug CI leg does not gate** (`continue-on-error`) while R22 is open, so a green tick certifies **Release only**~~ **Closed 2026-08-20** | — | Risk-Register R22. The green Debug legs the row asked for arrived, the owner closed it, and `continue-on-error` came out of the build job. What survives R22 is a different question, now **R23**: `QuicTransportTests` has flaked on both configurations, and a flaky test that gates is a red build nobody caused |
 
 Two more that belong to no slice and are recorded where they live rather than here: ADR-011 §8's
 callback ring and external-lane registration (deliberately deferred, named in S15's notes), and
@@ -1565,13 +1565,16 @@ by finding a deadlock that made it undemonstrable: engine code that 477 tests an
 S14's notes above). A green tick said the tree was ready. Only a person at a GPU could say
 whether the game was, and the first thing they saw was that it was not.
 
-**One qualification stands, and it is on the machine half.** The Debug leg of CI is still
-`continue-on-error` while R22 is open, so a green run certifies **Release** only. That
-deadlock is a strong candidate for R22's cause — it is in the file R22 names, in a call
+**The qualification that stood here has been discharged.** The Debug leg of CI was
+`continue-on-error` while R22 was open, so a green run certified **Release** only. That
+deadlock was a strong candidate for R22's cause — it is in the file R22 names, in a call
 `NeuronCoreTests`' loopback pump drives hard, and it is a race, which is the shape R22
 reported — but R22's own hypothesis was a different mechanism in `Teardown`, and settling it
-takes green Debug runs rather than an argument. `continue-on-error` comes out of the build job
-the day that holds, and not before.
+took green Debug runs rather than an argument. **They came**, the owner closed the row on
+2026-08-20, and `continue-on-error` is out of the build job: a green tick certifies both
+configurations again. Worth keeping from the episode: the deadlock was found by a person at a
+GPU and confirmed by CI, in that order, and the fix was gated on the second rather than the
+first — which is the only reason the closing note here is a record and not a hope.
 
 **What follows the MVP is already moving.** The first post-MVP feature landed beside S14 and
 merged with it: ship collision (ADR-015) — contact radii in the class table, braking and
