@@ -294,19 +294,59 @@ failure raised a modal dialog no headless runner could dismiss. Diagnosed by ins
 is green in both configurations — **694 tests on MSVC**, the replay hash unmoved from run
 155's `69c58e2751c0df22`.)*
 
-**Next is E4a, and it exists because reading E4's accept found a slice hiding inside it
+**E4a is built, and it exists because reading E4's accept found a slice hiding inside it
 (2026-08-21).** E4 asks for "the whole registry — rosters, Bays, ledgers, jobs, projects —
-round-tripping through the persistence layer", and that layer is **not in the tree**: ADR-025 is
-accepted design, and the only trace of the journal in the code is three comments pointing
-forward to it. So E4 splits the way E1 did — **E4a the durable store** (`DurableState`,
-`DurableStore`, the journal lane, the snapshot rotation, the boot path, `Outpost.json`'s
-`persistence` block, and `DurableHash()` as the second hash ADR-025 §1a insists on), then
-**E4b the refining runtime** with milestone G1. The ordering argument is that E4a's subject
-already exists and is already hash-proven, so the round-trip has something real to bite on;
-the other way round, a brand-new file format's first exercise would be against brand-new job
-state, with two unproven things debugging each other. It also starts R26's early-validation
-signal — the restart scenario on every push — a slice earlier than G1 would have. The split and
-its rationale are in [Economy-Build-Order.md](Economy-Build-Order.md).
+round-tripping through the persistence layer", and that layer was **not in the tree**: ADR-025
+was accepted design, and the only trace of the journal in the code was three comments pointing
+forward to it. So E4 split the way E1 did — **E4a the durable store**, then **E4b the refining
+runtime** with milestone G1. The ordering argument was that E4a's subject already exists and is
+already hash-proven, so the round-trip had something real to bite on; the other way round, a
+brand-new file format's first exercise would have been against brand-new job state, with two
+unproven things debugging each other.
+
+**What landed.** `GameLogic/DurableState.{h,cpp}` is the pure half — bytes in, bytes out,
+diagnostics on malformed input, never a path and never a throw — writing ADR-025 §1's list as
+far as this tree has it: ships wherever they stand with their hold, rosters, Bays, site ledgers,
+the in-flight bus, the ship-id high-water mark and the shard tick. Order queues, steering,
+undock protection and wrecks are **not** written, so a fleet reloads at rest with an empty
+queue. `NeuronServer/DurableStore.{h,cpp}` is the store, and it never learns what it is storing:
+framed records with a CRC each, the three-step snapshot rotation, and a boot path whose central
+distinction is **torn tail versus corruption** — a bad frame at the end is the write that was in
+flight when the power went, so it is truncated and logged; a bad frame with good frames after it
+refuses and leaves both files alone, because truncating there would throw away good state to
+make a bad file parse. `Outpost.exe` is the wiring, and `Outpost.json` grows a `persistence`
+block that is **off by default**.
+
+**`DurableHash` is a second hash and not a second opinion**, which is the claim the slice turns
+on: `WorldRegistry::Hash` folds the order queues §1 declares transient, so a correct reload
+cannot reproduce it and a check written against it would teach everyone to ignore a red test. A
+test asserts the difference — an accepted order moves one number and not the other.
+
+**Four defects, every one found by reading the code back rather than by a test.** The store's
+`Replay` reopened the journal over the handle `Open` had left, which leaks on Linux and is
+*refused outright* on the platform that ships — the shard would have persisted nothing while
+every other check passed. `LoadDurable` could refuse on its last ship having already written the
+rosters, the Bays and the ledgers, which is the half-built registry its own contract promises
+not to leave. It also assigned the Bays and ledgers straight from the file, and both are found
+by `lower_bound` — so an out-of-order file would have answered "no such Bay" for a Bay that was
+right there, silently. And `m_journalHeaderBytes` was written in three places and read in none.
+Each has a test beside it now. CI found a fifth that the Linux harness structurally could not:
+MSVC refuses `std::fopen` under this tree's conformance settings, in the test file that opens
+the store's files by hand to damage them.
+
+**R26's early-validation signal starts here** rather than at G1 — the `selfTest` restart
+scenario, in two halves because they are two claims: `RunRestartLoop` proves the *format* (a
+second registry and a second store meeting the first only through two files, which is what a
+restart is) and the host section proves the *wiring* (after `Stop` and `Join` the snapshot is on
+disk, stamped with the tick the host stopped at, carrying the shard's own reload proof). The
+second is the one a person would forget to make: a store that works and is never called is a
+shard that loses everything while passing every unit test.
+
+*What E4a deliberately does not carry is the journal's **game** records. The journal exists, is
+framed, CRC'd, recovered and tested, and nothing appends to it yet — so a hard kill today loses
+back to the last snapshot rather than to the last second. The per-outcome records that close
+ADR-025 §4's named window need a change-set at the registry's mutation points, and they land
+with the state E4b is about to add rather than being retrofitted twice.*
 
 **What the economy phase cost in corrections is worth reading before the next slice**, because
 all four were found by building rather than by review: the ADR's field radius did not fit the
