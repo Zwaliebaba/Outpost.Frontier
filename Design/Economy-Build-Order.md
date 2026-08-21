@@ -1086,6 +1086,22 @@ turns **seven** of the fourteen red.
 
 None of the three blocked E5a, which is the whole argument for having split it out.
 
+**Accept (E5a): met, run 191 (2026-08-21, `da31698`).** Green on both configurations with
+clang-tidy clean and one pre-existing warning (`Picking.cpp` C4723, not this change's); the
+`Say what failed` gate wrote nothing, so no test failed on either leg. `selfTest: PASSED` on
+both, every named check ok including the twin-client gate and the resume, and the numbers that
+should not have moved did not: replay hash `69c58e2751c0df22` (checkpoint `fa56d9f638cba0fe`),
+shard snapshot 1908 bytes with durable hash `d589ed5beb6b3324` — identical to run 188's, which
+is the point, because **E5a is a receiving-end change and must not be able to move a
+simulation number.** Universe parse 206 ms against R17's ~1000 ms; capped-grid soak mean
+9.544 ms / worst 17.015 ms inside the tripwire; `SummariesSent total 7 over 7`, so the family
+this slice is about really does flow on the headless loop.
+
+Headless in the sense that matters here: **no screen was involved and none could be.** What
+run 191 proves is that the tree builds and nothing regressed; what proves the decode itself is
+the fourteen tests, which run on a machine with no device in it and fail when the old decoder
+is put back.
+
 
 ---
 
