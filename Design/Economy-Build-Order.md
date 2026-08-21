@@ -552,12 +552,30 @@ after the last manual sync was silently not compiled — twice it reported on co
 existed, once as a phantom test failure and once as a real one that would not go away. It syncs
 unconditionally now.*
 
-**What CI has not said yet.** This ran on clang and Linux; the gating toolchain is MSVC on
-Windows, and the suite total, the replay hash across configurations and the self test come from
-there. `Main.cpp` cannot be compiled here at all — it reaches COM headers the shim does not have
-— so the summary sender was reviewed by reading. Content is untouched, so `universeHash` and
-`economyHash` are unchanged; `GameSchemaHash` moves, which is the point of the slice, and the
-replay hash moves with the Bay joining the registry fold.
+**CI's verdict (run 161, commit `93956dc`, 2026-08-21).** Debug|x64, Release|x64 and Spike 2
+all green, in eleven minutes. **717 tests pass on MSVC** with none failing, the whole suite in
+20.8 s on Release, and `self test: PASSED` — including all thirteen new 🏁 G0 checks: mining
+puts ore in the hold, the field's status shows it measurably emptier with the worked cluster
+reading below full, a loaded Miner warps and docks, the Miner reaches the roster with every
+unit it was carrying, the commander commits it to the Bay, the Bay holds exactly what was
+committed and belongs to nobody else, and it outlives the grid it was filled at. No clang-tidy
+finding, no failing test, and one warning in the whole build — the pre-existing
+`NeuronClient\Picking.cpp(51)` C4723; Debug has none. Content is untouched, as expected:
+`universe ad9555dd776008a6, economy 0b07707ec843431d, mixed 1965b853a23a5115`, read, parsed and
+hashed in **212 ms** (4,630 ms on Debug). The tick soak is flat against E2 rather than up: a
+capped grid costs **8.729 ms mean / 17.573 ms worst** against E2's 9.020 / 16.538, which is
+17.5 % of the budget and 5.7 capped grids per core.
+
+**The replay hash did not move, and the paragraph this one replaces said it would.** It is
+`69c58e2751c0df22` (checkpoint `fa56d9f638cba0fe`), byte for byte what E2 measured, and Spike 2
+confirms Debug and Release agree on it. The prediction was wrong in a way worth keeping written
+down: `RunScriptedReplay` is six ships in a bare `World` hashed with `ComputeWorldHash`, and
+everything this slice added — the Bay, the roster manifests, the transfer manifest — is
+`WorldRegistry` state that the replay never touches. The one piece that *is* world state,
+`ShipCargo`, E2 had already folded in. **The replay hash is a world hash and not a shard hash**,
+so an unmoved number here says nothing either way about the universe layer; what covers that is
+`WorldRegistry::Hash` and the G0 scenario above. `GameSchemaHash` did move, which is the point
+of the slice.
 
 ### E4 — Refining, tiers, and the projects · 🏁 G1
 Refine jobs `(recipe, batchCount)` submitted as station commands against a Bay — **at any

@@ -242,6 +242,19 @@ and immediately proved it did not: `ApplyTransit` spawned arrivals with empty ho
 that warped anywhere lost its cargo silently. Dock and undock each had a test; transit had none.
 Fixed, with the unit test that should have caught it first added beside it.
 
+**CI's verdict on E3 (run 161, commit `93956dc`, 2026-08-21):** Debug|x64, Release|x64 and
+Spike 2 all green in eleven minutes, **717 tests on MSVC** with none failing, `self test:
+PASSED` with all thirteen 🏁 G0 checks named and passing, no clang-tidy finding and the one
+pre-existing Release warning. Content is untouched — `universe ad9555dd776008a6, economy
+0b07707ec843431d, mixed 1965b853a23a5115`, parsed and hashed in **212 ms** — and the tick soak
+is flat rather than up: a capped grid costs **8.729 ms mean / 17.573 ms worst** against E2's
+9.020 / 16.538, holding the headroom R10 watches at 5.7 capped grids per core. **The replay
+hash did not move** — `69c58e2751c0df22`, byte for byte E2's — and the build-order note
+predicted that it would. The reason is worth carrying: the replay scenario is six ships in a
+bare `World` hashed with `ComputeWorldHash`, while the Bay and the manifests are
+`WorldRegistry` state. **The replay hash is a world hash, not a shard hash**, so an unmoved
+number says nothing either way about the universe layer.
+
 *(The merge with `main`'s station-progress work first inherited a CI hang — `a6dd412`'s
 xcopy rewrite of the content copy left the exe bootless on a fresh clone, and a startup
 failure raised a modal dialog no headless runner could dismiss. Diagnosed by instrumentation
@@ -291,7 +304,7 @@ CI now runs headless in the shipping binary on every push (schema self-check, wi
 round-trips, a replay-determinism run, then the whole handshake + order + snapshot loop over
 QUIC loopback), 4× MSAA offscreen + resolve, cosmetic banking/hover, and the STALE marker.
 The merged tree — S14 plus ADR-015's collision and ADR-021's make-way, and now S15's audio —
-runs **593 tests green** across the four suites on MSVC, in Debug and Release alike. *(The suite stands at **650** as of E1b; E2 adds 38 more and CI reported the whole suite green with no failing test, 2026-08-20.)*
+runs **593 tests green** across the four suites on MSVC, in Debug and Release alike. *(The suite stands at **717** as of E3 — 593 before the economy phase, 650 at E1b, 694 after E2 and the merge with `main` — green on MSVC in Debug and Release alike, with no failing test, 2026-08-21.)*
 
 **The half that needed a person and a GPU is done (2026-08-19):** the MVP definition
 demonstrated in a live session, together with the visual items outstanding since the last
@@ -470,7 +483,7 @@ linger is simulation state, so it is in the hash.
 **Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
 handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. The
-suite now stands at **650** — it was 593 before the economy phase, and the growth is again
+suite now stands at **717** — it was 593 before the economy phase, and the growth is again
 GameLogic's (`EconomyParseTests`, `UniverseSiteTests`' twelve, E2's `MiningTests` with 38
 more, and E3's `CargoTests` with 23). GameLogic is
 where the growth is, and that is the universe, station and economy phases arriving: it has gone
