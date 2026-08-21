@@ -1157,6 +1157,10 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   // answer is an exit code (Build Order S4).
   if (config.selfTest)
   {
+    // Every line to disk as it happens: this gate runs unattended and CI's
+    // watchdog kills it on a hang, and a log whose tail is sitting in a stdio
+    // buffer at that moment says nothing about where it stopped.
+    Log::SetFlushEveryLine(true);
     const int result = Outpost::RunSelfTest(config, simulation);
     Log::Shutdown();
     return result;
