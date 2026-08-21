@@ -33,6 +33,12 @@
 namespace Game
 {
 
+/// ADR-025's durable set and its diagnostics, declared rather than included:
+/// `DurableState.h` includes this header, and the registry needs only to name
+/// them.
+struct DurableState;
+struct PersistenceDiagnostic;
+
 struct RegistryConfig
 {
   /// Mixed with an anchor id to seed each world, so a grid's randomness is a
@@ -145,6 +151,70 @@ public:
   /// All of them, in `(station, owner)` order -- the order the hash folds them
   /// and the order ADR-025's journal will write them.
   [[nodiscard]] std::span<const StationBay> Bays() const noexcept { return m_bays; }
+
+  /// One station's roster. Sorted into `m_rosters` by anchor id, which is the
+  /// order the hash folds them in and the order the journal writes them.
+  struct StationRoster
+  {
+    AnchorId anchor = INVALID_ID;
+    std::vector<RosterEntry> docked;
+  };
+
+  /*
+   * Every station's roster, in anchor order (ADR-025 §1).
+   *
+   * `Roster` answers for one station because that is what a command and a
+   * summary ask; this answers for all of them because that is what a save file
+   * asks, and walking every anchor in the universe to find the dozen with
+   * something docked would be the same list arrived at expensively.
+   */
+  [[nodiscard]] std::span<const StationRoster> Rosters() const noexcept { return m_rosters; }
+
+  /*
+   * The bus, in filing order (ADR-025 §1).
+   *
+   * In-flight transfers are durable: a fleet that was three seconds into a warp
+   * when the shard stopped is somewhere, and the record is the only thing that
+   * knows where. `PendingTransferCount` is the question a test asks; this is
+   * the one a snapshot asks.
+   */
+  [[nodiscard]] std::span<const TransferRecord> PendingTransfers() const noexcept { return m_bus; }
+
+  /*
+   * The ship-id high-water mark (ADR-025 §1a).
+   *
+   * Durable, and the trap that ADR names first: a restarted shard that
+   * re-issued ids would hand a Bay row, a transfer record, a log line and a
+   * client's selection the *wrong ship*, and every one of those lookups would
+   * succeed.
+   */
+  [[nodiscard]] std::uint32_t NextDynamicShipId() const noexcept { return m_nextDynamicId; }
+
+  /*
+   * Is this ship one the bake put on this grid (ADR-018 D6a)?
+   *
+   * Asked by the durable capture, which must not write authored occupants down:
+   * spin-up rebuilds them from content, so a save file carrying them would be
+   * storing content and then arguing with it after a re-bake.
+   */
+  [[nodiscard]] bool IsAuthoredOccupant(AnchorId _anchor, ShipId _shipId) const noexcept;
+
+  /*
+   * Puts a durable set back (ADR-025 §1).
+   *
+   * Into a **freshly `Reset`** registry and no other: loading over a running
+   * shard is refused rather than defined, because there is no answer to what
+   * merging two universes would mean that is better than not doing it.
+   *
+   * Ships come back **at rest with an empty queue** -- that is §1's line, and
+   * the reason this is the registry's job rather than a free function's: it is
+   * the thing that knows how a grid is spun up, and a second copy of that would
+   * be a second answer.
+   *
+   * False leaves the registry as it was found, with the reason in
+   * `_outDiagnostics`.
+   */
+  [[nodiscard]] bool LoadDurable(const DurableState& _state, std::vector<PersistenceDiagnostic>& _outDiagnostics);
 
   /*
    * The field a site's grid would be spun up with right now.
@@ -319,14 +389,6 @@ private:
     /// move while the grid is live -- that is the whole of "an occupied world
     /// is never re-formed under the players" (ADR-024 §3d).
     std::uint32_t fieldEpoch = 0;
-  };
-
-  /// One station's roster. Sorted into `m_rosters` by anchor id, which is the
-  /// order the hash folds them in.
-  struct StationRoster
-  {
-    AnchorId anchor = INVALID_ID;
-    std::vector<RosterEntry> docked;
   };
 
   [[nodiscard]] StationRoster& RosterFor(AnchorId _anchor);

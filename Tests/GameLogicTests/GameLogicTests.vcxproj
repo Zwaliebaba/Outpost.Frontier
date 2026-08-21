@@ -96,6 +96,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="DurableStateTests.cpp" />
     <ClCompile Include="EconomyParseTests.cpp" />
     <ClCompile Include="CargoTests.cpp" />
     <ClCompile Include="MiningTests.cpp" />

@@ -2,6 +2,7 @@
 
 #include "WorldRegistry.h"
 
+#include "DurableState.h"
 #include "Formation.h"
 #include "ShipClass.h"
 #include "SiteEpoch.h"
@@ -15,6 +16,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iterator>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -1420,6 +1422,143 @@ void WorldRegistry::TearDownIdle()
                                 return true;
                               }),
                m_live.end());
+}
+
+bool WorldRegistry::IsAuthoredOccupant(AnchorId _anchor, ShipId _shipId) const noexcept
+{
+  if (m_universe == nullptr)
+  {
+    return false;
+  }
+  const Anchor* anchor = m_universe->FindAnchor(_anchor);
+  if (anchor == nullptr || anchor->occupantCount == 0)
+  {
+    return false;
+  }
+  // The bake's window, exactly as `SpinUp` issues it: base + index, for
+  // `occupantCount` ids. Arithmetic in u32 because `occupantIdBase` is one --
+  // a baked id is not a wire value (ADR-018 D6a).
+  const std::uint32_t id = _shipId;
+  return id >= anchor->occupantIdBase && id < anchor->occupantIdBase + anchor->occupantCount;
+}
+
+bool WorldRegistry::LoadDurable(const DurableState& _state, std::vector<PersistenceDiagnostic>& _outDiagnostics)
+{
+  const auto refuse = [&_outDiagnostics](std::string _what, std::string _message)
+  {
+    PersistenceDiagnostic diagnostic;
+    diagnostic.what = std::move(_what);
+    diagnostic.message = std::move(_message);
+    _outDiagnostics.push_back(std::move(diagnostic));
+    return false;
+  };
+
+  /*
+   * A load is into a fresh registry, and everything else is refused.
+   *
+   * Not defensiveness: there is no answer to what it would mean to merge a save
+   * file into a running shard that is better than declining to have one, and a
+   * refusal at boot is visible where a silent merge would be visible weeks
+   * later as a duplicated fleet.
+   */
+  if (!m_live.empty() || !m_rosters.empty() || !m_bays.empty() || !m_siteLedgers.empty() || !m_bus.empty())
+  {
+    return refuse("registry", "a durable set loads into a freshly reset registry, and this one is running");
+  }
+  if (m_universe == nullptr)
+  {
+    return refuse("registry", "no universe: a durable set names anchors, and nothing here can resolve one");
+  }
+
+  /*
+   * The high-water mark first, and a mark that would go backwards is a refusal
+   * rather than a clamp (ADR-025 §1a).
+   *
+   * Clamping would be the failure this rule exists to prevent, dressed as a
+   * repair: the shard would carry on and re-issue ids that the rosters and
+   * transfers being loaded in the next few lines still name.
+   */
+  if (_state.nextDynamicShipId < m_nextDynamicId)
+  {
+    return refuse("allocator", "the ship-id mark would go backwards, from " + std::to_string(m_nextDynamicId) + " to " +
+                                 std::to_string(_state.nextDynamicShipId));
+  }
+
+  m_shardTick = _state.shardTick;
+  m_nextDynamicId = _state.nextDynamicShipId;
+
+  for (const DurableRoster& roster : _state.rosters)
+  {
+    StationRoster& row = RosterFor(roster.anchor);
+    row.docked = roster.docked;
+    for (const RosterEntry& docked : row.docked)
+    {
+      // Docked counts as presence (ADR-017 §7), so the index has to point at
+      // the station for a reloaded ship exactly as it does for one that docked
+      // a moment ago.
+      RecordLocation(docked.shipId, roster.anchor);
+    }
+  }
+
+  m_bays.assign(_state.bays.begin(), _state.bays.end());
+  m_siteLedgers.assign(_state.ledgers.begin(), _state.ledgers.end());
+  m_bus.assign(_state.transfers.begin(), _state.transfers.end());
+
+  /*
+   * The transfer counter resumes past the highest record on the bus.
+   *
+   * The same trap as the ship-id mark, one size down: a counter that restarted
+   * at one would stamp a new record with an id a pending record already has,
+   * and the bus's total order (ADR-018 D17) would have two records claiming one
+   * place in it.
+   */
+  m_nextTransferCounter = 1;
+  for (const TransferRecord& record : m_bus)
+  {
+    m_nextTransferCounter = std::max(m_nextTransferCounter, record.id.counter + 1);
+  }
+  std::sort(m_bus.begin(), m_bus.end());
+
+  /*
+   * And the ships, at rest (ADR-025 §1).
+   *
+   * Spinning the grid up is what having a ship there *means* -- a world is a
+   * runtime, and one with a fleet standing on it is live by the same rule that
+   * keeps it live after a warp arrival. What the ship does not come back with
+   * is any of its intention: no order queue, no leg, no guidance target, and no
+   * undock protection, because fifteen seconds do not survive a restart and a
+   * shard that restarts owes nobody a protected launch.
+   */
+  for (const DurableShip& ship : _state.ships)
+  {
+    World* world = Borrow(ship.anchor);
+    if (world == nullptr)
+    {
+      return refuse("ship " + std::to_string(ship.shipId), "anchor " + std::to_string(ship.anchor) + " is not a place in this universe");
+    }
+    if (IsAuthoredOccupant(ship.anchor, ship.shipId))
+    {
+      return refuse("ship " + std::to_string(ship.shipId), "id belongs to anchor " + std::to_string(ship.anchor) + "'s authored occupants");
+    }
+    ShipSpawn spawn;
+    spawn.hullClass = ship.hullClass;
+    spawn.wing = ship.wing;
+    spawn.xMetres = ship.xMetres;
+    spawn.yMetres = ship.yMetres;
+    spawn.headingRadians = ship.headingRadians;
+    spawn.protectedUntilTick = 0;
+    for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+    {
+      spawn.cargo.oreUnits[ore] = ship.oreUnits[ore];
+    }
+    if (world->Spawn(spawn, ship.shipId) == INVALID_SHIP_ID)
+    {
+      return refuse("ship " + std::to_string(ship.shipId), "the grid at anchor " + std::to_string(ship.anchor) + " refused it");
+    }
+    RecordLocation(ship.shipId, ship.anchor);
+  }
+
+  return true;
 }
 
 ShipId WorldRegistry::AllocateShipId()
