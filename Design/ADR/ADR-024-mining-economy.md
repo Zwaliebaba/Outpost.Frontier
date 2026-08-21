@@ -557,6 +557,12 @@ you are offline**, because the service is persistent and a refinery that stopped
 slept would just be a tax on time zones. Completion writes a D19 event-record entry: the
 away-log learns to say "1,000 Plates finished at Vesta-3."
 
+**Cancel** *(owner ruling, 2026-08-21, answering D-P3's first open question)*: a **queued**
+job cancels whole and its inputs return to the Bay untouched; a **running** job cannot be
+cancelled, its inputs being spent. Two states with one rule each, and nothing is created or
+destroyed by a cancel -- what goes back is exactly what came out. `RefineCancel` in §8's verb
+list is that ruling, and it names the job by the sequence `RefineryStatus` reports.
+
 Batching is the deterministic economy's answer to yield RNG — **no crit-crafts, no
 probabilistic bonus units; the refund is exact and the ledger always adds up:**
 
@@ -570,6 +576,19 @@ At a T3 station (ME 10%), a 50-batch of Plates consumes 100 FC, refunds 10 FC at
 completion, and takes 22.5 minutes: big batches are capital-efficient and
 calendar-cheap, at the cost of locking inputs longer — a real planning choice, all of it
 integer.
+
+> **Correction, 2026-08-21 (E4b), and the materials above are untouched: the *time* is
+> 20.25 minutes, not 22.5.** Plates are 30 s a unit, so a 50-batch is 25 minutes before
+> discounts; 22.5 is that with the batch factor (×0.90) applied and §6c's **tier** factor
+> (T3, ×0.90) forgotten. Both are authored, and both apply — 25 × 0.90 × 0.90 = 20.25.
+>
+> The reading matters more than the number. A tier `timePct` that never multiplied
+> anything would be content nothing reads, and §6a's units-per-slot rates are already
+> stated undiscounted, so applying both is the only reading in which every authored
+> figure is used. **This is a slip in the prose, not in the design:** the implementation
+> applies both, and `GameLogic/Refining.h` states the order of the three integer factors
+> as its contract, because two builds applying the same factors in a different sequence
+> would price the same job differently and nothing else would notice.
 
 #### 6c. Station tiers, and who upgrades them
 
@@ -933,7 +952,9 @@ so retuning starts from the invariants rather than the values.
   two screens — milestones **G0** (the headless mining loop) / **G1** (the first alloy) /
   **G2** (the loop on screen). It **splits the E1 this ADR sketched** and **moves the screens
   out of E4**, both recorded in its sequencing rationale rather than left as a silent
-  divergence. E1a–E4 are headless-provable in the `selfTest` manner before any screen
+  divergence — and **E4 itself split on 2026-08-21** into **E4a**, the durable store ADR-025
+  designs, and **E4b**, the refining runtime that keeps G1, for the same reason and in the same
+  place. E1a–E4b are headless-provable in the `selfTest` manner before any screen
   exists.
 - **Named deliverables:** the **CARGO** and **REFINERY** tab prints (the P1 pattern —
   designed and agreed before their slices build); ore/alloy icons; the site field's

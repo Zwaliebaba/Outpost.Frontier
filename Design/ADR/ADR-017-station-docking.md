@@ -76,6 +76,14 @@ ADR-016's transit records, as a third place a ship can be: *on a grid, in transi
 docked* — holds, per station, the docked ships as `(ShipId, class, wing)` and nothing else.
 *([ADR-024](ADR-024-mining-economy.md) amends the record: it also carries the ship's cargo
 manifest — cargo is not damage, so the repair rule below stands untouched.)*
+*(**U3c-a amends it again, 2026-08-21: the row carries its ship's `PlayerId`.** §1's privacy is
+bought by sending the roster **per viewer**, and a filter needs something to filter on. A docked
+ship is the one place ownership could quietly go missing — it is on no grid to be asked about —
+so if the roster did not remember, a commander's own hangar would stop being theirs the moment
+they arrived. `WorldRegistry::Roster` still answers whole for the two callers that want the
+station, grid teardown and the save file; `DockedFor(owner, station)` is what reaches a player,
+**including the validator's own view** — an unfiltered roster there is not a display bug but an
+authority one, since a commander could name another's hull in an `Undock` and be believed.)*
 Ids persist through docking: the roster keeps them, undock respawns them, and every log,
 order, and roster row means the same ship before and after.
 
@@ -224,7 +232,11 @@ the growth path**, not another byte. *(That growth path is
 differently than expected: ownership costs **no byte at all** — two spare bits of this very
 `statusBits` carry the viewer-relative relationship the icon sheet actually reads, rather than
 an owner id nobody looks at every tick. §1's roster privacy becomes a testable property in the
-same slice, because the per-viewer sender it needs is the sender interest culling requires.)* If T2 measures the margin as too thin to land on,
+same slice, because the per-viewer sender it needs is the sender interest culling requires.
+**It became one at U3c, 2026-08-21** — but not in that slice and not for that reason: the
+per-viewer sender (A13) was necessary and nowhere near sufficient, because until ownership
+existed the filter behind it was the identity function. What made the property testable was a
+second commander to be private *from*.)* If T2 measures the margin as too thin to land on,
 packing the bit into a spare high bit of `groupId` (wings are 1..255 but a session fields
 eight) is the named fallback, rejected as the default only because a bitfield hidden in an
 id field is exactly the mistake `groupId`'s own comment was written to prevent.

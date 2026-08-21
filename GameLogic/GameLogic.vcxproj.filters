@@ -20,6 +20,12 @@
     <ClCompile Include="EconomyParse.cpp">
       <Filter>Economy</Filter>
     </ClCompile>
+    <ClCompile Include="DurableState.cpp">
+      <Filter>Persistence</Filter>
+    </ClCompile>
+    <ClCompile Include="Refining.cpp">
+      <Filter>Economy</Filter>
+    </ClCompile>
     <ClCompile Include="SiteEpoch.cpp">
       <Filter>Economy</Filter>
     </ClCompile>
@@ -107,6 +113,12 @@
     <ClInclude Include="EconomyParse.h">
       <Filter>Economy</Filter>
     </ClInclude>
+    <ClInclude Include="DurableState.h">
+      <Filter>Persistence</Filter>
+    </ClInclude>
+    <ClInclude Include="Refining.h">
+      <Filter>Economy</Filter>
+    </ClInclude>
     <ClInclude Include="SiteEpoch.h">
       <Filter>Economy</Filter>
     </ClInclude>
@@ -192,6 +204,9 @@
     </Filter>
     <Filter Include="Economy">
       <UniqueIdentifier>{5a9c02f1-7e34-4b6d-a0c8-93f15d6e2b47}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Persistence">
+      <UniqueIdentifier>{6d40b3a7-2f18-4c95-b7e0-84a1c25f9d63}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>

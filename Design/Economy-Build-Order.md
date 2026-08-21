@@ -1,25 +1,30 @@
 # Economy Build Order — the Mining and Refining Phase
 
-**Status:** Session output 2026-08-20 · **E1a and E1b are built and green in CI** (run 150, 2026-08-20); the rest is not.
+**Status:** Session output 2026-08-20 · **E1a, E1b, E2, E3, E4a and E4b are built**, all six
+green in CI (run 176, commit `c44724d`, 2026-08-21 — 795 tests, `self test: PASSED` with all
+thirteen 🏁 G0 checks and 🏁 G1's mid-job restart); **E5, the two screens, is the last slice of
+this phase and is not built.**
 **Both prints that gate E5 landed 2026-08-21** —
 [cargo-tab.png](ScreenPrints/cargo-tab.png) (D-P2) and
 [refinery-tab.png](ScreenPrints/refinery-tab.png) (D-P3), sibling tabs of P1's hangar, with
 their sources beside them. **Every design deliverable this phase tracks is now closed**; what
 they leave behind is **eight owner rulings**, listed with each print below. Seven are owed
-before E5. **One is owed before E4** — whether a refine job can be cancelled — because E4 is
-what writes that verb or its absence. The design this plan delivers
-is [ADR-024](ADR/ADR-024-mining-economy.md), accepted 2026-08-20 with nine owner rulings;
-where this document and that one disagree, the **ADR wins on *what*** and this one on
-***when***. Two refinements of the ADR's own delivery sketch are recorded in the sequencing
+before E5. The eighth — whether a refine job can be cancelled — **was owed before E4b and was
+answered 2026-08-21**: a queued job cancels whole, a running one cannot. The design this plan
+delivers is [ADR-024](ADR/ADR-024-mining-economy.md), accepted 2026-08-20 with nine owner
+rulings, and [ADR-025](ADR/ADR-025-persistence.md) for the durable half; where this document
+and those disagree, the **ADRs win on *what*** and this one on
+***when***. Three refinements of the ADR's own delivery sketch are recorded in the sequencing
 rationale below rather than left as a silent divergence: **E1 splits** into a content half
-and a bake half, and **the screens leave E4** to become E5.
+and a bake half, **the screens leave E4** to become E5, and **E4 splits** into the durable
+store (E4a) and the refining runtime (E4b).
 
 **Where it sits:** after the universe and station phases, and it does not interleave with
 them. It consumes everything both built — the bake and its anchor table (U1), the world
 registry and its spin-up/teardown (U2), warp as the way a fleet reaches a site (U3a/U4), the
 transfer bus and the station roster (T1), the summary family's frame and the per-client
 sender (T2/A13). Nothing in this phase is blocked on the screen work those phases still owe:
-E1a–E4 are headless-provable, which is the same split that let T1 land while T2's client half
+E1a–E4b are headless-provable, which is the same split that let T1 land while T2's client half
 waited for a GPU and a person. *(T2's client half has since landed — 2026-08-21 — and it landed
 the same way this phase plans to: everything device-free built and tested, with the visual
 checkpoint recorded as owed rather than assumed.)*
@@ -521,7 +526,7 @@ join the `StationCommand` family on the acked stream, validated by the shared pu
 over the RosterView plus the Bay — **manual, both directions** (ruling from ADR-024 §5c: the
 transfer is the risk decision and the commitment of ore to industry). The wire cluster lands
 in one fail-closed bump: the two verbs, reasons `InsufficientMaterials = 20`,
-`RefineryBusy = 21`, `RecipeLocked = 22` (the last two numbered now and returned by E4), and
+`RefineryBusy = 21`, `RecipeLocked = 22` (the last two numbered now and returned by E4b), and
 the summary family gains **`SiteStatus`** (per viewed site, ~1 Hz — per-ore remaining and
 per-cluster fractions), **`CargoStatus`** (owner-only, ~1 Hz) and **`BayStatus`**, all through
 T2's per-client sender. **`EntityRecord` is not touched**, and a test asserts it: a per-tick
@@ -636,8 +641,208 @@ so an unmoved number here says nothing either way about the universe layer; what
 `WorldRegistry::Hash` and the G0 scenario above. `GameSchemaHash` did move, which is the point
 of the slice.
 
-### E4 — Refining, tiers, and the projects · 🏁 G1
-Refine jobs `(recipe, batchCount)` submitted as station commands against a Bay — **at any
+### E4a — The durable store
+[ADR-025](ADR/ADR-025-persistence.md) stops being an accepted design and becomes three files.
+**No new game state lands here**: the slice takes the durable state E2 and E3 already built —
+rosters, Bays, site ledgers, ship manifests, the ships themselves and where they stand — and
+gives it somewhere to survive a process exit.
+
+**GameLogic stays pure.** `GameLogic/DurableState.{h,cpp}` is `WriteDurableState`,
+`ReadDurableState` and `DurableHash` over `Neuron::ByteWriter`/`ByteReader` — bytes in, bytes
+out, a `PersistenceDiagnostic` list on malformed input, never a path and never a throw. That is
+the `ParseUniverse`/`ParseEconomy` posture applied to a binary format, and it is what keeps the
+round-trip test fixture-free. The durable line is ADR-025 §1's exactly: ships
+`(ShipId, HullClass, WingId, PlayerId)` with their anchor and, for a hull standing on a grid,
+its position and heading; station rosters; Bays; cargo manifests; site ledgers with the epoch
+index they were last re-formed at; in-flight transfer records; **the ship-id high-water mark**
+(§1a's first trap — a restore that would *lower* it is a refusal, not a clamp); and the shard
+tick every record is stamped against. Order queues, steering, ETAs, undock-protection windows
+and wrecks are not written, so **a fleet reloads at rest with an empty queue**: intention is the
+player's to restate.
+
+**`DurableHash()` is a second hash, not a second opinion.** `WorldRegistry::Hash()` folds the
+order queues §1 has just declared transient, so a reload cannot reproduce it and a check written
+against it would either be wrong or teach everyone to ignore a red test. `DurableHash()` folds
+exactly §1's list, in anchor-id then id order; it is what a snapshot records and what a
+checkpoint verifies. The two answer different questions and both keep their own.
+
+**NeuronServer gets the store, which never learns what it is storing.**
+`NeuronServer/DurableStore.{h,cpp}` owns files, framing, checksums, flushing, snapshot rotation
+and torn-tail recovery behind `Append(recordKind, payload)`, `Replay(handler)` and
+`WriteSnapshot(state, durableHash)`. A frame is ADR-025 §3's table — `magic`, `payloadBytes`,
+`recordKind`, `shardTick`, payload, `crc32` — written with `ByteWriter` so there is not a second
+endianness convention in the tree, and the file header carries `JOURNAL_FORMAT_VERSION`, the
+`universeHash`, the `economyHash`, the `hostId` and the tick of the last snapshot. The store
+knows a record has a kind, a length and a checksum; it does not know that one of those kinds is
+a Bay. **Records are outcomes, not commands** — "these ships are now docked at anchor 412",
+never "a Dock order arrived" — which is what keeps the journal from becoming a second replay
+engine obliged to agree with the first forever.
+
+**The tick never waits on a disk.** Records are serialised on Sim at the between-ticks apply
+point where the transfer bus already runs, pushed into a lock-free SPSC ring, and drained by a
+**journal lane** registered like every other lane — ADR-007 §7's sanctioned mechanism, run in
+the other direction. The lane flushes on a watermark or every `JOURNAL_FLUSH_MILLISECONDS`
+(1,000), whichever comes first, and always on a clean shutdown before ADR-008's ordering
+releases Sim: **a clean stop loses nothing; a hard kill loses at most the last second.**
+Snapshots go every `SNAPSHOT_INTERVAL_SECONDS` (300) through §5's three-step rotation — write
+the `.tmp`, rename it over, then truncate the journal and rewrite its header — so there is no
+crash window in which both files are needed and one is missing. Checkpoint records carry a
+`DurableHash()` every `CHECKPOINT_INTERVAL_TICKS` (1,200). All four numbers join the envelope
+suite's guardianship as table data.
+
+**Boot is §6 in order, and nothing about it is silent.** A wrong magic or a
+`JOURNAL_FORMAT_VERSION` this build does not know refuses to start and names both versions.
+**`universeHash` is the only fatal content guard** — a re-bake renumbers anchors, so a roster
+keyed by one is nonsense against it — while `economyHash` is recorded, compared and *survivable*:
+a hold that shrank under a retune clamps per ship and logs, because the numbers moved under the
+content and that is a content decision rather than a corruption. Then the snapshot, verified by
+its hash; then journal records newer than it, verified at each checkpoint; a bad frame at the
+**tail** is the write that was in flight when the power went, truncated and logged as a count of
+records recovered and bytes discarded, while a bad frame **in the middle** is corruption and
+refuses with both files left untouched for whoever has to look.
+
+**`Outpost.exe` is the wiring** — construct the store, call the pure functions, hand the results
+across — thin enough that there is nothing to test, which is the standing price of ADR-014 §2a
+and the reason the interfaces get stubbed in the engine test projects instead. `Outpost.json`
+grows `"persistence": { "directory": "ShardState", "enabled": true }`, `AppConfig` grows with
+it, and the path resolves through `ResolveContentPath`'s writable sibling rather than the
+LocalAppData user layer: that layer is one player's settings on one machine, and this is a
+service's state.
+
+**One wrinkle to settle rather than inherit.** ADR-025 §7 makes `"enabled": false` the headless
+and `selfTest` posture, and §8 asks `selfTest` to prove a restart — which needs it true. The
+configuration-by-directory mechanism CI already uses is the answer: the restart scenario runs
+from its own directory with persistence enabled against a scratch path that the run creates and
+removes, and every other headless run keeps the default and persists nothing. Writing that down
+here is cheaper than discovering it as a contradiction at the accept.
+
+**Accept:** `GameLogicTests` — a registry built in code with rosters, Bays, ledgers, manifests
+and ships both docked and in space, written, read into a second registry, and the two
+`DurableHash()` values equal; the high-water mark surviving a round trip and a restore that
+would lower it refused; a truncated buffer producing diagnostics rather than a half-built
+registry (the `ParseEconomy` posture, tested the way `ParseEconomy` is); a reloaded fleet
+holding position with an empty queue, which is §1's line as a test rather than a sentence.
+`NeuronServerTests` — the store with no game in it: framing and CRC, a deliberately torn tail
+recovering to the last good record, a mid-file corruption refusing, snapshot rotation
+interrupted at each of its three steps, and a journal older than its snapshot skipped by tick.
+`selfTest` — dock a fleet, move ore into a Bay, **stop the host and start it again**, and find
+the roster, the ore and the site ledger still there with `DurableHash()` reproduced; and a
+deliberate `universeHash` mismatch refusing to start while naming both numbers. The replay suite
+is untouched and must stay so — the journal is not the replay log — and `WorldRegistry::Hash()`
+does not move.
+
+**What it deliberately does not do:** no refine jobs, tiers or projects — E4b appends its
+records to the format this slice defines, which is an addition to §1's durable list and not a
+change to the frame; no migration across a re-bake (§9, and the trigger for designing one is
+named there); no SQL. **R26 is the register row this slice exists to answer**, and the
+early-validation signal that row names — the restart scenario running on every push — starts
+here rather than at G1.
+
+**Built 2026-08-21.** ADR-025 stopped being an accepted design and became three files, and
+the shard stopped forgetting.
+
+`GameLogic/DurableState.{h,cpp}` is the pure half — `WriteDurableState`, `ReadDurableState` and
+`DurableHash` over `ByteWriter`/`ByteReader`, with a `PersistenceDiagnostic` list on malformed
+input, never a path and never a throw. What is written is §1's list as far as this tree has it:
+ships wherever they stand with their anchor, position, heading and hold; station rosters; Bays;
+site ledgers with the epoch they belong to; the bus, because a fleet three seconds into a warp
+is somewhere and the record is the only thing that knows where; the ship-id high-water mark; and
+the shard tick. What is *not* written is order queues, steering, guidance, undock protection and
+wrecks — so a fleet reloads at rest with an empty queue, and
+`AReloadedFleetHoldsPositionWithAnEmptyQueue` is §1's line as a test rather than a sentence.
+
+**`DurableHash` is a second hash and not a second opinion**, and this is the claim the slice
+turns on. `WorldRegistry::Hash` folds the order queues §1 has just declared transient, so a
+correct reload cannot reproduce it and a check written against it would either be wrong or
+teach everyone to ignore a red test. `TheReplayHashAndTheReloadProofAnswerDifferentQuestions`
+asserts the argument: an accepted order moves one number and not the other.
+
+`NeuronServer/DurableStore.{h,cpp}` is the store, and **it never learns what it is storing** —
+a record has a kind, a length and a checksum, and that one of those kinds is a Bay is a fact
+for the composition root. The distinction the whole boot path turns on is **torn tail versus
+corruption**: a bad frame at the end is the write that was in flight when the power went, so it
+is truncated and logged as a byte count; a bad frame with good frames after it cannot be an
+interrupted write, so it refuses and leaves both files untouched — truncating there would throw
+away good state to make a bad file parse, and the shard would come up looking healthy.
+
+**Two versions, not one.** `JOURNAL_FORMAT_VERSION` versions the frame and
+`DURABLE_FORMAT_VERSION` the payload, because they move independently: E4b changes what a
+payload contains and nothing about how a record is wrapped, and one number covering both would
+refuse every existing shard for a change that could not affect it. ADR-025 §2 carries the note,
+with the two signature adjustments §3's frame forced (`Append` takes the shard tick; the record
+kind is the `u16` the frame actually holds).
+
+**The wiring is the composition root's, and two of its consequences are the interesting part.**
+The starting fleet is what a *new* shard is built with, so the load decides whether to spawn it
+— spawning it on top of a reloaded shard would hand every commander a second fleet on every
+restart. And the scripted patrol's ship list is *intention*, so a reloaded shard rebuilds it
+from what is actually standing on the start grid rather than restoring it. `ServerHost` owns the
+cadence on the Sim thread and nowhere else — a snapshot every `SNAPSHOT_INTERVAL_SECONDS`
+counted in **ticks**, because the tick is the only clock (ADR-002 §1) and a wall-clock timer
+there would be a second one to drift, and one on the way out before anything is torn down, which
+is what makes "a clean stop loses nothing" true rather than aspirational.
+
+**Two refusals rather than repairs**, both of them ADR-025 naming a trap in advance. A ship-id
+mark that would go backwards is refused, because clamping it up is the failure the rule exists
+to prevent wearing a repair's clothes: the shard would carry on and re-issue ids that the
+rosters and transfers being loaded in the next few lines still name. And a load into a running
+registry is refused, because there is no answer to what merging a save file into a running shard
+would mean that is better than declining to have one.
+
+**Three defects, all found by reading the code back rather than by a test.** `Replay` reopened
+the journal over the handle `Open` had left — a leak on Linux and *refused outright* on the
+platform that ships, so the shard would have persisted nothing while every other check passed.
+`LoadDurable` could refuse on its last ship having already written the rosters, the Bays and the
+ledgers, which is the half-built registry its own contract promises not to leave; everything is
+judged against the content now before anything is written. And `m_journalHeaderBytes` was
+written in three places and read in none. Each has a test beside it.
+
+**The `selfTest` restart scenario is where R26's early-validation signal starts.** It runs in
+two halves because they are two claims. `RunRestartLoop` proves the **format**: dock a loaded
+Miner, commit ore to a Bay, write through a real store to a real directory, and have a second
+registry and a second store read it back — two independent runtimes meeting only through two
+files, which is what a restart is. The host section proves the **wiring**: after `Stop` and
+`Join`, the snapshot is on disk, stamped with the tick the host stopped at, carrying the shard's
+own reload proof. The second is the one a person would forget to make, and a store that works
+and is never called is a shard that loses everything while passing every unit test.
+
+**CI's verdict (run 172, commit `2e67966`, 2026-08-21).** Debug|x64, Release|x64 and Spike 2
+all green. **773 tests pass on MSVC** with none failing, every source guard green, no clang-tidy
+finding, and one warning in the whole build — the pre-existing `NeuronClient\Picking.cpp(51)`
+C4723. `self test: PASSED`, including **seventeen new persistence checks**: the shard serialises
+its durable state, a shard with no state opens fresh, the restarted shard finds it and reads it
+back, **the reload reproduces the proof**, the roster, the hold and the Bay all survive, a load
+into a running shard is refused, and a re-baked universe refuses to load an old one.
+
+**The line worth quoting is from the host rather than from a test**, because it is the claim a
+person would forget to make: `shard snapshot at tick 173: 1382 bytes, durable hash
+c5dda30f194e6d2c`, immediately followed by `server host stopped after 173 ticks`. The shipping
+binary wrote itself down on the way out, on the Sim thread, before anything was torn down —
+which is "a clean stop loses nothing" as an observation instead of an intention.
+
+**The replay hash did not move, and this time that is the prediction.** It is
+`69c58e2751c0df22` (checkpoint `fa56d9f638cba0fe`), byte for byte E2's and E3's, and Spike 2
+confirms Debug and Release agree on it. E3's Built line explains why in advance: the replay
+scenario is six ships in a bare `World` hashed with `ComputeWorldHash`, and **this slice adds no
+world state at all** — it reads existing state and writes it to a file. A slice that moved the
+replay hash while claiming to add nothing to the simulation would be the thing to investigate.
+
+The tick soak is inside its tripwire and worth one sentence rather than a celebration: a capped
+grid costs **9.635 ms mean / 16.971 ms worst** against E3's 8.729 / 17.573, which is 19.3 % of
+the tick and 5.2 capped grids per core against E3's 5.7 — run-to-run variance on a shared
+runner rather than a trend, since nothing here runs per tick. Content is untouched and the
+universe parses in **219 ms** on Release.
+
+*What is deliberately not here, and is E4b's: the journal's **game** records. The store's
+journal exists, is framed, CRC'd, recovered and tested, and nothing appends to it yet — so a
+hard kill today loses back to the last snapshot rather than to the last second. The per-outcome
+records that close ADR-025 §4's named window need a change-set at the registry's mutation
+points, and they land with the state E4b is about to add rather than being retrofitted twice.
+This is written here rather than left to be discovered, which is the E2 posture about ore not
+surviving a crossing.*
+
+### E4b — Refining, tiers, and the projects · 🏁 G1
+Refine jobs `(recipe, batch)` submitted as station commands against a Bay — **at any
 station holding your ore, viewed or not**, because focus never gates command. Inputs debit at
 submission, outputs and the deterministic **ME refund** credit at completion, floored per
 material: no crit-crafts, no probabilistic bonus units, the ledger always adding up. Jobs run
@@ -648,14 +853,163 @@ Nova-Steel**; and communal **upgrade projects** — alloys contributed, ledgered
 tier rising permanently for everyone with D19 recording who built it. `fuelPerJob` is read and
 honoured, and is zero in the content until a market exists to sell Ionized Slurry.
 
+The wire half is the phase's second and last fail-closed bump: `RefineStart`, `RefineCancel`
+and `ProjectContribute` join the `StationVerb` family E3 left at four, `RefineryBusy = 21` and
+`RecipeLocked = 22` stop being reserved and join the station check-order string, the summary
+family gains **`RefineryStatus`** on `BayStatus`'s cadence and framing, and the event record
+gains **refine-complete** and **project-complete** beside E2's two. Every number these read is
+already authored and hashed — E1a parsed the recipes, the batch factors, the tier table with
+its `slotsPerPlayer` and `recipeTierCap`, the band caps and the upgrade projects — so this
+slice adds no content and moves neither `universeHash` nor `economyHash`.
+
 **Accept 🏁 G1:** `GameLogicTests`: a batch's arithmetic exact at every batch size, refund
 floors included, with a property test that inputs consumed minus refund always equals the
 recipe's rate — the books balance or the test fails; band caps refusing Nova-Steel at a
 High-Sec station with `RecipeLocked`; slot exhaustion returning `RefineryBusy` and the queue
 draining in order; a project completing exactly once when two commanders contribute its last
-units in the same tick; the whole registry — rosters, Bays, ledgers, jobs, projects —
-**round-tripping through the persistence layer and reproducing its hash**, which is G1's real
-claim: a refinery that stops when the shard restarts is the demo this phase exists not to be.
+units in the same tick; and jobs, tiers and project contributions **joining E4a's durable list**
+— the round-trip test grows to cover them and the two `DurableHash()` values still agree.
+`selfTest` gains the half E4a's restart scenario could not have: start a batch, **stop the host
+mid-job and start it again**, and find the job still running with its completion tick unmoved.
+That is G1's real claim — a refinery that stops when the shard restarts is the demo this phase
+exists not to be — and it is a claim about this slice's records in a format that already
+proved itself.
+
+**Built 2026-08-21.** The station became industry, and the phase's last piece of simulation
+landed.
+
+`GameLogic/Refining.{h,cpp}` is the arithmetic — pure, integer-only, and with deliberately
+nowhere to put an RNG, because batching is the deterministic economy's answer to yield variance
+(§6b): the ME refund is **exact and floored per material**, not expected on average. Per
+material matters: a refund computed on the total and split afterwards would have to decide which
+ore eats the remainder, and there is no answer to that which is not an invention.
+
+**A job is priced once, at submission, and carries its plan.** Not recomputed at completion, and
+that is a ruling rather than an optimisation: D-P3's form shows this arithmetic *before* the
+player commits, so the numbers they agreed to are the numbers they get — a station whose tier
+rose mid-job does not retroactively improve it. It also makes the durable record
+self-contained, which is why a reloaded job needs no tier table to know what it owes.
+
+**The order of the arithmetic is a stated contract**, and stating it caught a slip in the ADR.
+§6b's worked example says a 50-batch of Plates at T3 takes 22.5 minutes — the batch factor
+applied and §6c's *tier* factor forgotten. Both are authored, both are parsed, and §6a's
+units-per-slot rates are undiscounted, so both multiply and the honest number is 20.25 minutes.
+The materials in that example were exact and are unchanged. **ADR-024 §6b carries the
+correction**, and `TheAdrsWorkedExampleAddsUpExceptForTheTierDiscount` asserts both halves.
+
+**The owner's ruling closed D-P3's one open question that was owed here** (2026-08-21): a
+**queued** job cancels whole and its inputs return to the Bay untouched; a **running** job
+cannot be cancelled, its inputs being spent. Two states with one rule each, and nothing is
+created or destroyed by a cancel — what goes back is the same array that came out. ADR-024 §6b
+was silent and now is not. **Three rulings remain and all three are E5's**, so nothing left in
+this phase is gated on a decision.
+
+**The check order forks, and that is §6b enforced rather than commented.** A refining verb names
+no ships and requires no dock — "at a docked-or-remote station, focus never gates command" — so
+the three selection checks would be asking about something that does not exist. The refining
+order is `UnknownStation → RecipeLocked → RefineryBusy → InsufficientMaterials`, in the schema
+hash beside the other two because it is behaviour both machines must match. `RecipeLocked`
+precedes `RefineryBusy` because a locked recipe is a fact about the **station** and a full queue
+is a fact about **you**: a player told their queue is full, when the real answer is that this
+station will never cook Nova-Steel, goes and waits instead of going and flying.
+
+**Jobs advance in `WorldRegistry::Tick` beside the transfer bus**, not inside a world's tick — a
+refinery that needed a live grid would be a refinery nobody could walk away from, and walking
+away is the feature. `AJobRunsWhileItsStationsGridIsNotEvenLive` asserts it with **zero worlds
+spun up** for the job's whole duration.
+
+**A project completes exactly once because the check lives at the contribution**, not on a
+sweep. Two commanders pushing on the last unit in one tick: the first completes it and the
+second finds nothing remaining, so it is refused before a single unit leaves their Bay. A sweep
+would have had to decide what to do with units it had already taken, and there is no answer to
+that which does not either keep somebody's property or invent a refund path.
+
+**The wire cluster is the phase's second and last fail-closed bump.** `RefineStart`,
+`RefineCancel` and `ProjectContribute` join the verb family; `StationCommand` grows an alloy
+byte (**refused** rather than cast, on E3's ore byte's terms, because it indexes a recipe and a
+Bay before validation could have an opinion) and a job sequence in its own field — a sequence is
+an identity where the other two are quantities, and one field meaning both would eventually
+cancel job 50 because somebody meant a batch of 50. `RefineryBusy = 21` and `RecipeLocked = 22`
+stop being reserved. `SummaryKind` gains `RefineryStatus`, carrying the **completion tick**
+rather than a duration, because wall-clock ETAs are the screen's job (D-P3) and a duration would
+make the tab's arithmetic depend on when the frame arrived. `EventKind::RefineComplete` and
+`ProjectComplete` stop being reserved: a refinery runs while the commander is offline, so the
+away-log is the only thing that can say what finished.
+
+*`BayStatus` grew the alloys rather than them getting a message of their own — a Bay is one
+statement about one place, and a screen reading two sources for it would eventually show two
+different answers. **That change found a defect in E3's code**: `StationBay::TotalUnits` counted
+ore only, and the summary sender skips a Bay whose total is zero, so a commander who refined all
+their ore would have watched their whole industrial estate vanish from the screen at exactly the
+moment it became interesting.*
+
+**The durable format goes to version 2.** Jobs, station tiers and project contributions join
+ADR-025 §1's list, and the Bay grows its alloys. Tiers and projects are durable for a stronger
+reason than jobs are — they are permanent and communal, so a completed project that did not
+survive a restart would un-build something a dozen commanders paid for. **A station's tier is
+derived, not baked**: the authored floor (T1, T2 in the starter system), raised by whatever has
+been built, and **clamped by the band on the way out** rather than trusted on the way in, which
+is what keeps "no High-Sec station can ever cook Nova-Steel" true against a project, a reload or
+a content retune that lowered a cap under a station somebody had already upgraded.
+
+**🏁 G1's claim is the completion tick, not the job.** `ARunningJobSurvivesARestartWithItsCompletionTickUnmoved`
+and the `selfTest`'s mid-job restart both assert it, because a job restored with a *duration*
+rather than a *deadline* would silently restart its own clock on every restart — a shard that
+bounced twice an hour would never finish anything, and every individual test of it would still
+pass.
+
+**What was verified, and how.** All of GameLogic compiles clean under **clang 18 on Linux** and
+the whole `GameLogicTests` suite compiles and **runs** there — **364 methods across eleven
+files, 0 failures**, of which 23 are new in `RefiningTests.cpp` plus the durable additions —
+with `NeuronServerTests`' store half at 14/14 beside it. clang-tidy reports nothing in the files
+this slice touched; it caught one implicit widening in `RefineryStatusBytes` before CI could.
+Two existing fixtures needed updating and both are the suite doing its job: the two hand-built
+`StationCommand` payloads in `RegistryTests` name the wire layout and had to grow the two new
+fields, and `DurableStateTests`' corrupt-cluster-count fixture had to learn that four families
+now trail the ledgers rather than one.
+
+**CI's verdict, run 176.** Debug|x64, Release|x64 and Spike 2 all green: **795 tests on MSVC
+with none failing**, every source guard green, no clang-tidy finding, and one warning in the
+whole build — the pre-existing `NeuronClient\Picking.cpp(51)` C4723. **`selfTest`: PASSED on
+both configurations**, and it is the shipping binary that carries 🏁 G1's claim rather than a
+test fixture:
+
+```
+self test: the restart scenario starts a refine job -- ok
+self test: the job is running before the shard stops -- ok
+self test: the refine job survives the restart -- ok
+self test: with the job it was -- ok
+self test: and its completion tick unmoved -- ok
+self test: the reloaded job finishes into the Bay -- ok
+```
+
+**The snapshot grew by exactly twelve bytes** — 1382 at E4a to 1394 here, at the same tick 173 —
+and the durable hash moved with it, `c5dda30f194e6d2c` to `705ab9f6f8831b6c`. Both numbers are
+the *prediction*, and worth stating because a reader could mistake either for a surprise. The
+host's shard has no refine job, no raised tier and no open project, so the twelve bytes are
+three empty counts and nothing else; and the hash moved **because** the content did not, since
+`DurableHash` folds each count before its contents. A format that added three collections
+without moving the hash of a shard that has none of them would be the thing to investigate — it
+would mean an empty list and an absent one hash alike, which is how a truncated snapshot passes
+its own check.
+
+**The replay hash did not move:** `69c58e2751c0df22`, byte for byte E2's, E3's and E4a's, with
+Spike 2 confirming Debug and Release agree. Refining is registry state, and the replay scenario
+is six ships in a bare World hashed with `ComputeWorldHash` — as at E4a, a slice that moved it
+while adding nothing to *that* world would be the anomaly.
+
+The Release tick soak reads 9.330 ms mean / 14.542 ms worst against E4a's 9.635 / 16.971 —
+5.4 capped grids per core against 5.2, inside the tripwire — and `AdvanceRefining` runs per tick
+now, which is the first thing in this phase that does. It is a walk of a job list that is empty
+in this scenario, so the soak says nothing about it yet; the measurement that would is a shard
+with jobs running, and E5 is where a screen exists to start them. Content is untouched and the
+universe parses in **208 ms** on Release.
+
+**One thing this run is owed a note for, and it is not E4b's.** The Debug leg went red first on
+run 175 with 741 passed and nothing failed — a deadlock in `TaskPool::Stop`, in engine code this
+slice never touches, which had been sitting in the tree since S2. It is R22's fifth entry, and
+the reason it appears in E4b's Built line at all is that a reader comparing run 172's 773 tests
+with run 176's 795 should not have to wonder what happened in between.
 
 ### E5 — The two screens
 The station surface's **CARGO** and **REFINERY** tabs, built to their prints —
@@ -686,6 +1040,10 @@ pocket's dampening legible as a thing happening to *you* rather than a number in
   position with an empty queue); the ledger's proof is a separate **`DurableHash()`**, not
   `WorldRegistry::Hash()`, which folds the order queues E2 is about to write; and journal
   records are **outcomes**, so E2 files "this pool is now N" rather than "a cycle completed".
+  **Where it is *implemented* is E4a** (added 2026-08-21, **built the same day**): the ADR gated
+  E2's design and E2 wrote its ledger to the shape ADR-025 named, but no journal, snapshot or
+  store existed in the tree until E4a — a deliverable being accepted is not the same as its
+  code being built, and this line says so where the next reader will look for it.
 - ~~**D-P2 — The CARGO tab print.**~~ **Delivered 2026-08-21:**
   [cargo-tab.png](ScreenPrints/cargo-tab.png), with its source beside it. The hull-and-Bay
   transfer surface, drawn in the P1 pattern and against ADR-024 §5c's manual-transfer
@@ -774,12 +1132,20 @@ pocket's dampening legible as a thing happening to *you* rather than a number in
     project completes exactly once, so the screen must never offer units it will not take.
 
   **Open — four rulings owed, and one of them lands earlier than the rest:**
-  1. **Job cancel** — **needed before E4**, not E5. The ADR is silent. The print proposes a
-     queued job cancels whole (inputs return to the Bay) and a running job cannot, its inputs
-     being spent. E4 writes that verb or its absence.
+  1. ~~**Job cancel**~~ — **answered 2026-08-21, and built with E4b.** The owner took the
+     print's proposal: a **queued** job cancels whole and its inputs return to the Bay
+     untouched; a **running** job cannot be cancelled, its inputs being spent. Two states with
+     one rule each, and nothing is created or destroyed by a cancel. Recorded in
+     [ADR-024 §6b](ADR/ADR-024-mining-economy.md), which was silent, and enforced by
+     `AQueuedJobCancelsWholeAndARunningOneCannot`. **Three rulings remain, all E5's.**
   2. **What a job is on the wire.** Drawn as one batch per job with the queue holding many; if
-     E4 spells `(recipe, batchCount)`, the composer gains a count and the queue rows collapse
-     — same screen, one field.
+     E4b spells `(recipe, batchCount)`, the composer gains a count and the queue rows collapse
+     — same screen, one field. **E4b has since built it, and it did not take that branch:** a
+     `RefineJob` carries one `batchUnits` — the batch's *size*, 1, 10 or 50, which is what
+     multiplies the refine time — and the queue holds up to ten of them. So the composer gains
+     nothing and the rows do not collapse: **the screen builds as drawn.** Recorded as what was
+     built rather than as a ruling; the owner may still prefer the other reading, and changing
+     it now would be a wire change rather than a screen one.
   3. **Contribution granularity.** Whole stacks with a clamp, as drawn, versus a partial-amount
      picker. The print proposes no: it would be the only quantity keypad either economy print
      has.
@@ -792,9 +1158,9 @@ pocket's dampening legible as a thing happening to *you* rather than a number in
 prints, delivered today). The content deliverables D-C1–D-C3 remain, and they are art and audio
 rather than design. **What is still owed against the prints is eight owner rulings, not
 artefacts**, and they are listed with each print above: four from D-P2, all owed before E5; and
-four from D-P3, of which **job cancel is owed before E4**. That is the one sequencing
-consequence worth carrying forward — the rest can be answered any time before the screens
-build.
+four from D-P3, of which **job cancel was owed before E4b and is answered** (2026-08-21). The
+seven that remain can be answered any time before the screens build, which is the sequencing
+consequence worth carrying forward: nothing left in this phase is gated on a ruling.
 - **D-C1 — Ore and alloy icons**, in the tactical icon system's families, plus the three
   archetype glyphs the strategic and system maps need.
 - **D-C2 — The site field's visual treatment**: the Nebula pass parameter set for pockets, and
@@ -817,6 +1183,24 @@ build.
   claim that an economy survives a restart — from being gated on a tab existing.
 - **Persistence before E2, not before E1.** Stated above and corrected in the ADR; the point
   is that the gate is the *first durable state*, and that is the site ledger.
+- **E4 splits, and the durable store goes first** *(added 2026-08-21, the same call E1 got)*.
+  E4's accept was written as "the whole registry — rosters, Bays, ledgers, jobs, projects —
+  round-tripping through the persistence layer", which reads as one clause and is a second
+  slice: ADR-025 lands three new files across three projects, a config block, a lane, a boot
+  path and three test surfaces of its own, and **none of it is in the tree** — the only trace
+  of the journal in the code today is three comments pointing forward to it. Left as one
+  slice, the first exercise of a brand-new file format would be against brand-new job state,
+  with two unproven things debugging each other. Split, **E4a's subject already exists and is
+  already hash-proven**: rosters, Bays, ledgers and manifests have been in `WorldRegistry` and
+  in its hash since E3, so the round-trip has something real to bite on the day it is written,
+  and E4b appends its records to a format that has already survived a torn tail. The blast
+  radii differ the way E1's did — E4a touches the engine, the composition root and
+  `Outpost.json`; E4b touches the economy's own files and one wire bump — and the G1 milestone
+  stays with E4b, where the first alloy is.
+  *This is also the ordering the E3 accept argues for: the G0 scenario found a defect
+  (`ApplyTransit` spawning arrivals with empty holds) that every unit test had missed, because
+  it was the one boundary nobody had composed. A restart is the same kind of boundary, and it
+  is worth crossing once with state that is already understood.*
 - **G0 at E3 rather than E2**, the same call H0 made at T2: a loop is a milestone when it runs
   over the real transport end to end, not when its sim half is correct in a test.
 - **Nothing interleaves with the universe or station phases.** Both are past their sim halves

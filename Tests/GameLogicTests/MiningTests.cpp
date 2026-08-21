@@ -1114,7 +1114,7 @@ public:
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Miner;
     spawn.wing = 1;
-    const ShipId miner = registry.Spawn(site, spawn);
+    const ShipId miner = registry.Spawn(site, spawn, Neuron::SOLE_PLAYER_ID);
     Assert::IsTrue(miner != INVALID_SHIP_ID, L"the Miner would not spawn");
 
     const ShipId ids[] = {miner};
@@ -1169,7 +1169,7 @@ public:
         ShipSpawn spawn;
         spawn.hullClass = HullClass::Miner;
         spawn.wing = 1;
-        const ShipId miner = registry.Spawn(site, spawn);
+        const ShipId miner = registry.Spawn(site, spawn, Neuron::SOLE_PLAYER_ID);
         const ShipId ids[] = {miner};
         Assert::IsTrue(
           registry.Borrow(site)->SubmitOrder(MineOrder(std::span<const ShipId>{ids}, OreFilter::Any)).accepted,
@@ -1218,7 +1218,7 @@ public:
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Miner;
     spawn.wing = 1;
-    const ShipId miner = registry.Spawn(site, spawn);
+    const ShipId miner = registry.Spawn(site, spawn, Neuron::SOLE_PLAYER_ID);
     const ShipId ids[] = {miner};
     Assert::IsTrue(registry.Borrow(site)->SubmitOrder(MineOrder(std::span<const ShipId>{ids}, OreFilter::Any)).accepted,
                    L"the mining order was refused");
@@ -1266,7 +1266,7 @@ public:
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Miner;
     spawn.wing = 1;
-    const ShipId miner = registry.Spawn(site, spawn);
+    const ShipId miner = registry.Spawn(site, spawn, Neuron::SOLE_PLAYER_ID);
     const ShipId ids[] = {miner};
     Assert::IsTrue(registry.Borrow(site)->SubmitOrder(MineOrder(std::span<const ShipId>{ids}, OreFilter::Any)).accepted,
                    L"the mining order was refused");

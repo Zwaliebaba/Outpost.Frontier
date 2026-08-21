@@ -1,12 +1,18 @@
 # Universe Build Order — Post-MVP Phase One
 
 **Status:** Session output 2026-08-19 · **U1, U2, U3a, U3b's sim and wire halves, U4's sim
-half and U5's pure half built** (2026-08-20). What is left in this plan is, with one
-exception, screen work: U3b's client half, U4's route feeder and icons, U5's map itself and U6
-need a GPU and a person. The exception is **U3c**, and its blockers have since cleared: it
-needed T2's per-client `SnapshotSender` (A13, built 2026-08-20) and U3b's view subscription
-(built 2026-08-20), so what remains there is the second commander's identity rather than the
-machinery to serve one. The design this plan delivers is
+half, U5's pure half and U3c built** (U3c 2026-08-21). What is left in this plan is **screen
+work, with no exceptions left**: U3b's client half, U4's route feeder and icons, U5's map itself
+and U6 need a GPU and a person. U3c was the exception and it is done — it split into **U3c-a**
+(ownership in the simulation) and **U3c-b** (the second commander on the wire), because a ship
+had no owner and minting a second id against a registry where both commanders owned everything
+would have passed the privacy accept for the wrong reason. **🏁 Its accept is met (run 188):
+two commanders, distinct ids, disjoint grids, private rosters and summaries, view rights
+enforced, orders refused `NotOwned`, and a reconnect inside the grace window that comes back as
+the same commander with its fleet intact.** **U3c splits into U3c-a (ownership in the simulation) and U3c-b (the
+second commander on the wire) as of 2026-08-21** — a ship has no owner today, and minting a
+second id against a registry where both commanders own everything would pass the privacy
+accept for the wrong reason. The rationale is with the slice. The design this plan delivers is
 [ADR-016](ADR/ADR-016-procedural-universe-and-warp.md); where this document and that one
 disagree, the ADR wins on *what* and this one on *when*.
 
@@ -298,6 +304,211 @@ loop — handshake with distinct ids, orders attributed correctly, per-player su
 rosters private (client B never receives A's `StationRoster` or summaries), view rights
 enforced (B cannot subscribe to A's grid), disconnect + reconnect resumes B's session under
 the grace window with the fleet intact; every pre-existing suite green.
+
+**U3c splits, 2026-08-21, and the reason is that "no new mechanism" turned out to be half
+true.** The *wire* needs none: `Simulation`'s seam is already player-keyed on every method
+that matters — `WriteSnapshot(PlayerId)`, `MayView(PlayerId)`, `WriteSummaries(PlayerId)`,
+`ApplyOrderBytes(PlayerId)` — and A13's per-client `SnapshotSender` already serves one
+commander per connection. But the *simulation* needs one it has never had: **a ship has no
+owner.** `WorldRegistry` keeps no `ShipId → PlayerId` anywhere, `RosterEntry` has no owner
+field, and `DurableShip.owner` is a field the format reserved which capture fills in with
+`SOLE_PLAYER_ID` unconditionally. Every player-keyed accessor already *takes* the id and
+then ignores it, each with a comment saying that is where the filter goes — `CargoFor`'s is
+the clearest ("one player today, so every ship on a grid is theirs"). Minting a second
+`PlayerId` against that registry would prove nothing at all: both commanders would own
+everything, and every privacy assertion in the accept would pass for the wrong reason.
+
+So it splits the way E1 and E4 did, on the same two tests — a hard dependency direction and
+very different blast radii:
+
+  U3c-a  **ownership in the simulation.** `ShipId → PlayerId` at the universe layer, the
+         accessors' identity functions become real filters, the roster remembers whose ship
+         it holds, and the durable format carries an owner that was actually asked for.
+         GameLogic and the format; no wire change and no `ServerHost` change.
+  U3c-b  **the second commander on the wire.** `ServerHost` stops minting `SOLE_PLAYER_ID`
+         for every session, sessions survive a disconnect for D5's grace window, and the
+         twin-client `selfTest` is written against a registry that can already tell the two
+         apart. NeuronServer and Outpost.
+
+**U3c's accept is unchanged and belongs to U3c-b** — the slice is not done until two clients
+have run the loop over a real socket. What U3c-a buys is that when they do, a passing privacy
+assertion means what it says.
+
+**Where the owner lives is the one design decision here, and ADR-018 D2 already made it.**
+Not a column in `World`: worlds forget, durable state lives at the universe layer, and a
+player identity inside the deterministic SoA would put accounts in the replay domain and the
+physics in the way of every future change to them. So it is an index on `WorldRegistry`,
+beside the rosters and the bus — which also means it folds into `Hash()` for D8's reason
+rather than a new one: a replay that reproduced every ship and forgot who owned them would
+agree about a universe where nothing belonged to anybody.
+
+**Accept (U3c-a): met, run 180 (2026-08-21)** — green on both configurations with `Outpost/`
+compiling for the first time. Ships have owners through every path that moves one — spawn,
+transfer, dock, undock, load — the accessors filter on the viewer with a test per accessor that a
+second commander sees none of the first's, the roster survives a restart with its owners, and
+the whole thing round-trips the durable format. Headless: no socket, no second connection.
+
+**Built 2026-08-21.** `m_ownerByShip` sits beside `m_locationByShip` on the registry, indexed
+the same way, and the two are written by one call and cleared by one call — so the invariant is
+one sentence a reader can hold: *a ship the registry cannot locate is a ship it has no owner
+for.* `RecordLocation` no longer exists as a thing a caller can reach; there is no way to spell
+recording a location without saying whose it is, which is the mistake this would otherwise have
+been one careless call site away from.
+
+**The owner rides the crossing, per member.** In transit a ship has left one world and not
+reached the next, so nothing can be asked about it — whatever the far side needs has to travel.
+That is E2's defect exactly, one level up: E2 shipped without the cargo riding and a Miner
+arrived empty, and an owner arriving empty is quieter and worse, because a fleet that stops
+being anybody's produces no error at all. Per **member** rather than per request, matching
+`oreUnits` and for the same reason — it is a property of the ship, not of the order. A crossing
+carrying two commanders' ships is not something today's validator can produce, but "cannot
+happen" on a request-wide owner means that if it ever does, every hull in the fleet silently
+changes hands. The registry stamps it as it collects, never the world (ADR-018 D2).
+
+**Two of the six were holes rather than gaps**, and both are worth naming because neither would
+have shown up as a bug report. `MayView` walked `m_patrolShips` — the composition root's
+scripted patrol list — so it returned the same answer for every viewer: the second commander to
+connect could have watched the first one's grid. And the validator's `RosterView` was handed the
+**station's** roster rather than the asker's half, which is not a display bug but an authority
+one: a commander could name somebody else's hull in an `Undock` and the validator would find it
+on the roster and agree. `DockedFor` is what anything reaching a player uses now; `Roster` still
+answers whole for the two callers that genuinely want the station — grid teardown, and the save
+file.
+
+**A special case went away rather than being kept.** `Summaries` counted
+`ShipCount() - authoredCount` with a paragraph explaining that a station would otherwise read as
+a one-ship fleet parked at every station in the universe. That is still true and is now merely
+*implied*: authored occupants belong to `INVALID_PLAYER_ID`, so counting the ships a viewer owns
+cannot count them. `AnAuthoredOccupantIsNobodysFleet` is the test that the consequence holds.
+The same constant is why an anonymous handshake is not a skeleton key — without the guard,
+`INVALID_PLAYER_ID` would match every piece of furniture in the shard, and the one identity
+nobody has to authenticate as would be the one that can watch any grid with a station on it.
+
+**The format goes to version 3, and this is the case the version number was written for.**
+`DurableShip.owner` has existed since E4a; capture filled it with `SOLE_PLAYER_ID`
+unconditionally. So a version 2 file does not lack ownership — it **asserts** that every hull in
+the shard belongs to player one, and reading one under the new rules would hand the first
+commander to connect the entire universe. ADR-025 §2 records it.
+
+**What was verified, and how.** `GameLogicTests` **380 methods across twelve files, 0
+failures** under clang 18 on Linux, of which 16 are new in `OwnershipTests.cpp`; the store's
+14/14 and `NeuronCoreTests`' tasking 18/18 beside them; clang-tidy clean on every changed file.
+The new tests were then **mutation-tested**, because a privacy suite that has never failed is
+indistinguishable from one that cannot: reverting `HasPresence` to ignore the viewer fails 3,
+un-filtering `Summaries` fails 1, and un-filtering `DockedFor` fails 3. One existing test had to
+change and it is the slice's best evidence — `ABayIsPerOwnerInTheHashToo` docked its second ship
+under the one commander there was and then had commander TWO transfer ore off it, which the
+validator now refuses. It was only ever passing because a commander could reach into another's
+hold.
+
+`Outpost/` is Windows-only and has not been compiled here — `MayView`, the summary sender and
+the roster it sends are CI's first build of this slice.
+
+**U3c-b built 2026-08-21 — and it needed no schema bump, which is T2 collecting a debt.**
+`Hello` and `Welcome` have carried a `PlayerId` and a `resumeToken` since A12, shipped as zero
+with a note saying the alternative was "a schema bump on the day sessions first survive a
+disconnect". This is that day, and the two fields simply started carrying values: no layout
+change, no hash move, no client refused at the door.
+
+**`ServerHost` mints per PLAYER, starting at `SOLE_PLAYER_ID`** so the first client to connect
+is still player one and every single-commander scenario means what it meant. A `Hello` that can
+prove it is coming *back* is resolved **before** anything mints, because the other order would
+hand a reconnecting commander a fresh id and a fresh fleet while their ships were still
+standing on a grid.
+
+**The grace window is `ResumeTable`, in a file of its own, and that is the slice's one
+structural decision.** All of it — the deadline in ticks, the token check, expiry — is
+decidable without a socket, so it is driven by eleven tests instead of by a four-minute live
+run. That is the argument that put `DurableStore` where it is, applied again. Two of those
+tests exist because a live run would never reach them: the boundary tick (inclusive, and
+"expired" versus "expiring" differ by one), and the u32 tick rollover, where a wrapping
+deadline would end *every session on the shard* at the instant the counter turned over.
+
+**The token is a resume handle and not a credential**, and `SessionResume.h` says so at
+length rather than leaving the word "token" to imply something is verified. Nobody is
+authenticated; whoever holds one is treated as the player. It is seeded from the OS so it
+cannot be counted to, and rotated on every use so one seen on the wire is worth one reconnect.
+ADR-018 D5 declined to mint one at T2 on the ground that inventing a token would be inventing a
+security model with it — that reasoning is untouched, and what changed is only that resume
+became a requirement.
+
+**`Simulation::PlayerJoined` is a new seam, and it returns nothing on purpose.** The engine
+hands over an id; what a commander is *given* is a game question (ADR-014 §3). The composition
+root's answer is deliberately a placeholder and says so in the code: a commander who already has
+ships is not new (a reloaded shard knows them, and spawning would hand them a second fleet on
+every restart), and one who is gets **one wing on a grid of their own**. One wing rather than
+the boot fleet's eight is arithmetic, not generosity — a full snapshot carries 43 ships, the
+boot fleet is forty plus a station, and a second full fleet would sit on the cap that the
+interest/delta slice (ADR-022, D6) exists to lift.
+
+**The old `selfTest` was quietly assuming one commander, and this found it.** Its
+approach-disconnect section connects, flies a fleet, drops mid-leg, and reconnects as an
+"observer" to check the ships are still outside. Every connection used to be `SOLE_PLAYER_ID`,
+so it got the right answer without asking the question; with ids minted per player the observer
+would have been a *different* commander on a *different* grid, finding no approaching ships
+because there were none there to find. It resumes the commander that left now — which is a
+better test than it was, since the grace window is exercised by a section that is not about it.
+
+**What was verified, and how.** `ResumeTable` 11/11 and `GameLogicTests` 380/380 under clang 18
+on Linux, with the store's 14/14 and the tasking suite's 18/18 beside them; clang-tidy clean.
+`ServerHost`, `ClientConnection` and the composition root are Windows-only and have **not** been
+compiled here, and neither has the twin-client `selfTest` — **CI is the first run of U3c's
+accept**, and the numbers land in a `Record run` commit rather than being predicted.
+
+**🏁 U3c's accept is met — run 188, 2026-08-21.** Debug|x64, Release|x64 and Spike 2 all green:
+**822 tests on MSVC with none failing**, every source guard green, no clang-tidy finding, and
+one warning in the whole build (the pre-existing `NeuronClient\Picking.cpp(51)` C4723).
+`selfTest`: **PASSED** on both configurations, and the accept is its own log:
+
+```
+self test: two commanders hold sessions at once -- ok
+self test: the two commanders have different ids -- ok
+self test: the second commander is put on a grid of their own -- ok
+self test: a request to watch another commander's grid is answered -- ok
+self test: and refused -- ok
+self test: and the authority refuses it NotOwned -- ok
+self test: the second commander is told where their own fleet is -- ok
+self test: and never where the first one's is -- ok
+self test: a dropped commander can reconnect -- ok
+self test: and comes back as the same commander -- ok
+self test: on the grid they were watching -- ok
+self test: with the fleet still theirs -- ok
+```
+
+**It took five red runs to get there, and every failure was the same thing: an assumption that
+was true while there was one commander.** Worth listing, because the list is the slice's real
+finding and none of these arrived as a bug report.
+
+1. **`EverySessionIsServedItsOwnSerialisation` asserted the viewer was `SOLE_PLAYER_ID`** —
+   which a broadcast sender ignoring the viewer entirely would also have satisfied, since there
+   was one value the field could hold. It reads both `Welcome`s now and asserts a snapshot was
+   serialised for each commander by name.
+2. **The start grid was everyone's grid.** `ServerHost` opened every session on
+   `Simulation::World()`, so a second commander was shown a grid they had no presence on and
+   refused a view of their own fleet.
+3. **The shard's `WorldMeta` was everyone's description.** Fixing (2) by handing over an anchor
+   id alone left the `Welcome` advertising the shard's grid while the feed sent another's — and
+   the client keeps no other record of where it is. Hence `WorldFor(PlayerId)` returns a whole
+   `WorldMeta`: the grid's number and its origin cannot be allowed to disagree.
+4. **`ServedWorld()` was everyone's world, and nothing checked whose ships an order named.**
+   Every order went to the start anchor and could name any hull standing there. `Validate.cpp`
+   had carried the reason since the MVP — *"NotOwned is unreachable in the MVP: there is one
+   player and every ship is theirs. The code exists because ownership is a field, not a
+   redesign"* — and this is the slice where the field exists and `NotOwned` is returned.
+5. **The self test's oldest order fixture named `ships.front()`**, which on a station grid is
+   the station. So "the authority accepts it and the ack returns" had been proving the ack path
+   works by telling a space station to move a hundred metres to the right.
+
+**The replay hash did not move:** `69c58e2751c0df22`, byte for byte E2's through E4b's, with
+Spike 2 confirming Debug and Release agree. Ownership folds into `WorldRegistry::Hash()` and the
+durable hash, not into `ComputeWorldHash`, and the replay scenario is six ships in a bare World.
+
+**The shard snapshot grew to 1,908 bytes** (durable hash `d589ed5beb6b3324`) against E4b's 1,394
+at tick 173, and unlike E4b's twelve bytes this is not arithmetic worth predicting: the self
+test now leaves three extra commanders on the shard with a wing each, so most of the growth is
+fleets that did not exist before. The Release soak reads 8.745 ms mean / 16.024 ms worst at the
+capped grid, inside the tripwire, against E4b's 9.330 / 14.542. Content is untouched and the
+universe parses in **203 ms** on Release.
 
 **Unblocked 2026-08-20, and worth naming what that leaves.** Both things this slice was
 waiting on are in the tree — the per-client `SnapshotSender` (A13) and U3b's view request with

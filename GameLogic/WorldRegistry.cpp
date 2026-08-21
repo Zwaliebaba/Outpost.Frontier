@@ -2,6 +2,7 @@
 
 #include "WorldRegistry.h"
 
+#include "DurableState.h"
 #include "Formation.h"
 #include "ShipClass.h"
 #include "SiteEpoch.h"
@@ -15,6 +16,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iterator>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -85,12 +87,17 @@ void WorldRegistry::Reset(const UniverseDef* _universe, const EconomyDef* _econo
   m_shardTick = 0;
   m_live.clear();
   m_locationByShip.clear();
+  m_ownerByShip.clear();
   m_bus.clear();
   m_rosters.clear();
   m_siteLedgers.clear();
   m_bays.clear();
+  m_refineJobs.clear();
+  m_stationTiers.clear();
+  m_projects.clear();
   m_events.Clear();
   m_nextTransferCounter = 1;
+  m_nextRefineSequence = 1;
 
   /*
    * The dynamic id space is this host's to issue from (ADR-019 §5c): two hosts
@@ -182,7 +189,14 @@ WorldRegistry::LiveWorld& WorldRegistry::SpinUp(const Anchor& _anchor)
         {
           gateShip = id; // And on a gate's grid, the gate.
         }
-        RecordLocation(id, _anchor.id);
+        /*
+         * Authored occupants belong to NOBODY (ADR-018 D5, U3c-a). A station,
+         * a gate and the scenery around them are the universe's furniture, and
+         * an owner here would hand whoever connects first a structure they did
+         * not build -- and, through `HasPresence`, the right to watch every
+         * grid that has one.
+         */
+        RecordShip(id, _anchor.id, Neuron::INVALID_PLAYER_ID);
       }
     }
   }
@@ -289,16 +303,71 @@ void WorldRegistry::RemoveViewer(AnchorId _anchor)
   }
 }
 
-void WorldRegistry::RecordLocation(ShipId _shipId, AnchorId _anchor)
+void WorldRegistry::RecordShip(ShipId _shipId, AnchorId _anchor, Neuron::PlayerId _owner)
 {
   if (_shipId >= m_locationByShip.size())
   {
     m_locationByShip.resize(static_cast<std::size_t>(_shipId) + 1, INVALID_ID);
   }
+  if (_shipId >= m_ownerByShip.size())
+  {
+    m_ownerByShip.resize(static_cast<std::size_t>(_shipId) + 1, Neuron::INVALID_PLAYER_ID);
+  }
   m_locationByShip[_shipId] = _anchor;
+  m_ownerByShip[_shipId] = _owner;
 }
 
-ShipId WorldRegistry::Spawn(AnchorId _anchor, const ShipSpawn& _spawn)
+void WorldRegistry::ForgetShip(ShipId _shipId)
+{
+  if (_shipId < m_locationByShip.size())
+  {
+    m_locationByShip[_shipId] = INVALID_ID;
+  }
+  if (_shipId < m_ownerByShip.size())
+  {
+    m_ownerByShip[_shipId] = Neuron::INVALID_PLAYER_ID;
+  }
+}
+
+Neuron::PlayerId WorldRegistry::OwnerOf(ShipId _shipId) const noexcept
+{
+  if (_shipId >= m_ownerByShip.size())
+  {
+    return Neuron::INVALID_PLAYER_ID;
+  }
+  return m_ownerByShip[_shipId];
+}
+
+bool WorldRegistry::HasPresence(Neuron::PlayerId _owner, AnchorId _anchor) const noexcept
+{
+  /*
+   * Nobody is not somebody. Without this, `INVALID_PLAYER_ID` would match every
+   * authored occupant in the universe and an anonymous handshake would be the
+   * one identity that can watch any grid with a statue on it.
+   */
+  if (_owner == Neuron::INVALID_PLAYER_ID || _anchor == INVALID_ID)
+  {
+    return false;
+  }
+
+  /*
+   * One walk of the index answers both halves of ADR-017 §7's rule, because a
+   * docked ship keeps its location pointing at the station it is docked at --
+   * which is exactly why teardown sweeps around the roster rather than through
+   * it.
+   */
+  const std::size_t count = std::min(m_locationByShip.size(), m_ownerByShip.size());
+  for (std::size_t index = 0; index < count; ++index)
+  {
+    if (m_locationByShip[index] == _anchor && m_ownerByShip[index] == _owner)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+ShipId WorldRegistry::Spawn(AnchorId _anchor, const ShipSpawn& _spawn, Neuron::PlayerId _owner)
 {
   World* world = Borrow(_anchor);
   if (world == nullptr)
@@ -308,7 +377,7 @@ ShipId WorldRegistry::Spawn(AnchorId _anchor, const ShipSpawn& _spawn)
   const ShipId id = world->Spawn(_spawn, AllocateShipId());
   if (id != INVALID_SHIP_ID)
   {
-    RecordLocation(id, _anchor);
+    RecordShip(id, _anchor, _owner);
   }
   return id;
 }
@@ -317,6 +386,17 @@ OrderVerdict WorldRegistry::SubmitStationCommand(Neuron::PlayerId _owner, const 
 {
   RosterView view;
   view.station = INVALID_ID;
+
+  /// What the open project still wants, per alloy. A local the view borrows,
+  /// because the remaining counts are derived and there is nowhere durable they
+  /// belong -- the project stores what was *given*, and what is left is
+  /// arithmetic against the content.
+  std::uint32_t remainingScratch[ALLOY_COUNT] = {};
+
+  /// This commander's half of the station's roster, for the same reason: the
+  /// view borrows a span and something has to own it.
+  std::vector<RosterEntry> dockedScratch;
+
   if (m_universe != nullptr)
   {
     const Anchor* anchor = m_universe->FindAnchor(_command.station);
@@ -327,7 +407,23 @@ OrderVerdict WorldRegistry::SubmitStationCommand(Neuron::PlayerId _owner, const 
       // empty one is still *this* station's -- and the command is refused
       // `NotDocked` rather than `UnknownStation`, which is the honest answer.
       view.station = _command.station;
-      view.docked = Roster(_command.station);
+
+      /*
+       * **This commander's docked ships, not the station's** (U3c-a).
+       *
+       * The view is what the validator judges a command against, so an
+       * unfiltered roster here is not a display bug, it is an authority one: a
+       * commander could name somebody else's hull in an `Undock` and the
+       * validator would find it on the roster and agree. Reading the filtered
+       * set means that command is refused `NotDocked` -- which is the truth
+       * from where the asker stands, and says nothing about whose it is.
+       *
+       * A local the view borrows, like `remainingScratch` above, because a
+       * filtered roster is a new vector and the span has to point at something
+       * that outlives the call.
+       */
+      dockedScratch = DockedFor(_owner, _command.station);
+      view.docked = dockedScratch;
 
       /*
        * And what this commander has stored here (ADR-024 §5b), which is what a
@@ -342,6 +438,49 @@ OrderVerdict WorldRegistry::SubmitStationCommand(Neuron::PlayerId _owner, const 
       if (const StationBay* bay = Bay(_owner, _command.station); bay != nullptr)
       {
         view.bayUnits = bay->oreUnits;
+        view.bayAlloyUnits = bay->alloyUnits;
+      }
+
+      /*
+       * And the refinery's half of the view (ADR-024 §6, E4b).
+       *
+       * Answers rather than tables, which is the shape `bayUnits` already set:
+       * the shared validator is a pure function over a small struct on both
+       * machines, so what crosses is "may this recipe be cooked here" and never
+       * the tier table it was derived from.
+       */
+      view.refineryTier = TierAt(_command.station);
+      view.refineJobCount = RefineJobCountFor(_owner, _command.station);
+      if (m_economy != nullptr && view.refineryTier != 0)
+      {
+        view.refineSlotCount = m_economy->Tier(view.refineryTier).slotsPerPlayer;
+        view.refineQueueDepth = m_economy->refining.queueDepthPerPlayer;
+        view.recipeUnlocked = TierCooks(*m_economy, view.refineryTier, _command.alloy);
+        view.batchKnown = FindRefineBatch(m_economy->refining, _command.units) != nullptr;
+      }
+      if (const UpgradeProject* project = Project(_command.station); project != nullptr && m_economy != nullptr)
+      {
+        const RefineryUpgradeProject& cost = m_economy->refining.upgradeProjects[project->toTier - 1];
+        for (std::uint8_t alloy = 0; alloy < ALLOY_COUNT; ++alloy)
+        {
+          remainingScratch[alloy] = cost.costUnits[alloy] - std::min(cost.costUnits[alloy], project->contributedUnits[alloy]);
+        }
+        view.projectOpen = true;
+        view.projectRemainingUnits = remainingScratch;
+      }
+      else if (m_economy != nullptr && ProjectFor(_command.station) != nullptr)
+      {
+        // No contributions yet, so no row -- but the project is open, and the
+        // validator must say so or the first contribution to every station in
+        // the shard would be refused for want of a record it is about to make.
+        const UpgradeProject* opened = Project(_command.station);
+        const RefineryUpgradeProject& cost = m_economy->refining.upgradeProjects[opened->toTier - 1];
+        for (std::uint8_t alloy = 0; alloy < ALLOY_COUNT; ++alloy)
+        {
+          remainingScratch[alloy] = cost.costUnits[alloy];
+        }
+        view.projectOpen = true;
+        view.projectRemainingUnits = remainingScratch;
       }
     }
   }
@@ -350,6 +489,14 @@ OrderVerdict WorldRegistry::SubmitStationCommand(Neuron::PlayerId _owner, const 
   if (!verdict.accepted)
   {
     return verdict;
+  }
+
+  // The refining verbs apply on the spot beside `AssignWing` and for the same
+  // reason: both ends are universe-layer state on one host, and the bus exists
+  // to stop one grid reading another mid-tick, which this does not do.
+  if (!NamesShips(_command.verb))
+  {
+    return ApplyRefineCommand(_owner, _command);
   }
 
   StationRoster& roster = RosterFor(_command.station);
@@ -437,6 +584,10 @@ OrderVerdict WorldRegistry::SubmitStationCommand(Neuron::PlayerId _owner, const 
     {
       member.oreUnits[ore] = row->oreUnits[ore];
     }
+    // And whose it is, from the row rather than from the command: a commander
+    // undocking somebody else's ship is a thing validation refuses, and reading
+    // the owner off the roster means this path cannot be the way it happens.
+    member.owner = row->owner;
     if (!request.AddMember(member))
     {
       break;
@@ -462,10 +613,7 @@ bool WorldRegistry::Despawn(AnchorId _anchor, ShipId _shipId)
   {
     return false;
   }
-  if (_shipId < m_locationByShip.size())
-  {
-    m_locationByShip[_shipId] = INVALID_ID;
-  }
+  ForgetShip(_shipId);
   return true;
 }
 
@@ -739,12 +887,14 @@ SiteStatusRow WorldRegistry::SiteStatusFor(AnchorId _anchor) const
 std::vector<CargoStatusRow> WorldRegistry::CargoFor(Neuron::PlayerId _owner) const
 {
   /*
-   * One player today, so every ship on a grid is theirs (ADR-018 D5).
+   * This commander's ships, and only theirs (ADR-018 D5, U3c-a).
    *
-   * The parameter is not decoration: it is where the filter goes when there are
-   * two, and taking it now is what makes that a one-line change rather than a
-   * signature change through the sender. `INVALID_PLAYER_ID` gets nothing,
-   * which is the honest answer to "what does nobody own".
+   * The parameter was here before the filter was, with a note saying it was
+   * where the filter would go and that taking it now made that a one-line
+   * change rather than a signature change through the sender. It was a one-line
+   * change. `INVALID_PLAYER_ID` still gets nothing, which is the honest answer
+   * to "what does nobody own" and now also excludes the authored occupants,
+   * which own no cargo but would have been walked anyway.
    */
   std::vector<CargoStatusRow> rows;
   if (_owner == Neuron::INVALID_PLAYER_ID)
@@ -758,6 +908,10 @@ std::vector<CargoStatusRow> WorldRegistry::CargoFor(Neuron::PlayerId _owner) con
     const std::span<const ShipCargo> holds = entry.world->Cargo();
     for (std::size_t slot = 0; slot < ids.size() && slot < holds.size(); ++slot)
     {
+      if (OwnerOf(ids[slot]) != _owner)
+      {
+        continue; // Somebody else's hold is not this commander's business.
+      }
       const ShipCargo& cargo = holds[slot];
       const bool carrying = std::any_of(std::begin(cargo.oreUnits), std::end(cargo.oreUnits),
                                         [](std::uint32_t _units) { return _units > 0; });
@@ -832,11 +986,14 @@ void WorldRegistry::ApplyDueTransfers()
         {
           row.oreUnits[ore] = member.oreUnits[ore];
         }
+        // Whose it is, carried across by the crossing rather than looked up
+        // here: mid-dock the ship is on no grid, so there is nothing to ask.
+        row.owner = member.owner;
         roster.docked.push_back(row);
 
         // Docked counts as presence (ADR-017 §7), so the index keeps pointing
         // at the station rather than forgetting where the ship went.
-        RecordLocation(member.shipId, record.what.anchor);
+        RecordShip(member.shipId, record.what.anchor, member.owner);
       }
       m_events.Emit(m_shardTick, EventKind::Docked, record.what.anchor, record.what.memberCount);
     }
@@ -1142,7 +1299,7 @@ void WorldRegistry::ApplyTransit(const TransferRequest& _request)
     }
     if (world->Spawn(spawn, member->shipId) != INVALID_SHIP_ID)
     {
-      RecordLocation(member->shipId, _request.anchor);
+      RecordShip(member->shipId, _request.anchor, member->owner);
     }
   }
 
@@ -1255,7 +1412,7 @@ void WorldRegistry::ApplyUndock(const TransferRequest& _request)
     // which is not a gauge either: the hold crossed on the record (E3).
     if (world->Spawn(spawn, member->shipId) != INVALID_SHIP_ID)
     {
-      RecordLocation(member->shipId, _request.anchor);
+      RecordShip(member->shipId, _request.anchor, member->owner);
       parked[parkedCount++] = member->shipId;
     }
   }
@@ -1331,7 +1488,21 @@ void WorldRegistry::CollectFiledTransfers()
       {
         record.applyTick = m_shardTick + TransitTicks(entry.anchor, request);
       }
+      /*
+       * And whose ships these are (ADR-018 D5, U3c-a).
+       *
+       * Stamped HERE rather than filed by the world, because a world knows
+       * only its own ships and must never learn who owns one -- D2's boundary,
+       * and the reason `TransferMember::owner` is documented as the registry's
+       * to fill. At file time the fleet is still standing on the grid, so the
+       * index still has the answer; one tick later, mid-crossing, it would not.
+       */
       record.what = request;
+      for (std::uint16_t index = 0; index < record.what.memberCount; ++index)
+      {
+        TransferMember& member = record.what.members[index];
+        member.owner = OwnerOf(member.shipId);
+      }
       m_bus.push_back(record);
     }
     entry.world->ClearFiledTransfers();
@@ -1345,6 +1516,17 @@ void WorldRegistry::Tick(std::uint32_t _shardTick)
   // Between ticks, before any world runs: a transfer filed last tick lands now,
   // and no world's tick can observe another's mid-flight (ADR-017 §9).
   ApplyDueTransfers();
+
+  /*
+   * And the refinery, beside the bus and for the same reason (ADR-024 §6b).
+   *
+   * Here rather than in a world's tick because a job **runs while its commander
+   * is offline and while its station's grid is torn down** -- it is universe-
+   * layer work on the shard-global tick, which is precisely what the transfer
+   * bus's apply point already is. A refinery that needed a live grid would be a
+   * refinery nobody could walk away from, and walking away is the feature.
+   */
+  AdvanceRefining();
 
   /*
    * Every live world, with the same number, sharing nothing.
@@ -1414,12 +1596,661 @@ void WorldRegistry::TearDownIdle()
                                                 [id](const RosterEntry& _row) { return _row.shipId == id; });
                                   if (!onTheRoster)
                                   {
-                                    m_locationByShip[index] = INVALID_ID;
+                                    ForgetShip(id);
                                   }
                                 }
                                 return true;
                               }),
                m_live.end());
+}
+
+namespace
+{
+/// `Station.cpp`'s helper, repeated rather than exported: a two-line
+/// constructor on a public header would be a shared function whose only job is
+/// to save typing a brace.
+[[nodiscard]] OrderVerdict Refuse(OrderReason _reason) noexcept
+{
+  return OrderVerdict{false, _reason};
+}
+} // namespace
+
+SecurityBand WorldRegistry::BandAt(AnchorId _station) const noexcept
+{
+  if (m_universe == nullptr || m_economy == nullptr)
+  {
+    return SecurityBand::High;
+  }
+  const Anchor* anchor = m_universe->FindAnchor(_station);
+  if (anchor == nullptr)
+  {
+    return SecurityBand::High;
+  }
+  const SolarSystem* system = m_universe->FindSystem(anchor->system);
+  // A system the anchor names and the universe does not have is content that
+  // could not have baked; High-Sec is the cautious answer, being the band that
+  // permits least.
+  return system == nullptr ? SecurityBand::High : m_economy->BandFor(system->security);
+}
+
+std::uint8_t WorldRegistry::TierAt(AnchorId _station) const noexcept
+{
+  if (m_universe == nullptr || m_economy == nullptr)
+  {
+    return 0;
+  }
+  const Anchor* anchor = m_universe->FindAnchor(_station);
+  if (anchor == nullptr || anchor->kind != AnchorKind::Station)
+  {
+    return 0;
+  }
+
+  const bool starter = anchor->id == m_universe->StartAnchorId();
+  std::uint8_t tier = AuthoredStationTier(starter);
+  for (const StationTier& row : m_stationTiers)
+  {
+    if (row.station == _station)
+    {
+      tier = std::max(tier, row.tier);
+      break;
+    }
+  }
+
+  /*
+   * And never above the band's cap (ADR-024 §6c).
+   *
+   * Clamped on the way *out* rather than trusted on the way in, because this is
+   * the industrial map and it has to hold against every path that could ever
+   * raise a tier -- a project, a reload, a content retune that lowered a cap
+   * under a station somebody already upgraded.
+   */
+  const std::uint8_t cap = BandTierCap(*m_economy, BandAt(_station));
+  return std::min(tier, cap == 0 ? tier : cap);
+}
+
+const UpgradeProject* WorldRegistry::Project(AnchorId _station) const noexcept
+{
+  const auto at = std::lower_bound(m_projects.begin(), m_projects.end(), _station,
+                                   [](const UpgradeProject& _entry, AnchorId _id) { return _entry.station < _id; });
+  return at != m_projects.end() && at->station == _station ? &*at : nullptr;
+}
+
+StationTier& WorldRegistry::TierFor(AnchorId _station)
+{
+  const auto at = std::lower_bound(m_stationTiers.begin(), m_stationTiers.end(), _station,
+                                   [](const StationTier& _entry, AnchorId _id) { return _entry.station < _id; });
+  if (at != m_stationTiers.end() && at->station == _station)
+  {
+    return *at;
+  }
+  StationTier row;
+  row.station = _station;
+  row.tier = TierAt(_station);
+  return *m_stationTiers.insert(at, row);
+}
+
+UpgradeProject* WorldRegistry::ProjectFor(AnchorId _station)
+{
+  if (m_economy == nullptr)
+  {
+    return nullptr;
+  }
+
+  /*
+   * The project a station is *currently* building, which is the next tier and
+   * nothing else.
+   *
+   * A station already at its band's cap has none, and that is the amber row
+   * the print draws pointing out of the station entirely: geography rather than
+   * progress. A row whose `toTier` no longer matches -- because the project it
+   * was for completed -- is retargeted rather than kept, since a station builds
+   * one thing at a time and the contributions to a finished project were
+   * consumed by finishing it.
+   */
+  const std::uint8_t tier = TierAt(_station);
+  const std::uint8_t cap = BandTierCap(*m_economy, BandAt(_station));
+  if (tier == 0 || tier >= REFINERY_TIER_COUNT || (cap != 0 && tier >= cap))
+  {
+    return nullptr;
+  }
+  const std::uint8_t next = static_cast<std::uint8_t>(tier + 1);
+  if (!m_economy->refining.upgradeProjects[next - 1].Exists())
+  {
+    return nullptr;
+  }
+
+  const auto at = std::lower_bound(m_projects.begin(), m_projects.end(), _station,
+                                   [](const UpgradeProject& _entry, AnchorId _id) { return _entry.station < _id; });
+  if (at != m_projects.end() && at->station == _station)
+  {
+    if (at->toTier != next)
+    {
+      *at = UpgradeProject{};
+      at->station = _station;
+      at->toTier = next;
+    }
+    return &*at;
+  }
+  UpgradeProject row;
+  row.station = _station;
+  row.toTier = next;
+  return &*m_projects.insert(at, row);
+}
+
+RefineryStatusRow WorldRegistry::RefineryStatusFor(Neuron::PlayerId _owner, AnchorId _station) const
+{
+  RefineryStatusRow row;
+  row.station = _station;
+  row.tier = TierAt(_station);
+
+  // In the vector's own order, which is `(station, owner, sequence)` -- so a
+  // commander's jobs arrive in the order the queue will drain them, without the
+  // sender having to know that is what queue order means.
+  for (const RefineJob& job : m_refineJobs)
+  {
+    if (job.owner != _owner || job.station != _station)
+    {
+      continue;
+    }
+    RefineryJobRow entry;
+    entry.sequence = job.sequence;
+    entry.alloy = job.alloy;
+    entry.batchUnits = job.batchUnits;
+    entry.completeTick = job.completeTick;
+    row.jobs.push_back(entry);
+  }
+
+  if (const UpgradeProject* project = Project(_station); project != nullptr)
+  {
+    row.projectToTier = project->toTier;
+    for (std::uint8_t alloy = 0; alloy < ALLOY_COUNT; ++alloy)
+    {
+      row.projectContributedUnits[alloy] = project->contributedUnits[alloy];
+    }
+  }
+  return row;
+}
+
+std::vector<AnchorId> WorldRegistry::RefineriesFor(Neuron::PlayerId _owner) const
+{
+  std::vector<AnchorId> stations;
+  for (const RefineJob& job : m_refineJobs)
+  {
+    if (job.owner == _owner && (stations.empty() || stations.back() != job.station))
+    {
+      // The jobs are sorted by station, so "not the last one added" is the
+      // whole of the de-duplication.
+      stations.push_back(job.station);
+    }
+  }
+  return stations;
+}
+
+std::uint32_t WorldRegistry::RefineJobCountFor(Neuron::PlayerId _owner, AnchorId _station) const noexcept
+{
+  std::uint32_t count = 0;
+  for (const RefineJob& job : m_refineJobs)
+  {
+    if (job.owner == _owner && job.station == _station)
+    {
+      ++count;
+    }
+  }
+  return count;
+}
+
+void WorldRegistry::AdvanceRefining()
+{
+  if (m_economy == nullptr)
+  {
+    return;
+  }
+
+  /*
+   * Completion first (ADR-024 §6b): outputs and the refund credit the Bay, and
+   * the event record learns what finished so the away-log can say so.
+   *
+   * The plan was priced at submission and is carried on the record, so nothing
+   * here reads a tier table -- a station that was upgraded mid-job does not
+   * retroactively improve a job the player already agreed the numbers for.
+   */
+  for (std::size_t index = 0; index < m_refineJobs.size();)
+  {
+    const RefineJob& job = m_refineJobs[index];
+    if (!job.Running() || job.completeTick > m_shardTick)
+    {
+      ++index;
+      continue;
+    }
+
+    StationBay& bay = BayFor(job.owner, job.station);
+    bay.alloyUnits[static_cast<std::uint8_t>(job.alloy)] += job.outputUnits;
+    for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+    {
+      bay.oreUnits[ore] += job.refundUnits[ore];
+    }
+    m_events.Emit(m_shardTick, EventKind::RefineComplete, job.station, job.outputUnits);
+    m_refineJobs.erase(m_refineJobs.begin() + static_cast<std::ptrdiff_t>(index));
+  }
+
+  /*
+   * Then the starts, so a slot freed above is filled now rather than next tick.
+   *
+   * In `sequence` order within each `(owner, station)`, which is what makes
+   * "the queue drains in order" a fact about the record: the vector is sorted
+   * on that key, so the first queued job found for a pair is that pair's next.
+   */
+  for (RefineJob& job : m_refineJobs)
+  {
+    if (job.Running())
+    {
+      continue;
+    }
+    const std::uint8_t tier = TierAt(job.station);
+    if (tier == 0)
+    {
+      continue;
+    }
+    std::uint32_t running = 0;
+    for (const RefineJob& other : m_refineJobs)
+    {
+      if (other.owner == job.owner && other.station == job.station && other.Running())
+      {
+        ++running;
+      }
+    }
+    if (running >= m_economy->Tier(tier).slotsPerPlayer)
+    {
+      continue;
+    }
+    job.completeTick = m_shardTick + job.durationTicks;
+  }
+}
+
+OrderVerdict WorldRegistry::ApplyRefineCommand(Neuron::PlayerId _owner, const StationCommand& _command)
+{
+  const OrderVerdict accepted{true, OrderReason::Accepted};
+
+  if (_command.verb == StationVerb::RefineCancel)
+  {
+    /*
+     * A **queued** job cancels whole and its inputs return to the Bay
+     * untouched; a running one cannot be cancelled at all, its inputs being
+     * spent (owner ruling, 2026-08-21). Nothing is created or destroyed here:
+     * what goes back is exactly what came out, because it is the same array.
+     */
+    for (std::size_t index = 0; index < m_refineJobs.size(); ++index)
+    {
+      const RefineJob& job = m_refineJobs[index];
+      if (job.owner != _owner || job.station != _command.station || job.sequence != _command.sequence)
+      {
+        continue;
+      }
+      if (job.Running())
+      {
+        return Refuse(OrderReason::RefineryBusy);
+      }
+      StationBay& bay = BayFor(_owner, _command.station);
+      for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+      {
+        bay.oreUnits[ore] += job.inputUnits[ore];
+      }
+      m_refineJobs.erase(m_refineJobs.begin() + static_cast<std::ptrdiff_t>(index));
+      return accepted;
+    }
+    // No such queued job of yours here: the queue is not in the state the
+    // command assumed, which is what `RefineryBusy` says.
+    return Refuse(OrderReason::RefineryBusy);
+  }
+
+  if (_command.verb == StationVerb::ProjectContribute)
+  {
+    UpgradeProject* project = ProjectFor(_command.station);
+    if (project == nullptr)
+    {
+      return Refuse(OrderReason::RecipeLocked);
+    }
+    StationBay& bay = BayFor(_owner, _command.station);
+    const auto alloy = static_cast<std::uint8_t>(_command.alloy);
+    const RefineryUpgradeProject& cost = m_economy->refining.upgradeProjects[project->toTier - 1];
+    const std::uint32_t remaining = cost.costUnits[alloy] - std::min(cost.costUnits[alloy], project->contributedUnits[alloy]);
+    const std::uint32_t moved = std::min({_command.units, bay.alloyUnits[alloy], remaining});
+    if (moved == 0)
+    {
+      return Refuse(OrderReason::InsufficientMaterials);
+    }
+    bay.alloyUnits[alloy] -= moved;
+    project->contributedUnits[alloy] += moved;
+
+    /*
+     * And the tier rises **exactly once**, on the tick the last unit lands.
+     *
+     * The check is right here rather than on a sweep, which is what makes
+     * "exactly once" true when two commanders complete it in the same tick:
+     * the second contribution finds `remaining` already zero and is refused
+     * `InsufficientMaterials` before it can move a unit, so there is no second
+     * completion to suppress.
+     */
+    if (project->IsComplete(cost))
+    {
+      TierFor(_command.station).tier = project->toTier;
+      m_events.Emit(m_shardTick, EventKind::ProjectComplete, _command.station, project->toTier);
+      m_projects.erase(m_projects.begin() + (project - m_projects.data()));
+    }
+    return accepted;
+  }
+
+  // `RefineStart`. The plan is priced against the tier *now* and carried, and
+  // the inputs debit at submission (ADR-024 §6b) -- which is what makes the
+  // print's "the Bay's after-state" the number the player is deciding with.
+  const std::uint8_t tier = TierAt(_command.station);
+  const RefinePlan plan = PlanRefine(*m_economy, _command.alloy, _command.units, tier);
+  if (!plan.valid)
+  {
+    return Refuse(OrderReason::RecipeLocked);
+  }
+  StationBay& bay = BayFor(_owner, _command.station);
+  for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+  {
+    if (bay.oreUnits[ore] < plan.inputUnits[ore])
+    {
+      return Refuse(OrderReason::InsufficientMaterials);
+    }
+  }
+
+  RefineJob job;
+  job.owner = _owner;
+  job.station = _command.station;
+  job.alloy = _command.alloy;
+  job.sequence = m_nextRefineSequence++;
+  job.batchUnits = _command.units;
+  job.outputUnits = plan.outputUnits;
+  job.durationTicks = plan.durationTicks;
+  for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+  {
+    bay.oreUnits[ore] -= plan.inputUnits[ore];
+    job.inputUnits[ore] = plan.inputUnits[ore];
+    job.refundUnits[ore] = plan.refundUnits[ore];
+  }
+
+  const auto at = std::lower_bound(m_refineJobs.begin(), m_refineJobs.end(), job,
+                                   [](const RefineJob& _a, const RefineJob& _b)
+                                   {
+                                     if (_a.station != _b.station)
+                                     {
+                                       return _a.station < _b.station;
+                                     }
+                                     if (_a.owner != _b.owner)
+                                     {
+                                       return _a.owner < _b.owner;
+                                     }
+                                     return _a.sequence < _b.sequence;
+                                   });
+  m_refineJobs.insert(at, job);
+
+  // Started now if a slot is free, rather than on the next tick: a job
+  // submitted into an empty refinery should not sit idle for fifty
+  // milliseconds because the loop had already run.
+  AdvanceRefining();
+  return accepted;
+}
+
+bool WorldRegistry::IsAuthoredOccupant(AnchorId _anchor, ShipId _shipId) const noexcept
+{
+  if (m_universe == nullptr)
+  {
+    return false;
+  }
+  const Anchor* anchor = m_universe->FindAnchor(_anchor);
+  if (anchor == nullptr || anchor->occupantCount == 0)
+  {
+    return false;
+  }
+  // The bake's window, exactly as `SpinUp` issues it: base + index, for
+  // `occupantCount` ids. Arithmetic in u32 because `occupantIdBase` is one --
+  // a baked id is not a wire value (ADR-018 D6a).
+  const std::uint32_t id = _shipId;
+  return id >= anchor->occupantIdBase && id < anchor->occupantIdBase + anchor->occupantCount;
+}
+
+bool WorldRegistry::LoadDurable(const DurableState& _state, std::vector<PersistenceDiagnostic>& _outDiagnostics)
+{
+  const auto refuse = [&_outDiagnostics](std::string _what, std::string _message)
+  {
+    PersistenceDiagnostic diagnostic;
+    diagnostic.what = std::move(_what);
+    diagnostic.message = std::move(_message);
+    _outDiagnostics.push_back(std::move(diagnostic));
+    return false;
+  };
+
+  /*
+   * A load is into a fresh registry, and everything else is refused.
+   *
+   * Not defensiveness: there is no answer to what it would mean to merge a save
+   * file into a running shard that is better than declining to have one, and a
+   * refusal at boot is visible where a silent merge would be visible weeks
+   * later as a duplicated fleet.
+   */
+  if (!m_live.empty() || !m_rosters.empty() || !m_bays.empty() || !m_siteLedgers.empty() || !m_bus.empty()
+      || !m_refineJobs.empty() || !m_stationTiers.empty() || !m_projects.empty())
+  {
+    return refuse("registry", "a durable set loads into a freshly reset registry, and this one is running");
+  }
+  if (m_universe == nullptr)
+  {
+    return refuse("registry", "no universe: a durable set names anchors, and nothing here can resolve one");
+  }
+
+  /*
+   * The high-water mark first, and a mark that would go backwards is a refusal
+   * rather than a clamp (ADR-025 §1a).
+   *
+   * Clamping would be the failure this rule exists to prevent, dressed as a
+   * repair: the shard would carry on and re-issue ids that the rosters and
+   * transfers being loaded in the next few lines still name.
+   */
+  if (_state.nextDynamicShipId < m_nextDynamicId)
+  {
+    return refuse("allocator", "the ship-id mark would go backwards, from " + std::to_string(m_nextDynamicId) + " to " +
+                                 std::to_string(_state.nextDynamicShipId));
+  }
+
+  /*
+   * Everything is judged before anything is written.
+   *
+   * The alternative is a load that refuses on its last ship having already put
+   * the rosters, the Bays and the ledgers in -- which is the half-built
+   * registry this function's contract promises not to leave, and the reason
+   * that promise is worth making: a refusal is visible at boot, and a shard
+   * holding two thirds of itself is visible when somebody notices a fleet is
+   * missing. So the ships are checked here, against the *content*, without
+   * spinning a single grid up.
+   */
+  for (const DurableShip& ship : _state.ships)
+  {
+    const Anchor* anchor = m_universe->FindAnchor(ship.anchor);
+    if (anchor == nullptr)
+    {
+      return refuse("ship " + std::to_string(ship.shipId),
+                    "anchor " + std::to_string(ship.anchor) + " is not a place in this universe");
+    }
+    if (IsAuthoredOccupant(ship.anchor, ship.shipId))
+    {
+      return refuse("ship " + std::to_string(ship.shipId),
+                    "id belongs to anchor " + std::to_string(ship.anchor) + "'s authored occupants");
+    }
+  }
+
+  /*
+   * And no key twice, in any of the four sets (ADR-025 §1).
+   *
+   * A duplicate is not a merge problem, it is a *statement* problem: two rows
+   * claiming one Bay are two answers to "what has this commander committed
+   * here", and there is no rule that picks one which is not an invention. A
+   * file that says it twice is a file that was not written by this code.
+   *
+   * `ShipId` bounds the ship check to one pass over a bitset-shaped vector,
+   * which matters because a shard's ships are the largest of the four sets by
+   * an order of magnitude and the others are tens of rows.
+   */
+  {
+    std::vector<bool> seenShip(static_cast<std::size_t>(INVALID_SHIP_ID) + 1, false);
+    for (const DurableShip& ship : _state.ships)
+    {
+      if (seenShip[ship.shipId])
+      {
+        return refuse("ship " + std::to_string(ship.shipId), "is in the durable set twice");
+      }
+      seenShip[ship.shipId] = true;
+    }
+  }
+  for (std::size_t index = 0; index + 1 < _state.rosters.size(); ++index)
+  {
+    for (std::size_t other = index + 1; other < _state.rosters.size(); ++other)
+    {
+      if (_state.rosters[index].anchor == _state.rosters[other].anchor)
+      {
+        return refuse("roster " + std::to_string(_state.rosters[index].anchor), "is in the durable set twice");
+      }
+    }
+  }
+  for (std::size_t index = 0; index + 1 < _state.bays.size(); ++index)
+  {
+    for (std::size_t other = index + 1; other < _state.bays.size(); ++other)
+    {
+      if (_state.bays[index].station == _state.bays[other].station && _state.bays[index].owner == _state.bays[other].owner)
+      {
+        return refuse("bay " + std::to_string(_state.bays[index].station), "is in the durable set twice for one owner");
+      }
+    }
+  }
+  for (std::size_t index = 0; index + 1 < _state.ledgers.size(); ++index)
+  {
+    for (std::size_t other = index + 1; other < _state.ledgers.size(); ++other)
+    {
+      if (_state.ledgers[index].anchor == _state.ledgers[other].anchor)
+      {
+        return refuse("ledger " + std::to_string(_state.ledgers[index].anchor), "is in the durable set twice");
+      }
+    }
+  }
+
+  m_shardTick = _state.shardTick;
+  m_nextDynamicId = _state.nextDynamicShipId;
+
+  for (const DurableRoster& roster : _state.rosters)
+  {
+    StationRoster& row = RosterFor(roster.anchor);
+    row.docked = roster.docked;
+    for (const RosterEntry& docked : row.docked)
+    {
+      // Docked counts as presence (ADR-017 §7), so the index has to point at
+      // the station for a reloaded ship exactly as it does for one that docked
+      // a moment ago.
+      RecordShip(docked.shipId, roster.anchor, docked.owner);
+    }
+  }
+
+  m_bays.assign(_state.bays.begin(), _state.bays.end());
+  m_siteLedgers.assign(_state.ledgers.begin(), _state.ledgers.end());
+  m_bus.assign(_state.transfers.begin(), _state.transfers.end());
+  m_refineJobs.assign(_state.refineJobs.begin(), _state.refineJobs.end());
+  m_stationTiers.assign(_state.stationTiers.begin(), _state.stationTiers.end());
+  m_projects.assign(_state.projects.begin(), _state.projects.end());
+
+  /*
+   * The job sequence resumes past everything on the books, for the transfer
+   * counter's reason exactly: a sequence is how a cancel names a job, and a
+   * counter that restarted would let one command cancel a job it did not mean.
+   */
+  m_nextRefineSequence = 1;
+  for (const RefineJob& job : m_refineJobs)
+  {
+    m_nextRefineSequence = std::max(m_nextRefineSequence, job.sequence + 1);
+  }
+
+  /*
+   * Sorted on load, because sorted is not a property of the file -- it is a
+   * property `Bay` and `Ledger` *depend on*.
+   *
+   * Both look their key up with `lower_bound`, so a set that arrived in any
+   * other order would answer "no such Bay" for a Bay that is right there, and
+   * it would do it silently. A capture writes them in order and a round trip
+   * therefore never needs this; a file somebody edited, or a future writer that
+   * did not know the rule, is exactly what it is for.
+   */
+  std::sort(m_bays.begin(), m_bays.end(), [](const StationBay& _a, const StationBay& _b) noexcept
+            { return _a.station != _b.station ? _a.station < _b.station : _a.owner < _b.owner; });
+  std::sort(m_siteLedgers.begin(), m_siteLedgers.end(),
+            [](const SiteLedger& _a, const SiteLedger& _b) noexcept { return _a.anchor < _b.anchor; });
+  std::sort(m_refineJobs.begin(), m_refineJobs.end(), [](const RefineJob& _a, const RefineJob& _b) noexcept
+            {
+              if (_a.station != _b.station)
+              {
+                return _a.station < _b.station;
+              }
+              return _a.owner != _b.owner ? _a.owner < _b.owner : _a.sequence < _b.sequence;
+            });
+  std::sort(m_stationTiers.begin(), m_stationTiers.end(),
+            [](const StationTier& _a, const StationTier& _b) noexcept { return _a.station < _b.station; });
+  std::sort(m_projects.begin(), m_projects.end(),
+            [](const UpgradeProject& _a, const UpgradeProject& _b) noexcept { return _a.station < _b.station; });
+
+  /*
+   * The transfer counter resumes past the highest record on the bus.
+   *
+   * The same trap as the ship-id mark, one size down: a counter that restarted
+   * at one would stamp a new record with an id a pending record already has,
+   * and the bus's total order (ADR-018 D17) would have two records claiming one
+   * place in it.
+   */
+  m_nextTransferCounter = 1;
+  for (const TransferRecord& record : m_bus)
+  {
+    m_nextTransferCounter = std::max(m_nextTransferCounter, record.id.counter + 1);
+  }
+  std::sort(m_bus.begin(), m_bus.end());
+
+  /*
+   * And the ships, at rest (ADR-025 §1).
+   *
+   * Spinning the grid up is what having a ship there *means* -- a world is a
+   * runtime, and one with a fleet standing on it is live by the same rule that
+   * keeps it live after a warp arrival. What the ship does not come back with
+   * is any of its intention: no order queue, no leg, no guidance target, and no
+   * undock protection, because fifteen seconds do not survive a restart and a
+   * shard that restarts owes nobody a protected launch.
+   */
+  for (const DurableShip& ship : _state.ships)
+  {
+    World* world = Borrow(ship.anchor);
+    if (world == nullptr)
+    {
+      // The anchor resolved in the pass above, so this is the grid refusing to
+      // exist rather than the record naming nowhere -- worth its own sentence
+      // because the two failures want different investigations.
+      return refuse("ship " + std::to_string(ship.shipId), "anchor " + std::to_string(ship.anchor) + " would not spin up");
+    }
+    ShipSpawn spawn;
+    spawn.hullClass = ship.hullClass;
+    spawn.wing = ship.wing;
+    spawn.xMetres = ship.xMetres;
+    spawn.yMetres = ship.yMetres;
+    spawn.headingRadians = ship.headingRadians;
+    spawn.protectedUntilTick = 0;
+    for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+    {
+      spawn.cargo.oreUnits[ore] = ship.oreUnits[ore];
+    }
+    if (world->Spawn(spawn, ship.shipId) == INVALID_SHIP_ID)
+    {
+      return refuse("ship " + std::to_string(ship.shipId), "the grid at anchor " + std::to_string(ship.anchor) + " refused it");
+    }
+    RecordShip(ship.shipId, ship.anchor, ship.owner);
+  }
+
+  return true;
 }
 
 ShipId WorldRegistry::AllocateShipId()
@@ -1455,9 +2286,30 @@ std::vector<AnchorId> WorldRegistry::LiveAnchors() const
   return anchors;
 }
 
-std::vector<FleetSummary> WorldRegistry::Summaries() const
+std::vector<RosterEntry> WorldRegistry::DockedFor(Neuron::PlayerId _owner, AnchorId _anchor) const
+{
+  std::vector<RosterEntry> mine;
+  if (_owner == Neuron::INVALID_PLAYER_ID)
+  {
+    return mine;
+  }
+  for (const RosterEntry& docked : Roster(_anchor))
+  {
+    if (docked.owner == _owner)
+    {
+      mine.push_back(docked);
+    }
+  }
+  return mine;
+}
+
+std::vector<FleetSummary> WorldRegistry::Summaries(Neuron::PlayerId _viewer) const
 {
   std::vector<FleetSummary> rows;
+  if (_viewer == Neuron::INVALID_PLAYER_ID)
+  {
+    return rows;
+  }
 
   /*
    * Grids first, then rosters, then the bus -- the three places a ship can be
@@ -1467,12 +2319,22 @@ std::vector<FleetSummary> WorldRegistry::Summaries() const
   for (const LiveWorld& entry : m_live)
   {
     /*
-     * The authored occupants are *not* the commander's ships. A station stands
-     * on its own grid and would otherwise show up as a one-ship fleet parked at
-     * every station in the universe -- which is the same reason `TearDownIdle`
-     * does not count them as ships either.
+     * This commander's ships, and the special case that used to be here went
+     * away rather than being kept (U3c-a).
+     *
+     * It read `ShipCount() - authoredCount`, with a paragraph explaining that
+     * authored occupants are not the commander's ships -- a station would
+     * otherwise show up as a one-ship fleet parked at every station in the
+     * universe. That is still true and is now simply *implied*: authored
+     * occupants belong to `INVALID_PLAYER_ID`, so counting ships this viewer
+     * owns cannot count them. A rule that survives as a consequence of a more
+     * general one is worth more than the same rule spelled twice.
      */
-    const std::uint32_t count = entry.world->ShipCount() - entry.authoredCount;
+    std::uint32_t count = 0;
+    for (const ShipId shipId : entry.world->Ids())
+    {
+      count += OwnerOf(shipId) == _viewer ? 1u : 0u;
+    }
     if (count > 0)
     {
       rows.push_back(FleetSummary{entry.anchor, FleetState::OnGrid, static_cast<std::uint16_t>(count),
@@ -1482,10 +2344,15 @@ std::vector<FleetSummary> WorldRegistry::Summaries() const
 
   for (const StationRoster& roster : m_rosters)
   {
-    if (!roster.docked.empty())
+    std::uint32_t mine = 0;
+    for (const RosterEntry& docked : roster.docked)
+    {
+      mine += docked.owner == _viewer ? 1u : 0u;
+    }
+    if (mine > 0)
     {
       rows.push_back(FleetSummary{roster.anchor, FleetState::Docked,
-                                  static_cast<std::uint16_t>(roster.docked.size()), FLEET_ETA_NONE});
+                                  static_cast<std::uint16_t>(mine), FLEET_ETA_NONE});
     }
   }
 
@@ -1499,11 +2366,24 @@ std::vector<FleetSummary> WorldRegistry::Summaries() const
       continue;
     }
 
+    // This commander's ships in it, counted rather than assumed: a crossing is
+    // one commander's order today, but the member carries the owner precisely
+    // so that "today" is not load-bearing.
+    std::uint16_t mine = 0;
+    for (std::uint16_t index = 0; index < record.what.memberCount; ++index)
+    {
+      mine += record.what.members[index].owner == _viewer ? 1u : 0u;
+    }
+    if (mine == 0)
+    {
+      continue; // Somebody else's fleet is somebody else's business.
+    }
+
     // Rounded up, so a fleet one tick out reads as "1s" rather than "arrived".
     const std::uint32_t ticks = record.applyTick > m_shardTick ? record.applyTick - m_shardTick : 0;
     const auto seconds = static_cast<std::uint32_t>(
       (static_cast<double>(ticks) * static_cast<double>(World::TICK_SECONDS)) + 0.999);
-    rows.push_back(FleetSummary{record.what.anchor, FleetState::InTransit, record.what.memberCount,
+    rows.push_back(FleetSummary{record.what.anchor, FleetState::InTransit, mine,
                                 static_cast<std::uint16_t>(std::min<std::uint32_t>(seconds, FLEET_ETA_NONE - 1))});
   }
 
@@ -1534,6 +2414,24 @@ std::uint64_t WorldRegistry::Hash() const
     }
     hash = Neuron::HashValue(entry.anchor, hash);
     hash = Neuron::HashValue(ComputeWorldHash(*entry.world), hash);
+
+    /*
+     * And whose the ships on it are (ADR-018 D5, U3c-a).
+     *
+     * Separately from `ComputeWorldHash` because it is separate STATE: the
+     * world does not know an owner and must not (D2), so the world's own hash
+     * cannot carry one. Folded in the world's slot order, which is the order
+     * `ComputeWorldHash` already depends on, so this adds no new ordering rule.
+     *
+     * It is in the replay domain for the rosters' reason exactly (below): a
+     * replay that reproduced every ship and forgot who owned them would agree
+     * about a universe where nothing belonged to anybody -- and would do it
+     * silently, because every position, hold and gauge would match.
+     */
+    for (const ShipId shipId : entry.world->Ids())
+    {
+      hash = Neuron::HashValue(OwnerOf(shipId), hash);
+    }
   }
 
   /*
@@ -1553,6 +2451,10 @@ std::uint64_t WorldRegistry::Hash() const
       hash = Neuron::HashValue(docked.shipId, hash);
       hash = Neuron::HashValue(static_cast<std::uint8_t>(docked.hullClass), hash);
       hash = Neuron::HashValue(docked.wing, hash);
+      // And whose (U3c-a). A roster that came back from a reload belonging to
+      // the wrong commander is the failure this catches, and it is one a
+      // player would find before any test did.
+      hash = Neuron::HashValue(docked.owner, hash);
       // And the hold (E3). Ore that survived a dock is state a reload has to
       // reproduce, so a replay that lost a manifest in the crossing says so
       // here rather than at the moment somebody notices their haul is gone.
@@ -1581,6 +2483,54 @@ std::uint64_t WorldRegistry::Hash() const
     hash = Neuron::HashValue(bay.station, hash);
     hash = Neuron::HashValue(bay.owner, hash);
     for (const std::uint32_t units : bay.oreUnits)
+    {
+      hash = Neuron::HashValue(units, hash);
+    }
+    // And the alloys refining turned it into (E4b), in the same fold: it is the
+    // same statement about the same place, and a second loop would be a second
+    // place for the order to drift.
+    for (const std::uint32_t units : bay.alloyUnits)
+    {
+      hash = Neuron::HashValue(units, hash);
+    }
+  }
+
+  /*
+   * And the refinery (ADR-024 §6, E4b), on the Bays' terms exactly: durable,
+   * universe-layer, folded in key order.
+   *
+   * Jobs are in the fold because a refine job **is** state a replay has to
+   * reproduce -- a shard that lost one would have eaten somebody's ore and
+   * produced nothing. Tiers and projects are in it for the stronger reason that
+   * they are permanent and communal: a project that completed on one machine
+   * and not the other is two different universes.
+   */
+  for (const RefineJob& job : m_refineJobs)
+  {
+    hash = Neuron::HashValue(job.station, hash);
+    hash = Neuron::HashValue(job.owner, hash);
+    hash = Neuron::HashValue(job.sequence, hash);
+    hash = Neuron::HashValue(static_cast<std::uint8_t>(job.alloy), hash);
+    hash = Neuron::HashValue(job.batchUnits, hash);
+    hash = Neuron::HashValue(job.outputUnits, hash);
+    hash = Neuron::HashValue(job.durationTicks, hash);
+    hash = Neuron::HashValue(job.completeTick, hash);
+    for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+    {
+      hash = Neuron::HashValue(job.inputUnits[ore], hash);
+      hash = Neuron::HashValue(job.refundUnits[ore], hash);
+    }
+  }
+  for (const StationTier& row : m_stationTiers)
+  {
+    hash = Neuron::HashValue(row.station, hash);
+    hash = Neuron::HashValue(row.tier, hash);
+  }
+  for (const UpgradeProject& project : m_projects)
+  {
+    hash = Neuron::HashValue(project.station, hash);
+    hash = Neuron::HashValue(project.toTier, hash);
+    for (const std::uint32_t units : project.contributedUnits)
     {
       hash = Neuron::HashValue(units, hash);
     }

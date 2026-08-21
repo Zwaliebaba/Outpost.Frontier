@@ -386,9 +386,21 @@ OrderVerdict ValidateOrder(const ValidationView& _view, const OrderSubmit& _orde
     }
   }
 
-  // NotOwned is unreachable in the MVP: there is one player and every ship is
-  // theirs. The code exists because ownership is a field, not a redesign, and a
-  // reason enum that renumbers when multiplayer lands would renumber the wire.
+  /*
+   * `NotOwned` is not refused HERE, and that is the rule rather than an omission
+   * (ADR-018 D2, U3c-b).
+   *
+   * It used to say it was unreachable -- one player, every ship theirs -- and
+   * that ownership was a field rather than a redesign. The field exists now and
+   * the refusal is real, but it cannot live in this function: a world knows only
+   * its own ships and must never learn who owns one, because a player identity
+   * inside the deterministic SoA would put accounts in the replay domain.
+   *
+   * So the composition root checks it, where the registry's owner index and the
+   * wire are both visible, and the refusal travels back through the engine as a
+   * number it does not read (ADR-014 §3). A validator that also checked would be
+   * a second place to keep the rule, and the two would eventually disagree.
+   */
 
   return OrderVerdict{true, OrderReason::Accepted};
 }

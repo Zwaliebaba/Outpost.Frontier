@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ServerConfig.h"
+#include "SessionResume.h"
 #include "Simulation.h"
 #include "SnapshotSender.h"
 #include "Transport.h"
@@ -8,6 +9,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <random>
 #include <thread>
 #include <vector>
 
@@ -56,6 +58,11 @@ struct SessionInfo
   ConnectionId connection = INVALID_CONNECTION;
   bool handshakeComplete = false;
   std::uint32_t lastPingTick = 0;
+
+  /// What this client must offer back to resume after a drop (ADR-018 D5).
+  /// Retained so the session can be filed on the lapsed table with it: at
+  /// disconnect there is no client left to ask.
+  std::uint64_t resumeToken = 0;
 
   SnapshotSender sender;
 };
@@ -170,12 +177,57 @@ private:
   void SendSnapshots(std::uint32_t _tick);
   [[nodiscard]] SessionInfo* FindSession(ConnectionId _connection);
 
+  /*
+   * Writes the whole durable state down (ADR-025 §5).
+   *
+   * On the Sim thread and nowhere else, because that is the thread that owns
+   * the state: the serialisation happens where the state is legally readable
+   * and momentarily still, which is the same reason the transfer bus applies
+   * where it does.
+   */
+  void WriteDurableSnapshot(std::uint32_t _tick);
+
   ServerConfig m_config;
   Simulation* m_simulation = nullptr;
   std::unique_ptr<Transport> m_transport;
   std::vector<SessionInfo> m_sessions;
   std::uint32_t m_nextClientId = 1;
+
+  /*
+   * Who the next new commander is (ADR-018 D5, U3c-b).
+   *
+   * Starts at `SOLE_PLAYER_ID` so the first client to connect is still player
+   * one -- which keeps every single-commander scenario, including the self
+   * test's, meaning exactly what it meant before there could be a second.
+   *
+   * Minted per PLAYER and not per connection, which is the distinction D5 spent
+   * a schema bump on at T2: `m_nextClientId` above is the socket's, gone with
+   * it, and this one outlives the socket by the grace window.
+   */
+  PlayerId m_nextPlayerId = SOLE_PLAYER_ID;
+
+  /// Sessions whose transport has gone and whose player has not.
+  ResumeTable m_resume;
+
+  /*
+   * Where resume tokens come from.
+   *
+   * Seeded from the OS once, because a token a stranger can predict is a token
+   * that resumes somebody else's session inside the grace window. This is NOT
+   * authentication and `SessionResume.h` says so at length -- it raises the bar
+   * from "count to two" to "observe or guess sixty-four bits", and that is the
+   * whole of its claim.
+   *
+   * On the Sim thread only, like everything else that touches the session
+   * table.
+   */
+  std::mt19937_64 m_tokenSource{std::random_device{}()};
   std::int64_t m_lastStatsCounter = 0; // Sim thread only; nothing else reads it.
+
+  /// The snapshot's scratch buffer, grown once and kept: a shard's durable
+  /// state is megabytes and allocating them every five minutes would be a
+  /// hitch on a cadence.
+  std::vector<std::uint8_t> m_durableBuffer;
 
   std::thread m_thread;
   std::atomic<bool> m_running{false};

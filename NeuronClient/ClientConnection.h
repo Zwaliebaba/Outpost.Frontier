@@ -41,8 +41,18 @@ public:
 
   /// Opens the socket and sends Hello. Returns false only if the socket itself
   /// could not be created -- a refusal arrives later, as an answer.
+  /// The optional pair reclaims a session the server has not yet expired
+  /// (ADR-018 D5): the `PlayerId` and token a previous `Welcome` carried.
+  /// Omitted, this is a first connection and the server mints a new commander.
   [[nodiscard]] bool Connect(const std::string& _host, std::uint16_t _port, std::uint64_t _schemaHash, std::uint64_t _contentHash,
-                             const std::string& _playerName);
+                             const std::string& _playerName, PlayerId _resumePlayer = INVALID_PLAYER_ID,
+                             std::uint64_t _resumeToken = 0);
+
+  /// The token to offer back on a reconnect. Zero until a `Welcome` arrives.
+  [[nodiscard]] std::uint64_t ResumeToken() const noexcept
+  {
+    return m_resumeToken;
+  }
 
   /// Services the transport and the ping cadence. Call once a frame.
   void Poll();
@@ -225,6 +235,13 @@ private:
   /// exist. Kept beside `m_clientId` rather than instead of it, because they
   /// answer different questions.
   PlayerId m_playerId = INVALID_PLAYER_ID;
+
+  /// What this client offers back, and what it was last given. Separate from
+  /// `m_playerId` because the id is what the server SAYS we are and these are
+  /// what we CLAIM -- conflating them would make a failed resume look like a
+  /// successful one.
+  PlayerId m_resumePlayer = INVALID_PLAYER_ID;
+  std::uint64_t m_resumeToken = 0;
   std::uint32_t m_serverTick = 0;
   std::uint16_t m_serverTickRate = 0;
 

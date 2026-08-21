@@ -66,6 +66,19 @@ std::uint32_t StationBay::TotalUnits() const noexcept
   {
     total += units;
   }
+  /*
+   * And the alloys (E4b), because this answers "is there anything here" and a
+   * Bay holding nothing but Plates is not empty.
+   *
+   * It matters more than it looks: the summary sender skips a Bay whose total
+   * is zero, so an ore-only count would have stopped reporting a commander's
+   * Bay the moment they refined all of it -- their whole industrial estate
+   * would vanish from the screen at exactly the moment it became interesting.
+   */
+  for (const std::uint32_t units : alloyUnits)
+  {
+    total += units;
+  }
   return total > 0xffffffffull ? 0xffffffffu : static_cast<std::uint32_t>(total);
 }
 
@@ -81,14 +94,107 @@ const char* StationVerbName(StationVerb _verb) noexcept
     return "Transfer to bay";
   case StationVerb::TransferToShip:
     return "Transfer to ship";
+  case StationVerb::RefineStart:
+    return "Start refining";
+  case StationVerb::RefineCancel:
+    return "Cancel refining";
+  case StationVerb::ProjectContribute:
+    return "Contribute to project";
   }
   // Not a `default` label: a third verb should fail the switch's exhaustiveness
   // warning here rather than appear on a button with no word on it.
   return "unnamed station command";
 }
 
+/*
+ * The refining verbs' own check order (ADR-024 §6, E4b).
+ *
+ *   `UnknownStation` -> `RecipeLocked` -> `RefineryBusy` -> `InsufficientMaterials`
+ *
+ * Split out rather than folded in, because it shares only its first check with
+ * the ship-naming family and reads far worse interleaved: three of the four
+ * checks above it are about a selection that does not exist here.
+ */
+[[nodiscard]] OrderVerdict ValidateRefineCommand(const RosterView& _view, const StationCommand& _command) noexcept
+{
+  if (_view.station == INVALID_ID || _command.station != _view.station)
+  {
+    return Refuse(OrderReason::UnknownStation);
+  }
+
+  const auto alloyIndex = static_cast<std::size_t>(_command.alloy);
+
+  if (_command.verb == StationVerb::RefineStart)
+  {
+    /*
+     * The recipe before the queue, because a locked recipe is a fact about the
+     * *station* and a full queue is a fact about *you*. A player told their
+     * queue is full, when the real answer is that this station will never cook
+     * Nova-Steel, goes and waits instead of going and flying.
+     *
+     * A batch size the content does not author is the same refusal: the form
+     * priced one of the authored sizes, and a request for another is a request
+     * for a job that has no price.
+     */
+    if (!_view.recipeUnlocked || !_view.batchKnown)
+    {
+      return Refuse(OrderReason::RecipeLocked);
+    }
+    if (_view.refineJobCount >= _view.refineSlotCount + _view.refineQueueDepth)
+    {
+      return Refuse(OrderReason::RefineryBusy);
+    }
+    // The inputs last, for the transfer verbs' reason: a shortfall is the only
+    // question that cannot be asked until everything else is settled.
+    if (_command.units == 0)
+    {
+      return Refuse(OrderReason::InsufficientMaterials);
+    }
+    return OrderVerdict{true, OrderReason::Accepted};
+  }
+
+  if (_command.verb == StationVerb::RefineCancel)
+  {
+    /*
+     * Nothing to check but the job, and the job is the registry's to find --
+     * a client cannot know whether a job started half a second ago, and a
+     * validator that guessed would bounce a legal cancel or accept an illegal
+     * one depending on how stale its last summary was.
+     *
+     * `RefineryBusy` is the refusal when there is no such queued job, which is
+     * the honest reading of the reason rather than a new one: the queue is not
+     * in the state the command assumed.
+     */
+    return OrderVerdict{true, OrderReason::Accepted};
+  }
+
+  // `ProjectContribute`: an open project, enough alloy in the Bay, and never
+  // more than the project will still take -- the print's clamp, enforced
+  // (D-P3), because a project completes exactly once and units it would not
+  // accept must not be taken.
+  if (!_view.projectOpen)
+  {
+    return Refuse(OrderReason::RecipeLocked);
+  }
+  const std::uint32_t held = _view.bayAlloyUnits.size() > alloyIndex ? _view.bayAlloyUnits[alloyIndex] : 0u;
+  const std::uint32_t wanted = _view.projectRemainingUnits.size() > alloyIndex ? _view.projectRemainingUnits[alloyIndex] : 0u;
+  if (_command.units == 0 || _command.units > held || _command.units > wanted)
+  {
+    return Refuse(OrderReason::InsufficientMaterials);
+  }
+  return OrderVerdict{true, OrderReason::Accepted};
+}
+
 OrderVerdict ValidateStationCommand(const RosterView& _view, const StationCommand& _command) noexcept
 {
+  // The fork the check order turns on (ADR-024 §6b): a refine command names no
+  // ships and requires no dock, so the three selection checks below would be
+  // asking about something that does not exist.
+  if (!NamesShips(_command.verb))
+  {
+    return ValidateRefineCommand(_view, _command);
+  }
+
   if (_command.shipCount == 0)
   {
     return Refuse(OrderReason::EmptySelection);

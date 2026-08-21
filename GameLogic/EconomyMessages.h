@@ -104,8 +104,72 @@ inline constexpr std::uint16_t MAX_CARGO_STATUS_ROWS = MAX_SHIPS_PER_ORDER;
   return 2 + _shipCount * (4 + ORE_COUNT * 4);
 }
 
-/// Bytes one `BayStatus` occupies. Fixed: a Bay is three counts at one station.
-inline constexpr std::size_t BAY_STATUS_BYTES = 2 + ORE_COUNT * 4;
+/// Bytes one `BayStatus` occupies. Fixed: a Bay is three ore counts and five
+/// alloy counts at one station. The alloys joined it with E4b rather than
+/// getting a message of their own, because a Bay is **one statement about one
+/// place** -- what this commander has committed here -- and a screen reading
+/// two sources for it would eventually show two different answers.
+inline constexpr std::size_t BAY_STATUS_BYTES = 2 + ORE_COUNT * 4 + ALLOY_COUNT * 4;
+
+/*
+ * What one commander's refinery looks like at one station (ADR-024 §6, E4b).
+ *
+ * Per `(owner, station)` like the Bay, and for the same reason: **slots are
+ * yours, not the station's** (D-P3), so there is no station traffic to browse
+ * and `RefineryBusy` is always about your own ten. The privacy is in what the
+ * sender is asked rather than in what it remembers to leave out.
+ *
+ * The station's **tier** rides here rather than in a message of its own, even
+ * though it is communal: it is the number that decides which recipe rows are
+ * locked, and a tab that had to wait for a second frame to know would draw the
+ * industrial map wrong for a second.
+ */
+struct RefineryJobRow
+{
+  std::uint32_t sequence = 0;
+  AlloyId alloy = AlloyId::FerrocitePlates;
+  std::uint32_t batchUnits = 0;
+
+  /// The tick it finishes at, or zero while queued -- the record's own shape,
+  /// carried rather than converted to a duration. **Wall-clock ETAs are the
+  /// screen's job** (D-P3), and a duration on the wire would make the tab's
+  /// arithmetic depend on when the frame happened to arrive.
+  std::uint32_t completeTick = 0;
+};
+
+/// A refinery's whole state for one commander: the tier, their jobs in queue
+/// order, and the station's open project.
+struct RefineryStatusRow
+{
+  AnchorId station = INVALID_ID;
+  std::uint8_t tier = 0;
+
+  std::vector<RefineryJobRow> jobs;
+
+  /// Zero when the station has nothing left to build -- which is the amber
+  /// "never in High-Sec" row the print draws, and a real answer rather than a
+  /// missing one.
+  std::uint8_t projectToTier = 0;
+  std::uint32_t projectContributedUnits[ALLOY_COUNT] = {};
+};
+
+/*
+ * The most jobs one commander can have at one station: the largest tier's slots
+ * plus the authored queue depth.
+ *
+ * A compile-time bound so the decode can be checked without trusting the count
+ * in the payload, which is the same discipline `MAX_CARGO_STATUS_ROWS` keeps.
+ * It is generous rather than exact -- the content decides the real number --
+ * because a bound that tracked the content would move with a retune and this
+ * one only has to be *not smaller*.
+ */
+inline constexpr std::uint16_t MAX_REFINERY_JOB_ROWS = 32;
+
+/// Bytes a `RefineryStatus` occupies for a given job count.
+[[nodiscard]] constexpr std::size_t RefineryStatusBytes(std::size_t _jobCount) noexcept
+{
+  return 2 + 1 + 2 + _jobCount * (4 + 1 + 4 + 4) + 1 + static_cast<std::size_t>(ALLOY_COUNT) * 4;
+}
 
 /*
  * Builds the row a field would report, from what it holds now and what its
@@ -140,8 +204,11 @@ inline constexpr std::size_t BAY_STATUS_BYTES = 2 + ORE_COUNT * 4;
 [[nodiscard]] bool ReadCargoStatus(Neuron::ByteReader& _reader, std::vector<CargoStatusRow>& _outRows);
 
 [[nodiscard]] bool WriteBayStatus(AnchorId _station, std::span<const std::uint32_t> _oreUnits,
-                                  Neuron::ByteWriter& _writer) noexcept;
-[[nodiscard]] bool ReadBayStatus(Neuron::ByteReader& _reader, AnchorId& _outStation,
-                                 std::uint32_t (&_outOreUnits)[ORE_COUNT]) noexcept;
+                                  std::span<const std::uint32_t> _alloyUnits, Neuron::ByteWriter& _writer) noexcept;
+[[nodiscard]] bool ReadBayStatus(Neuron::ByteReader& _reader, AnchorId& _outStation, std::uint32_t (&_outOreUnits)[ORE_COUNT],
+                                 std::uint32_t (&_outAlloyUnits)[ALLOY_COUNT]) noexcept;
+
+[[nodiscard]] bool WriteRefineryStatus(const RefineryStatusRow& _row, Neuron::ByteWriter& _writer) noexcept;
+[[nodiscard]] bool ReadRefineryStatus(Neuron::ByteReader& _reader, RefineryStatusRow& _outRow);
 
 } // namespace Game
