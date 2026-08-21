@@ -967,8 +967,48 @@ Two existing fixtures needed updating and both are the suite doing its job: the 
 fields, and `DurableStateTests`' corrupt-cluster-count fixture had to learn that four families
 now trail the ledgers rather than one.
 
-**CI's verdict is owed** — the run for this slice is in flight, and the numbers land here in a
-`Record run` commit rather than being predicted.
+**CI's verdict, run 176.** Debug|x64, Release|x64 and Spike 2 all green: **795 tests on MSVC
+with none failing**, every source guard green, no clang-tidy finding, and one warning in the
+whole build — the pre-existing `NeuronClient\Picking.cpp(51)` C4723. **`selfTest`: PASSED on
+both configurations**, and it is the shipping binary that carries 🏁 G1's claim rather than a
+test fixture:
+
+```
+self test: the restart scenario starts a refine job -- ok
+self test: the job is running before the shard stops -- ok
+self test: the refine job survives the restart -- ok
+self test: with the job it was -- ok
+self test: and its completion tick unmoved -- ok
+self test: the reloaded job finishes into the Bay -- ok
+```
+
+**The snapshot grew by exactly twelve bytes** — 1382 at E4a to 1394 here, at the same tick 173 —
+and the durable hash moved with it, `c5dda30f194e6d2c` to `705ab9f6f8831b6c`. Both numbers are
+the *prediction*, and worth stating because a reader could mistake either for a surprise. The
+host's shard has no refine job, no raised tier and no open project, so the twelve bytes are
+three empty counts and nothing else; and the hash moved **because** the content did not, since
+`DurableHash` folds each count before its contents. A format that added three collections
+without moving the hash of a shard that has none of them would be the thing to investigate — it
+would mean an empty list and an absent one hash alike, which is how a truncated snapshot passes
+its own check.
+
+**The replay hash did not move:** `69c58e2751c0df22`, byte for byte E2's, E3's and E4a's, with
+Spike 2 confirming Debug and Release agree. Refining is registry state, and the replay scenario
+is six ships in a bare World hashed with `ComputeWorldHash` — as at E4a, a slice that moved it
+while adding nothing to *that* world would be the anomaly.
+
+The Release tick soak reads 9.330 ms mean / 14.542 ms worst against E4a's 9.635 / 16.971 —
+5.4 capped grids per core against 5.2, inside the tripwire — and `AdvanceRefining` runs per tick
+now, which is the first thing in this phase that does. It is a walk of a job list that is empty
+in this scenario, so the soak says nothing about it yet; the measurement that would is a shard
+with jobs running, and E5 is where a screen exists to start them. Content is untouched and the
+universe parses in **208 ms** on Release.
+
+**One thing this run is owed a note for, and it is not E4b's.** The Debug leg went red first on
+run 175 with 741 passed and nothing failed — a deadlock in `TaskPool::Stop`, in engine code this
+slice never touches, which had been sitting in the tree since S2. It is R22's fifth entry, and
+the reason it appears in E4b's Built line at all is that a reader comparing run 172's 773 tests
+with run 176's 795 should not have to wonder what happened in between.
 
 ### E5 — The two screens
 The station surface's **CARGO** and **REFINERY** tabs, built to their prints —

@@ -378,6 +378,17 @@ nobody watching — walking away is the feature. And **a project completes exact
 the check lives at the contribution rather than on a sweep: two commanders pushing on the last
 unit in one tick, and the second is refused before a single unit leaves their Bay.
 
+**Green on run 176** — 795 tests on MSVC with none failing, `selfTest` PASSED on both
+configurations, one pre-existing warning, no clang-tidy finding, and the replay hash unmoved at
+`69c58e2751c0df22`. 🏁 **G1 is proved by the shipping binary rather than by a fixture**: it starts
+a batch, stops the shard mid-job, starts it again, and finds the job with *its completion tick
+unmoved* — then runs it to that tick and finds the alloy in the Bay. A job that survives and
+never finishes is the same outcome as one that did not survive, reached more slowly.
+
+Getting there cost a detour that was **not this slice's**: the Debug leg deadlocked first, in
+`TaskPool::Stop`, on a lost wake-up that had been in the engine since S2 and that CI had never
+named. That is R22's fifth entry, and the register is where the story is.
+
 *Implementing it corrected the ADR twice over.* §6b's worked example said a 50-batch of Plates
 at T3 takes 22.5 minutes — the batch factor applied and §6c's tier factor forgotten; both are
 authored and both multiply, so it is 20.25. And the owner's ruling on **job cancel** filled a
