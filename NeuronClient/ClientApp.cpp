@@ -128,7 +128,11 @@ bool ClientApp::Initialise(const ClientConfig& _config, const PipelineShaders& _
 
   // The command row's buttons. Asked once: a game's command list does not
   // change while a session runs, and asking every frame would imply it could.
-  m_orderKindCount = _worldView.OrderKinds(m_orderKinds);
+  // Once here for the boot-time facts the rest of `Initialise` reads off it --
+  // the parameter names and the option lists. `BuildHud` asks again every frame,
+  // because availability is about the selection and the grid rather than about
+  // the build (see there).
+  m_orderKindCount = _worldView.OrderKinds({}, m_orderKinds);
 
   /*
    * Every kind's parameter list, once. Per kind rather than for the selected
@@ -1221,6 +1225,18 @@ void ClientApp::BuildHud()
   m_dockedBlockCount = m_worldView->BuildDockedBlocks(m_dockedBlocks);
 
   /*
+   * Which verbs the row may offer *this* frame.
+   *
+   * Asked every frame rather than once at boot, and with the selection, because
+   * a verb can be real and still not offerable now -- the game's answer for a
+   * mining order depends on the field under the fleet and on what is in the
+   * selection, neither of which is a boot-time fact. What comes back is a name,
+   * a flag and a reason code; this file never learns what makes a verb
+   * available, only that the game said so (ADR-014 2b).
+   */
+  m_orderKindCount = m_worldView->OrderKinds(m_selection.Ids(), m_orderKinds);
+
+  /*
    * --- the top status row -------------------------------------------------
    *
    * Everything on it is a replicated field, a link statistic or local UI
@@ -1684,6 +1700,33 @@ void ClientApp::BuildHud()
    * trustworthy: every path that cancels an approach clears the chip in the
    * same frame, so it can never promise an arrival that stopped being coming.
    */
+  /*
+   * Why the armed verb is dark, when it is.
+   *
+   * The print's rule for a disabled primary action is that it is disabled *with
+   * a reason* rather than hidden, and this is that rule reaching the command
+   * row: a player who has selected MINE with no field under them should not
+   * have to send the order to find out. The words are the game's, through
+   * `ReasonText` on the code it handed back -- the same words the bounce toast
+   * would use, because it is the same code (ADR-005 4).
+   *
+   * Only the *armed* verb explains itself. Every greyed button carrying its own
+   * sentence would be a row of excuses; the one the player is holding is the
+   * one they are asking about.
+   */
+  if (const std::uint32_t armed = KindSlot(m_selectedKind); armed < m_orderKindCount && !m_orderKinds[armed].available &&
+                                                            m_orderKinds[armed].reasonCode != 0)
+  {
+    const char* why = m_worldView->ReasonText(m_orderKinds[armed].reasonCode);
+    if (why != nullptr)
+    {
+      UpperCaseInto(why, upper);
+      chipRight -= static_cast<float>(TextCellCount(upper)) * cell;
+      m_ui.AddText(chipRight, contextY, m_uiTuning.bodySizeIndex, m_palette.phosphorDim, upper);
+      chipRight -= 2.0f * cell;
+    }
+  }
+
   if (const char* approachLabel = m_approach.Label(); approachLabel != nullptr)
   {
     std::snprintf(buffer, sizeof(buffer), "\xE2\x9F\xA1 %s\xE2\x80\xA6", approachLabel);

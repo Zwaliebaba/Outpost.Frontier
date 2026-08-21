@@ -167,9 +167,25 @@ public:
    * libraries has different verbs, and a row that spelled `MOVE` and `ATTACK`
    * in NeuronClient would be this game's vocabulary compiled into the engine.
    *
+   * **It takes the selection, and is asked every frame.** It used to be asked
+   * once at boot, because "which verbs does this game have" is a question whose
+   * answer is compiled in. That is not the only question the row needs
+   * answering: a verb can be real and still not offerable *now* -- MINE with no
+   * field on this grid, or with no Miner among the selected ships -- and a row
+   * that offered it anyway would be promising a refusal. So the game is handed
+   * what is selected and answers about this moment, which is the arrangement
+   * `BuildRoster` already has and for the same reason: the client must not be
+   * the one deciding which verbs a selection qualifies for.
+   *
+   * A verb the game turns off carries `reasonCode`, so the row can say *why*
+   * in the game's own words through `ReasonText` -- the same code the authority
+   * would have bounced the order with, which is ADR-005 4's parity rule
+   * reaching a button before it ever reaches a toast.
+   *
    * Writes at most `_outKinds.size()` and returns how many.
    */
-  [[nodiscard]] virtual std::uint32_t OrderKinds(std::span<OrderKindOption> _outKinds) const = 0;
+  [[nodiscard]] virtual std::uint32_t OrderKinds(std::span<const std::uint16_t> _selectedIds,
+                                                 std::span<OrderKindOption> _outKinds) const = 0;
 
   /*
    * The fleet roster's rows, for the HUD's left column (`tactical-hud.png`).
@@ -332,7 +348,10 @@ public:
   [[nodiscard]] OrderDefaults DefaultOrder() const override { return OrderDefaults{}; }
 
   [[nodiscard]] std::uint32_t OrderOptions(std::uint16_t, std::span<OrderOption>) const override { return 0; }
-  [[nodiscard]] std::uint32_t OrderKinds(std::span<OrderKindOption>) const override { return 0; }
+  [[nodiscard]] std::uint32_t OrderKinds(std::span<const std::uint16_t>, std::span<OrderKindOption>) const override
+  {
+    return 0;
+  }
 
   [[nodiscard]] std::uint32_t BuildRoster(std::span<const std::uint16_t>, std::span<RosterRow>) const override { return 0; }
 

@@ -290,6 +290,26 @@ struct OrderKindOption
    * offer, which is worth more than a tidier row.
    */
   bool available = false;
+
+  /*
+   * Why not, when `available` is false -- the game's own reason code, the same
+   * number a refused order comes back with, and null-meaning zero when the
+   * command is simply offerable.
+   *
+   * **Two different kinds of unavailable share this field on purpose.** A
+   * command this build has no content for is permanently greyed and has no
+   * reason to give; a command that is real but not offerable *right now* -- no
+   * field on this grid, no Miner in the selection -- has one, and it is the
+   * same sentence the authority would have bounced the order with. The engine
+   * reads neither: it draws `ReasonText(reasonCode)` beside a greyed verb, so
+   * a player learns why the button is dark without the client knowing what any
+   * of it means (ADR-014 2b).
+   *
+   * That this is a *code* and not a string is the parity rule doing its usual
+   * work: the same enum, the same table, the same words whether the refusal was
+   * predicted here or arrived from the server (ADR-005 4).
+   */
+  std::uint16_t reasonCode = 0;
 };
 
 /// How many commands a client will ask for -- the wheel's eight sectors again,

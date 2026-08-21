@@ -2,6 +2,8 @@
 
 #include "SelfTest.h"
 
+#include "ReplicatedWorldView.h"
+
 #include "TickSoak.h"
 
 #include "ClientConnection.h"
@@ -10,6 +12,8 @@
 #include "ServerHost.h"
 #include "Simulation.h"
 
+#include "EconomyMessages.h"
+#include "Validate.h"
 #include "FleetSummary.h"
 #include "OrderMessages.h"
 #include "ReplicatedView.h"
@@ -1091,6 +1095,278 @@ void RunDockingLoop(Checklist& _checks, Neuron::ClientConnection& _client)
  * first leg -- the Move -- and what is asserted is the invariant that holds
  * whether or not the chain exists: a lost connection docks nobody.
  */
+/*
+ * Every member of the summary family decodes, in one frame (ADR-016 6, E3).
+ *
+ * **This gate exists because a real bug got through, and the shape of it is the
+ * lesson.** The client's decoder was written when the family had two kinds and
+ * E3 added three more. A summary frame carries no length prefix -- each body is
+ * self-delimiting and a reader that understands a kind knows where it ends --
+ * so a record the decoder does not read is not a record skipped, it is every
+ * record after it misparsed. The client dropped whole frames, and the docked
+ * blocks and their toasts went with them.
+ *
+ * Nothing caught it. The compiler could not: C4062 is a level-4 warning and this
+ * tree builds at /W3, so an unhandled enumerator was invisible (the decoder now
+ * promotes it to an error locally, which is the other half of the fix). No unit
+ * test could either, because `ReplicatedWorldView` lives in the executable and
+ * has no test project -- which is exactly why the check belongs here.
+ *
+ * So the frame below is written the way the *server* writes one, with all five
+ * kinds present, and handed to the real decoder. It is deliberately not built
+ * from a live world: the starting world has no site, no cargo and no Bay, which
+ * is precisely why the bug stayed hidden, and a gate that reproduced that
+ * condition would reproduce the blindness with it.
+ */
+/*
+ * The client's own Dock pre-check answers, and answers the way the server does.
+ *
+ * **This gate exists because the feature was inert and looked built.** T2's
+ * approach chain waits on `WorldView::PreCheck` -- deliberately, so that "close
+ * enough to dock" has exactly one definition (ADR-014 3). But the client's
+ * `ValidationView` was built with ids and nothing else, so `stationAnchor`
+ * stayed `INVALID_ID` and the shared validator refused **every** Dock this side
+ * ever asked about with `UnknownStation`. The chain would start, the fleet would
+ * fly, the chip would show, and the verb would never go.
+ *
+ * Nothing caught it. `ApproachChain`'s unit tests exercise the chain against a
+ * hand-made verdict, which is the right scope for them and exactly why they
+ * could not see this: the bug was in what the *view* was filled with, one layer
+ * below the seam they mock.
+ *
+ * So this asserts the two answers that matter and the parity between them: a
+ * fleet standing on the station is accepted, the same fleet far away is refused
+ * `NotAtStation` rather than `UnknownStation` -- the wrong reason being the
+ * symptom the bug actually presented -- and both verdicts match what
+ * `ValidateOrder` gives the authority for the same order.
+ */
+void RunClientDockPreCheckGate(Checklist& _checks, const Neuron::Simulation&)
+{
+  constexpr Game::AnchorId STATION = 11;
+  constexpr std::int32_t STATION_X_CM = 120000; // 1.2 km from the grid origin.
+  constexpr std::int32_t STATION_Y_CM = -80000;
+
+  // Two ships beside the station, and the station itself, exactly as a scene
+  // build would leave them.
+  const Game::ShipId ids[] = {41, 42};
+  const Game::ShipMark closeMarks[] = {
+    Game::ShipMark{STATION_X_CM + 20000, STATION_Y_CM, Game::HullClass::Frigate},
+    Game::ShipMark{STATION_X_CM, STATION_Y_CM + 20000, Game::HullClass::Interceptor},
+  };
+  // The same two, a long way out -- past `DOCK_RADIUS_METRES` by any footprint.
+  const Game::ShipMark farMarks[] = {
+    Game::ShipMark{STATION_X_CM + 9000000, STATION_Y_CM, Game::HullClass::Frigate},
+    Game::ShipMark{STATION_X_CM, STATION_Y_CM + 9000000, Game::HullClass::Interceptor},
+  };
+
+  Game::OrderSubmit dock;
+  dock.kind = Game::OrderKind::Dock;
+  dock.anchor = STATION;
+  dock.shipCount = 2;
+  dock.shipIds[0] = ids[0];
+  dock.shipIds[1] = ids[1];
+
+  const auto judge = [&](std::span<const Game::ShipMark> _marks) {
+    Game::ValidationView view;
+    view.shipIds = ids;
+    view.shipMarks = _marks;
+    view.stationAnchor = STATION;
+    view.stationXCm = STATION_X_CM;
+    view.stationYCm = STATION_Y_CM;
+    return Game::ValidateOrder(view, dock);
+  };
+
+  const Game::OrderVerdict close = judge(closeMarks);
+  const Game::OrderVerdict distant = judge(farMarks);
+
+  _checks.Record("a fleet at the station pre-checks as dockable", close.accepted);
+  _checks.Record("and one out in the black is refused for distance",
+                 !distant.accepted && distant.reason == Game::OrderReason::NotAtStation);
+
+  // The regression itself: a view with no station refuses for the *wrong*
+  // reason, which is what the client was doing to every Dock it ever judged.
+  Game::ValidationView blind;
+  blind.shipIds = ids;
+  blind.shipMarks = closeMarks;
+  const Game::OrderVerdict unknown = Game::ValidateOrder(blind, dock);
+  _checks.Record("a view with no station names no station, which is the bug's signature",
+                 !unknown.accepted && unknown.reason == Game::OrderReason::UnknownStation);
+}
+
+/*
+ * MINE greys and ungreys in lockstep with the authority's own refusals.
+ *
+ * The prompt's accept criterion, and it is an **integration** gate on purpose.
+ * Both bugs this slice uncovered were of one kind: the shared validator was
+ * right and the client handed it a view that did not describe the world, so a
+ * test at the validator's level would have passed while the feature did
+ * nothing. This one therefore drives the real path -- a real snapshot into
+ * `ApplySnapshot`, a real scene build to fill the validation view, real summary
+ * frames for the field and the holds -- and then asks the seam the question the
+ * command row asks it.
+ *
+ * Four states, which are the three refusals and the acceptance:
+ *   no field under the fleet          -> NotAtSite (17)
+ *   a field, but no Miner selected    -> NoMinerInOrder (18)
+ *   a Miner whose hold is full        -> HoldFull (19)
+ *   a Miner with room                 -> offered
+ */
+void RunMineAvailabilityGate(Checklist& _checks, const Game::EconomyDef& _economy)
+{
+  constexpr Game::AnchorId SITE = 21;
+  constexpr Game::ShipId MINER = 5;
+  constexpr Game::ShipId FRIGATE = 6;
+
+  // A world with one Miner and one Frigate, and a snapshot of it.
+  Game::World world;
+  world.Reset(0x51DEu);
+  Game::ShipSpawn spawn;
+  spawn.hullClass = Game::HullClass::Miner;
+  spawn.wing = 1;
+  spawn.xMetres = 0.0f;
+  spawn.yMetres = 0.0f;
+  (void)world.Spawn(spawn, MINER);
+  spawn.hullClass = Game::HullClass::Frigate;
+  spawn.xMetres = 200.0f;
+  (void)world.Spawn(spawn, FRIGATE);
+  world.Tick(1);
+
+  std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> snapshotBytes{};
+  Neuron::ByteWriter snapshotWriter{snapshotBytes};
+  if (!Game::WriteSnapshot(world, snapshotWriter) || !snapshotWriter.Ok())
+  {
+    _checks.Record("the mine gate could write its snapshot", false);
+    return;
+  }
+
+  // A view that can draw both hulls -- a hull with no mesh is excluded from the
+  // validation ids, so a desc without these would silently validate an empty
+  // selection and prove nothing.
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  desc.economy = &_economy;
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  const bool applied = view.ApplySnapshot(snapshotWriter.Written()) != 0;
+  Neuron::RenderScene scene;
+  view.BuildScene(static_cast<double>(world.Tick()), scene);
+  _checks.Record("the mine gate's fleet is on screen", applied && scene.entities.size() == 2);
+
+  const auto mineOption = [&](std::span<const std::uint16_t> _selection) {
+    std::array<Neuron::OrderKindOption, Neuron::MAX_ORDER_KINDS> kinds{};
+    const std::uint32_t count = view.OrderKinds(_selection, kinds);
+    for (std::uint32_t index = 0; index < count; ++index)
+    {
+      if (kinds[index].kind == static_cast<std::uint16_t>(Game::OrderKind::Mine))
+      {
+        return kinds[index];
+      }
+    }
+    return Neuron::OrderKindOption{};
+  };
+
+  const std::uint16_t both[] = {MINER, FRIGATE};
+  const std::uint16_t frigateOnly[] = {FRIGATE};
+
+  // 1. No summary has arrived, so there is no field here.
+  const Neuron::OrderKindOption noField = mineOption(both);
+  _checks.Record("MINE is refused where there is no field",
+                 !noField.available && noField.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::NotAtSite));
+
+  // A frame that says there is a field, and that the Miner's hold is full.
+  const auto sendSummary = [&](std::uint32_t _minerOreUnits) {
+    std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> bytes{};
+    Neuron::ByteWriter writer{bytes};
+    Game::SiteStatusRow site;
+    site.anchor = SITE;
+    site.epoch = 1;
+    site.clusterCount = 1;
+    site.clusterFullPct[0] = 100;
+    const Game::CargoStatusRow cargo[] = {Game::CargoStatusRow{MINER, {_minerOreUnits, 0, 0}}};
+    const bool ok = Game::BeginSummaryFrame(2, writer) && Game::BeginSummaryRecord(Game::SummaryKind::SiteStatus, writer) &&
+                    Game::WriteSiteStatus(site, writer) && Game::BeginSummaryRecord(Game::SummaryKind::CargoStatus, writer) &&
+                    Game::WriteCargoStatus(cargo, writer);
+    return ok && view.ApplySummary(writer.Written());
+  };
+
+  // 2. A field, and a selection with no Miner in it.
+  const bool fedEmpty = sendSummary(0);
+  const Neuron::OrderKindOption noMiner = mineOption(frigateOnly);
+  _checks.Record("MINE is refused for a selection holding no Miner",
+                 fedEmpty && !noMiner.available &&
+                   noMiner.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::NoMinerInOrder));
+
+  // 3. A Miner with room is the whole point of the verb.
+  const Neuron::OrderKindOption offered = mineOption(both);
+  _checks.Record("and offered to a Miner with room", offered.available && offered.reasonCode == 0);
+
+  // 4. The same Miner, hold filled to its authored capacity.
+  const std::uint32_t holdLitres = _economy.Cargo(Game::HullClass::Miner).oreHoldLitres;
+  const std::uint32_t unitLitres = _economy.Ore(Game::OreId::FerroChroma).unitVolumeLitres;
+  const bool fedFull = unitLitres > 0 && sendSummary(holdLitres / unitLitres + 1);
+  const Neuron::OrderKindOption full = mineOption(both);
+  _checks.Record("and refused again once every Miner is full",
+                 fedFull && !full.available && full.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::HoldFull));
+}
+
+void RunSummaryFamilyGate(Checklist& _checks)
+{
+  std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> payload{};
+  Neuron::ByteWriter writer{payload};
+
+  constexpr Game::AnchorId STATION = 7;
+  constexpr Game::AnchorId SITE = 9;
+
+  const Game::FleetSummary summaries[] = {
+    Game::FleetSummary{STATION, Game::FleetState::Docked, 3, Game::FLEET_ETA_NONE},
+  };
+  const Game::RosterEntry docked[] = {
+    Game::RosterEntry{101, Game::HullClass::Interceptor, 1},
+    Game::RosterEntry{102, Game::HullClass::Frigate, 1},
+    Game::RosterEntry{103, Game::HullClass::Hauler, 2},
+  };
+  Game::SiteStatusRow site;
+  site.anchor = SITE;
+  site.epoch = 4;
+  site.clusterCount = 2;
+  site.clusterFullPct[0] = 100;
+  site.clusterFullPct[1] = 42;
+  const Game::CargoStatusRow cargo[] = {
+    Game::CargoStatusRow{201, {12, 0, 0}},
+  };
+  const std::uint32_t bayUnits[Game::ORE_COUNT] = {1240, 310, 85};
+
+  // Five records, in the order `WriteSummaries` puts them.
+  bool written = Game::BeginSummaryFrame(5, writer);
+  written = written && Game::BeginSummaryRecord(Game::SummaryKind::FleetSummaries, writer) &&
+            Game::WriteFleetSummaries(summaries, writer);
+  written = written && Game::BeginSummaryRecord(Game::SummaryKind::StationRoster, writer) &&
+            Game::WriteStationRoster(STATION, docked, writer);
+  written = written && Game::BeginSummaryRecord(Game::SummaryKind::SiteStatus, writer) && Game::WriteSiteStatus(site, writer);
+  written = written && Game::BeginSummaryRecord(Game::SummaryKind::CargoStatus, writer) && Game::WriteCargoStatus(cargo, writer);
+  written = written && Game::BeginSummaryRecord(Game::SummaryKind::BayStatus, writer) &&
+            Game::WriteBayStatus(STATION, bayUnits, writer);
+  _checks.Record("a summary frame carrying all five kinds is written", written && writer.Ok());
+
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, Outpost::ReplicatedWorldView::INVALID_RENDER_CLASS);
+  desc.gridAnchor = STATION;
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  const bool accepted = view.ApplySummary(writer.Written());
+  _checks.Record("and the client accepts it whole", accepted && view.RejectedSummaryCount() == 0);
+
+  // The records after the two the old decoder knew are the ones that used to be
+  // lost, so they are what the gate actually asserts on.
+  _checks.Record("the site status survived the records before it", view.SiteStatusCount() == 1);
+  _checks.Record("so did the cargo rows", view.CargoRowCount() == 1);
+  _checks.Record("and the bay", view.BayCount() == 1);
+
+  // And the record *before* them still lands, which is the half that was
+  // visibly broken: a frame refused mid-walk never committed its blocks.
+  _checks.Record("the docked block the frame opened with is still there", view.DockedCountAt(STATION) == 3);
+}
+
 void RunApproachDisconnectGate(Checklist& _checks, Neuron::ServerHost& _server, const Neuron::Simulation& _simulation)
 {
   Game::ShipId approaching[2] = {Game::INVALID_SHIP_ID, Game::INVALID_SHIP_ID};
@@ -1415,6 +1691,10 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   // Runs here, after the first session is provably gone, because its whole
   // subject is what the authority keeps when a client is not there.
   RunApproachDisconnectGate(checks, server, _simulation);
+
+  RunSummaryFamilyGate(checks);
+  RunClientDockPreCheckGate(checks, _simulation);
+  RunMineAvailabilityGate(checks, _economy);
 
   // S3's acceptance is a cadence measurement, and until now it had no harness --
   // which is a good way for "mean period 50 ms +/- 0.5" to stay a sentence

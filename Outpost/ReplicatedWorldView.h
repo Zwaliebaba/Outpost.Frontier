@@ -3,6 +3,9 @@
 #include "ReplicatedView.h"
 #include "WorldView.h"
 
+#include "EconomyDef.h"
+#include "EconomyMessages.h"
+#include "Validate.h"
 #include "FleetSummary.h"
 #include "Station.h"
 
@@ -103,6 +106,18 @@ public:
      * project holding both that and the client's vocabulary.
      */
     std::vector<StationName> stationNames;
+
+    /*
+     * The parsed economy content, or null for a build without it.
+     *
+     * Borrowed rather than copied -- the composition root loads it once and
+     * outlives every view. It is here because two client-side answers need
+     * authored numbers and must not re-author them: how much room a hull's ore
+     * hold has, and what a unit of each ore displaces. A client that hard-coded
+     * either would be a second copy of the balance file, drifting the moment
+     * somebody retuned the real one (ADR-024 7).
+     */
+    const Game::EconomyDef* economy = nullptr;
   };
 
   static constexpr std::uint16_t INVALID_RENDER_CLASS = 0xffffu;
@@ -117,7 +132,8 @@ public:
   [[nodiscard]] bool EncodeOrder(const Neuron::OrderIntent& _intent, Neuron::ByteWriter& _writer) override;
   [[nodiscard]] Neuron::OrderDefaults DefaultOrder() const override;
   [[nodiscard]] std::uint32_t OrderOptions(std::uint16_t _kind, std::span<Neuron::OrderOption> _outOptions) const override;
-  [[nodiscard]] std::uint32_t OrderKinds(std::span<Neuron::OrderKindOption> _outKinds) const override;
+  [[nodiscard]] std::uint32_t OrderKinds(std::span<const std::uint16_t> _selectedIds,
+                                         std::span<Neuron::OrderKindOption> _outKinds) const override;
   [[nodiscard]] std::uint32_t BuildRoster(std::span<const std::uint16_t> _selectedIds,
                                           std::span<Neuron::RosterRow> _outRows) const override;
   [[nodiscard]] bool ContextActionFor(std::uint16_t _entityId, std::span<const std::uint16_t> _selectedIds,
@@ -140,6 +156,12 @@ public:
   /// What the summary family last said is docked where, for a test to assert
   /// against without going through the HUD's span.
   [[nodiscard]] std::uint16_t DockedCountAt(Game::AnchorId _anchor) const noexcept;
+
+  /// What the economy summaries last said, for a test or a diagnostic to assert
+  /// against without going through a HUD span.
+  [[nodiscard]] std::size_t SiteStatusCount() const noexcept { return m_siteStatus.size(); }
+  [[nodiscard]] std::size_t CargoRowCount() const noexcept { return m_cargo.size(); }
+  [[nodiscard]] std::size_t BayCount() const noexcept { return m_bays.size(); }
 
 private:
   /*
@@ -168,6 +190,39 @@ private:
     /// station whose roster did not fit.
     std::vector<Game::RosterEntry> docked;
   };
+
+  /*
+   * The half of the world the shared validator judges against, filled from what
+   * this client actually knows.
+   *
+   * One function because there is one answer: `PreCheck` and the command row's
+   * availability must be judged against the *same* view, or the row would offer
+   * a verb the pre-check refuses a frame later. It is also the whole of
+   * ADR-014 3's parity claim on this side -- what the client cannot fill, it
+   * leaves empty, and the validator's optional-field rules turn that into "the
+   * authority decides" rather than into a wrong answer.
+   */
+  [[nodiscard]] Game::ValidationView MakeValidationView() const noexcept;
+
+  /*
+   * Whether a kind whose acceptance depends only on the selection would be
+   * taken right now, and the reason if not.
+   *
+   * **Only kinds that name no destination can be asked this**, which is a real
+   * property rather than a special case for Mine: a Move, a Warp or a Dock is
+   * judged partly on *where it points*, and there is no point until the player
+   * makes the gesture, so pre-judging one would refuse orders the authority
+   * would take. A Mine names no destination at all -- the field a wing works is
+   * the one it is standing in (ADR-024 4a) -- so everything that decides it is
+   * already on screen.
+   */
+  [[nodiscard]] Game::OrderVerdict SelectionOnlyVerdict(Game::OrderKind _kind,
+                                                        std::span<const std::uint16_t> _selectedIds) const noexcept;
+
+  /// Free ore-hold litres per ship, parallel to `m_validationIds`, from the
+  /// cargo summary and the authored hold sizes. Empty when either is missing,
+  /// which the validator reads as "the authority decides".
+  void FillHoldRoom(std::vector<std::uint32_t>& _outFree) const;
 
   /// Raises the dock/undock toasts for the difference between what is held and
   /// what just arrived. Called *before* the new list replaces the old one,
@@ -215,7 +270,52 @@ private:
    */
   std::vector<Game::ShipId> m_validationIds;
 
+  /*
+   * Parallel to `m_validationIds`: where each of those ships is, and what it is.
+   *
+   * The ids alone were enough for four slices, because nothing validation
+   * decided depended on where a ship *was*. Dock is the first check that does
+   * (ADR-017 2), and Mine is the second -- and until this existed the client
+   * handed the validator a view with no marks and no station, so **every
+   * client-side Dock refused `UnknownStation`**: the pre-check the approach
+   * chain waits on could never come true, and the chained verb never went.
+   * Filled beside the ids for the reason they are: the ships an order may name
+   * are exactly the ships the frame drew.
+   */
+  std::vector<Game::ShipMark> m_validationMarks;
+
+  /// Where this grid's station is, in the wire's centimetres, refreshed by the
+  /// scene build beside `m_stationEntityId`. Meaningless until one has arrived.
+  mutable std::int32_t m_stationXCm = 0;
+  mutable std::int32_t m_stationYCm = 0;
+
   std::vector<DockedStation> m_dockedStations;
+
+  /*
+   * The economy's three summaries, as last stated (ADR-024 8, E3).
+   *
+   * Held for the same reason and on the same terms as the docked blocks: a
+   * frame is a complete statement, so each list is replaced wholesale and a
+   * kind the frame did not mention is a kind that has nothing to say. A grid
+   * with no site clears `m_siteStatus`; a fleet holding nothing clears
+   * `m_cargo`; and neither goes stale in the direction that matters, which is
+   * showing a player something that has stopped being true.
+   *
+   * **The Bay is decoded and kept even though the tactical HUD never draws it.**
+   * It has to be decoded regardless -- the summary frame has no length prefix,
+   * so a body nobody reads desynchronises everything after it -- and once it is
+   * decoded, throwing it away would only mean decoding it twice when E5's CARGO
+   * tab arrives.
+   */
+  std::vector<Game::SiteStatusRow> m_siteStatus;
+  std::vector<Game::CargoStatusRow> m_cargo;
+
+  struct BayHolding
+  {
+    Game::AnchorId station = Game::INVALID_ID;
+    std::uint32_t oreUnits[Game::ORE_COUNT] = {};
+  };
+  std::vector<BayHolding> m_bays;
 
   /*
    * Whether a summary has ever arrived.
@@ -232,6 +332,11 @@ private:
   /// every second for the life of the session.
   std::vector<Game::RosterEntry> m_decodedRoster;
   std::vector<Game::FleetSummary> m_decodedSummaries;
+  std::vector<Game::CargoStatusRow> m_decodedCargo;
+
+  /// Scratch for the validation view's hold room, kept because the command row
+  /// asks for it every frame.
+  mutable std::vector<std::uint32_t> m_holdRoom;
 
   /*
    * What the game has to say, waiting to be drained (`PollNotices`).

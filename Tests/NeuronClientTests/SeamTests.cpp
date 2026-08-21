@@ -178,7 +178,8 @@ public:
    * built against. A stub that reported only working commands would let a row
    * that quietly dropped the greyed ones pass.
    */
-  [[nodiscard]] std::uint32_t OrderKinds(std::span<OrderKindOption> _outKinds) const override
+  [[nodiscard]] std::uint32_t OrderKinds(std::span<const std::uint16_t>,
+                                         std::span<OrderKindOption> _outKinds) const override
   {
     if (_outKinds.size() < 2)
     {

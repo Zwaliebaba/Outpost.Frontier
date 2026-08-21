@@ -975,7 +975,7 @@ void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
  * states both separately.
  */
 Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _config, const Outpost::UniverseLoadResult& _universe,
-                                                     std::uint64_t _contentHash)
+                                                     std::uint64_t _contentHash, const Game::EconomyDef& _economy)
 {
   // The mesh list, by name, is the renderer's classId order. Matching on the
   // authored file name rather than on position means reordering the list in
@@ -1000,6 +1000,11 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
   // address it by (ADR-017 8). The same anchor the `Welcome` carries; taken
   // from the universe here because the composition root builds both.
   desc.gridAnchor = _universe.universe.StartAnchorId();
+
+  // The hold sizes and ore volumes the client needs to answer "is there room"
+  // the way the authority answers it. Borrowed: the definition outlives the
+  // view, and copying it would be a second copy of the balance file.
+  desc.economy = &_economy;
 
   /*
    * What each station is called, by the anchor it stands on (ADR-017 1).
@@ -1363,7 +1368,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
       // a world view by reference and never learns what is behind it; hosting
       // exercises exactly the handshake a separate client would, because both
       // sides state their own hashes rather than sharing a variable.
-      Outpost::ReplicatedWorldView worldView{MakeWorldViewDesc(config, universe, contentHash)};
+      Outpost::ReplicatedWorldView worldView{MakeWorldViewDesc(config, universe, contentHash, economy.economy)};
 
       ClientApp client;
       // The shader table is a temporary and the client keeps it, which is safe

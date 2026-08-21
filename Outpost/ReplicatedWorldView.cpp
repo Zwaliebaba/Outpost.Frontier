@@ -183,6 +183,7 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
   _outScene.instances.reserve(m_sampled.size());
   _outScene.entities.reserve(m_sampled.size());
   m_validationIds.clear();
+  m_validationMarks.clear();
   m_stationEntityId = Game::INVALID_SHIP_ID;
   m_validationIds.reserve(m_sampled.size());
 
@@ -253,6 +254,8 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
     if (hull == Game::HullClass::Structure)
     {
       m_stationEntityId = ship.id;
+      m_stationXCm = Neuron::MetresToCentimetres(ship.positionMetres.x);
+      m_stationYCm = Neuron::MetresToCentimetres(ship.positionMetres.y);
     }
 
     // The same id again, for `ValidateOrder`. Filled here rather than in
@@ -260,6 +263,11 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
     // frame drew -- including the exclusions above, which is the point: a hull
     // with no mesh cannot be clicked, so it must not be orderable either.
     m_validationIds.push_back(ship.id);
+    // And where it is, which is what a Dock or a Mine is judged on. Centimetres
+    // because that is the wire's unit and the validator's: a view built in
+    // metres would round differently from the order it is judging.
+    m_validationMarks.push_back(Game::ShipMark{Neuron::MetresToCentimetres(ship.positionMetres.x),
+                                               Neuron::MetresToCentimetres(ship.positionMetres.y), hull});
 
     renderClassCount = std::max(renderClassCount, static_cast<std::uint32_t>(renderClass) + 1u);
   }
@@ -268,6 +276,129 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
   // is the highest class actually present, not the mesh table's size: a scene
   // with only Interceptors needs one range, not nine.
   _outScene.SortByClass(renderClassCount);
+}
+
+/*
+ * What this client knows, in the shape the shared validator wants.
+ *
+ * **Everything it can fill, it fills; everything it cannot, it leaves empty**,
+ * and the validator's optional-field rules do the rest -- an absent
+ * `oreHoldFreeLitres` means the hold check is the authority's alone, which
+ * `Validate.cpp` calls the designed asymmetry rather than a hole. What must
+ * *not* happen is the third case, and it is the one that shipped: a field left
+ * empty that the client could have filled, turning a check the authority passes
+ * into a refusal the client invents. `stationAnchor` was that field, and it
+ * refused every Dock this side ever pre-checked.
+ */
+Game::ValidationView ReplicatedWorldView::MakeValidationView() const noexcept
+{
+  Game::ValidationView view;
+  view.shipIds = m_validationIds;
+  view.shipMarks = m_validationMarks;
+
+  // The station is this grid's, and it is only nameable once one has actually
+  // been drawn -- a `Welcome` naming an anchor whose structure has not arrived
+  // in a snapshot yet is a station with no position to measure against.
+  if (m_stationEntityId != Game::INVALID_SHIP_ID)
+  {
+    view.stationAnchor = m_desc.gridAnchor;
+    view.stationXCm = m_stationXCm;
+    view.stationYCm = m_stationYCm;
+  }
+
+  /*
+   * The field this grid stands on, if the summaries have said so.
+   *
+   * `SiteStatus` is the public member of the family -- how eaten a field is, is
+   * what anybody standing at it can see -- so its mere arrival is the client's
+   * evidence that there is one, and its anchor is the only name a Mine needs.
+   * Nothing arrives on a grid with no field, so the absence is the answer.
+   */
+  if (!m_siteStatus.empty())
+  {
+    view.siteAnchor = m_siteStatus.front().anchor;
+  }
+
+  /*
+   * What a unit of each ore displaces, and the room each hull has left.
+   *
+   * Both halves of one subtraction, and **both are needed or neither counts**:
+   * the validator's hold check asks for the smallest unit that matches the
+   * filter and skips itself entirely when that is zero, so a view carrying the
+   * free litres but not the unit volumes reads as "cannot answer" rather than
+   * as "no room". That is not a rounding difference, it is the refusal never
+   * firing -- which is what the gate caught, and why they are filled together
+   * here rather than wherever each happened to be convenient.
+   */
+  if (m_desc.economy != nullptr)
+  {
+    for (std::uint8_t ore = 0; ore < Game::ORE_COUNT; ++ore)
+    {
+      view.oreUnitLitres[ore] = m_desc.economy->Ore(static_cast<Game::OreId>(ore)).unitVolumeLitres;
+    }
+  }
+
+  FillHoldRoom(m_holdRoom);
+  view.oreHoldFreeLitres = m_holdRoom;
+
+  return view;
+}
+
+/*
+ * How much ore room each drawn ship has left.
+ *
+ * Authored numbers on both sides of the subtraction: the hold's size and each
+ * ore's unit volume both come from the parsed economy content, because a client
+ * that hard-coded either would be a second copy of the balance file (ADR-024 7).
+ *
+ * Left **empty** when the content or the cargo summary is missing, and that is
+ * deliberate rather than defensive: `ValidateOrder` reads an empty span as "the
+ * caller cannot answer this", so the hold check becomes the authority's alone
+ * and the player meets it as a bounce instead of as a locally invented refusal.
+ * A ship the cargo summary does not mention is holding nothing, which is the
+ * honest reading -- the summary lists what is aboard, so silence is an empty
+ * hold rather than an unknown one.
+ */
+void ReplicatedWorldView::FillHoldRoom(std::vector<std::uint32_t>& _outFree) const
+{
+  _outFree.clear();
+  if (m_desc.economy == nullptr)
+  {
+    return;
+  }
+
+  _outFree.reserve(m_validationMarks.size());
+  for (std::size_t index = 0; index < m_validationMarks.size(); ++index)
+  {
+    const std::uint32_t capacity = m_desc.economy->Cargo(m_validationMarks[index].hullClass).oreHoldLitres;
+    std::uint32_t used = 0;
+    const Game::ShipId ship = m_validationIds[index];
+    const auto row = std::find_if(m_cargo.begin(), m_cargo.end(),
+                                  [&](const Game::CargoStatusRow& _row) { return _row.shipId == ship; });
+    if (row != m_cargo.end())
+    {
+      for (std::uint8_t ore = 0; ore < Game::ORE_COUNT; ++ore)
+      {
+        used += row->oreUnits[ore] * m_desc.economy->Ore(static_cast<Game::OreId>(ore)).unitVolumeLitres;
+      }
+    }
+    _outFree.push_back(used >= capacity ? 0u : capacity - used);
+  }
+}
+
+Game::OrderVerdict ReplicatedWorldView::SelectionOnlyVerdict(Game::OrderKind _kind,
+                                                             std::span<const std::uint16_t> _selectedIds) const noexcept
+{
+  Game::OrderSubmit order;
+  order.kind = _kind;
+  order.shipCount = static_cast<std::uint16_t>(std::min<std::size_t>(_selectedIds.size(), Game::MAX_SHIPS_PER_ORDER));
+  for (std::uint16_t index = 0; index < order.shipCount; ++index)
+  {
+    order.shipIds[index] = _selectedIds[index];
+  }
+
+  const Game::ValidationView view = MakeValidationView();
+  return Game::ValidateOrder(view, order);
 }
 
 OrderVerdict ReplicatedWorldView::PreCheck(const OrderIntent& _intent)
@@ -279,8 +410,7 @@ OrderVerdict ReplicatedWorldView::PreCheck(const OrderIntent& _intent)
     return ToSeam(Game::OrderVerdict{false, reason}, _intent.orderSeq);
   }
 
-  Game::ValidationView view;
-  view.shipIds = m_validationIds;
+  Game::ValidationView view = MakeValidationView();
 
   /*
    * Zero, and knowingly so.
@@ -511,7 +641,8 @@ std::uint32_t ReplicatedWorldView::OrderOptions(std::uint16_t _kind, std::span<O
   return 0;
 }
 
-std::uint32_t ReplicatedWorldView::OrderKinds(std::span<OrderKindOption> _outKinds) const
+std::uint32_t ReplicatedWorldView::OrderKinds(std::span<const std::uint16_t> _selectedIds,
+                                              std::span<OrderKindOption> _outKinds) const
 {
   // Every kind the game has a value for, including the three with no content.
   // Reporting only the working one would give the row a single button today and
@@ -529,6 +660,39 @@ std::uint32_t ReplicatedWorldView::OrderKinds(std::span<OrderKindOption> _outKin
     _outKinds[count].name = Game::OrderKindName(kind);
     _outKinds[count].parameterName = Game::OrderKindParameterName(kind);
     _outKinds[count].available = Game::OrderKindHasContent(kind);
+    _outKinds[count].reasonCode = 0;
+
+    /*
+     * And then the part that is about *now* rather than about this build.
+     *
+     * Asked only of the kinds that name no destination, which today is Mine
+     * alone: everything that decides a Mine is already on screen -- the field
+     * the grid stands on, and what is in the selection -- so the row can say
+     * before the gesture what the authority would say after it. A Move or a
+     * Dock is judged partly on where it points, and pre-judging one without a
+     * point would grey a verb the authority would have taken.
+     *
+     * The answer comes from `ValidateOrder` rather than from three checks
+     * written here, which is the whole of the parity claim: the button greys
+     * for the reason the bounce would have carried, in the same words, because
+     * it is the same function (ADR-014 3).
+     */
+    if (_outKinds[count].available && kind == Game::OrderKind::Mine)
+    {
+      if (_selectedIds.empty())
+      {
+        // No subject. Not a refusal the validator has a word for -- an order
+        // naming nothing never reaches it -- so the verb greys silently, the
+        // way it would for any command with nothing selected.
+        _outKinds[count].available = false;
+      }
+      else if (const Game::OrderVerdict verdict = SelectionOnlyVerdict(kind, _selectedIds); !verdict.accepted)
+      {
+        _outKinds[count].available = false;
+        _outKinds[count].reasonCode = static_cast<std::uint16_t>(verdict.reason);
+      }
+    }
+
     ++count;
   }
   return count;
@@ -710,6 +874,29 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
 
   std::vector<DockedStation> staged;
   std::vector<DockedStation> stagedRosters;
+  std::vector<Game::SiteStatusRow> stagedSites;
+  std::vector<BayHolding> stagedBays;
+  m_decodedCargo.clear();
+  bool sawCargo = false;
+
+  /*
+   * Every kind is handled, and there is no `default:` on purpose.
+   *
+   * The frame carries no length prefix -- `SummaryMessages.h` says so and gives
+   * the reason -- so a body this switch does not read is not a record skipped,
+   * it is every record after it misparsed. That is exactly what happened when
+   * E3 added three kinds to a decoder written when there were two: the client
+   * quietly dropped whole frames, and took the docked blocks and their toasts
+   * with them. It went unnoticed because the only frames the starting world
+   * sends carry the two old kinds.
+   *
+   * The pragma is the guard that failure earned. C4062 is a level-4 warning and
+   * this project builds at /W3, so an unhandled enumerator was invisible; here
+   * it is an error, which makes the *next* kind added to the family a build
+   * break in the one file that has to know about it.
+   */
+#pragma warning(push)
+#pragma warning(1 : 4062)
   for (std::uint8_t index = 0; index < records; ++index)
   {
     Game::SummaryKind kind{};
@@ -758,8 +945,48 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
       m_decodedRoster.clear(); // Moved from, and reused by the next record.
       break;
     }
+
+    case Game::SummaryKind::SiteStatus:
+    {
+      Game::SiteStatusRow row;
+      if (!Game::ReadSiteStatus(reader, row))
+      {
+        ++m_rejectedSummaries;
+        return false;
+      }
+      stagedSites.push_back(row);
+      break;
+    }
+
+    case Game::SummaryKind::CargoStatus:
+    {
+      // At most one per frame, but the loop does not assume it: a second would
+      // replace the first, which is the same "a frame is a complete statement"
+      // rule the block list follows.
+      m_decodedCargo.clear();
+      if (!Game::ReadCargoStatus(reader, m_decodedCargo))
+      {
+        ++m_rejectedSummaries;
+        return false;
+      }
+      sawCargo = true;
+      break;
+    }
+
+    case Game::SummaryKind::BayStatus:
+    {
+      BayHolding holding;
+      if (!Game::ReadBayStatus(reader, holding.station, holding.oreUnits))
+      {
+        ++m_rejectedSummaries;
+        return false;
+      }
+      stagedBays.push_back(holding);
+      break;
+    }
     }
   }
+#pragma warning(pop)
 
   for (DockedStation& block : staged)
   {
@@ -779,6 +1006,15 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
 
   NoteRosterChanges(staged);
   m_dockedStations = std::move(staged);
+
+  // Wholesale, like the blocks: a kind the frame did not mention is a kind with
+  // nothing to say, and keeping the last one would leave a hold reading full
+  // after it emptied or a field reading eaten after the epoch re-laid it.
+  m_siteStatus = std::move(stagedSites);
+  m_bays = std::move(stagedBays);
+  m_cargo = sawCargo ? std::move(m_decodedCargo) : std::vector<Game::CargoStatusRow>{};
+  m_decodedCargo.clear();
+
   m_haveSummary = true;
   return true;
 }
