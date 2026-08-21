@@ -8,6 +8,9 @@
     <ClCompile Include="SnapshotSender.cpp">
       <Filter>Replication</Filter>
     </ClCompile>
+    <ClCompile Include="DurableStore.cpp">
+      <Filter>Persistence</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -23,9 +26,15 @@
     <ClInclude Include="SnapshotSender.h">
       <Filter>Replication</Filter>
     </ClInclude>
+    <ClInclude Include="DurableStore.h">
+      <Filter>Persistence</Filter>
+    </ClInclude>
     <ClInclude Include="NeuronServer.h" />
   </ItemGroup>
   <ItemGroup>
+    <Filter Include="Persistence">
+      <UniqueIdentifier>{9b3e7c14-6a52-4f80-95d3-0c78e4b1af26}</UniqueIdentifier>
+    </Filter>
     <Filter Include="Host">
       <UniqueIdentifier>{dc166e8a-49b3-46b5-81aa-aa0e5e998c25}</UniqueIdentifier>
     </Filter>
