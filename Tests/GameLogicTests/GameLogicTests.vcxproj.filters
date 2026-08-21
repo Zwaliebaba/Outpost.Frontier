@@ -21,6 +21,9 @@
     <ClCompile Include="RefiningTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="OwnershipTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="EconomyParseTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

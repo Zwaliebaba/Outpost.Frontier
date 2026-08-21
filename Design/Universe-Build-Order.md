@@ -344,6 +344,62 @@ dock, undock, load — the accessors filter on the viewer with a test per access
 second commander sees none of the first's, the roster survives a restart with its owners, and
 the whole thing round-trips the durable format. Headless: no socket, no second connection.
 
+**Built 2026-08-21.** `m_ownerByShip` sits beside `m_locationByShip` on the registry, indexed
+the same way, and the two are written by one call and cleared by one call — so the invariant is
+one sentence a reader can hold: *a ship the registry cannot locate is a ship it has no owner
+for.* `RecordLocation` no longer exists as a thing a caller can reach; there is no way to spell
+recording a location without saying whose it is, which is the mistake this would otherwise have
+been one careless call site away from.
+
+**The owner rides the crossing, per member.** In transit a ship has left one world and not
+reached the next, so nothing can be asked about it — whatever the far side needs has to travel.
+That is E2's defect exactly, one level up: E2 shipped without the cargo riding and a Miner
+arrived empty, and an owner arriving empty is quieter and worse, because a fleet that stops
+being anybody's produces no error at all. Per **member** rather than per request, matching
+`oreUnits` and for the same reason — it is a property of the ship, not of the order. A crossing
+carrying two commanders' ships is not something today's validator can produce, but "cannot
+happen" on a request-wide owner means that if it ever does, every hull in the fleet silently
+changes hands. The registry stamps it as it collects, never the world (ADR-018 D2).
+
+**Two of the six were holes rather than gaps**, and both are worth naming because neither would
+have shown up as a bug report. `MayView` walked `m_patrolShips` — the composition root's
+scripted patrol list — so it returned the same answer for every viewer: the second commander to
+connect could have watched the first one's grid. And the validator's `RosterView` was handed the
+**station's** roster rather than the asker's half, which is not a display bug but an authority
+one: a commander could name somebody else's hull in an `Undock` and the validator would find it
+on the roster and agree. `DockedFor` is what anything reaching a player uses now; `Roster` still
+answers whole for the two callers that genuinely want the station — grid teardown, and the save
+file.
+
+**A special case went away rather than being kept.** `Summaries` counted
+`ShipCount() - authoredCount` with a paragraph explaining that a station would otherwise read as
+a one-ship fleet parked at every station in the universe. That is still true and is now merely
+*implied*: authored occupants belong to `INVALID_PLAYER_ID`, so counting the ships a viewer owns
+cannot count them. `AnAuthoredOccupantIsNobodysFleet` is the test that the consequence holds.
+The same constant is why an anonymous handshake is not a skeleton key — without the guard,
+`INVALID_PLAYER_ID` would match every piece of furniture in the shard, and the one identity
+nobody has to authenticate as would be the one that can watch any grid with a station on it.
+
+**The format goes to version 3, and this is the case the version number was written for.**
+`DurableShip.owner` has existed since E4a; capture filled it with `SOLE_PLAYER_ID`
+unconditionally. So a version 2 file does not lack ownership — it **asserts** that every hull in
+the shard belongs to player one, and reading one under the new rules would hand the first
+commander to connect the entire universe. ADR-025 §2 records it.
+
+**What was verified, and how.** `GameLogicTests` **380 methods across twelve files, 0
+failures** under clang 18 on Linux, of which 16 are new in `OwnershipTests.cpp`; the store's
+14/14 and `NeuronCoreTests`' tasking 18/18 beside them; clang-tidy clean on every changed file.
+The new tests were then **mutation-tested**, because a privacy suite that has never failed is
+indistinguishable from one that cannot: reverting `HasPresence` to ignore the viewer fails 3,
+un-filtering `Summaries` fails 1, and un-filtering `DockedFor` fails 3. One existing test had to
+change and it is the slice's best evidence — `ABayIsPerOwnerInTheHashToo` docked its second ship
+under the one commander there was and then had commander TWO transfer ore off it, which the
+validator now refuses. It was only ever passing because a commander could reach into another's
+hold.
+
+`Outpost/` is Windows-only and has not been compiled here — `MayView`, the summary sender and
+the roster it sends are CI's first build of this slice.
+
 **Unblocked 2026-08-20, and worth naming what that leaves.** Both things this slice was
 waiting on are in the tree — the per-client `SnapshotSender` (A13) and U3b's view request with
 its `MayView` gate — so the machinery to serve *a* commander per connection exists. What does

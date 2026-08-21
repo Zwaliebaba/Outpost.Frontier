@@ -69,6 +69,7 @@ void WriteMember(Neuron::ByteWriter& _writer, const TransferMember& _member)
   _writer.WriteUInt16(_member.shipId);
   _writer.WriteUInt8(static_cast<std::uint8_t>(_member.hullClass));
   _writer.WriteUInt8(_member.wing);
+  _writer.WriteUInt32(_member.owner);
   WriteOre(_writer, _member.oreUnits);
 }
 
@@ -132,7 +133,10 @@ void CaptureDurableState(const WorldRegistry& _registry, DurableState& _outState
       ship.anchor = anchor;
       ship.hullClass = static_cast<HullClass>(world->Classes()[slot]);
       ship.wing = world->Wings()[slot];
-      ship.owner = Neuron::SOLE_PLAYER_ID;
+      // Asked of the registry rather than assumed (U3c-a). This was
+      // `SOLE_PLAYER_ID` unconditionally -- a field the format reserved and
+      // capture filled in with the only answer there was.
+      ship.owner = _registry.OwnerOf(shipId);
       ship.xMetres = world->Positions()[slot].x;
       ship.yMetres = world->Positions()[slot].y;
       ship.headingRadians = world->Headings()[slot];
@@ -211,6 +215,7 @@ std::uint64_t DurableHash(const DurableState& _state) noexcept
     for (const RosterEntry& docked : roster.docked)
     {
       hash = Neuron::HashValue(docked.shipId, hash);
+      hash = Neuron::HashValue(docked.owner, hash);
       hash = Neuron::HashValue(static_cast<std::uint8_t>(docked.hullClass), hash);
       hash = Neuron::HashValue(docked.wing, hash);
       HashOre(hash, docked.oreUnits);
@@ -260,6 +265,7 @@ std::uint64_t DurableHash(const DurableState& _state) noexcept
     for (std::uint16_t index = 0; index < record.what.memberCount; ++index)
     {
       const TransferMember& member = record.what.members[index];
+      hash = Neuron::HashValue(member.owner, hash);
       hash = Neuron::HashValue(member.shipId, hash);
       hash = Neuron::HashValue(static_cast<std::uint8_t>(member.hullClass), hash);
       hash = Neuron::HashValue(member.wing, hash);
@@ -347,6 +353,7 @@ bool WriteDurableState(const DurableState& _state, Neuron::ByteWriter& _writer)
       _writer.WriteUInt16(docked.shipId);
       _writer.WriteUInt8(static_cast<std::uint8_t>(docked.hullClass));
       _writer.WriteUInt8(docked.wing);
+      _writer.WriteUInt32(docked.owner);
       WriteOre(_writer, docked.oreUnits);
     }
   }
@@ -528,6 +535,7 @@ bool ReadDurableState(Neuron::ByteReader& _reader, DurableState& _outState, std:
       entry.shipId = _reader.ReadUInt16();
       const std::uint8_t hull = _reader.ReadUInt8();
       entry.wing = _reader.ReadUInt8();
+      entry.owner = _reader.ReadUInt32();
       ReadOre(_reader, entry.oreUnits);
       if (!_reader.Ok())
       {
@@ -660,6 +668,7 @@ bool ReadDurableState(Neuron::ByteReader& _reader, DurableState& _outState, std:
       row.shipId = _reader.ReadUInt16();
       const std::uint8_t hull = _reader.ReadUInt8();
       row.wing = _reader.ReadUInt8();
+      row.owner = _reader.ReadUInt32();
       ReadOre(_reader, row.oreUnits);
       if (!_reader.Ok())
       {

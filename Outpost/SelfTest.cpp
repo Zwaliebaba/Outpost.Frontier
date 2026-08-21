@@ -248,7 +248,7 @@ void RunRestartLoop(Checklist& _checks, const Game::EconomyDef& _economy)
     miner.hullClass = Game::HullClass::Miner;
     miner.wing = 1;
     miner.cargo.oreUnits[static_cast<std::uint8_t>(Game::OreId::FerroChroma)] = 60;
-    const Game::ShipId ship = registry.Spawn(station, miner);
+    const Game::ShipId ship = registry.Spawn(station, miner, Neuron::SOLE_PLAYER_ID);
 
     Game::World* world = registry.Borrow(station);
     Game::OrderSubmit dock;
@@ -568,7 +568,7 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation, const G
       spawn.hullClass = Game::HullClass::Interceptor;
       spawn.wing = 1;
       spawn.xMetres = 800.0f; // Inside the jump radius, where a warp-in lands.
-      const Game::ShipId ship = registry.Spawn(here, spawn);
+      const Game::ShipId ship = registry.Spawn(here, spawn, Neuron::SOLE_PLAYER_ID);
 
       // The gate itself is on that grid, spawned from the anchor's own block.
       const Game::World* gateGrid = registry.Peek(here);
@@ -594,7 +594,7 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation, const G
       tooFar.orderSeq = 6002;
       Game::ShipSpawn awaySpawn = spawn;
       awaySpawn.xMetres = 9000.0f;
-      const Game::ShipId away = registry.Spawn(here, awaySpawn);
+      const Game::ShipId away = registry.Spawn(here, awaySpawn, Neuron::SOLE_PLAYER_ID);
       tooFar.shipCount = 0;
 
       // Borrowed again rather than kept across the spawn: `Spawn` can spin a
@@ -687,7 +687,7 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation, const G
       Game::ShipSpawn spawn;
       spawn.hullClass = Game::HullClass::Miner;
       spawn.wing = 1;
-      const Game::ShipId miner = registry.Spawn(site, spawn);
+      const Game::ShipId miner = registry.Spawn(site, spawn, Neuron::SOLE_PLAYER_ID);
 
       Game::OrderSubmit mine;
       mine.orderSeq = 8001;

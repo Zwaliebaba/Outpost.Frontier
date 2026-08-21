@@ -87,6 +87,7 @@ void WorldRegistry::Reset(const UniverseDef* _universe, const EconomyDef* _econo
   m_shardTick = 0;
   m_live.clear();
   m_locationByShip.clear();
+  m_ownerByShip.clear();
   m_bus.clear();
   m_rosters.clear();
   m_siteLedgers.clear();
@@ -188,7 +189,14 @@ WorldRegistry::LiveWorld& WorldRegistry::SpinUp(const Anchor& _anchor)
         {
           gateShip = id; // And on a gate's grid, the gate.
         }
-        RecordLocation(id, _anchor.id);
+        /*
+         * Authored occupants belong to NOBODY (ADR-018 D5, U3c-a). A station,
+         * a gate and the scenery around them are the universe's furniture, and
+         * an owner here would hand whoever connects first a structure they did
+         * not build -- and, through `HasPresence`, the right to watch every
+         * grid that has one.
+         */
+        RecordShip(id, _anchor.id, Neuron::INVALID_PLAYER_ID);
       }
     }
   }
@@ -295,16 +303,71 @@ void WorldRegistry::RemoveViewer(AnchorId _anchor)
   }
 }
 
-void WorldRegistry::RecordLocation(ShipId _shipId, AnchorId _anchor)
+void WorldRegistry::RecordShip(ShipId _shipId, AnchorId _anchor, Neuron::PlayerId _owner)
 {
   if (_shipId >= m_locationByShip.size())
   {
     m_locationByShip.resize(static_cast<std::size_t>(_shipId) + 1, INVALID_ID);
   }
+  if (_shipId >= m_ownerByShip.size())
+  {
+    m_ownerByShip.resize(static_cast<std::size_t>(_shipId) + 1, Neuron::INVALID_PLAYER_ID);
+  }
   m_locationByShip[_shipId] = _anchor;
+  m_ownerByShip[_shipId] = _owner;
 }
 
-ShipId WorldRegistry::Spawn(AnchorId _anchor, const ShipSpawn& _spawn)
+void WorldRegistry::ForgetShip(ShipId _shipId)
+{
+  if (_shipId < m_locationByShip.size())
+  {
+    m_locationByShip[_shipId] = INVALID_ID;
+  }
+  if (_shipId < m_ownerByShip.size())
+  {
+    m_ownerByShip[_shipId] = Neuron::INVALID_PLAYER_ID;
+  }
+}
+
+Neuron::PlayerId WorldRegistry::OwnerOf(ShipId _shipId) const noexcept
+{
+  if (_shipId >= m_ownerByShip.size())
+  {
+    return Neuron::INVALID_PLAYER_ID;
+  }
+  return m_ownerByShip[_shipId];
+}
+
+bool WorldRegistry::HasPresence(Neuron::PlayerId _owner, AnchorId _anchor) const noexcept
+{
+  /*
+   * Nobody is not somebody. Without this, `INVALID_PLAYER_ID` would match every
+   * authored occupant in the universe and an anonymous handshake would be the
+   * one identity that can watch any grid with a statue on it.
+   */
+  if (_owner == Neuron::INVALID_PLAYER_ID || _anchor == INVALID_ID)
+  {
+    return false;
+  }
+
+  /*
+   * One walk of the index answers both halves of ADR-017 §7's rule, because a
+   * docked ship keeps its location pointing at the station it is docked at --
+   * which is exactly why teardown sweeps around the roster rather than through
+   * it.
+   */
+  const std::size_t count = std::min(m_locationByShip.size(), m_ownerByShip.size());
+  for (std::size_t index = 0; index < count; ++index)
+  {
+    if (m_locationByShip[index] == _anchor && m_ownerByShip[index] == _owner)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+ShipId WorldRegistry::Spawn(AnchorId _anchor, const ShipSpawn& _spawn, Neuron::PlayerId _owner)
 {
   World* world = Borrow(_anchor);
   if (world == nullptr)
@@ -314,7 +377,7 @@ ShipId WorldRegistry::Spawn(AnchorId _anchor, const ShipSpawn& _spawn)
   const ShipId id = world->Spawn(_spawn, AllocateShipId());
   if (id != INVALID_SHIP_ID)
   {
-    RecordLocation(id, _anchor);
+    RecordShip(id, _anchor, _owner);
   }
   return id;
 }
@@ -330,6 +393,10 @@ OrderVerdict WorldRegistry::SubmitStationCommand(Neuron::PlayerId _owner, const 
   /// arithmetic against the content.
   std::uint32_t remainingScratch[ALLOY_COUNT] = {};
 
+  /// This commander's half of the station's roster, for the same reason: the
+  /// view borrows a span and something has to own it.
+  std::vector<RosterEntry> dockedScratch;
+
   if (m_universe != nullptr)
   {
     const Anchor* anchor = m_universe->FindAnchor(_command.station);
@@ -340,7 +407,23 @@ OrderVerdict WorldRegistry::SubmitStationCommand(Neuron::PlayerId _owner, const 
       // empty one is still *this* station's -- and the command is refused
       // `NotDocked` rather than `UnknownStation`, which is the honest answer.
       view.station = _command.station;
-      view.docked = Roster(_command.station);
+
+      /*
+       * **This commander's docked ships, not the station's** (U3c-a).
+       *
+       * The view is what the validator judges a command against, so an
+       * unfiltered roster here is not a display bug, it is an authority one: a
+       * commander could name somebody else's hull in an `Undock` and the
+       * validator would find it on the roster and agree. Reading the filtered
+       * set means that command is refused `NotDocked` -- which is the truth
+       * from where the asker stands, and says nothing about whose it is.
+       *
+       * A local the view borrows, like `remainingScratch` above, because a
+       * filtered roster is a new vector and the span has to point at something
+       * that outlives the call.
+       */
+      dockedScratch = DockedFor(_owner, _command.station);
+      view.docked = dockedScratch;
 
       /*
        * And what this commander has stored here (ADR-024 §5b), which is what a
@@ -501,6 +584,10 @@ OrderVerdict WorldRegistry::SubmitStationCommand(Neuron::PlayerId _owner, const 
     {
       member.oreUnits[ore] = row->oreUnits[ore];
     }
+    // And whose it is, from the row rather than from the command: a commander
+    // undocking somebody else's ship is a thing validation refuses, and reading
+    // the owner off the roster means this path cannot be the way it happens.
+    member.owner = row->owner;
     if (!request.AddMember(member))
     {
       break;
@@ -526,10 +613,7 @@ bool WorldRegistry::Despawn(AnchorId _anchor, ShipId _shipId)
   {
     return false;
   }
-  if (_shipId < m_locationByShip.size())
-  {
-    m_locationByShip[_shipId] = INVALID_ID;
-  }
+  ForgetShip(_shipId);
   return true;
 }
 
@@ -803,12 +887,14 @@ SiteStatusRow WorldRegistry::SiteStatusFor(AnchorId _anchor) const
 std::vector<CargoStatusRow> WorldRegistry::CargoFor(Neuron::PlayerId _owner) const
 {
   /*
-   * One player today, so every ship on a grid is theirs (ADR-018 D5).
+   * This commander's ships, and only theirs (ADR-018 D5, U3c-a).
    *
-   * The parameter is not decoration: it is where the filter goes when there are
-   * two, and taking it now is what makes that a one-line change rather than a
-   * signature change through the sender. `INVALID_PLAYER_ID` gets nothing,
-   * which is the honest answer to "what does nobody own".
+   * The parameter was here before the filter was, with a note saying it was
+   * where the filter would go and that taking it now made that a one-line
+   * change rather than a signature change through the sender. It was a one-line
+   * change. `INVALID_PLAYER_ID` still gets nothing, which is the honest answer
+   * to "what does nobody own" and now also excludes the authored occupants,
+   * which own no cargo but would have been walked anyway.
    */
   std::vector<CargoStatusRow> rows;
   if (_owner == Neuron::INVALID_PLAYER_ID)
@@ -822,6 +908,10 @@ std::vector<CargoStatusRow> WorldRegistry::CargoFor(Neuron::PlayerId _owner) con
     const std::span<const ShipCargo> holds = entry.world->Cargo();
     for (std::size_t slot = 0; slot < ids.size() && slot < holds.size(); ++slot)
     {
+      if (OwnerOf(ids[slot]) != _owner)
+      {
+        continue; // Somebody else's hold is not this commander's business.
+      }
       const ShipCargo& cargo = holds[slot];
       const bool carrying = std::any_of(std::begin(cargo.oreUnits), std::end(cargo.oreUnits),
                                         [](std::uint32_t _units) { return _units > 0; });
@@ -896,11 +986,14 @@ void WorldRegistry::ApplyDueTransfers()
         {
           row.oreUnits[ore] = member.oreUnits[ore];
         }
+        // Whose it is, carried across by the crossing rather than looked up
+        // here: mid-dock the ship is on no grid, so there is nothing to ask.
+        row.owner = member.owner;
         roster.docked.push_back(row);
 
         // Docked counts as presence (ADR-017 §7), so the index keeps pointing
         // at the station rather than forgetting where the ship went.
-        RecordLocation(member.shipId, record.what.anchor);
+        RecordShip(member.shipId, record.what.anchor, member.owner);
       }
       m_events.Emit(m_shardTick, EventKind::Docked, record.what.anchor, record.what.memberCount);
     }
@@ -1206,7 +1299,7 @@ void WorldRegistry::ApplyTransit(const TransferRequest& _request)
     }
     if (world->Spawn(spawn, member->shipId) != INVALID_SHIP_ID)
     {
-      RecordLocation(member->shipId, _request.anchor);
+      RecordShip(member->shipId, _request.anchor, member->owner);
     }
   }
 
@@ -1319,7 +1412,7 @@ void WorldRegistry::ApplyUndock(const TransferRequest& _request)
     // which is not a gauge either: the hold crossed on the record (E3).
     if (world->Spawn(spawn, member->shipId) != INVALID_SHIP_ID)
     {
-      RecordLocation(member->shipId, _request.anchor);
+      RecordShip(member->shipId, _request.anchor, member->owner);
       parked[parkedCount++] = member->shipId;
     }
   }
@@ -1395,7 +1488,21 @@ void WorldRegistry::CollectFiledTransfers()
       {
         record.applyTick = m_shardTick + TransitTicks(entry.anchor, request);
       }
+      /*
+       * And whose ships these are (ADR-018 D5, U3c-a).
+       *
+       * Stamped HERE rather than filed by the world, because a world knows
+       * only its own ships and must never learn who owns one -- D2's boundary,
+       * and the reason `TransferMember::owner` is documented as the registry's
+       * to fill. At file time the fleet is still standing on the grid, so the
+       * index still has the answer; one tick later, mid-crossing, it would not.
+       */
       record.what = request;
+      for (std::uint16_t index = 0; index < record.what.memberCount; ++index)
+      {
+        TransferMember& member = record.what.members[index];
+        member.owner = OwnerOf(member.shipId);
+      }
       m_bus.push_back(record);
     }
     entry.world->ClearFiledTransfers();
@@ -1489,7 +1596,7 @@ void WorldRegistry::TearDownIdle()
                                                 [id](const RosterEntry& _row) { return _row.shipId == id; });
                                   if (!onTheRoster)
                                   {
-                                    m_locationByShip[index] = INVALID_ID;
+                                    ForgetShip(id);
                                   }
                                 }
                                 return true;
@@ -2041,7 +2148,7 @@ bool WorldRegistry::LoadDurable(const DurableState& _state, std::vector<Persiste
       // Docked counts as presence (ADR-017 §7), so the index has to point at
       // the station for a reloaded ship exactly as it does for one that docked
       // a moment ago.
-      RecordLocation(docked.shipId, roster.anchor);
+      RecordShip(docked.shipId, roster.anchor, docked.owner);
     }
   }
 
@@ -2140,7 +2247,7 @@ bool WorldRegistry::LoadDurable(const DurableState& _state, std::vector<Persiste
     {
       return refuse("ship " + std::to_string(ship.shipId), "the grid at anchor " + std::to_string(ship.anchor) + " refused it");
     }
-    RecordLocation(ship.shipId, ship.anchor);
+    RecordShip(ship.shipId, ship.anchor, ship.owner);
   }
 
   return true;
@@ -2179,9 +2286,30 @@ std::vector<AnchorId> WorldRegistry::LiveAnchors() const
   return anchors;
 }
 
-std::vector<FleetSummary> WorldRegistry::Summaries() const
+std::vector<RosterEntry> WorldRegistry::DockedFor(Neuron::PlayerId _owner, AnchorId _anchor) const
+{
+  std::vector<RosterEntry> mine;
+  if (_owner == Neuron::INVALID_PLAYER_ID)
+  {
+    return mine;
+  }
+  for (const RosterEntry& docked : Roster(_anchor))
+  {
+    if (docked.owner == _owner)
+    {
+      mine.push_back(docked);
+    }
+  }
+  return mine;
+}
+
+std::vector<FleetSummary> WorldRegistry::Summaries(Neuron::PlayerId _viewer) const
 {
   std::vector<FleetSummary> rows;
+  if (_viewer == Neuron::INVALID_PLAYER_ID)
+  {
+    return rows;
+  }
 
   /*
    * Grids first, then rosters, then the bus -- the three places a ship can be
@@ -2191,12 +2319,22 @@ std::vector<FleetSummary> WorldRegistry::Summaries() const
   for (const LiveWorld& entry : m_live)
   {
     /*
-     * The authored occupants are *not* the commander's ships. A station stands
-     * on its own grid and would otherwise show up as a one-ship fleet parked at
-     * every station in the universe -- which is the same reason `TearDownIdle`
-     * does not count them as ships either.
+     * This commander's ships, and the special case that used to be here went
+     * away rather than being kept (U3c-a).
+     *
+     * It read `ShipCount() - authoredCount`, with a paragraph explaining that
+     * authored occupants are not the commander's ships -- a station would
+     * otherwise show up as a one-ship fleet parked at every station in the
+     * universe. That is still true and is now simply *implied*: authored
+     * occupants belong to `INVALID_PLAYER_ID`, so counting ships this viewer
+     * owns cannot count them. A rule that survives as a consequence of a more
+     * general one is worth more than the same rule spelled twice.
      */
-    const std::uint32_t count = entry.world->ShipCount() - entry.authoredCount;
+    std::uint32_t count = 0;
+    for (const ShipId shipId : entry.world->Ids())
+    {
+      count += OwnerOf(shipId) == _viewer ? 1u : 0u;
+    }
     if (count > 0)
     {
       rows.push_back(FleetSummary{entry.anchor, FleetState::OnGrid, static_cast<std::uint16_t>(count),
@@ -2206,10 +2344,15 @@ std::vector<FleetSummary> WorldRegistry::Summaries() const
 
   for (const StationRoster& roster : m_rosters)
   {
-    if (!roster.docked.empty())
+    std::uint32_t mine = 0;
+    for (const RosterEntry& docked : roster.docked)
+    {
+      mine += docked.owner == _viewer ? 1u : 0u;
+    }
+    if (mine > 0)
     {
       rows.push_back(FleetSummary{roster.anchor, FleetState::Docked,
-                                  static_cast<std::uint16_t>(roster.docked.size()), FLEET_ETA_NONE});
+                                  static_cast<std::uint16_t>(mine), FLEET_ETA_NONE});
     }
   }
 
@@ -2223,11 +2366,24 @@ std::vector<FleetSummary> WorldRegistry::Summaries() const
       continue;
     }
 
+    // This commander's ships in it, counted rather than assumed: a crossing is
+    // one commander's order today, but the member carries the owner precisely
+    // so that "today" is not load-bearing.
+    std::uint16_t mine = 0;
+    for (std::uint16_t index = 0; index < record.what.memberCount; ++index)
+    {
+      mine += record.what.members[index].owner == _viewer ? 1u : 0u;
+    }
+    if (mine == 0)
+    {
+      continue; // Somebody else's fleet is somebody else's business.
+    }
+
     // Rounded up, so a fleet one tick out reads as "1s" rather than "arrived".
     const std::uint32_t ticks = record.applyTick > m_shardTick ? record.applyTick - m_shardTick : 0;
     const auto seconds = static_cast<std::uint32_t>(
       (static_cast<double>(ticks) * static_cast<double>(World::TICK_SECONDS)) + 0.999);
-    rows.push_back(FleetSummary{record.what.anchor, FleetState::InTransit, record.what.memberCount,
+    rows.push_back(FleetSummary{record.what.anchor, FleetState::InTransit, mine,
                                 static_cast<std::uint16_t>(std::min<std::uint32_t>(seconds, FLEET_ETA_NONE - 1))});
   }
 
@@ -2258,6 +2414,24 @@ std::uint64_t WorldRegistry::Hash() const
     }
     hash = Neuron::HashValue(entry.anchor, hash);
     hash = Neuron::HashValue(ComputeWorldHash(*entry.world), hash);
+
+    /*
+     * And whose the ships on it are (ADR-018 D5, U3c-a).
+     *
+     * Separately from `ComputeWorldHash` because it is separate STATE: the
+     * world does not know an owner and must not (D2), so the world's own hash
+     * cannot carry one. Folded in the world's slot order, which is the order
+     * `ComputeWorldHash` already depends on, so this adds no new ordering rule.
+     *
+     * It is in the replay domain for the rosters' reason exactly (below): a
+     * replay that reproduced every ship and forgot who owned them would agree
+     * about a universe where nothing belonged to anybody -- and would do it
+     * silently, because every position, hold and gauge would match.
+     */
+    for (const ShipId shipId : entry.world->Ids())
+    {
+      hash = Neuron::HashValue(OwnerOf(shipId), hash);
+    }
   }
 
   /*
@@ -2277,6 +2451,10 @@ std::uint64_t WorldRegistry::Hash() const
       hash = Neuron::HashValue(docked.shipId, hash);
       hash = Neuron::HashValue(static_cast<std::uint8_t>(docked.hullClass), hash);
       hash = Neuron::HashValue(docked.wing, hash);
+      // And whose (U3c-a). A roster that came back from a reload belonging to
+      // the wrong commander is the failure this catches, and it is one a
+      // player would find before any test did.
+      hash = Neuron::HashValue(docked.owner, hash);
       // And the hold (E3). Ore that survived a dock is state a reload has to
       // reproduce, so a replay that lost a manifest in the crossing says so
       // here rather than at the moment somebody notices their haul is gone.

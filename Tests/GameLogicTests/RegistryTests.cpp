@@ -94,7 +94,7 @@ ShipId AddShip(WorldRegistry& _registry, AnchorId _anchor, float _x, float _y)
   spawn.wing = 1;
   spawn.xMetres = _x;
   spawn.yMetres = _y;
-  return _registry.Spawn(_anchor, spawn);
+  return _registry.Spawn(_anchor, spawn, Neuron::SOLE_PLAYER_ID);
 }
 
 /// Submits a dock for every ship named, from the grid they are on.
@@ -794,7 +794,7 @@ public:
       spawn.hullClass = _class;
       spawn.wing = 1;
       spawn.xMetres = 300.0f;
-      const ShipId ship = registry.Spawn(anchors[0], spawn);
+      const ShipId ship = registry.Spawn(anchors[0], spawn, Neuron::SOLE_PLAYER_ID);
       const ShipId fleet[] = {ship};
       Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], fleet).accepted);
       return TickUntil(registry, tick, 60000, [&] { return OnGrid(registry, anchors[1], ship); });
@@ -824,7 +824,7 @@ public:
     spawn.hullClass = HullClass::Battleship; // The longest spool, so there is time to change one's mind.
     spawn.wing = 1;
     spawn.xMetres = 300.0f;
-    const ShipId ship = registry.Spawn(anchors[0], spawn);
+    const ShipId ship = registry.Spawn(anchors[0], spawn, Neuron::SOLE_PLAYER_ID);
     const ShipId fleet[] = {ship};
 
     Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], fleet).accepted);
@@ -884,7 +884,7 @@ public:
       spawn.hullClass = index % 2 == 0 ? HullClass::Frigate : HullClass::Corvette;
       spawn.wing = 1;
       spawn.xMetres = 200.0f * static_cast<float>(index);
-      fleet.push_back(registry.Spawn(anchors[0], spawn));
+      fleet.push_back(registry.Spawn(anchors[0], spawn, Neuron::SOLE_PLAYER_ID));
     }
     Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], fleet).accepted);
     TickUntil(registry, tick, 60000, [&] { return OnGrid(registry, anchors[1], fleet[0]); });
@@ -948,7 +948,7 @@ public:
     spawn.hullClass = HullClass::Interceptor; // The shortest spool and the fastest crossing.
     spawn.wing = 1;
     spawn.xMetres = 300.0f;
-    const ShipId ship = registry.Spawn(anchors[0], spawn);
+    const ShipId ship = registry.Spawn(anchors[0], spawn, Neuron::SOLE_PLAYER_ID);
     const ShipId fleet[] = {ship};
     Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], fleet).accepted);
 
@@ -991,7 +991,7 @@ public:
       spawn.hullClass = HullClass::Corvette;
       spawn.wing = 1;
       spawn.xMetres = 150.0f * static_cast<float>(index);
-      spawned.push_back(registry.Spawn(anchors[0], spawn));
+      spawned.push_back(registry.Spawn(anchors[0], spawn, Neuron::SOLE_PLAYER_ID));
     }
     std::vector<ShipId> reversed{spawned.rbegin(), spawned.rend()};
     Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], reversed).accepted);
@@ -1352,7 +1352,7 @@ public:
     (void)AddShip(registry, anchors[0], 100.0f, 0.0f);
     (void)AddShip(registry, anchors[0], -100.0f, 0.0f);
 
-    const std::vector<FleetSummary> onGrid = registry.Summaries();
+    const std::vector<FleetSummary> onGrid = registry.Summaries(Neuron::SOLE_PLAYER_ID);
     const auto here = std::find_if(onGrid.begin(), onGrid.end(),
                                    [&](const FleetSummary& _row) { return _row.anchor == anchors[0]; });
     Assert::IsTrue(here != onGrid.end(), L"two ships on a grid should be one row");
@@ -1371,7 +1371,7 @@ public:
      * version of this test looked up by anchor alone and found whichever came
      * first, which is a test that passes for the wrong reason.
      */
-    const std::vector<FleetSummary> docked = registry.Summaries();
+    const std::vector<FleetSummary> docked = registry.Summaries(Neuron::SOLE_PLAYER_ID);
     const auto row = std::find_if(docked.begin(), docked.end(), [&](const FleetSummary& _r)
                                   { return _r.anchor == station && _r.state == FleetState::Docked; });
     Assert::IsTrue(row != docked.end(), L"the docked ship should be a row of its own");
@@ -1397,7 +1397,7 @@ public:
     Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], fleet).accepted);
     TickUntil(registry, tick, 2000, [&] { return !OnGrid(registry, anchors[0], ship); });
 
-    const std::vector<FleetSummary> crossing = registry.Summaries();
+    const std::vector<FleetSummary> crossing = registry.Summaries(Neuron::SOLE_PLAYER_ID);
     const auto row = std::find_if(crossing.begin(), crossing.end(),
                                   [](const FleetSummary& _r) { return _r.state == FleetState::InTransit; });
     Assert::IsTrue(row != crossing.end(), L"a fleet in transit still has to be reportable");
@@ -1412,7 +1412,7 @@ public:
     {
       registry.Tick(++tick);
     }
-    const std::vector<FleetSummary> later = registry.Summaries();
+    const std::vector<FleetSummary> later = registry.Summaries(Neuron::SOLE_PLAYER_ID);
     const auto again = std::find_if(later.begin(), later.end(),
                                     [](const FleetSummary& _r) { return _r.state == FleetState::InTransit; });
     if (again != later.end())
@@ -1441,7 +1441,7 @@ public:
 
       std::uint8_t buffer[2048];
       Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
-      const std::vector<FleetSummary> rows = registry.Summaries();
+      const std::vector<FleetSummary> rows = registry.Summaries(Neuron::SOLE_PLAYER_ID);
       Assert::IsTrue(WriteFleetSummaries(rows, writer));
       return std::vector<std::uint8_t>{buffer, buffer + writer.BytesWritten()};
     };

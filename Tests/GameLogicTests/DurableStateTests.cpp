@@ -182,7 +182,7 @@ ShipId SpawnLoaded(WorldRegistry& _registry, AnchorId _anchor, HullClass _hull, 
   spawn.yMetres = _y;
   spawn.headingRadians = 0.75f;
   spawn.cargo.oreUnits[static_cast<std::uint8_t>(_ore)] = _units;
-  const ShipId ship = _registry.Spawn(_anchor, spawn);
+  const ShipId ship = _registry.Spawn(_anchor, spawn, Neuron::SOLE_PLAYER_ID);
   Assert::AreNotEqual<std::uint16_t>(INVALID_SHIP_ID, ship, L"the fixture could not put a ship on a grid");
   return ship;
 }
@@ -621,7 +621,7 @@ public:
 
     // And a new ship gets an id past everything the reload restored, which is
     // the property the mark exists to provide rather than the number itself.
-    const ShipId fresh = after.Spawn(planet, ShipSpawn{});
+    const ShipId fresh = after.Spawn(planet, ShipSpawn{}, Neuron::SOLE_PLAYER_ID);
     Assert::AreNotEqual<std::uint16_t>(INVALID_SHIP_ID, fresh, L"the reloaded shard could not spawn");
     for (const DurableShip& ship : state.ships)
     {
@@ -756,7 +756,7 @@ public:
     ShipSpawn miner;
     miner.hullClass = HullClass::Miner;
     miner.wing = 1;
-    const ShipId ship = before.Spawn(site, miner);
+    const ShipId ship = before.Spawn(site, miner, Neuron::SOLE_PLAYER_ID);
     Assert::AreNotEqual<std::uint16_t>(INVALID_SHIP_ID, ship, L"the fixture could not put a Miner on a field");
 
     World* world = before.Borrow(site);

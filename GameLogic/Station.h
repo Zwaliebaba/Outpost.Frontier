@@ -78,6 +78,26 @@ struct RosterEntry
    */
   std::uint32_t oreUnits[ORE_COUNT] = {};
 
+  /*
+   * And whose it is (ADR-018 D5, U3c-a) -- the fifth field, and the one the
+   * privacy rule was always going to need.
+   *
+   * `StationBay` below says it exactly: ADR-017 §1 bought the roster's privacy
+   * by sending it **per viewer**, and the Bay needs the owner in its key as
+   * well because a Bay is not addressable without saying whose. A roster IS
+   * addressable without one -- it is the station's -- so the owner rides on the
+   * row instead, and the filter happens at the send.
+   *
+   * Which means a docked ship is the one place ownership could quietly go
+   * missing. A ship on a grid can be asked of the registry's index; a docked
+   * ship is not on any grid, and if the roster did not remember, the answer
+   * after a dock would be "nobody" -- so a commander's own hangar would stop
+   * being theirs the moment they arrived. It is the same shape as `oreUnits`
+   * above, one field along: state that is the player's rather than the ship's,
+   * which the crossing has to carry rather than rebuild.
+   */
+  Neuron::PlayerId owner = Neuron::INVALID_PLAYER_ID;
+
   [[nodiscard]] std::uint32_t Units(OreId _ore) const noexcept { return oreUnits[static_cast<std::uint8_t>(_ore)]; }
 };
 

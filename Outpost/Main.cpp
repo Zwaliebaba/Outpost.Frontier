@@ -281,26 +281,30 @@ public:
    *
    * `UnknownAnchor` for a grid that is not live: an anchor nobody is on has no
    * world to show, and saying so with the order family's own reason keeps the
-   * refusal in the vocabulary the player already reads. Presence for one
-   * commander is presence for the only commander today -- when there are two,
-   * this filters on `_viewer` and the shape does not change (ADR-018 D5).
+   * refusal in the vocabulary the player already reads.
+   *
+   * **It filters on `_viewer` now** (U3c-a), and what it replaced is worth
+   * naming because it was a privacy hole rather than a simplification: this
+   * walked `m_patrolShips` -- the scripted patrol's ship list, a fixture of the
+   * composition root -- and so returned the same answer for every viewer. The
+   * second commander to connect could have watched the first one's grid, and
+   * the promise in the old comment ("when there are two, this filters on
+   * `_viewer`") is the one being kept here.
+   *
+   * The rule itself moved into the registry rather than being rewritten here,
+   * because presence is a question about the ship->location index and that is
+   * the registry's to answer.
    */
-  [[nodiscard]] std::uint16_t MayView(PlayerId, std::uint16_t _grid) override
+  [[nodiscard]] std::uint16_t MayView(PlayerId _viewer, std::uint16_t _grid) override
   {
     const auto anchor = static_cast<Game::AnchorId>(_grid);
     if (m_registry.Borrow(anchor) == nullptr)
     {
       return static_cast<std::uint16_t>(Game::OrderReason::UnknownAnchor);
     }
-    for (const Game::ShipId ship : m_patrolShips)
-    {
-      Game::AnchorId where = Game::INVALID_ID;
-      if (m_registry.LocationOf(ship, where) && where == anchor)
-      {
-        return 0;
-      }
-    }
-    return static_cast<std::uint16_t>(Game::OrderReason::NoPresence);
+    return m_registry.HasPresence(_viewer, anchor)
+             ? static_cast<std::uint16_t>(0)
+             : static_cast<std::uint16_t>(Game::OrderReason::NoPresence);
   }
 
   /*
@@ -312,12 +316,13 @@ public:
    * So the docked rows are also the enumeration of the rosters worth sending --
    * no separate walk, and a frame that cannot disagree with itself.
    *
-   * **Per viewer is the whole point** (ADR-017 §1). Today the registry answers
-   * for the one commander there is, so the filter is the identity function and
-   * the privacy rule costs nothing; what matters is that the *question* is
-   * asked per viewer, because on the broadcast sender this replaced, a roster
-   * reaching everyone would have been a leak nothing could catch until U3c
-   * first ran two clients.
+   * **Per viewer is the whole point** (ADR-017 §1), and as of U3c-a the filter
+   * is a filter rather than the identity function. The old note here said the
+   * privacy rule cost nothing today and that what mattered was that the
+   * *question* was asked per viewer, because a roster reaching everyone would
+   * be a leak nothing could catch until U3c first ran two clients. Asking per
+   * viewer is what made this a one-word change when the answer started to
+   * differ.
    *
    * Fleet summaries go in first and rosters fill what is left. That order is a
    * decision rather than an accident: "where is everything" is small, always
@@ -329,7 +334,7 @@ public:
    */
   [[nodiscard]] bool WriteSummaries(PlayerId _viewer, std::uint32_t, ByteWriter& _writer) override
   {
-    const std::vector<Game::FleetSummary> summaries = m_registry.Summaries();
+    const std::vector<Game::FleetSummary> summaries = m_registry.Summaries(_viewer);
     if (summaries.empty())
     {
       return false; // Nothing to say. An empty frame is a message with no content.
@@ -359,7 +364,7 @@ public:
       {
         continue;
       }
-      const std::span<const Game::RosterEntry> docked = m_registry.Roster(row.anchor);
+      const std::vector<Game::RosterEntry> docked = m_registry.DockedFor(_viewer, row.anchor);
       const std::size_t bytes = Game::SUMMARY_RECORD_HEADER_BYTES + Game::StationRosterBytes(docked.size());
       if (bytes > budget || rosters.size() + 1 >= Game::MAX_SUMMARY_RECORDS)
       {
@@ -463,7 +468,7 @@ public:
     for (const Game::AnchorId anchor : rosters)
     {
       if (!Game::BeginSummaryRecord(Game::SummaryKind::StationRoster, _writer) ||
-          !Game::WriteStationRoster(anchor, m_registry.Roster(anchor), _writer))
+          !Game::WriteStationRoster(anchor, m_registry.DockedFor(_viewer, anchor), _writer))
       {
         return false;
       }
@@ -1000,7 +1005,7 @@ void UniverseSimulation::SpawnStartingFleet()
       spawn.xMetres = std::cos(wingAngle) * WING_RADIUS_METRES - std::sin(wingAngle) * offset;
       spawn.yMetres = std::sin(wingAngle) * WING_RADIUS_METRES + std::cos(wingAngle) * offset;
 
-      const Game::ShipId id = m_registry.Spawn(m_startAnchor, spawn);
+      const Game::ShipId id = m_registry.Spawn(m_startAnchor, spawn, Neuron::SOLE_PLAYER_ID);
       if (id != Game::INVALID_SHIP_ID)
       {
         m_patrolShips.push_back(id);

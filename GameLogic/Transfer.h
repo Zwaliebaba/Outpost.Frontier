@@ -4,6 +4,11 @@
 #include "Orders.h"
 #include "ShipClass.h"
 
+// `Neuron::PlayerId`: a crossing belongs to a commander, and the registry has
+// to know which one on the far side (ADR-018 D5). Same dependency direction
+// `Station.h` already takes for the Bay's key.
+#include "Wire.h"
+
 #include <cstdint>
 
 /*
@@ -122,6 +127,31 @@ struct TransferMember
    * not know which way it is going.
    */
   std::uint32_t oreUnits[ORE_COUNT] = {};
+
+  /*
+   * And whose it is (ADR-018 D5, U3c-a) -- for the reason directly above, one
+   * field along.
+   *
+   * In transit a ship has left one world and not reached the next, so the
+   * registry cannot ask "where is it" to learn anything about it. Whatever the
+   * far side needs has to RIDE. E2 shipped without the cargo doing that and a
+   * Miner arrived empty; ownership arriving empty is quieter and worse -- the
+   * fleet simply stops being anybody's on the far side of a dock, and nothing
+   * reports it until a commander finds their hangar has become somebody's.
+   *
+   * **Per member rather than per request**, matching `oreUnits` and for the
+   * same reason: it is a property of the ship, not of the order that moved it.
+   * A crossing carrying two commanders' ships is not something today's
+   * validator can produce -- but "cannot happen" on a request-wide owner means
+   * that if it ever does, every ship in the fleet silently changes hands. Per
+   * member there is no such case to get wrong.
+   *
+   * The WORLD never fills this in and must not: it is filed by a world that
+   * knows only its own ships, and stamped by the registry as it collects
+   * (ADR-018 D2). A world that learned who owned things would put accounts in
+   * the replay domain.
+   */
+  Neuron::PlayerId owner = Neuron::INVALID_PLAYER_ID;
 };
 
 /*

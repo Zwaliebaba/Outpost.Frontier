@@ -117,6 +117,23 @@ public:
   [[nodiscard]] std::span<const RosterEntry> Roster(AnchorId _anchor) const noexcept;
 
   /*
+   * One commander's half of a station's roster (ADR-017 §1, U3c-a).
+   *
+   * `Roster` above answers with the whole thing, and it still has two callers
+   * that need it: grid teardown, which sweeps around every docked ship
+   * regardless of whose, and the save file, which writes the station. Anything
+   * that reaches a PLAYER goes through this instead -- the summary frame, and
+   * the validator's view of what a command may name.
+   *
+   * A vector rather than a span because a filtered view of a vector is a new
+   * vector; the alternative is storing rosters per `(station, owner)` the way
+   * Bays are, which would be a bigger change to buy the same answer and would
+   * make "what is docked here" -- a question teardown genuinely asks -- into a
+   * walk of every commander.
+   */
+  [[nodiscard]] std::vector<RosterEntry> DockedFor(Neuron::PlayerId _owner, AnchorId _anchor) const;
+
+  /*
    * What is left of a mining field (ADR-024 §3d), or null for a site nobody has
    * worked this epoch.
    *
@@ -335,11 +352,14 @@ public:
    * Ordered by anchor and then by state, so two runs of one script produce the
    * same message and a client can diff two of them without sorting.
    *
-   * Everything today, because there is one commander. When there are more this
-   * takes a `PlayerId` and filters (ADR-018 D5) -- the shape does not change,
-   * only what it counts.
+   * **Per viewer** (ADR-018 D5, U3c-a). It counted everything until there was a
+   * second commander to count separately from, and the promise made here then
+   * held: the shape did not change, only what it counts.
+   *
+   * `INVALID_PLAYER_ID` gets nothing, which is the honest answer to "where are
+   * nobody's ships" and keeps an anonymous handshake from reading as a census.
    */
-  [[nodiscard]] std::vector<FleetSummary> Summaries() const;
+  [[nodiscard]] std::vector<FleetSummary> Summaries(Neuron::PlayerId _viewer) const;
 
   /// How many records are filed and not yet applied. The bus is world state --
   /// it folds into the hash -- so this is how a test asks whether a tick
@@ -379,8 +399,15 @@ public:
    * `INVALID_SHIP_ID` when the anchor has no world, or the id space is spent,
    * or the class has no content -- the same three refusals `World::Spawn` makes,
    * reported the same way.
+   *
+   * **The owner is a parameter and not a default** (ADR-018 D5, U3c-a). It sits
+   * here rather than on `ShipSpawn` because `ShipSpawn` is what `World::Spawn`
+   * reads, and the world must never learn who owns anything -- a field the SoA
+   * carried and ignored would be an invitation to fold it into the replay
+   * domain later. Pass `INVALID_PLAYER_ID` deliberately for the universe's own
+   * furniture; there is no default, so a new call site has to say which it is.
    */
-  [[nodiscard]] ShipId Spawn(AnchorId _anchor, const ShipSpawn& _spawn);
+  [[nodiscard]] ShipId Spawn(AnchorId _anchor, const ShipSpawn& _spawn, Neuron::PlayerId _owner);
 
   /*
    * Undock or reassign a wing (ADR-017 §3, §6).
@@ -413,6 +440,29 @@ public:
   /// index rosters, summaries and order routing all ask; U2 builds it because
   /// every one of those is about to.
   [[nodiscard]] bool LocationOf(ShipId _shipId, AnchorId& _outAnchor) const noexcept;
+
+  /*
+   * Whose ship that is (ADR-018 D5, U3c-a).
+   *
+   * `INVALID_PLAYER_ID` for a ship nobody owns -- an authored occupant, or one
+   * the registry has never heard of. Both answers are "not yours" to every
+   * caller that matters, which is why they are the same answer: a filter that
+   * had to distinguish "belongs to nobody" from "does not exist" would be a
+   * filter with a case nobody tested.
+   */
+  [[nodiscard]] Neuron::PlayerId OwnerOf(ShipId _shipId) const noexcept;
+
+  /*
+   * Whether this commander has ships standing on that anchor -- on the grid or
+   * docked at its station, which ADR-017 §7 folded into one answer.
+   *
+   * This is `MayView`'s whole rule (ADR-016 §7), asked of the thing that keeps
+   * the index rather than reimplemented at the seam. It lived in the
+   * composition root as a walk of the scripted patrol's ship list, which
+   * answered the same for every viewer -- so the second commander to connect
+   * could watch the first one's grid.
+   */
+  [[nodiscard]] bool HasPresence(Neuron::PlayerId _owner, AnchorId _anchor) const noexcept;
 
   /*
    * The replay domain (ADR-018 D8).
@@ -485,7 +535,15 @@ private:
 
   /// Writes the index, growing it as ids climb. The one place the projection is
   /// written, so it cannot drift into being a second source of truth.
-  void RecordLocation(ShipId _shipId, AnchorId _anchor);
+  /// Records where a ship is AND whose it is. One call rather than two, so that
+  /// "maintained together" is structural: there is no way to spell recording a
+  /// location without saying whose it is, which is the mistake this would
+  /// otherwise be one careless call site away from.
+  void RecordShip(ShipId _shipId, AnchorId _anchor, Neuron::PlayerId _owner);
+
+  /// Forgets both. A ship the registry cannot locate is a ship it has no owner
+  /// for -- keeping a stale owner would let a reused id inherit a commander.
+  void ForgetShip(ShipId _shipId);
 
 
   void ApplyDueTransfers();
@@ -558,6 +616,27 @@ private:
   /// The ship->location index (ADR-019 §5c): a projection, rebuilt as ships
   /// arrive and leave, never a second source of truth.
   std::vector<AnchorId> m_locationByShip;
+
+  /*
+   * The ship->owner index (ADR-018 D5, U3c-a), indexed the same way.
+   *
+   * **At the universe layer and not in `World`**, which is ADR-018 D2's rule
+   * rather than a preference: worlds forget, durable state lives here, and a
+   * player identity inside the deterministic SoA would put accounts in the
+   * replay domain -- so every future change to what an account IS would be a
+   * change to the physics, and a shard with two commanders would hash
+   * differently from the same shard with one.
+   *
+   * Unlike the location beside it this is **not** a projection: nothing else
+   * knows it, so it is the source of truth and the durable format carries it.
+   * The two are maintained together and cleared together, which makes the
+   * invariant one sentence: *a ship the registry cannot locate is a ship it
+   * has no owner for.* `INVALID_PLAYER_ID` is the honest answer for the
+   * universe's own furniture -- authored occupants belong to nobody, and a
+   * station that answered "player one" would hand the first commander to
+   * connect a battleship they did not build.
+   */
+  std::vector<Neuron::PlayerId> m_ownerByShip;
 
   std::uint32_t m_nextDynamicId = 0;
 

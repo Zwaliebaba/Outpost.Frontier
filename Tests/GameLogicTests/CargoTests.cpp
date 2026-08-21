@@ -127,7 +127,8 @@ void MakeRegistry(WorldRegistry& _registry)
 /// A docked Hauler holding `_units` of `_ore`, put on the roster the way a dock
 /// puts one there -- through the bus, so the crossing is exercised rather than
 /// bypassed.
-ShipId DockLoaded(WorldRegistry& _registry, AnchorId _station, OreId _ore, std::uint32_t _units, std::uint32_t& _tick)
+ShipId DockLoaded(WorldRegistry& _registry, AnchorId _station, OreId _ore, std::uint32_t _units, std::uint32_t& _tick,
+                  Neuron::PlayerId _owner = Neuron::SOLE_PLAYER_ID)
 {
   /*
    * A **Miner**, and the suite found out why the hard way: the shipped content
@@ -141,7 +142,7 @@ ShipId DockLoaded(WorldRegistry& _registry, AnchorId _station, OreId _ore, std::
   spawn.hullClass = HullClass::Miner;
   spawn.wing = 1;
   spawn.cargo.oreUnits[static_cast<std::uint8_t>(_ore)] = _units;
-  const ShipId ship = _registry.Spawn(_station, spawn);
+  const ShipId ship = _registry.Spawn(_station, spawn, _owner);
 
   World* world = _registry.Borrow(_station);
   OrderSubmit dock;
@@ -275,7 +276,7 @@ public:
     spawn.hullClass = HullClass::Miner;
     spawn.wing = 1;
     spawn.cargo.oreUnits[static_cast<std::uint8_t>(OreId::FerroChroma)] = 77;
-    const ShipId ship = registry.Spawn(site, spawn);
+    const ShipId ship = registry.Spawn(site, spawn, Neuron::SOLE_PLAYER_ID);
 
     World* world = registry.Borrow(site);
     OrderSubmit warp;
@@ -551,7 +552,12 @@ public:
     std::uint32_t tickA = 0;
     std::uint32_t tickB = 0;
     const ShipId shipA = DockLoaded(a, station, OreId::FerroChroma, 20, tickA);
-    const ShipId shipB = DockLoaded(b, station, OreId::FerroChroma, 20, tickB);
+    // Docked AS TWO, and that is not fixture noise (U3c-a). It used to dock
+    // under the one commander there was and then have TWO transfer ore off it,
+    // which the validator now refuses -- correctly: reaching into another
+    // commander's hold is the authority hole ownership closed. Two commanders
+    // with a ship each is what this test always meant.
+    const ShipId shipB = DockLoaded(b, station, OreId::FerroChroma, 20, tickB, TWO);
 
     Assert::IsTrue(
       a.SubmitStationCommand(ONE, Transfer(StationVerb::TransferToBay, station, shipA, OreId::FerroChroma, 5)).accepted, L"a");
@@ -786,7 +792,7 @@ public:
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Miner;
     spawn.wing = 1;
-    const ShipId miner = registry.Spawn(site, spawn);
+    const ShipId miner = registry.Spawn(site, spawn, Neuron::SOLE_PLAYER_ID);
     Assert::AreNotEqual<std::uint16_t>(INVALID_SHIP_ID, miner, L"no miner");
 
     World* world = registry.Borrow(site);
@@ -827,7 +833,7 @@ public:
     spawn.hullClass = HullClass::Miner;
     spawn.wing = 1;
     spawn.cargo.oreUnits[0] = 33;
-    const ShipId ship = registry.Spawn(site, spawn);
+    const ShipId ship = registry.Spawn(site, spawn, Neuron::SOLE_PLAYER_ID);
     Assert::AreNotEqual<std::uint16_t>(INVALID_SHIP_ID, ship, L"no ship");
 
     const std::vector<CargoStatusRow> mine = registry.CargoFor(ONE);
@@ -849,7 +855,7 @@ public:
     ShipSpawn spawn;
     spawn.hullClass = HullClass::Miner;
     spawn.wing = 1;
-    const ShipId ship = registry.Spawn(site, spawn);
+    const ShipId ship = registry.Spawn(site, spawn, Neuron::SOLE_PLAYER_ID);
 
     const std::vector<CargoStatusRow> rows = registry.CargoFor(ONE);
     const auto row = std::find_if(rows.begin(), rows.end(), [ship](const CargoStatusRow& _r) { return _r.shipId == ship; });

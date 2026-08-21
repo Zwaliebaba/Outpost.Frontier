@@ -58,8 +58,17 @@ class WorldRegistry;
  * is the version's whole job, and ADR-025 §9 names the first re-bake of a
  * universe a live shard has state against as the trigger for designing one --
  * which is a different and larger question from a format that grew a field.
+ *
+ * **3 with U3c-a**, which gave ships owners that were actually asked for. The
+ * field was already here and already written -- capture filled it with
+ * `SOLE_PLAYER_ID` unconditionally -- so a version 2 file is not merely missing
+ * data, it asserts something false: that every ship in the shard belongs to
+ * player one. Reading one under the new rules would hand the first commander to
+ * connect the entire universe, which is exactly the failure a version number
+ * exists to make impossible. Docked rows and in-flight crossings grew the field
+ * for real at the same time, because a ship must not change hands by docking.
  */
-inline constexpr std::uint32_t DURABLE_FORMAT_VERSION = 2;
+inline constexpr std::uint32_t DURABLE_FORMAT_VERSION = 3;
 
 /// Recognises the blob and refuses somebody else's. "OPFD" -- Outpost Frontier
 /// durable -- little-endian like everything else this tree writes.

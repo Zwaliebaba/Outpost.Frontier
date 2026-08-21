@@ -160,6 +160,18 @@ The two move independently — E4b changes what a payload contains and nothing a
 is wrapped — and one number covering both would refuse every existing shard for a change that
 could not affect it.*
 
+*And **version 3 with U3c-a**, which is the clearest case yet for why the payload version is
+separate and why there is no silent upgrade path. §1's list has always said a ship's identity is
+durable, and `DurableShip` has carried an `owner` field since E4a — but until U3c-a the
+simulation had no notion of one, so capture filled it in with `SOLE_PLAYER_ID` unconditionally.
+A version 2 file therefore does not merely **lack** ownership: it **asserts** something false,
+that every hull in the shard belongs to player one. Read under the new rules it would hand the
+first commander to connect the whole universe. That is the difference between a field that grew
+and a field whose meaning changed, and it is the case the "refuse rather than guess" rule in
+§6.1 was written for. Docked rows and in-flight crossings grew the field for real in the same
+bump, because §1's durable line is about identity, and a ship that changed hands by docking
+would have lost its identity in the one place the format was not looking.*
+
 ### 3. The journal
 
 Append-only, little-endian, framed, written with `Neuron::ByteWriter` — ADR-004's discipline,
