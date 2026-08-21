@@ -63,20 +63,22 @@ inline constexpr std::uint32_t MAX_ROSTER_ROWS = 16;
 
 /*
  * One block of the player's ships that are somewhere the scene cannot show
- * them (`station-screen.png`, ADR-017 1).
+ * them (`station-screen.png`, ADR-017 1; ADR-016 9's location blocks).
  *
- * A docked ship is not a hull with a position -- it is a row in a roster the
- * authority keeps, so it is absent from the scene entirely and the panel that
- * lists wings has nothing to list it as. This is the other list: a place, how
- * many of yours are in it, and a way to address it.
+ * A ship the scene cannot draw is not always a *docked* one, and that is why
+ * this record is not called a docked block. It began as one -- T2 needed the
+ * hangar's roster -- and U3b's second and third cases were waiting behind it:
+ * a fleet standing on a grid the player is not watching, and a fleet mid-warp
+ * that is in no world at all. All three are the same sentence with a different
+ * word in it: *this many of yours, over there*.
  *
- * The engine draws a name, a count and a button, and learns nothing else. It
- * does not know the place is a station, that being there is called *docked*, or
- * that the button will one day open a hangar; a game on these libraries could
- * mean a garrison, a hangar bay or a port with the same three fields and the
- * same panel.
+ * The engine draws a name, a count, a word and maybe a button, and learns
+ * nothing else. **It does not know what the word means** -- `stateLabel` is a
+ * string the game wrote, not an enum the engine switches on, so "docked",
+ * "in warp" and "on grid" are three facts about one game rather than three
+ * cases compiled into a library that serves two.
  */
-struct DockedBlock
+struct LocationBlock
 {
   /// What to draw. Points at storage the world view owns, like `RosterRow::name`.
   const char* name = nullptr;
@@ -98,12 +100,48 @@ struct DockedBlock
    * the panel is still a name and a count.
    */
   const char* buttonLabel = nullptr;
+
+  /*
+   * What the game calls this place's state -- `DOCKED`, `IN WARP`, `ON GRID`.
+   *
+   * A string and not a code, unlike `Notice::code`, because nothing keys or
+   * coalesces on it: it is drawn and only drawn. The engine picks no colour
+   * from it either; a state that should read as urgent says so through the
+   * block it is on, not through a word the client has learned to fear.
+   */
+  const char* stateLabel = nullptr;
+
+  /*
+   * True when these ships are the ones already on screen as hulls.
+   *
+   * The game answers it because the game is what knows; the engine acts on it
+   * without learning why. A panel about ships the scene cannot show must not
+   * list the fleet the scene *is* showing -- that is one fleet counted twice on
+   * one HUD, with nothing to tell the player which count is the lie.
+   *
+   * It is a flag rather than the client comparing `stateLabel`, because that
+   * word is a string the game wrote and comparing it would be the engine
+   * reading a vocabulary it is not allowed to have an opinion about.
+   */
+  bool inScene = false;
+
+  /*
+   * Seconds until this block stops being true, or negative when the game will
+   * not say (ADR-016 6's `InTransit` row).
+   *
+   * The one number a fleet in no world can still be given: a crossing is a fact
+   * about the transfer bus rather than about a grid, so no snapshot could carry
+   * it and the summary family does. Negative for a fleet that is simply
+   * somewhere, because "arriving in -1" is not a state and a block should not
+   * have to draw one.
+   */
+  float etaSeconds = -1.0f;
 };
 
 /// How many such blocks a client will ask for. One commander's ships can be
-/// spread over several stations at once, and a fleet spread over more than this
+/// spread over several places at once, and a fleet spread over more than this
 /// wants the hangar screen rather than a longer list.
-inline constexpr std::uint32_t MAX_DOCKED_BLOCKS = 8;
+inline constexpr std::uint32_t MAX_LOCATION_BLOCKS = 8;
 
 /*
  * Something the game wants said to the player (`alerts-and-toasts.png`).

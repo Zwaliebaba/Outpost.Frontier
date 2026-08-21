@@ -872,8 +872,8 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
     return false;
   }
 
-  std::vector<DockedStation> staged;
-  std::vector<DockedStation> stagedRosters;
+  std::vector<FleetPlace> staged;
+  std::vector<FleetPlace> stagedRosters;
   std::vector<Game::SiteStatusRow> stagedSites;
   std::vector<BayHolding> stagedBays;
   std::vector<Game::RefineryStatusRow> stagedRefineries;
@@ -922,13 +922,12 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
       }
       for (const Game::FleetSummary& row : m_decodedSummaries)
       {
-        // Only the docked rows. A fleet on a grid is drawn as ships and a fleet
-        // in transit is the strategic surface's business (U3b); this panel is
-        // about the ones that are nowhere the scene can show them.
-        if (row.state == Game::FleetState::Docked)
-        {
-          staged.push_back(DockedStation{row.anchor, row.shipCount, {}});
-        }
+        // **Every** row now, where T2 kept only the docked ones. The panel this
+        // feeds is about ships the scene cannot show, and a fleet on a grid the
+        // player is not watching is as invisible as a docked one -- which is
+        // U3b's whole observation. Which of them the viewed grid already draws
+        // is a question for the build, not for the decode.
+        staged.push_back(FleetPlace{row.anchor, row.state, row.etaSeconds, row.shipCount, {}});
       }
       break;
     }
@@ -942,7 +941,8 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
         ++m_rejectedSummaries;
         return false;
       }
-      stagedRosters.push_back(DockedStation{station, 0, std::move(m_decodedRoster)});
+      stagedRosters.push_back(
+        FleetPlace{station, Game::FleetState::Docked, Game::FLEET_ETA_NONE, 0, std::move(m_decodedRoster)});
       m_decodedRoster.clear(); // Moved from, and reused by the next record.
       break;
     }
@@ -1004,10 +1004,10 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
   }
 #pragma warning(pop)
 
-  for (DockedStation& block : staged)
+  for (FleetPlace& block : staged)
   {
     const auto match = std::find_if(stagedRosters.begin(), stagedRosters.end(),
-                                    [&](const DockedStation& _entry) { return _entry.anchor == block.anchor; });
+                                    [&](const FleetPlace& _entry) { return _entry.anchor == block.anchor; });
     if (match != stagedRosters.end())
     {
       block.docked = std::move(match->docked);
@@ -1018,10 +1018,10 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
   // records happened to arrive in: a list that reshuffles between frames is a
   // list the player cannot point at.
   std::sort(staged.begin(), staged.end(),
-            [](const DockedStation& _left, const DockedStation& _right) { return _left.anchor < _right.anchor; });
+            [](const FleetPlace& _left, const FleetPlace& _right) { return _left.anchor < _right.anchor; });
 
   NoteRosterChanges(staged);
-  m_dockedStations = std::move(staged);
+  m_places = std::move(staged);
 
   // Wholesale, like the blocks: a kind the frame did not mention is a kind with
   // nothing to say, and keeping the last one would leave a hold reading full
@@ -1053,22 +1053,33 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
  * player was watching -- a state reported as an event, which is exactly the
  * mistake this function exists to avoid making in the other direction.
  */
-void ReplicatedWorldView::NoteRosterChanges(const std::vector<DockedStation>& _next)
+void ReplicatedWorldView::NoteRosterChanges(const std::vector<FleetPlace>& _next)
 {
   if (!m_haveSummary)
   {
     return;
   }
 
-  const auto countAt = [](const std::vector<DockedStation>& _blocks, Game::AnchorId _anchor) -> std::uint16_t {
-    const auto found = std::find_if(_blocks.begin(), _blocks.end(),
-                                    [&](const DockedStation& _entry) { return _entry.anchor == _anchor; });
+  /*
+   * Docked rows on both sides of the comparison, and nothing else.
+   *
+   * The list grew the other two states in U3b, and this function must not grow
+   * with it: a fleet that warps away changes its `OnGrid` count at one anchor
+   * and its `InTransit` row at another, and a delta that counted those would
+   * announce "undock complete" at a station nobody undocked from. Docking is
+   * the event this raises; the others are movement, which the player is already
+   * watching happen.
+   */
+  const auto countAt = [](const std::vector<FleetPlace>& _blocks, Game::AnchorId _anchor) -> std::uint16_t {
+    const auto found = std::find_if(_blocks.begin(), _blocks.end(), [&](const FleetPlace& _entry) {
+      return _entry.anchor == _anchor && _entry.state == Game::FleetState::Docked;
+    });
     return found == _blocks.end() ? std::uint16_t{0} : found->shipCount;
   };
 
   const auto raise = [&](Game::AnchorId _anchor, std::uint16_t _delta, bool _docked) {
     char body[96] = {};
-    const char* station = StationNameFor(_anchor);
+    const char* station = AnchorNameFor(_anchor);
     std::snprintf(body, sizeof(body), "%u SHIP%s %s %s", _delta, _delta == 1 ? "" : "S", _docked ? "AT" : "FROM",
                   station != nullptr ? station : "STATION");
     PendingNotice notice;
@@ -1081,9 +1092,13 @@ void ReplicatedWorldView::NoteRosterChanges(const std::vector<DockedStation>& _n
     m_notices.push_back(std::move(notice));
   };
 
-  for (const DockedStation& block : _next)
+  for (const FleetPlace& block : _next)
   {
-    const std::uint16_t before = countAt(m_dockedStations, block.anchor);
+    if (block.state != Game::FleetState::Docked)
+    {
+      continue;
+    }
+    const std::uint16_t before = countAt(m_places, block.anchor);
     if (block.shipCount > before)
     {
       raise(block.anchor, static_cast<std::uint16_t>(block.shipCount - before), true);
@@ -1096,10 +1111,15 @@ void ReplicatedWorldView::NoteRosterChanges(const std::vector<DockedStation>& _n
 
   // A station that left the list entirely: its last ships undocked, and the
   // loop above cannot see it because there is no row left to compare against.
-  for (const DockedStation& block : m_dockedStations)
+  for (const FleetPlace& block : m_places)
   {
-    const auto still = std::find_if(_next.begin(), _next.end(),
-                                    [&](const DockedStation& _entry) { return _entry.anchor == block.anchor; });
+    if (block.state != Game::FleetState::Docked)
+    {
+      continue;
+    }
+    const auto still = std::find_if(_next.begin(), _next.end(), [&](const FleetPlace& _entry) {
+      return _entry.anchor == block.anchor && _entry.state == Game::FleetState::Docked;
+    });
     if (still == _next.end() && block.shipCount > 0)
     {
       raise(block.anchor, block.shipCount, false);
@@ -1107,11 +1127,11 @@ void ReplicatedWorldView::NoteRosterChanges(const std::vector<DockedStation>& _n
   }
 }
 
-const char* ReplicatedWorldView::StationNameFor(Game::AnchorId _anchor) const
+const char* ReplicatedWorldView::AnchorNameFor(Game::AnchorId _anchor) const
 {
-  const auto found = std::find_if(m_desc.stationNames.begin(), m_desc.stationNames.end(),
-                                  [&](const StationName& _entry) { return _entry.anchor == _anchor; });
-  return found == m_desc.stationNames.end() ? nullptr : found->name.c_str();
+  const auto found = std::find_if(m_desc.anchorNames.begin(), m_desc.anchorNames.end(),
+                                  [&](const AnchorName& _entry) { return _entry.anchor == _anchor; });
+  return found == m_desc.anchorNames.end() ? nullptr : found->name.c_str();
 }
 
 /*
@@ -1126,10 +1146,10 @@ const char* ReplicatedWorldView::StationNameFor(Game::AnchorId _anchor) const
  * is content that may simply be missing -- for the same reason the roster draws
  * a "?" for a wing it cannot name rather than dropping the row.
  */
-std::uint32_t ReplicatedWorldView::BuildDockedBlocks(std::span<DockedBlock> _outBlocks) const
+std::uint32_t ReplicatedWorldView::BuildLocationBlocks(std::span<LocationBlock> _outBlocks) const
 {
   std::uint32_t written = 0;
-  for (const DockedStation& block : m_dockedStations)
+  for (const FleetPlace& block : m_places)
   {
     if (written >= _outBlocks.size())
     {
@@ -1137,16 +1157,44 @@ std::uint32_t ReplicatedWorldView::BuildDockedBlocks(std::span<DockedBlock> _out
     }
     if (block.shipCount == 0)
     {
-      continue; // An empty hangar is not a place the player has ships in.
+      continue; // An empty place is not a place the player has ships in.
     }
-    DockedBlock& out = _outBlocks[written];
-    out.name = StationNameFor(block.anchor);
+
+    /*
+     * **Every place, including the one being watched.** The panel does not draw
+     * that row -- those ships are on screen as hulls and listing them again
+     * would be one fleet counted twice on one HUD -- but *not drawing* it is a
+     * presentation decision, and it belongs where the drawing is.
+     *
+     * It matters because a second reader wants the row the panel throws away:
+     * auto-follow asks "does the grid I am watching still hold anything of
+     * mine", and a list that had already silently removed the answer could not
+     * be asked. Filtering here would have been the game deciding what the
+     * client is allowed to notice.
+     */
+    LocationBlock& out = _outBlocks[written];
+    out.name = AnchorNameFor(block.anchor);
     out.shipCount = block.shipCount;
     out.anchor = static_cast<std::uint16_t>(block.anchor);
-    // The word T3's hangar screen will arrive behind. Supplied now because the
-    // block is drawn now: a button with no label would be a smaller stub than
-    // the print asks for, and the label is the part that is already decided.
-    out.buttonLabel = "STATION";
+    out.stateLabel = Game::FleetStateName(block.state);
+    // The one thing only this side can answer: are these the hulls the scene
+    // just drew? A fleet standing on the grid being watched is; everything
+    // else -- docked here, on another grid, mid-crossing -- is not.
+    out.inScene = block.state == Game::FleetState::OnGrid && block.anchor == m_view.Grid();
+    out.etaSeconds = block.etaSeconds == Game::FLEET_ETA_NONE ? -1.0f : static_cast<float>(block.etaSeconds);
+
+    /*
+     * A button only where there is somewhere to go.
+     *
+     * Docked opens the hangar (T3); a fleet on another grid offers VIEW, which
+     * is the switch U3b's wire half already serves and `MayView` already gates.
+     * A crossing offers nothing, and that is the honest answer rather than a
+     * greyed control: a fleet in no world has no surface to open, and the ETA
+     * beside it is the only thing anybody can do about it.
+     */
+    out.buttonLabel = block.state == Game::FleetState::Docked   ? "STATION"
+                      : block.state == Game::FleetState::OnGrid ? "VIEW"
+                                                                : nullptr;
     ++written;
   }
   return written;
@@ -1154,9 +1202,10 @@ std::uint32_t ReplicatedWorldView::BuildDockedBlocks(std::span<DockedBlock> _out
 
 std::uint16_t ReplicatedWorldView::DockedCountAt(Game::AnchorId _anchor) const noexcept
 {
-  const auto found = std::find_if(m_dockedStations.begin(), m_dockedStations.end(),
-                                  [&](const DockedStation& _entry) { return _entry.anchor == _anchor; });
-  return found == m_dockedStations.end() ? std::uint16_t{0} : found->shipCount;
+  const auto found = std::find_if(m_places.begin(), m_places.end(), [&](const FleetPlace& _entry) {
+    return _entry.anchor == _anchor && _entry.state == Game::FleetState::Docked;
+  });
+  return found == m_places.end() ? std::uint16_t{0} : found->shipCount;
 }
 
 std::uint32_t ReplicatedWorldView::PollNotices(std::span<Notice> _outNotices)

@@ -116,6 +116,9 @@
     <ClInclude Include="ApproachChain.h">
       <Filter>Input</Filter>
     </ClInclude>
+    <ClInclude Include="AutoFollow.h">
+      <Filter>Extract</Filter>
+    </ClInclude>
     <ClInclude Include="EntityTransits.h">
       <Filter>Extract</Filter>
     </ClInclude>

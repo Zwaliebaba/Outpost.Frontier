@@ -1529,6 +1529,86 @@ void RunMineAvailabilityGate(Checklist& _checks, const Game::EconomyDef& _econom
                  fedFull && !full.available && full.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::HoldFull));
 }
 
+/*
+ * The location blocks say where a fleet is when the scene cannot (ADR-016 9).
+ *
+ * Three states share one panel, and the assertion that matters is the one about
+ * the *fourth* case: a fleet standing on the grid the player is looking at must
+ * **not** get a block, because those ships are already on screen as hulls with
+ * rings and a roster row each. Counted twice on one HUD, the player has no way
+ * to tell which count is the lie.
+ *
+ * Driven through the real decoder with a real summary frame, for the reason the
+ * other client-side gates are: the bugs this slice has produced were all in what
+ * the view was filled with rather than in the arithmetic over it.
+ */
+void RunLocationBlockGate(Checklist& _checks)
+{
+  constexpr Game::AnchorId HERE = 31;   // the grid the client is watching
+  constexpr Game::AnchorId THERE = 32;  // another grid, same commander
+  constexpr Game::AnchorId STATION = 33;
+  constexpr Game::AnchorId CROSSING_TO = 34;
+
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  desc.gridAnchor = HERE;
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  const Game::FleetSummary rows[] = {
+    Game::FleetSummary{HERE, Game::FleetState::OnGrid, 6, Game::FLEET_ETA_NONE},
+    Game::FleetSummary{THERE, Game::FleetState::OnGrid, 4, Game::FLEET_ETA_NONE},
+    Game::FleetSummary{STATION, Game::FleetState::Docked, 12, Game::FLEET_ETA_NONE},
+    Game::FleetSummary{CROSSING_TO, Game::FleetState::InTransit, 3, 71},
+  };
+
+  std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> bytes{};
+  Neuron::ByteWriter writer{bytes};
+  const bool wrote = Game::BeginSummaryFrame(1, writer) &&
+                     Game::BeginSummaryRecord(Game::SummaryKind::FleetSummaries, writer) &&
+                     Game::WriteFleetSummaries(rows, writer);
+  _checks.Record("the location gate can state where four fleets are", wrote && view.ApplySummary(writer.Written()));
+
+  std::array<Neuron::LocationBlock, Neuron::MAX_LOCATION_BLOCKS> blocks{};
+  const std::uint32_t count = view.BuildLocationBlocks(blocks);
+
+  // No snapshot has arrived, so the view is watching no grid yet and even the
+  // HERE row is somewhere the scene cannot show. Four places, four blocks.
+  _checks.Record("with no world on screen, every place is elsewhere", count == 4);
+
+  const auto find = [&](Game::AnchorId _anchor) -> const Neuron::LocationBlock* {
+    for (std::uint32_t index = 0; index < count; ++index)
+    {
+      if (blocks[index].anchor == static_cast<std::uint16_t>(_anchor))
+      {
+        return &blocks[index];
+      }
+    }
+    return nullptr;
+  };
+
+  const Neuron::LocationBlock* crossing = find(CROSSING_TO);
+  _checks.Record("a crossing carries its eta and offers no button",
+                 crossing != nullptr && crossing->etaSeconds > 70.0f && crossing->etaSeconds < 72.0f &&
+                   crossing->buttonLabel == nullptr);
+
+  const Neuron::LocationBlock* docked = find(STATION);
+  _checks.Record("a docked block offers the hangar and no eta",
+                 docked != nullptr && docked->etaSeconds < 0.0f && docked->buttonLabel != nullptr);
+
+  const Neuron::LocationBlock* elsewhere = find(THERE);
+  _checks.Record("a fleet on another grid offers the view switch",
+                 elsewhere != nullptr && elsewhere->buttonLabel != nullptr && elsewhere->etaSeconds < 0.0f);
+
+  // Every word on the panel came from the game; the engine drew and compared
+  // none of them.
+  bool everyStateNamed = count > 0;
+  for (std::uint32_t index = 0; index < count; ++index)
+  {
+    everyStateNamed = everyStateNamed && blocks[index].stateLabel != nullptr;
+  }
+  _checks.Record("and every block was given its state in the game's own words", everyStateNamed);
+}
+
 void RunSummaryFamilyGate(Checklist& _checks)
 {
   std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> payload{};
@@ -2274,6 +2354,7 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   RunSummaryFamilyGate(checks);
   RunClientDockPreCheckGate(checks, _simulation);
   RunMineAvailabilityGate(checks, _economy);
+  RunLocationBlockGate(checks);
 
   // U3c's accept, after the single-commander loop has proved the machinery it
   // builds on: two clients at once, on grids of their own.

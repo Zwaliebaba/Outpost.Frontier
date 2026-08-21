@@ -58,6 +58,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ApproachChain.h" />
+    <ClInclude Include="AutoFollow.h" />
     <ClInclude Include="AudioDevice.h" />
     <ClInclude Include="AudioListener.h" />
     <ClInclude Include="DirectXHelper.h" />

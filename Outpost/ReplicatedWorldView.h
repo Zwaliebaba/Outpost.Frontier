@@ -42,8 +42,10 @@ namespace Outpost
 class ReplicatedWorldView final : public Neuron::WorldView
 {
 public:
-  /// One station's display name, by the anchor it stands on.
-  struct StationName
+  /// One anchor's display name. Not stations only: a fleet can be standing on a
+  /// planet's grid, a gate's or a field's, and a block that cannot name where it
+  /// is draws a question mark at the player.
+  struct AnchorName
   {
     Game::AnchorId anchor = Game::INVALID_ID;
     std::string name;
@@ -93,19 +95,24 @@ public:
     Game::AnchorId gridAnchor = Game::INVALID_ID;
 
     /*
-     * What each station is called, for the panel that lists the ones this
-     * commander has ships in (ADR-017 1).
+     * What each anchor is called, for the panel that lists the places this
+     * commander has ships (ADR-017 1, ADR-016 9).
+     *
+     * **Every anchor kind, not only stations**, and that was a defect before it
+     * was a design: the panel began as the hangar's docked roster, so the table
+     * held station names, and the first time a fleet stood on a grid that was
+     * not a station's the block drew `?` at the player. A location block can be
+     * anywhere a fleet can be.
      *
      * A pair list rather than a table indexed by anchor: anchor ids are unique
      * across the whole universe and nothing makes them dense, so an array would
-     * be one string slot per anchor in a galaxy to name the handful that are
-     * stations.
+     * be one string slot per anchor in the galaxy to name the few in play.
      *
      * Here rather than in GameLogic for the same reason `wingNames` is: the
      * name lives in the parsed universe, and the composition root is the one
      * project holding both that and the client's vocabulary.
      */
-    std::vector<StationName> stationNames;
+    std::vector<AnchorName> anchorNames;
 
     /*
      * The parsed economy content, or null for a build without it.
@@ -139,7 +146,7 @@ public:
   [[nodiscard]] bool ContextActionFor(std::uint16_t _entityId, std::span<const std::uint16_t> _selectedIds,
                                       Neuron::ContextAction& _outAction) const override;
   [[nodiscard]] bool ApplySummary(std::span<const std::uint8_t> _payload) override;
-  [[nodiscard]] std::uint32_t BuildDockedBlocks(std::span<Neuron::DockedBlock> _outBlocks) const override;
+  [[nodiscard]] std::uint32_t BuildLocationBlocks(std::span<Neuron::LocationBlock> _outBlocks) const override;
   [[nodiscard]] std::uint32_t PollNotices(std::span<Neuron::Notice> _outNotices) override;
   void PollOrderFeedback(Neuron::OrderFeedback& _outFeedback) override;
   [[nodiscard]] const char* ReasonText(std::uint16_t _reasonCode) const override;
@@ -165,20 +172,35 @@ public:
 
 private:
   /*
-   * What the summary family last said is docked, one entry per station.
+   * Where the summary family last said this commander's ships are -- **all
+   * three states**, one entry per place.
+   *
+   * Docked only, until U3b: the panel began as the hangar's roster and grew the
+   * other two cases the summaries had been carrying all along. Keeping them in
+   * one list rather than three is what makes the panel one loop and the toasts
+   * one comparison.
    *
    * Replaced wholesale on each arrival rather than merged: a frame is a
    * complete statement about where this commander's ships are, and a merge
-   * would keep a station the authority has stopped listing -- which on this
-   * panel is a hangar that never empties.
+   * would keep a place the authority has stopped listing -- which on this
+   * panel is a hangar that never empties, or a crossing that never lands.
    *
    * Sorted by anchor so the panel's order is the universe's rather than
    * arrival's: a list that reshuffles because a datagram came in a different
    * sequence is a list the player cannot point at.
    */
-  struct DockedStation
+  struct FleetPlace
   {
     Game::AnchorId anchor = Game::INVALID_ID;
+
+    /// Which of the three ways this fleet is somewhere (ADR-016 6). Kept rather
+    /// than collapsed to a bool, because the panel says the word and the toasts
+    /// only ever compare the docked ones.
+    Game::FleetState state = Game::FleetState::OnGrid;
+
+    /// Seconds until a crossing lands, or `FLEET_ETA_NONE`. Meaningless for the
+    /// two states that are already somewhere.
+    std::uint16_t etaSeconds = Game::FLEET_ETA_NONE;
 
     /// From the *fleet summary* row rather than from `docked.size()`, and the
     /// difference matters: the summaries are always written while a roster is
@@ -227,11 +249,11 @@ private:
   /// Raises the dock/undock toasts for the difference between what is held and
   /// what just arrived. Called *before* the new list replaces the old one,
   /// because the comparison is the whole content of the message.
-  void NoteRosterChanges(const std::vector<DockedStation>& _next);
+  void NoteRosterChanges(const std::vector<FleetPlace>& _next);
 
-  /// What the universe calls the station on this anchor, or null for one the
-  /// content does not name.
-  [[nodiscard]] const char* StationNameFor(Game::AnchorId _anchor) const;
+  /// What the universe calls this anchor, or null for one the content does not
+  /// name.
+  [[nodiscard]] const char* AnchorNameFor(Game::AnchorId _anchor) const;
 
   Desc m_desc;
   Game::ReplicatedView m_view;
@@ -289,7 +311,7 @@ private:
   mutable std::int32_t m_stationXCm = 0;
   mutable std::int32_t m_stationYCm = 0;
 
-  std::vector<DockedStation> m_dockedStations;
+  std::vector<FleetPlace> m_places;
 
   /*
    * The economy's three summaries, as last stated (ADR-024 8, E3).

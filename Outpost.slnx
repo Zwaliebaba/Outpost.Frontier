@@ -3,6 +3,7 @@
     <Platform Name="x64" />
   </Configurations>
   <Folder Name="/Tests/">
+    <Project Path="OutpostTest/OutpostTest.vcxproj" />
     <Project Path="Tests/GameLogicTests/GameLogicTests.vcxproj" Id="1c8daad5-06f9-f54f-d508-9714512d9af0" />
     <Project Path="Tests/NeuronClientTests/NeuronClientTests.vcxproj" Id="82ff8212-c7c5-789c-299a-717affb644a4" />
     <Project Path="Tests/NeuronCoreTests/NeuronCoreTests.vcxproj" Id="8002b9e8-5815-0b65-38b0-53ea7706939c" />

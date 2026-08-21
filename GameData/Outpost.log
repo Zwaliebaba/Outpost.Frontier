@@ -1,145 +1,225 @@
-[   0.005] info  | Outpost: Frontier starting
-[   0.005] info  | config: Outpost.json
-[   0.005] info  | user settings: C:\Users\zwali\AppData\Local\Outpost.Frontier\Settings.json
-[   0.005] info  | mode: host (self test)
-[   0.005] info  | server: port 7777, max sessions 8
-[   0.005] info  | universe: GameData/Universe/Frontier.json
-[   0.005] info  | economy: GameData/Economy/Economy.json
-[   0.006] info  | content: 10 meshes from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Meshes
-[   0.006] info  | window: 1600x900 windowed, vsync on, ui scale 1.00
-[   3.768] info  | universe: read, parsed and hashed in 3762 ms (R17's threshold is ~1000 ms)
-[   3.768] info  | universe: 'Frontier' from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Universe/Frontier.json (2500 system(s), hash ad9555dd776008a6)
-[   3.768] info  | start: system 1 'Vesta-3', grid anchored at (-734132574593023943, -731859766588080745)
-[   3.772] info  | economy: read, parsed and hashed in 4 ms from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Economy/Economy.json
-[   3.772] info  | content: universe ad9555dd776008a6, economy 0b07707ec843431d, mixed 1965b853a23a5115
-[   3.776] info  | parked fleet: 40 hulls, tightest cross-wing clearance 90.3 m (LANTERN to ECHO)
-[   3.776] info  | self test: starting (schema, wire round-trips, replay determinism, the tick soak, then the QUIC loopback loop)
-[   3.776] info  | self test: schema hash is nonzero -- ok
-[   3.776] info  | self test: schema hash is stable -- ok
-[   3.776] info  | self test: the simulation states the game's schema -- ok
-[   3.776] info  | self test: the simulation states a content hash -- ok
-[   3.776] info  | self test: an order round-trips the wire byte-exactly -- ok
-[   3.777] info  | self test: a snapshot fits the datagram cap -- ok
-[   3.777] info  | self test: a snapshot round-trips emit -> bytes -> apply in integers -- ok
-[   3.790] info  | self test: replay determinism holds at the checkpoint -- ok
-[   3.790] info  | self test: replay determinism holds at the end -- ok
-[   3.790] info  | self test: the world hash notices a one-metre change -- ok
-[   3.790] info  | self test: replay hash 69c58e2751c0df22 (checkpoint fa56d9f638cba0fe)
-[   3.791] info  | self test: the bake pairs a gate with one that leads back -- ok
-[   3.792] info  | self test: a gate grid holds its gate -- ok
-[   3.792] info  | self test: a fleet at the gate is allowed through it -- ok
-[   3.792] info  | self test: a fleet across the grid is refused NotAtGate -- ok
-[   3.795] info  | self test: the crossing lands the fleet in the system on the far side -- ok
-[   3.795] info  | self test: the bake has a field and a station to run the loop between -- ok
-[   3.796] info  | self test: a Miner standing in a field is allowed to work it -- ok
-[   3.812] info  | self test: mining puts ore in the hold -- ok
-[   3.812] info  | self test: and the field's status shows it measurably emptier -- ok
-[   3.812] info  | self test: with the worked cluster reading below full -- ok
-[   3.812] info  | self test: a loaded Miner may warp to the station -- ok
-[   3.819] info  | self test: and dock when it gets there -- ok
-[   3.820] info  | self test: the Miner reaches the station's roster -- ok
-[   3.820] info  | self test: with every unit it was carrying -- ok
-[   3.820] info  | self test: and the commander can commit it to the Bay -- ok
-[   3.820] info  | self test: which holds exactly what was committed -- ok
-[   3.820] info  | self test: and belongs to nobody else -- ok
-[   3.824] info  | self test: the Bay outlives the grid it was filled at -- ok
-[   3.887] info  | self test: soak 41 ships -- 200 ticks, mean 0.307 ms, worst 0.534 ms, 0.6 % of the 50 ms tick
-[   5.441] info  | self test: soak 256 ships -- 146 ticks, mean 10.305 ms, worst 15.901 ms, 20.6 % of the 50 ms tick
-[   7.480] info  | self test: soak 512 ships -- 58 ticks, mean 26.146 ms, worst 49.605 ms, 52.3 % of the 50 ms tick
-[  12.027] info  | self test: soak 1024 ships -- 20 ticks, mean 83.727 ms, worst 94.276 ms, 167.5 % of the 50 ms tick
-[  12.027] info  | self test: soak headroom -- 0.6 capped grids fit one core at 20 Hz
-[  12.027] info  | self test: the soak reaches every population it claims to measure -- ok
-[  12.027] info  | self test: the soak's tripwire is not armed here -- ADR-018 D11 scopes tick cost to Release
-[  12.097] info  | quic transport listening on 127.0.0.1:56363 (alpn opf/1)
-[  12.098] info  | server host started on port 56363 at 20 Hz
-[  12.098] info  | self test: server starts -- ok
-[  12.098] info  | self test: server reports its bound port -- ok
-[  12.098] info  | quic transport connecting to 127.0.0.1:56363
-[  12.099] info  | self test: client opens a socket -- ok
-[  12.149] info  | client 1 joined as 'self test'
-[  12.156] info  | joined as client 1 (server at tick 0, 20 Hz)
-[  12.156] info  | world 1 anchored at (-734132574593023943, -731859766588080745)
-[  12.156] info  | self test: handshake completes -- ok
-[  12.156] info  | self test: server issues a client id -- ok
-[  12.156] info  | self test: server reports 20 Hz -- ok
-[  12.156] info  | self test: server counts the session -- ok
-[  12.203] info  | first pong: server tick 1, round trip 46.798 ms
-[  12.701] info  | self test: heartbeat crosses the loopback -- ok
-[  12.701] info  | self test: round trip is plausible -- ok
-[  12.702] info  | self test: server advances its tick -- ok
-[  12.702] info  | self test: a snapshot arrives -- ok
-[  12.702] info  | self test: the snapshot decodes to ships -- ok
-[  12.702] info  | self test: an order goes up the reliable channel -- ok
-[  12.763] info  | self test: the authority accepts it and the ack returns -- ok
-[  12.810] info  | self test: a view request for the grid we are on is answered -- ok
-[  12.810] info  | self test: and accepted, because our fleet is there -- ok
-[  12.856] info  | self test: a view request for a grid we are not on is answered -- ok
-[  12.856] info  | self test: and refused -- ok
-[  12.856] info  | self test: with a reason the game named, not the engine -- ok
-[  12.856] info  | self test: a refused view left the feed on the grid we had -- ok
-[  12.856] info  | self test: the welcome names the grid's anchor -- ok
-[  12.904] info  | self test: a dock order goes up the reliable channel -- ok
-[  12.951] info  | self test: the authority accepts the dock -- ok
-[  12.952] info  | self test: the docked ships leave the snapshot -- ok
-[  13.061] info  | self test: the roster arrives on the summary feed -- ok
-[  13.061] info  | self test: and holds every ship that docked -- ok
-[  13.061] info  | self test: an undock goes up the same acked stream as an order -- ok
-[  13.108] info  | self test: the authority accepts the undock and acks it on the order stream -- ok
-[  13.109] info  | self test: the undocked ships are back on the grid, with their own ids -- ok
-[  13.109] info  | self test: and arrive protected (statusBits bit 0) -- ok
-[  13.109] info  | self test: and the ships that did not undock are not wearing it -- ok
-[  14.057] info  | self test: the roster drops the ships that undocked -- ok
-[  14.057] info  | self test: and keeps the one that was not named -- ok
-[  14.058] info  | self test: the undocked fleet is given a parking order, in its own lane of the order records -- ok
-[  14.058] info  | self test: no datagram was dropped -- ok
-[  14.058] info  | self test: transport adds under a millisecond -- ok
-[  14.058] info  | self test: 8 pings, 8 pongs, app rtt 47.055 ms, transport rtt 0.776 ms (min 0.180 ms), 0 resends, server at tick 37
-[  14.098] info  | connection 1 said goodbye
-[  14.098] info  | client 1 left (reason 5)
-[  14.105] info  | self test: server outlives the client -- ok
-[  14.105] info  | quic transport connecting to 127.0.0.1:56363
-[  14.148] info  | client 2 joined as 'approach'
-[  14.151] info  | joined as client 2 (server at tick 40, 20 Hz)
-[  14.151] info  | world 1 anchored at (-734132574593023943, -731859766588080745)
-[  14.151] info  | self test: an approach leg goes up before the client vanishes -- ok
-[  14.214] info  | first pong: server tick 41, round trip 62.409 ms
-[  14.499] info  | connection 2 said goodbye
-[  14.499] info  | client 2 left (reason 5)
-[  14.499] info  | self test: the server outlives a client that left mid-approach -- ok
-[  14.499] info  | quic transport connecting to 127.0.0.1:56363
-[  14.549] info  | client 3 joined as 'observer'
-[  14.560] info  | joined as client 3 (server at tick 48, 20 Hz)
-[  14.560] info  | world 1 anchored at (-734132574593023943, -731859766588080745)
-[  14.560] info  | self test: a fleet whose client left mid-approach is still on the grid, not docked -- ok
-[  14.560] info  | self test: and the grid did not lose ships to the disconnect -- ok
-[  14.607] info  | first pong: server tick 49, round trip 47.178 ms
-[  17.098] info  | net(session 3): rtt 0.28 ms, resends 0, dropped 0, dgrams 64/10, bytes 47079/144
-[  17.704] info  | self test: and the interrupted approach never docks anybody -- ok
-[  17.704] info  | self test: and the fleet is still outside when the dust settles -- ok
-[  17.705] info  | self test: a summary frame carrying all five kinds is written -- ok
-[  17.705] info  | self test: and the client accepts it whole -- ok
-[  17.705] info  | self test: the site status survived the records before it -- ok
-[  17.705] info  | self test: so did the cargo rows -- ok
-[  17.705] info  | self test: and the bay -- ok
-[  17.705] info  | self test: the docked block the frame opened with is still there -- ok
-[  17.705] info  | self test: a fleet at the station pre-checks as dockable -- ok
-[  17.705] info  | self test: and one out in the black is refused for distance -- ok
-[  17.705] info  | self test: a view with no station names no station, which is the bug's signature -- ok
-[  17.706] info  | self test: the mine gate's fleet is on screen -- ok
-[  17.706] info  | self test: MINE is refused where there is no field -- ok
-[  17.706] info  | self test: MINE is refused for a selection holding no Miner -- ok
-[  17.706] info  | self test: and offered to a Miner with room -- ok
-[  17.706] info  | self test: and refused again once every Miner is full -- ok
-[  17.748] info  | connection 3 said goodbye
-[  17.798] info  | client 3 left (reason 1)
-[  20.712] info  | self test: 60 ticks in 3006 ms -- mean period 50.093 ms (want 50.0 +/- 0.5 idle), 0 overrun(s)
-[  20.712] info  | self test: the tick loop keeps its cadence -- ok
-[  20.752] info  | server host stopped after 173 ticks (0 overruns)
-[  20.752] info  | self test: server stops cleanly -- ok
-[  20.752] info  | self test: ticks did not persistently overrun -- ok
-[  20.753] info  | self test: span Poll         n=142    mean 0.082 ms  max 0.458 ms
-[  20.753] info  | self test: span Tick         n=142    mean 0.190 ms  max 0.546 ms
-[  20.753] info  | self test: count SnapshotsSent total 111 over 111
-[  20.753] info  | self test: span Snapshot     n=111    mean 0.067 ms  max 0.647 ms
-[  20.753] info  | self test: count SummariesSent total 5 over 5
-[  20.753] info  | self test: PASSED
+[   0.004] info  | Outpost: Frontier starting
+[   0.004] info  | config: Outpost.json
+[   0.004] info  | user settings: C:\Users\zwali\AppData\Local\Outpost.Frontier\Settings.json
+[   0.004] info  | mode: host (self test)
+[   0.004] info  | server: port 7777, max sessions 8
+[   0.004] info  | universe: GameData/Universe/Frontier.json
+[   0.004] info  | economy: GameData/Economy/Economy.json
+[   0.004] info  | content: 10 meshes from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Meshes
+[   0.004] info  | window: 1600x900 windowed, vsync on, ui scale 1.00
+[   3.529] info  | universe: read, parsed and hashed in 3525 ms (R17's threshold is ~1000 ms)
+[   3.529] info  | universe: 'Frontier' from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Universe/Frontier.json (2500 system(s), hash ad9555dd776008a6)
+[   3.529] info  | start: system 1 'Vesta-3', grid anchored at (-734132574593023943, -731859766588080745)
+[   3.531] info  | economy: read, parsed and hashed in 2 ms from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Economy/Economy.json
+[   3.531] info  | content: universe ad9555dd776008a6, economy 0b07707ec843431d, mixed 1965b853a23a5115
+[   3.531] info  | persistence is off: this shard keeps nothing across a restart
+[   3.532] info  | parked fleet: 40 hulls, tightest cross-wing clearance 90.3 m (LANTERN to ECHO)
+[   3.532] info  | self test: starting (schema, wire round-trips, replay determinism, the tick soak, then the QUIC loopback loop)
+[   3.532] info  | self test: schema hash is nonzero -- ok
+[   3.532] info  | self test: schema hash is stable -- ok
+[   3.532] info  | self test: the simulation states the game's schema -- ok
+[   3.532] info  | self test: the simulation states a content hash -- ok
+[   3.533] info  | self test: an order round-trips the wire byte-exactly -- ok
+[   3.533] info  | self test: a snapshot fits the datagram cap -- ok
+[   3.533] info  | self test: a snapshot round-trips emit -> bytes -> apply in integers -- ok
+[   3.543] info  | self test: replay determinism holds at the checkpoint -- ok
+[   3.543] info  | self test: replay determinism holds at the end -- ok
+[   3.543] info  | self test: the world hash notices a one-metre change -- ok
+[   3.543] info  | self test: replay hash 69c58e2751c0df22 (checkpoint fa56d9f638cba0fe)
+[   3.544] info  | self test: the bake pairs a gate with one that leads back -- ok
+[   3.545] info  | self test: a gate grid holds its gate -- ok
+[   3.545] info  | self test: a fleet at the gate is allowed through it -- ok
+[   3.545] info  | self test: a fleet across the grid is refused NotAtGate -- ok
+[   3.548] info  | self test: the crossing lands the fleet in the system on the far side -- ok
+[   3.548] info  | self test: the bake has a field and a station to run the loop between -- ok
+[   3.549] info  | self test: a Miner standing in a field is allowed to work it -- ok
+[   3.561] info  | self test: mining puts ore in the hold -- ok
+[   3.561] info  | self test: and the field's status shows it measurably emptier -- ok
+[   3.561] info  | self test: with the worked cluster reading below full -- ok
+[   3.561] info  | self test: a loaded Miner may warp to the station -- ok
+[   3.567] info  | self test: and dock when it gets there -- ok
+[   3.567] info  | self test: the Miner reaches the station's roster -- ok
+[   3.567] info  | self test: with every unit it was carrying -- ok
+[   3.567] info  | self test: and the commander can commit it to the Bay -- ok
+[   3.567] info  | self test: which holds exactly what was committed -- ok
+[   3.567] info  | self test: and belongs to nobody else -- ok
+[   3.570] info  | self test: the Bay outlives the grid it was filled at -- ok
+[   3.618] info  | self test: soak 41 ships -- 200 ticks, mean 0.232 ms, worst 0.322 ms, 0.5 % of the 50 ms tick
+[   5.165] info  | self test: soak 256 ships -- 172 ticks, mean 8.772 ms, worst 11.942 ms, 17.5 % of the 50 ms tick
+[   7.058] info  | self test: soak 512 ships -- 63 ticks, mean 23.866 ms, worst 45.311 ms, 47.7 % of the 50 ms tick
+[  11.080] info  | self test: soak 1024 ships -- 22 ticks, mean 69.240 ms, worst 75.225 ms, 138.5 % of the 50 ms tick
+[  11.080] info  | self test: soak headroom -- 0.7 capped grids fit one core at 20 Hz
+[  11.080] info  | self test: the soak reaches every population it claims to measure -- ok
+[  11.080] info  | self test: the soak's tripwire is not armed here -- ADR-018 D11 scopes tick cost to Release
+[  11.081] info  | self test: the restart scenario commits ore to a Bay -- ok
+[  11.081] info  | self test: the restart scenario starts a refine job -- ok
+[  11.081] info  | self test: the job is running before the shard stops -- ok
+[  11.082] info  | self test: the shard serialises its durable state -- ok
+[  11.085] info  | self test: a shard with no state opens fresh -- ok
+[  11.088] info  | self test: the shard writes a snapshot -- ok
+[  11.089] info  | self test: the restarted shard finds its state -- ok
+[  11.089] info  | self test: the snapshot carries the reload proof it was written with -- ok
+[  11.089] info  | self test: the restarted shard reads its state back -- ok
+[  11.089] info  | self test: the reload reproduces the proof -- ok
+[  11.089] info  | self test: the roster survives the restart -- ok
+[  11.089] info  | self test: the hold survives the restart -- ok
+[  11.089] info  | self test: the Bay survives the restart -- ok
+[  11.089] info  | self test: the refine job survives the restart -- ok
+[  11.089] info  | self test: with the job it was -- ok
+[  11.089] info  | self test: and its completion tick unmoved -- ok
+[  11.089] info  | self test: the reloaded job finishes into the Bay -- ok
+[  11.090] info  | self test: a load into a running shard is refused -- ok
+[  11.090] info  | self test: a re-baked universe refuses to load an old shard -- ok
+[  11.093] info  | self test: the host's durable store opens -- ok
+[  11.143] info  | quic transport listening on 127.0.0.1:51978 (alpn opf/1)
+[  11.143] info  | server host started on port 51978 at 20 Hz
+[  11.144] info  | self test: server starts -- ok
+[  11.144] info  | self test: server reports its bound port -- ok
+[  11.144] info  | quic transport connecting to 127.0.0.1:51978
+[  11.144] info  | self test: client opens a socket -- ok
+[  11.194] info  | player 1 is known to this shard already; no starting fleet
+[  11.195] info  | client 1 joined as 'self test' (player 1)
+[  11.201] info  | joined as client 1 (server at tick 0, 20 Hz)
+[  11.201] info  | world 1 anchored at (-734132574593023943, -731859766588080745)
+[  11.201] info  | self test: handshake completes -- ok
+[  11.202] info  | self test: server issues a client id -- ok
+[  11.202] info  | self test: server reports 20 Hz -- ok
+[  11.202] info  | self test: server counts the session -- ok
+[  11.250] info  | first pong: server tick 1, round trip 48.348 ms
+[  11.759] info  | self test: heartbeat crosses the loopback -- ok
+[  11.759] info  | self test: round trip is plausible -- ok
+[  11.759] info  | self test: server advances its tick -- ok
+[  11.759] info  | self test: a snapshot arrives -- ok
+[  11.760] info  | self test: the snapshot decodes to ships -- ok
+[  11.760] info  | self test: the snapshot holds a hull of the commander's own -- ok
+[  11.760] info  | self test: an order goes up the reliable channel -- ok
+[  11.806] info  | self test: the authority accepts it and the ack returns -- ok
+[  11.852] info  | self test: a view request for the grid we are on is answered -- ok
+[  11.852] info  | self test: and accepted, because our fleet is there -- ok
+[  11.898] info  | self test: a view request for a grid we are not on is answered -- ok
+[  11.898] info  | self test: and refused -- ok
+[  11.898] info  | self test: with a reason the game named, not the engine -- ok
+[  11.899] info  | self test: a refused view left the feed on the grid we had -- ok
+[  11.899] info  | self test: the welcome names the grid's anchor -- ok
+[  11.960] info  | self test: a dock order goes up the reliable channel -- ok
+[  12.008] info  | self test: the authority accepts the dock -- ok
+[  12.008] info  | self test: the docked ships leave the snapshot -- ok
+[  12.102] info  | self test: the roster arrives on the summary feed -- ok
+[  12.102] info  | self test: and holds every ship that docked -- ok
+[  12.102] info  | self test: an undock goes up the same acked stream as an order -- ok
+[  12.148] info  | self test: the authority accepts the undock and acks it on the order stream -- ok
+[  12.149] info  | self test: the undocked ships are back on the grid, with their own ids -- ok
+[  12.149] info  | self test: and arrive protected (statusBits bit 0) -- ok
+[  12.149] info  | self test: and the ships that did not undock are not wearing it -- ok
+[  13.099] info  | self test: the roster drops the ships that undocked -- ok
+[  13.099] info  | self test: and keeps the one that was not named -- ok
+[  13.099] info  | self test: the undocked fleet is given a parking order, in its own lane of the order records -- ok
+[  13.099] info  | self test: no datagram was dropped -- ok
+[  13.099] info  | self test: transport adds under a millisecond -- ok
+[  13.099] info  | self test: 8 pings, 8 pongs, app rtt 45.492 ms, transport rtt 0.752 ms (min 0.184 ms), 0 resends, server at tick 37
+[  13.144] info  | connection 1 said goodbye
+[  13.194] info  | client 1 left (reason 1); player 1 may resume for 120 s
+[  13.205] info  | self test: server outlives the client -- ok
+[  13.206] info  | quic transport connecting to 127.0.0.1:51978
+[  13.245] info  | player 2 joined: starting fleet on anchor 2
+[  13.245] info  | client 2 joined as 'approach' (player 2)
+[  13.253] info  | joined as client 2 (server at tick 41, 20 Hz)
+[  13.253] info  | world 1 anchored at (-734132778093023943, -731859651980029745)
+[  13.253] info  | self test: an approach leg goes up before the client vanishes -- ok
+[  13.299] info  | first pong: server tick 42, round trip 46.264 ms
+[  13.594] info  | connection 2 said goodbye
+[  13.644] info  | client 2 left (reason 1); player 2 may resume for 120 s
+[  13.644] info  | self test: the server outlives a client that left mid-approach -- ok
+[  13.645] info  | quic transport connecting to 127.0.0.1:51978
+[  13.694] info  | client 3 resumed as 'observer' (player 2)
+[  13.706] info  | joined as client 3 (server at tick 50, 20 Hz)
+[  13.706] info  | world 1 anchored at (-734132778093023943, -731859651980029745)
+[  13.706] info  | self test: and comes back as the commander that left -- ok
+[  13.706] info  | self test: a fleet whose client left mid-approach is still on the grid, not docked -- ok
+[  13.706] info  | self test: and the grid did not lose ships to the disconnect -- ok
+[  13.754] info  | first pong: server tick 51, round trip 47.524 ms
+[  16.144] info  | net(session 3): rtt 0.25 ms, resends 0, dropped 0, dgrams 62/10, bytes 7084/144
+[  16.896] info  | self test: and the interrupted approach never docks anybody -- ok
+[  16.897] info  | self test: and the fleet is still outside when the dust settles -- ok
+[  16.897] info  | self test: a summary frame carrying all five kinds is written -- ok
+[  16.897] info  | self test: and the client accepts it whole -- ok
+[  16.897] info  | self test: the site status survived the records before it -- ok
+[  16.897] info  | self test: so did the cargo rows -- ok
+[  16.897] info  | self test: and the bay -- ok
+[  16.897] info  | self test: the docked block the frame opened with is still there -- ok
+[  16.897] info  | self test: a fleet at the station pre-checks as dockable -- ok
+[  16.897] info  | self test: and one out in the black is refused for distance -- ok
+[  16.897] info  | self test: a view with no station names no station, which is the bug's signature -- ok
+[  16.898] info  | self test: the mine gate's fleet is on screen -- ok
+[  16.898] info  | self test: MINE is refused where there is no field -- ok
+[  16.898] info  | self test: MINE is refused for a selection holding no Miner -- ok
+[  16.898] info  | self test: and offered to a Miner with room -- ok
+[  16.898] info  | self test: and refused again once every Miner is full -- ok
+[  16.898] info  | self test: the location gate can state where four fleets are -- ok
+[  16.898] info  | self test: with no world on screen, every place is elsewhere -- ok
+[  16.898] info  | self test: a crossing carries its eta and offers no button -- ok
+[  16.898] info  | self test: a docked block offers the hangar and no eta -- ok
+[  16.898] info  | self test: a fleet on another grid offers the view switch -- ok
+[  16.898] info  | self test: and every block was given its state in the game's own words -- ok
+[  16.898] info  | quic transport connecting to 127.0.0.1:51978
+[  16.944] info  | connection 3 said goodbye
+[  16.945] info  | player 3 joined: starting fleet on anchor 3
+[  16.945] info  | client 4 joined as 'alice' (player 3)
+[  16.959] info  | joined as client 4 (server at tick 115, 20 Hz)
+[  16.959] info  | world 1 anchored at (-734132678637868499, -731859771819696225)
+[  16.959] info  | quic transport connecting to 127.0.0.1:51978
+[  16.994] info  | client 3 left (reason 1); player 2 may resume for 120 s
+[  16.995] info  | player 4 joined: starting fleet on anchor 4
+[  16.995] info  | client 5 joined as 'bob' (player 4)
+[  17.005] info  | joined as client 5 (server at tick 116, 20 Hz)
+[  17.005] info  | world 1 anchored at (-734132676853357464, -731859770035185190)
+[  17.005] info  | self test: two commanders hold sessions at once -- ok
+[  17.005] info  | self test: the two commanders have different ids -- ok
+[  17.005] info  | self test: and neither of them is nobody -- ok
+[  17.005] info  | self test: each commander is given a resume handle -- ok
+[  17.005] info  | self test: and the two handles are different -- ok
+[  17.005] info  | self test: the second commander is put on a grid of their own -- ok
+[  17.052] info  | first pong: server tick 117, round trip 46.879 ms
+[  17.052] info  | self test: a request to watch another commander's grid is answered -- ok
+[  17.052] info  | self test: and refused -- ok
+[  17.052] info  | self test: the refused viewer is still on their own grid -- ok
+[  17.052] info  | first pong: server tick 116, round trip 93.331 ms
+[  17.052] info  | self test: the harness can name one of the first commander's hulls -- ok
+[  17.052] info  | self test: a commander may send an order naming another's ship -- ok
+[  17.099] info  | self test: and the authority refuses it NotOwned -- ok
+[  17.954] info  | self test: the second commander is told where their own fleet is -- ok
+[  17.954] info  | self test: and never where the first one's is -- ok
+[  17.995] info  | connection 5 said goodbye
+[  18.044] info  | client 5 left (reason 1); player 4 may resume for 120 s
+[  18.047] info  | quic transport connecting to 127.0.0.1:51978
+[  18.094] info  | client 6 resumed as 'bob' (player 4)
+[  18.109] info  | joined as client 6 (server at tick 138, 20 Hz)
+[  18.109] info  | world 1 anchored at (-734132676853357464, -731859770035185190)
+[  18.109] info  | self test: a dropped commander can reconnect -- ok
+[  18.109] info  | self test: and comes back as the same commander -- ok
+[  18.109] info  | self test: on the grid they were watching -- ok
+[  18.109] info  | self test: with a fresh handle, so the old one is spent -- ok
+[  18.157] info  | first pong: server tick 139, round trip 47.700 ms
+[  18.950] info  | self test: with the fleet still theirs -- ok
+[  18.950] info  | self test: and still not the other commander's -- ok
+[  18.953] info  | self test: the server outlives both commanders -- ok
+[  18.994] info  | connection 6 said goodbye
+[  18.994] info  | connection 4 said goodbye
+[  19.044] info  | client 6 left (reason 1); player 4 may resume for 120 s
+[  19.044] info  | client 4 left (reason 1); player 3 may resume for 120 s
+[  21.194] warn  | scripted patrol refused: no such ship
+[  21.956] info  | self test: 60 ticks in 3003 ms -- mean period 50.052 ms (want 50.0 +/- 0.5 idle), 0 overrun(s)
+[  21.956] info  | self test: the tick loop keeps its cadence -- ok
+[  21.998] info  | shard snapshot at tick 217: 1908 bytes, durable hash b769e4e8f5fe08d9
+[  22.002] info  | server host stopped after 217 ticks (0 overruns)
+[  22.002] info  | self test: server stops cleanly -- ok
+[  22.004] info  | self test: a host that stops cleanly leaves a snapshot behind -- ok
+[  22.004] info  | self test: the snapshot is stamped with the tick the host stopped at -- ok
+[  22.004] info  | self test: the snapshot carries the shard's reload proof -- ok
+[  22.005] info  | self test: ticks did not persistently overrun -- ok
+[  22.005] info  | self test: span Poll         n=128    mean 0.106 ms  max 0.998 ms
+[  22.005] info  | self test: span Tick         n=127    mean 0.192 ms  max 0.481 ms
+[  22.005] info  | self test: count SnapshotsSent total 137 over 125
+[  22.005] info  | self test: span Snapshot     n=125    mean 0.056 ms  max 1.537 ms
+[  22.005] info  | self test: count SummariesSent total 6 over 6
+[  22.005] info  | self test: PASSED

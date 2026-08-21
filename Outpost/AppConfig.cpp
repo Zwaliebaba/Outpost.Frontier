@@ -329,7 +329,10 @@ void ApplyConfigLayer(const JsonValue& _root, AppConfig& _config, ConfigDiagnost
     return;
   }
 
-  WarnUnknownKeys(_root, {"mode", "selfTest", "logging", "universe", "economy", "persistence", "content", "server", "client"}, "",
+  WarnUnknownKeys(_root,
+                  {"mode", "selfTest", "logging", "universe", "economy", "persistence", "content", "server", "client",
+                   "scenario"},
+                  "",
                   _diagnostics);
 
   const JsonValue mode = _root.Member("mode");
@@ -390,6 +393,25 @@ void ApplyConfigLayer(const JsonValue& _root, AppConfig& _config, ConfigDiagnost
     WarnUnknownKeys(persistence, {"enabled", "directory"}, "persistence", _diagnostics);
     ReadBool(persistence, "enabled", _config.persistence.enabled, "persistence", _diagnostics);
     ReadText(persistence, "directory", _config.persistence.directory, "persistence", _diagnostics);
+  }
+
+  /*
+   * The scenario knobs (`ScenarioSettings`), absent from the shipped file and
+   * meaning "the world as it has always been" when they are.
+   *
+   * Read like every other section, which is the point: a state you cannot reach
+   * is a state nobody checks, and the way to reach one here is a config layer
+   * rather than a debug key or a build flag. A scratch directory holding only a
+   * modified `Outpost.json` runs a variant without touching the repository.
+   */
+  const JsonValue scenario = _root.Member("scenario");
+  if (scenario.Valid())
+  {
+    WarnUnknownKeys(scenario, {"secondFleetWings"}, "scenario", _diagnostics);
+    // Capped at the starting fleet's own wing count: this spawns the same
+    // authored fleet, so asking for more wings than there are is asking for
+    // ships the table does not describe.
+    ReadUInt(scenario, "secondFleetWings", _config.scenario.secondFleetWings, 0, 8, "scenario", _diagnostics);
   }
 
   const JsonValue server = _root.Member("server");

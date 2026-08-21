@@ -3,16 +3,15 @@
 **Status:** Session output 2026-08-19 · **U1, U2, U3a, U3b's sim and wire halves, U4's sim
 half, U5's pure half and U3c built** (U3c 2026-08-21). What is left in this plan is **screen
 work, with no exceptions left**: U3b's client half, U4's route feeder and icons, U5's map itself
-and U6 need a GPU and a person. U3c was the exception and it is done — it split into **U3c-a**
+and U6 need a GPU and a person. **D1, U6's design gate, was drawn on 2026-08-21** — source in,
+plate and four rulings owed. U3c was the exception and it is done — it split into **U3c-a**
 (ownership in the simulation) and **U3c-b** (the second commander on the wire), because a ship
 had no owner and minting a second id against a registry where both commanders owned everything
 would have passed the privacy accept for the wrong reason. **🏁 Its accept is met (run 188):
 two commanders, distinct ids, disjoint grids, private rosters and summaries, view rights
 enforced, orders refused `NotOwned`, and a reconnect inside the grace window that comes back as
-the same commander with its fleet intact.** **U3c splits into U3c-a (ownership in the simulation) and U3c-b (the
-second commander on the wire) as of 2026-08-21** — a ship has no owner today, and minting a
-second id against a registry where both commanders own everything would pass the privacy
-accept for the wrong reason. The rationale is with the slice. The design this plan delivers is
+the same commander with its fleet intact.** The rationale for the split is with the slice.
+The design this plan delivers is
 [ADR-016](ADR/ADR-016-procedural-universe-and-warp.md); where this document and that one
 disagree, the ADR wins on *what* and this one on *when*.
 
@@ -285,12 +284,130 @@ half a naive implementation gets wrong by switching first and validating after. 
 is its own reason rather than a reused one, because the refusal is a sentence the player
 reads and `NotAtStation` would name a different problem with a different action.
 
-**Still owed by U3b:** the screen — auto-follow, roster location blocks with IN WARP and
-off-grid states, warp ghosts, the ~200 ms settle over the interpolation refill — plus A15's
-RTT-parameterised acceptance, A16's presence edges and A18's toast rows. The wire underneath
+**Still owed by U3b:** warp ghosts, plus A15's RTT-parameterised acceptance and A16's presence
+edges.
+
+**The location blocks landed 2026-08-21**, and they landed as a *generalisation* rather than as
+a new panel. T2 built `DockedBlock` for the hangar's roster; U3b's second and third cases were
+waiting behind it, because a fleet on a grid the player is not watching is exactly as invisible
+to the scene as a docked one, and a fleet mid-warp is in no world at all. All three are one
+sentence with a different word in it — *this many of yours, over there* — so `LocationBlock`
+carries a `stateLabel` and an `etaSeconds`, and the panel reads `ELSEWHERE` rather than
+`DOCKED`.
+
+**The word is the game's and the engine never switches on it.** `DOCKED`, `IN WARP` and
+`ON GRID` cross the seam as a string, not an enum, so three facts about this game stay out of a
+library that serves two (ADR-014 §2b). What the client decides is the *colour*: a crossing is
+the one state that stops being true on its own, so it reads in the caution amber that means
+"not settled" everywhere else on this HUD.
+
+**The assertion that earned the gate is about the case that gets no block.** A fleet standing on
+the grid the player is looking at is already on screen as hulls, with rings, bars and a roster
+row each; listing it again as "6 ships over there" is one fleet counted twice on one HUD with no
+way to tell which count is the lie. `RunLocationBlockGate` drives a four-place summary through
+the real decoder and checks the crossing carries its ETA with no button, the docked block offers
+the hangar with no ETA, the off-grid fleet offers the view switch, and every block was given its
+state in the game's own words.
+
+**The ~200 ms settle landed the same day, and what it protects is not what the name suggests.**
+The obvious reading is that the interpolation buffer needs covering while it refills — and it
+does not: `ReplicatedView::SampleAt` already shows the oldest frame it holds rather than
+nothing, so a switch produces a correct-but-unblended frame and never a smear or a snap. That
+was checked before anything was written.
+
+What actually needed protecting is **the client's own reactions to the scene changing under
+it**, and one of them was already wrong. A grid switch changes *every id on screen at once*,
+and T2's transit fades exist precisely to notice ids appearing and disappearing — so a switch
+read as a whole fleet leaving and another arriving, and would have drawn a ring for every one
+of them. Nobody went anywhere; the camera moved. Two features, each correct alone, wrong where
+they met.
+
+**The window exists because the two signals race.** `ViewChanged` is reliable and ordered;
+snapshots are datagrams, so the new grid's first frame can land on either side of the notice
+that the grid changed. The settle re-baselines the transit list **every frame** it runs rather
+than once at the notice, which is what makes it robust in both directions — a single clear at
+the notice still leaves one frame exposed if a snapshot arrives first. The ghosts and the
+approach chain are cleared with it, for their own reasons: a promise about ships on a grid
+nobody is watching is one that hangs, and a two-step order's second step names ships that are
+about to leave the screen.
+
+**A18's first toast row came with it.** `ViewChanged` had been sitting in `ClientConnection`
+with no reader — the same shape the summary family was in before T2's client half — so a
+refused view switch was silent. It now raises a toast carrying the game's own reason text, on
+the path a refused order already takes, because a player who cannot go somewhere is owed the
+same sentence whichever surface they asked from.
+
+**Auto-follow landed 2026-08-21, and its policy is one sentence:** *a player watching a place
+they have nothing at is watching the wrong place.* Everything else in it is that sentence being
+careful.
+
+**The trigger is arrival, not departure, and that is forced rather than chosen.** `MayView`
+gates a view request on presence, so the grid a fleet is warping *to* refuses the client until
+the fleet is standing on it. Following at departure would mean asking for a grid the authority
+is right to refuse; the honest window between the two is the crossing, which is U6's transit
+view and not this.
+
+**The guard is "nothing of mine is here", not "my fleet moved".** A station where ships are
+docked, or a grid where half the fleet stayed behind, is a place the player has a reason to be,
+and yanking the camera because the other half arrived somewhere would be the HUD overruling a
+decision they made. Only an empty place follows. Ties break by anchor rather than by arrival
+order, because two grids holding the same count is a real state and the camera has to land the
+same way twice.
+
+**One factoring change came out of it, and it improved the seam.** `BuildLocationBlocks` had
+been dropping the row for the grid being watched — correct for the panel, wrong as a rule,
+because auto-follow's whole question is "does where I am looking still hold anything of mine"
+and the game had already deleted the answer. The blocks now carry every place plus an
+`inScene` flag the game sets, the panel skips on that flag, and the client decides what it may
+notice rather than being told. The decision itself moved to `FollowTarget` in `AutoFollow.h`,
+a pure function over the blocks: the rule is the whole feature, and a rule that lives inside a
+class holding a swap chain is a rule nobody can assert against. Seven tests cover it.
+
+**A scenario lever landed with it (2026-08-21), because half of what U3b builds cannot be
+reached from the shipped world.** Auto-follow, the settle, the view-refused toast and a location
+block for a place you are not standing all need a world the default start does not build — so
+they could be written, unit-tested, and never once *looked at*, which is exactly the gap R1
+records three defects escaping through.
+
+`AppConfig` grew a `scenario` block of **knobs rather than named presets**: a preset list is a
+vocabulary that drifts from what it sets up, while each knob is one fact about the world and
+they compose. The first is `secondFleetWings` — a second fleet for the same commander, on the
+next anchor in bake order nobody is standing on, off the scripted patrol. The anchor is
+deliberately *not* configurable: `HomeAnchorFor` already answers that question deterministically
+for a second commander, so the config says *how much, elsewhere* and never carries an id a
+re-bake could move.
+
+**Every knob is off by default and that is load-bearing rather than polite.** The committed
+`Outpost.json` must keep producing the world it produced yesterday, because the replay hash is a
+property of the shipped scenario (ADR-005) — a knob that changed it by existing would make every
+future determinism failure ambiguous. Verified: the shipped config still reports replay hash
+`69c58e2751c0df22`, and the variant runs from a scratch directory holding only a modified
+`Outpost.json`, leaving the repository untouched.
+
+**It found two defects within a minute of the first frame**, which is the whole argument for
+building it. The `ELSEWHERE` heading was drawing over nothing — the block count it tested was
+the game's raw count, not the number that survives the panel's own skip, so in the ordinary case
+(one fleet, standing where you are looking) the heading sat above empty space. And the first
+block that ever named a grid which was not a station's drew **`?`**: the name table held stations
+only, a hangar-shaped assumption from T2 that a location block quietly outgrew. Neither is a
+number any test could have been wrong about; both are a frame.
+
+**What is still not proved is an accepted switch end to end.** Auto-follow is what will make
+one happen for real, and the harness still cannot set the scenario up: it needs a single
+commander with presence on **two** grids at once, and nothing in `selfTest` puts one there.
+The rule is a tested unit and an untested integration, which is the same sentence as before and
+now has a named cause rather than a missing feature. The wire underneath
 all of it is in the tree, and `selfTest` drives the view gate end to end in the shipping
-binary. **What it cannot yet prove is a switch:** that needs two grids with presence on both,
-which is U3c's scenario and not this one's.
+binary.
+
+**What it can now prove is half a switch, and the half it cannot is worth naming.** U3c landed
+on 2026-08-21 with two commanders on disjoint grids, so the *refused* path is driven end to
+end over a real socket: a commander asks to watch a grid they have no presence on, the request
+is answered, the refusal carries `NoPresence`, and the feed is still pointed where it was. The
+**accepted** path is still unproven, and it is the one carrying the smear guard — that needs a
+single commander with presence on **two** grids at once, which no scenario in the tree sets up
+yet. So the guard is a tested unit and an untested integration, and the honest place to close
+it is U3b's client half, where auto-follow is what will make a switch happen for real.
 
 ### U3c — The second-commander gate *(ADR-018 A25, new)*
 Two real clients against one shard: distinct `PlayerId`s, each commanding its own fleets on
@@ -644,7 +761,9 @@ without a GPU. The neutral topology that crosses the seam at boot (D14) is not b
 it is an engine type, and it should land with the surface that consumes it.
 
 ### U6 — System view and focus polish
-**Prerequisite: the system-view print (D1) — designed and agreed before this slice builds.**
+**Prerequisite: the system-view print (D1) — drawn 2026-08-21.** The source is in the corpus and
+its design calls are in ADR-016 §9; what stands between it and "agreed" is the plate export and
+four owner rulings, listed with the deliverable below.
 The screen: sun, orbit rings at presentation scale, anchor icons (planets, stations, gates),
 fleet markers, in-warp fleets sliding along route lines (presentation-only interpolation).
 Warp orders issued from it through the existing grammar (ghost, ETA, bounce). Focus polish:
@@ -659,8 +778,31 @@ one sitting.
 
 ## Content & design deliverables (not slices — tracked so they cannot be quietly dropped)
 
-- **D1 — System-view print.** The corpus names the pinch level and never drew it; U6 must not
-  invent it ad hoc. Owner-reviewed like every other print.
+- ~~**D1 — System-view print.**~~ **Drawn 2026-08-21:**
+  [System View.dc.html](ScreenPrints/source/System%20View.dc.html), in the station family's
+  format and against ADR-016 §9. **The source is in; the plate is not** — exporting the PNG
+  needs the design tool, so `ScreenPrints/system-view.png` is owed before this is closed.
+
+  **What the print decided**, with the three that reach past the screen recorded in
+  [ADR-016 §9](ADR/ADR-016-procedural-universe-and-warp.md): anchors are targets and
+  everything else is backdrop, so the screen says what is clickable by how it draws it; **sites
+  are a fourth anchor kind** drawn from the bake and the epoch index rather than from a message,
+  which this deliverable predated; and the layout **cannot state distance, so it states time** —
+  evenly spaced rings, no scale bar ever, and an ETA from the same arithmetic the tactical ghost
+  prints. The other three: warp is the tactical grammar unchanged, fleet markers are counts at
+  places from the summary family, and a warp issued here is a single hop with routing left to
+  the map.
+
+  **Open — four rulings owed before U6 builds:**
+  1. **Ring spacing past eight anchors.** Even spacing by bake order is legible to about eight;
+     the committed universe has systems with more. An outer belt, a second column, or a pinch.
+  2. **Where sites sit.** Drawn on their own outer ring, because a field is a place you go to
+     rather than a body you pass. The alternative is placing them by real orbit among the planets.
+  3. **One marker or two at a mixed anchor.** A station with three docked and six on grid is
+     drawn as one marker with a split count; two reads more precisely and crowds the ring.
+  4. **Does a gate name the far side?** Drawn as `GATE → KIL-7`, which the bake knows. Naming it
+     makes the system view a one-hop map; hiding it sends the player to the map to answer
+     "where does this go".
 - **D2 — `Gate.obj` + icons.** Ring/portal silhouette, radially symmetric, the shared
   five-material palette; STATIC-family tactical icon and map glyph. Structure stands in from
   U4 until this lands. **Half delivered 2026-08-20: the mesh, as `Stargate.obj`** — it arrived

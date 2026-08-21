@@ -428,6 +428,42 @@ void ClientApp::PollNetwork()
   }
   m_connection.ClearPendingSummaries();
 
+  /*
+   * Where the feed is pointed, which the connection has been holding and
+   * nothing has been reading (ADR-014 5: the engine moved the bytes, the client
+   * decides what a changed view looks like).
+   *
+   * Both answers matter and they are not symmetric. An accepted switch is a new
+   * world and everything keyed on the old one has to go; a refused one changed
+   * nothing at all -- the wire half is explicit that a refusal leaves the feed
+   * exactly where it was -- so the only thing owed is telling the player why,
+   * which is a toast and not a state change.
+   */
+  for (const ViewChanged& change : m_connection.PendingViewChanges())
+  {
+    // Either answer ends the request auto-follow may have in flight. A refusal
+    // additionally remembers the grid, so the condition that produced it cannot
+    // immediately produce it again.
+    m_followRequested = INVALID_FOLLOW_ANCHOR;
+    if (change.accepted)
+    {
+      m_followRefused = INVALID_FOLLOW_ANCHOR;
+      OnViewChanged(change.gridAnchor, nowSeconds);
+    }
+    else
+    {
+      m_followRefused = change.gridAnchor;
+      // A18's toast row for a refused switch. The words are the game's, on the
+      // same path a refused order takes, because a player who cannot go
+      // somewhere is owed the same sentence whichever surface they asked from.
+      const char* reason = m_worldView->ReasonText(change.reasonCode);
+      (void)m_toasts.Raise(ToastPriority::Urgent, change.reasonCode, "VIEW REFUSED",
+                           reason != nullptr ? reason : "", nowSeconds);
+      NEURON_LOG_INFO("view request for grid %u refused: %s", change.gridAnchor, reason != nullptr ? reason : "");
+    }
+  }
+  m_connection.ClearPendingViewChanges();
+
   // Once a second, and only while joined: enough to see the link is alive in a
   // log, not enough to bury anything else in it.
   const std::int64_t now = Clock::Counter();
@@ -858,6 +894,75 @@ bool ClientApp::BeginContextAction(const PuckSample& _sample, double _nowSeconds
   return true;
 }
 
+/*
+ * Where the fleet went, and whether to go with it.
+ *
+ * **The trigger is arrival, not departure, and that is forced rather than
+ * chosen.** `MayView` gates a view request on presence (ADR-016 §7, ADR-017 §7),
+ * so the grid a fleet is warping *to* refuses the client until the fleet is
+ * standing on it. Following at departure would mean asking for a grid the
+ * authority is right to refuse, and the honest window between the two is the
+ * crossing itself -- which U6's transit view is for, and which this is not.
+ *
+ * **The guard is "nothing of mine is here", not "my fleet moved".** A player
+ * watching a station where their ships are docked, or a grid where half the
+ * fleet stayed behind, has a reason to be there; yanking the camera because the
+ * *other* half arrived somewhere would be the HUD overruling a decision the
+ * player made. Only an empty place follows, and a place with a docked roster is
+ * not empty.
+ *
+ * Ties break by anchor rather than by count, because two grids holding the same
+ * number of ships is a real state and the camera has to land somewhere the same
+ * way twice.
+ */
+void ClientApp::AdvanceAutoFollow()
+{
+  if (m_connection.State() != ClientLinkState::Joined || m_settleUntilSeconds >= 0.0 ||
+      m_followRequested != INVALID_FOLLOW_ANCHOR)
+  {
+    return;
+  }
+
+  const std::uint16_t here = m_connection.GridAnchor();
+  const std::uint16_t best =
+    FollowTarget(std::span<const LocationBlock>{m_locationBlocks, m_locationBlockCount}, here, m_followRefused);
+  if (best == NO_FOLLOW_TARGET)
+  {
+    return;
+  }
+
+  if (m_connection.RequestView(best))
+  {
+    m_followRequested = best;
+    NEURON_LOG_INFO("auto-follow: nothing of ours on grid %u, asking for %u", here, best);
+  }
+}
+
+void ClientApp::OnViewChanged(std::uint16_t _gridAnchor, double _nowSeconds)
+{
+  /*
+   * Everything below is keyed on an id or on the last frame, and a switch
+   * invalidates both. They are cleared for three different reasons, which is
+   * why this is a list rather than one call:
+   *
+   *  - the **transits** would read a whole grid's ids changing as a whole
+   *    fleet leaving and another arriving, and draw forty rings saying so;
+   *  - the **ghosts** promise things about ships on a grid this client is no
+   *    longer watching, and a promise nobody can see kept is one that hangs;
+   *  - the **approach chain** is mid-way through a two-step order whose second
+   *    step names ships that are about to stop being on screen.
+   *
+   * The selection needs no line here: `Retain` drops ids the scene no longer
+   * holds, and it already runs every frame for exactly this class of reason.
+   */
+  m_transits.Clear();
+  m_ghosts.Clear();
+  m_approach.Cancel();
+
+  m_settleUntilSeconds = _nowSeconds + VIEW_SETTLE_SECONDS;
+  NEURON_LOG_INFO("view changed to grid %u; settling for %.0f ms", _gridAnchor, VIEW_SETTLE_SECONDS * 1000.0);
+}
+
 void ClientApp::AdvanceApproach(double _nowSeconds)
 {
   if (!m_approach.Active())
@@ -1023,7 +1128,27 @@ void ClientApp::ExtractScene()
    * other place to ask would be asking about a scene a frame out of date.
    */
   const double nowSeconds = Clock::SecondsSinceStart();
-  m_transits.Note(m_scene.entities, nowSeconds);
+
+  /*
+   * While the feed is settling, the transit list is re-baselined every frame
+   * rather than asked what changed.
+   *
+   * Clearing repeatedly rather than once at the switch is what makes this
+   * robust to the race the window exists for: whichever frame the new grid's
+   * first snapshot lands on, the frame after the window is the one that becomes
+   * the baseline, and no frame inside it can raise an event. A single `Clear()`
+   * at the notice would still leave one frame exposed if a snapshot arrived
+   * first.
+   */
+  if (m_settleUntilSeconds >= 0.0 && nowSeconds < m_settleUntilSeconds)
+  {
+    m_transits.Clear();
+  }
+  else
+  {
+    m_settleUntilSeconds = -1.0;
+    m_transits.Note(m_scene.entities, nowSeconds);
+  }
   BuildStatusMarks(m_scene.entities, m_overlayTuning, nowSeconds, m_overlayMarks);
   BuildTransitMarks(m_transits.Transits(), m_overlayTuning, m_camera.MetresPerPixel(), nowSeconds, m_overlayMarks);
 }
@@ -1222,7 +1347,11 @@ void ClientApp::BuildHud()
   // so would be deciding that groups are named and how their health combines
   // (ADR-014 §2c).
   m_rosterRowCount = m_worldView->BuildRoster(m_selection.Ids(), m_rosterRows);
-  m_dockedBlockCount = m_worldView->BuildDockedBlocks(m_dockedBlocks);
+  m_locationBlockCount = m_worldView->BuildLocationBlocks(m_locationBlocks);
+
+  // Straight after the blocks, because they are what it reads. A frame late
+  // would be a frame of empty grid the player had to look at.
+  AdvanceAutoFollow();
 
   /*
    * Which verbs the row may offer *this* frame.
@@ -1491,16 +1620,46 @@ void ClientApp::BuildHud()
    * same reason: a button that looked live and did nothing would be the HUD
    * promising a surface that does not exist yet.
    */
-  const float blockHeight = chipHeight + 22.0f * layout.scale;
-  if (m_dockedBlockCount > 0 && rowY + blockHeight < layout.roster.Bottom())
+  const float blockHeight = chipHeight + 36.0f * layout.scale;
+
+  /*
+   * How many blocks will actually be drawn, counted before the heading is.
+   *
+   * `m_locationBlockCount` is not that number: the game reports every place the
+   * player has ships, including the grid on screen, and the loop below skips
+   * that one because those ships are already drawn as hulls. In the ordinary
+   * case -- one fleet, standing where you are looking -- every block is skipped,
+   * and a heading drawn on the strength of the raw count sits over nothing.
+   *
+   * Which is what it did, and what a frame caught in a second: the rule was
+   * already written three lines down ("no ships anywhere but here is not a
+   * place at all") and the filter moving to the draw site quietly stopped
+   * honouring it.
+   */
+  std::uint32_t drawableBlocks = 0;
+  for (std::uint32_t index = 0; index < m_locationBlockCount; ++index)
+  {
+    drawableBlocks += m_locationBlocks[index].inScene ? 0u : 1u;
+  }
+
+  if (drawableBlocks > 0 && rowY + blockHeight < layout.roster.Bottom())
   {
     rowY += chipGap;
-    m_ui.AddText(layout.roster.x + pad, rowY, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, "DOCKED");
+    m_ui.AddText(layout.roster.x + pad, rowY, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, "ELSEWHERE");
     rowY += 18.0f * layout.scale;
 
-    for (std::uint32_t index = 0; index < m_dockedBlockCount; ++index)
+    for (std::uint32_t index = 0; index < m_locationBlockCount; ++index)
     {
-      const DockedBlock& block = m_dockedBlocks[index];
+      const LocationBlock& block = m_locationBlocks[index];
+
+      // Already on screen as hulls, so drawing it here would be one fleet
+      // counted twice with no way to tell which count is the lie. The game said
+      // so; this file did not work it out.
+      if (block.inScene)
+      {
+        continue;
+      }
+
       const UiRect blockRect{layout.roster.x + pad * 0.5f, rowY, layout.roster.width - pad, blockHeight};
       if (blockRect.Bottom() > layout.roster.Bottom())
       {
@@ -1519,6 +1678,37 @@ void ClientApp::BuildHud()
       const auto dockedCountWidth = static_cast<float>(TextCellCount(buffer)) * cell;
       m_ui.AddText(blockRect.Right() - pad * 0.5f - dockedCountWidth, blockRect.y + pad * 0.5f,
                    m_uiTuning.smallSizeIndex, m_palette.phosphor, buffer);
+
+      /*
+       * The state word, and the ETA when there is one.
+       *
+       * The word is the game's (`DOCKED`, `IN WARP`, `ON GRID`) and this file
+       * never compares it to anything -- it is drawn, not switched on. What the
+       * client *does* decide is the colour, because how loud a readout is
+       * belongs to the surface: a crossing is the one state that is going to
+       * stop being true on its own, so it reads in the caution amber that means
+       * "not settled yet" everywhere else on this HUD, and the two that are
+       * simply somewhere read dim.
+       */
+      const bool crossing = block.etaSeconds >= 0.0f;
+      const std::uint32_t stateColour = crossing ? m_palette.caution : m_palette.phosphorDim;
+      if (block.stateLabel != nullptr)
+      {
+        UpperCaseInto(block.stateLabel, upper);
+        m_ui.AddText(blockRect.x + pad * 0.5f, blockRect.y + pad * 0.5f + 13.0f * layout.scale,
+                     m_uiTuning.smallSizeIndex, stateColour, upper);
+      }
+
+      if (crossing)
+      {
+        // `M:SS`, and never a bare count of seconds: a fleet 214 seconds out is
+        // a number the player has to do arithmetic on to plan around.
+        const auto whole = static_cast<std::uint32_t>(block.etaSeconds + 0.5f);
+        std::snprintf(buffer, sizeof(buffer), "%u:%02u", whole / 60u, whole % 60u);
+        const auto etaWidth = static_cast<float>(TextCellCount(buffer)) * cell;
+        m_ui.AddText(blockRect.Right() - pad * 0.5f - etaWidth, blockRect.y + pad * 0.5f + 13.0f * layout.scale,
+                     m_uiTuning.smallSizeIndex, m_palette.caution, buffer);
+      }
 
       if (block.buttonLabel != nullptr)
       {

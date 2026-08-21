@@ -176,6 +176,46 @@ struct PersistenceSettings
   std::string directory = "ShardState";
 };
 
+/*
+ * States the shipped world does not produce, asked for on purpose (ADR-012).
+ *
+ * **Why this exists.** A handful of the client's behaviours only ever happen in
+ * a world the default scenario never builds -- following a fleet across grids,
+ * the settle after a switch, a location block for a place you are not standing
+ * -- so they could be built, unit-tested, and still never once be *looked at*.
+ * That is precisely the gap R1 records three defects escaping through, and a
+ * feature nobody can reach is a feature nobody can check.
+ *
+ * **Knobs rather than named scenarios**, because a preset list is a vocabulary
+ * that drifts from what it sets up: six months on, "two-grids" means whatever
+ * the function does, and the name stops being a description. Each field here is
+ * one fact about the world, and they compose.
+ *
+ * **Every field is off by default, and that is load-bearing rather than
+ * polite.** The committed `Outpost.json` must keep producing exactly the world
+ * it produced yesterday: the replay hash is a property of the shipped scenario
+ * (ADR-005), and a knob that changed it by existing would make every future
+ * determinism failure ambiguous. Off means "identical to before".
+ */
+struct ScenarioSettings
+{
+  /*
+   * Wings of a *second* fleet for the same commander, on a grid of its own.
+   * Zero means none, which is the shipped world.
+   *
+   * The anchor is not configured and deliberately so: it is chosen by the same
+   * deterministic rule that places a second commander -- the next anchor in
+   * bake order nobody is standing on -- so the config says *how much, elsewhere*
+   * and never has to carry an id a person would have to look up, or that a
+   * re-bake could move under them.
+   *
+   * The scripted patrol does not drive it. The patrol is the shipped scenario's
+   * fixture and its ship list is what the replay hash is taken over; a second
+   * fleet joining it would be a config knob rewriting a determinism baseline.
+   */
+  std::uint32_t secondFleetWings = 0;
+};
+
 struct AppConfig
 {
   HostMode mode = HostMode::Host;
@@ -187,6 +227,7 @@ struct AppConfig
   ServerSettings server;
   ClientSettings client;
   ContentSettings content;
+  ScenarioSettings scenario;
 };
 
 struct ConfigDiagnostics

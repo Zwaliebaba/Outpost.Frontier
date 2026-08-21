@@ -2,6 +2,7 @@
 #include "CppUnitTest.h"
 
 #include "ApproachChain.h"
+#include "AutoFollow.h"
 #include "EntityTransits.h"
 #include "OverlayMark.h"
 #include "RenderWorld.h"
@@ -70,6 +71,16 @@ namespace
 /// library under test does not have a name for it, and a test that imported one
 /// from GameLogic would be asserting the leak it is here to rule out.
 constexpr std::uint8_t PROTECTED_BIT = 1u << 0;
+
+[[nodiscard]] LocationBlock Block(std::uint16_t _anchor, std::uint16_t _ships, bool _crossing)
+{
+  LocationBlock block;
+  block.anchor = _anchor;
+  block.shipCount = _ships;
+  block.stateLabel = _crossing ? "IN WARP" : "ON GRID";
+  block.etaSeconds = _crossing ? 42.0f : -1.0f;
+  return block;
+}
 
 } // namespace
 
@@ -263,6 +274,45 @@ public:
     Assert::IsTrue(transits.Empty());
   }
 
+  TEST_METHOD(AGridSwitchIsNotAFleetLeavingAndAnotherArriving)
+  {
+    /*
+     * The defect the ~200 ms settle exists to prevent, pinned at the level the
+     * settle protects (ADR-016 §9).
+     *
+     * A grid switch changes every id on screen at once, and this list's whole
+     * job is to notice ids appearing and disappearing -- so left to itself it
+     * reports a whole fleet leaving and another arriving, and draws a ring for
+     * every one of them. Nobody went anywhere; the camera moved. `ClientApp`
+     * re-baselines through `Clear()` for the window it takes the interpolation
+     * buffer to refill, and this is the assertion that re-baselining is what
+     * `Clear()` actually does for a *populated* scene rather than only for an
+     * empty one.
+     */
+    EntityTransitList transits;
+    std::vector<SceneEntity> before;
+    std::vector<SceneEntity> after;
+    for (std::uint16_t id = 1; id <= 20; ++id)
+    {
+      before.push_back(Ship(id, static_cast<float>(id) * 10.0f, 0.0f));
+      after.push_back(Ship(static_cast<std::uint16_t>(id + 500), static_cast<float>(id) * 10.0f, 400.0f));
+    }
+    transits.Note(before, 100.0);
+
+    // What the settle does every frame it is running.
+    transits.Clear();
+    transits.Note(after, 100.05);
+
+    Assert::IsTrue(transits.Empty(), L"a grid switch must not read as forty ships leaving");
+
+    // And the frame after the settle is an ordinary frame again: one ship
+    // leaving the new grid is still one ship leaving.
+    after.pop_back();
+    transits.Note(after, 100.2);
+    Assert::AreEqual<std::size_t>(1, transits.Transits().size());
+    Assert::IsFalse(transits.Transits()[0].arriving);
+  }
+
   TEST_METHOD(AWholeFleetUndockingIsAWholeFleetOfRings)
   {
     EntityTransitList transits;
@@ -276,6 +326,71 @@ public:
 
     Assert::AreEqual<std::size_t>(24, transits.Transits().size());
     Assert::AreEqual<std::uint64_t>(0, transits.DroppedCount());
+  }
+};
+
+TEST_CLASS(AutoFollowTests)
+{
+public:
+  TEST_METHOD(NothingToFollowWithNoBlocks)
+  {
+    Assert::AreEqual<std::uint16_t>(NO_FOLLOW_TARGET, FollowTarget({}, 10));
+  }
+
+  TEST_METHOD(AnythingOfYoursHereMeansStay)
+  {
+    /*
+     * The rule that keeps the camera from overruling the player. A station where
+     * their ships are docked is a place they have a reason to be, even though
+     * the fleet is somewhere else entirely.
+     */
+    const std::vector<LocationBlock> blocks = {
+      Block(10, 3, false),   // docked, at the grid being watched
+      Block(20, 12, false),  // the fleet, elsewhere
+    };
+    Assert::AreEqual<std::uint16_t>(NO_FOLLOW_TARGET, FollowTarget(blocks, 10));
+  }
+
+  TEST_METHOD(AnEmptyGridFollowsTheFleet)
+  {
+    const std::vector<LocationBlock> blocks = {Block(20, 12, false)};
+    Assert::AreEqual<std::uint16_t>(20, FollowTarget(blocks, 10));
+  }
+
+  TEST_METHOD(ACrossingIsNotADestination)
+  {
+    // A fleet mid-warp has no grid to stand on, and MayView would rightly refuse
+    // a request to watch a world that does not hold it yet.
+    const std::vector<LocationBlock> blocks = {Block(20, 12, true)};
+    Assert::AreEqual<std::uint16_t>(NO_FOLLOW_TARGET, FollowTarget(blocks, 10));
+  }
+
+  TEST_METHOD(TheBiggestFleetWinsAndTiesBreakByAnchor)
+  {
+    // Two grids holding the same count is a real state, and the camera has to
+    // land the same way twice or one situation plays differently on two machines.
+    const std::vector<LocationBlock> bigger = {Block(30, 4, false), Block(20, 9, false)};
+    Assert::AreEqual<std::uint16_t>(20, FollowTarget(bigger, 10));
+
+    const std::vector<LocationBlock> tied = {Block(30, 6, false), Block(20, 6, false)};
+    Assert::AreEqual<std::uint16_t>(20, FollowTarget(tied, 10));
+
+    const std::vector<LocationBlock> reversed = {Block(20, 6, false), Block(30, 6, false)};
+    Assert::AreEqual<std::uint16_t>(20, FollowTarget(reversed, 10), L"order of arrival must not decide it");
+  }
+
+  TEST_METHOD(ARefusedGridIsNotAskedForAgain)
+  {
+    // Otherwise the condition that produced the refusal produces it again the
+    // moment the reply lands, and the player gets a toast per frame.
+    const std::vector<LocationBlock> blocks = {Block(20, 12, false)};
+    Assert::AreEqual<std::uint16_t>(NO_FOLLOW_TARGET, FollowTarget(blocks, 10, 20));
+  }
+
+  TEST_METHOD(AnEmptyPlaceIsNotAPlace)
+  {
+    const std::vector<LocationBlock> blocks = {Block(20, 0, false)};
+    Assert::AreEqual<std::uint16_t>(NO_FOLLOW_TARGET, FollowTarget(blocks, 10));
   }
 };
 

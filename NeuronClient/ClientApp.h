@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ApproachChain.h"
+#include "AutoFollow.h"
 #include "EntityTransits.h"
 #include "AudioDevice.h"
 #include "ClearColour.h"
@@ -119,6 +120,28 @@ private:
   /// function the authority judges with, which is what makes "close enough"
   /// one definition rather than two (ADR-014 3).
   void AdvanceApproach(double _nowSeconds);
+
+  /*
+   * What the client throws away when the feed points somewhere else
+   * (ADR-016 9's ~200 ms settle).
+   *
+   * A grid switch is the one event that changes *every* id on screen at once,
+   * and almost everything this class keeps between frames is keyed on an id or
+   * on a comparison with the last frame. None of it survives the crossing, and
+   * the ones that would survive *wrongly* are the dangerous ones.
+   */
+  void OnViewChanged(std::uint16_t _gridAnchor, double _nowSeconds);
+
+  /*
+   * Follows the fleet when the grid being watched stops holding any of it
+   * (ADR-016 §9's auto-follow).
+   *
+   * The whole policy is one sentence: **a player watching a place they have
+   * nothing at is watching the wrong place.** That is a presentation decision
+   * and it lives here; where the ships *are* is the game's answer, arriving as
+   * location blocks, and this file never works out what a warp is.
+   */
+  void AdvanceAutoFollow();
 
   /// The slot in `m_orderKinds` holding this kind value, or `m_orderKindCount`
   /// when the game never listed it -- the per-kind option tables are indexed by
@@ -277,6 +300,46 @@ private:
   OverlayMarkList m_overlayMarks;
   OverlayTuning m_overlayTuning;
 
+  /*
+   * How long after a grid switch the client stops reacting to the scene
+   * changing under it (ADR-016 9).
+   *
+   * **The window exists because the two signals race.** `ViewChanged` is
+   * reliable and ordered; snapshots are datagrams, so the first frame of the
+   * new grid can arrive on either side of the notice that the grid changed. A
+   * single frame caught on the wrong side of that race is a scene where every
+   * id vanished and forty new ones appeared, which is what the transit fades
+   * exist to notice -- and would report as forty ships leaving and forty
+   * arriving. Nobody went anywhere. The camera moved.
+   *
+   * Two hundred milliseconds is the interpolation buffer's own refill time
+   * rather than a number picked to feel right: by the time it has passed, the
+   * view holds frames from the new grid on both sides of the render tick and
+   * every id on screen belongs to it.
+   */
+  static constexpr double VIEW_SETTLE_SECONDS = 0.2;
+
+  /// When the current settle ends, or negative when the feed is not settling.
+  double m_settleUntilSeconds = -1.0;
+
+  /*
+   * The grid auto-follow has already asked for, so it asks once.
+   *
+   * A view request is reliable and answered, but the answer takes a round trip
+   * and the location blocks do not change while it is in flight -- so without
+   * this the condition stays true and the client asks again every frame until
+   * the reply lands. `INVALID_FOLLOW_ANCHOR` means nothing is in flight; the
+   * request clears it when `ViewChanged` arrives, accepted **or** refused,
+   * because a refusal is an answer and asking again would be a loop with a
+   * toast on every turn of it.
+   */
+  static constexpr std::uint16_t INVALID_FOLLOW_ANCHOR = NO_FOLLOW_TARGET;
+  std::uint16_t m_followRequested = INVALID_FOLLOW_ANCHOR;
+
+  /// The grid a refused follow named, so the same one is not asked for again
+  /// the moment the reply clears the request above.
+  std::uint16_t m_followRefused = INVALID_FOLLOW_ANCHOR;
+
   /// Which ships arrived and which left, and when (ADR-017 4). Fed from the
   /// scene rather than from anything the game says, because an id appearing and
   /// disappearing is a fact about the scene and the engine is allowed to know
@@ -357,11 +420,12 @@ private:
   RosterRow m_rosterRows[MAX_ROSTER_ROWS] = {};
 
   /// The other list: where the player's ships are when they are nowhere the
-  /// scene can show them (ADR-017 1). Refilled with the roster rows, because
-  /// the two are one answer about one fleet and a frame that rebuilt only half
-  /// of it could show a ship in both places at once.
-  DockedBlock m_dockedBlocks[MAX_DOCKED_BLOCKS] = {};
-  std::uint32_t m_dockedBlockCount = 0;
+  /// scene can show them -- docked, on another grid, or mid-warp (ADR-017 1,
+  /// ADR-016 9). Refilled with the roster rows, because the two are one answer
+  /// about one fleet and a frame that rebuilt only half of it could show a ship
+  /// in both places at once.
+  LocationBlock m_locationBlocks[MAX_LOCATION_BLOCKS] = {};
+  std::uint32_t m_locationBlockCount = 0;
   std::uint32_t m_rosterRowCount = 0;
 
   /*

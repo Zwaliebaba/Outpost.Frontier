@@ -247,8 +247,41 @@ closes, not here.
   activity heat, intel pings and the history scrubber remain **stubs** — their content does
   not exist yet, which the print itself anticipates ("depends on content that does not
   exist").
-- **System view** — the screen the corpus names (pinch level: SYSTEM) **but never drew**;
-  it needs its own print before its slice builds (a named deliverable in the build order).
+- **System view** — the screen the corpus names (pinch level: SYSTEM) **and drew on
+  2026-08-21**: [System View.dc.html](../ScreenPrints/source/System%20View.dc.html), D1 in the
+  build order. Six calls came out of drawing it, and three of them are decisions this section
+  had left implicit:
+
+  **Anchors are targets and everything else is backdrop.** §3 already ruled that ships warp to
+  anchors and never to coordinates; the print makes that visible rather than teaching it by
+  refusal — an anchor is drawn with a reticle and a label, a star or a moon is drawn dim,
+  unlabelled and inert. The player never clicks something and is told no.
+
+  **Sites are a fourth anchor kind, and they are the one that moves.** This section predates
+  mining; `AnchorKind::Site` arrived with E1b. The print draws fields beside planets, stations
+  and gates, and does it **without a message**: `SiteEpochPlacement` is pure and
+  client-callable, so the screen computes today's field from the bake and the epoch index, and
+  a view whose epoch has rolled draws the new place rather than yesterday's rocks.
+
+  **The layout cannot say distance, so it says time.** Rings are ordered by bake order and
+  evenly spaced — "layout is legibility" applied inside a system, as this section asks — and
+  the print takes the consequence seriously: **no scale bar, ever**, because a ruler over a
+  non-linear layout is a lie with authority. What a trip costs is stated as an ETA from the
+  same spool-and-transit arithmetic the tactical ghost prints, so the two surfaces cannot
+  disagree about one warp.
+
+  The other three are the ones this section already implied and the print pins: warp is the
+  tactical grammar unchanged (one pre-check, one ghost, one bounce — no second validation);
+  fleet markers are **counts at places** from the summary family at ~1 Hz, with an `InTransit`
+  row sliding by presentation-only interpolation and never past an arrival the summary has not
+  reported; and a warp issued here is a **single hop**, with multi-hop planning left to the
+  strategic map so `UniverseRoute` keeps one caller.
+
+  **Four questions are open for owner ruling before U6 builds**, the way P1's four were before
+  T3: ring spacing past eight anchors, whether sites sit on their own outer ring or among the
+  planets by real orbit, one marker or two at an anchor holding both docked and on-grid ships,
+  and whether a gate shows the far side's name. They are tracked with the deliverable in
+  [Universe-Build-Order.md](../Universe-Build-Order.md).
   Contents: the sun, orbit rings at **presentation scale** (real orbital distances are not
   linearly renderable — "layout is legibility" applies inside a system too), anchor icons
   (planets, stations, gates), fleet markers, in-warp fleets sliding along route lines. This

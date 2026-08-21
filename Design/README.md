@@ -19,8 +19,10 @@ for the design calls, and do not treat a plate's silence as the design being sil
 themselves are lifted into the ADRs, which is where a decision is supposed to end up
 (ADR-017 §6a, ADR-024 §5d and §6e).
 
-**With D-P3 in on 2026-08-21, no phase in this corpus is waiting on a screen print except the
-universe phase's D1, the system view** — but several *surfaces* have no print at all yet, and
+**With D-P3 and D1 both in on 2026-08-21, no phase in this corpus is waiting on a screen print
+at all.** D1 — [System View.dc.html](ScreenPrints/source/System%20View.dc.html) — is source-in
+and plate-owed: the design calls are recorded in ADR-016 §9 and four questions wait on an owner
+ruling, but U6 no longer has a missing artefact in front of it — but several *surfaces* have no print at all yet, and
 they are inventoried below so that "not blocking anything" never quietly becomes "forgotten".
 
 **Supersessions to be aware of when reading older ADRs:** ADR-012 replaces ADR-008's command
@@ -197,10 +199,11 @@ suggested order:
 4. **D-C1, the ore and alloy icons** — the tactical icon system's families plus the three
    archetype glyphs. It feeds both economy tabs and both maps, so it is the cheapest item here
    with the widest reach.
-5. **The site layer on the strategic and system maps** — sites are baked anchors and the epoch
-   placement is client-callable, so a map could draw today's fields already. `strategic-map.png`
-   predates sites entirely, so this is a *change to a drawn screen* rather than a new one, and
-   it wants its own pass.
+5. **The site layer on the strategic map** — sites are baked anchors and the epoch placement is
+   client-callable, so a map could draw today's fields already. D1 settled this for the *system*
+   view on 2026-08-21 (sites are a fourth anchor kind, drawn from the bake and the epoch);
+   `strategic-map.png` still predates sites entirely, so what is left is a *change to a drawn
+   screen* rather than a new one, and it wants its own pass.
 6. **Character and skills** — no data model exists, so it is correctly not designable yet.
    Listed so that "we have not designed it" stays a decision rather than an oversight.
 

@@ -166,8 +166,10 @@ public:
    * warp adds a destination rather than a runtime.
    */
   UniverseSimulation(std::uint64_t _contentHash, WorldMeta _worldMeta, const Game::UniverseDef& _universe,
-                     const Game::EconomyDef& _economy, std::uint64_t _sessionSeed)
+                     const Game::EconomyDef& _economy, std::uint64_t _sessionSeed,
+                     const Outpost::ScenarioSettings& _scenario = {})
     : m_contentHash(_contentHash),
+      m_scenario(_scenario),
       // Moved rather than copied: `WorldMeta` carries the HUD's display strings
       // as of main's UI slice, so a copy here is three allocations per boot for
       // nothing.
@@ -904,6 +906,10 @@ private:
   /// resets the registry, and a reset needs both halves of the content back.
   const Game::UniverseDef* m_universe = nullptr;
 
+  /// The states the shipped world does not produce, asked for on purpose
+  /// (ADR-012). All-zero is the world as it has always been.
+  Outpost::ScenarioSettings m_scenario;
+
   /// The seed a reset has to reproduce. A reloaded shard whose grids were
   /// seeded differently would be the same universe with different randomness in
   /// it, which is a subtler way of losing state than losing it.
@@ -1205,6 +1211,45 @@ void UniverseSimulation::SpawnStartingFleet()
   // The shard's own boot fleet: player one's, on the start grid, driven by the
   // scripted patrol. `SpawnFleetFor` is the general case this is one call to.
   SpawnFleetFor(Neuron::SOLE_PLAYER_ID, m_startAnchor, true, WING_COUNT);
+
+  /*
+   * And then whatever the scenario asked for, which by default is nothing at
+   * all (`ScenarioSettings`).
+   *
+   * **Second, and never instead.** The starting fleet is the shipped world and
+   * the replay hash is taken over it; a knob that ran before it, or in place of
+   * it, would be a config option quietly rewriting a determinism baseline. This
+   * only ever *adds*, on a grid the shipped world does not touch.
+   *
+   * The anchor comes from `HomeAnchorFor`, which already answers "the next
+   * anchor in bake order nobody is standing on" for a second commander. Reused
+   * rather than re-derived: the rule is tested, deterministic, and the config
+   * is spared an anchor id that a re-bake could move under it. The second fleet
+   * belongs to the *same* commander, which is what makes it a fleet elsewhere
+   * rather than a rival -- two commanders is U3c's scenario and has its own
+   * gate.
+   *
+   * The patrol does not drive it, so the ships stand where they are put. A
+   * fleet that flew a scripted circuit would make the location block's count
+   * flicker as ships crossed a grid boundary, which is a moving target to check
+   * a readout against.
+   */
+  if (m_scenario.secondFleetWings > 0)
+  {
+    const Game::AnchorId elsewhere = HomeAnchorFor(Neuron::SOLE_PLAYER_ID + 1);
+    if (elsewhere == Game::INVALID_ID)
+    {
+      NEURON_LOG_WARNING("scenario: no free anchor for a second fleet; the universe has none spare");
+      return;
+    }
+
+    // The grid has to be spun up before anything can stand on it, and it has to
+    // stay up to be watchable -- which is what a viewer is for.
+    m_registry.AddViewer(elsewhere);
+    SpawnFleetFor(Neuron::SOLE_PLAYER_ID, elsewhere, false, m_scenario.secondFleetWings);
+    NEURON_LOG_INFO("scenario: a second fleet of %u wing(s) on anchor %u, off the patrol",
+                    m_scenario.secondFleetWings, elsewhere);
+  }
 }
 
 void UniverseSimulation::SpawnFleetFor(Neuron::PlayerId _owner, Game::AnchorId _anchor, bool _patrolDrivesIt,
@@ -1378,29 +1423,63 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
   desc.economy = &_economy;
 
   /*
-   * What each station is called, by the anchor it stands on (ADR-017 1).
+   * What each anchor is called (ADR-017 1, ADR-016 9).
    *
-   * Walked from the anchor table rather than from the station list, because the
-   * anchor is what the wire carries and the station is what has a name -- an
-   * anchor's `owner` is the station's per-system id, so the join has to happen
-   * on this side. Every station anchor is named even for a system this session
-   * never visits: the list is a few dozen strings for a bake of this size, and
-   * a lazily filled one would be a cache invalidated by nothing.
+   * **Every kind, because a fleet can stand on any of them.** The table held
+   * stations only until a location block first had to name a grid that was not
+   * one, and drew a question mark instead -- which a screenshot caught and no
+   * test could, because `?` is what the panel is *supposed* to draw for a name
+   * the content does not have.
+   *
+   * Walked from the anchor table rather than from the object lists, because the
+   * anchor is what the wire carries and the object is what has a name: an
+   * anchor's `owner` is a per-system id, so the join has to happen here. A site
+   * has no name of its own in the bake, so it takes its system's -- "where the
+   * field is" is the useful answer and the only one the content can give.
    */
   for (const Game::SolarSystem& system : _universe.universe.systems)
   {
     for (const Game::Anchor& anchor : system.anchors)
     {
-      if (anchor.kind != Game::AnchorKind::Station)
+      std::string name;
+      switch (anchor.kind)
       {
-        continue;
+      case Game::AnchorKind::Station:
+        if (const Game::Station* station = _universe.universe.FindStation(system.id, anchor.owner); station != nullptr)
+        {
+          name = station->name;
+        }
+        break;
+      case Game::AnchorKind::Planet:
+        for (const Game::Celestial& body : system.celestials)
+        {
+          if (body.id == anchor.owner)
+          {
+            name = body.name;
+            break;
+          }
+        }
+        break;
+      case Game::AnchorKind::Gate:
+        for (const Game::Gate& gate : system.gates)
+        {
+          if (gate.id == anchor.owner)
+          {
+            name = gate.name;
+            break;
+          }
+        }
+        break;
+      case Game::AnchorKind::Site:
+        name = system.name; // A field has no authored name; its system is the answer.
+        break;
       }
-      const Game::Station* station = _universe.universe.FindStation(system.id, anchor.owner);
-      if (station == nullptr)
+
+      if (name.empty())
       {
-        continue; // An anchor whose station the bake did not place. Drawn unnamed.
+        continue; // Something the bake did not place. Drawn unnamed, honestly.
       }
-      desc.stationNames.push_back(Outpost::ReplicatedWorldView::StationName{anchor.id, station->name});
+      desc.anchorNames.push_back(Outpost::ReplicatedWorldView::AnchorName{anchor.id, std::move(name)});
     }
   }
 
@@ -1774,8 +1853,8 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   // must agree about a litre, but a hold size has no business reshuffling every
   // grid's randomness, and folding it in would make retuning balance silently
   // re-roll the worlds.
-  UniverseSimulation simulation{contentHash, MakeWorldMeta(universe.universe), universe.universe, economy.economy,
-                                universe.universeHash};
+  UniverseSimulation simulation{contentHash,          MakeWorldMeta(universe.universe), universe.universe,
+                                economy.economy,      universe.universeHash,            config.scenario};
 
   /*
    * What the shard already is, before it is given a fleet (ADR-025 §6).

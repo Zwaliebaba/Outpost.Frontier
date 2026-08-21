@@ -234,17 +234,26 @@ public:
 
   /*
    * The player's ships that are not in the scene, by where they are
-   * (ADR-017 1).
+   * (ADR-017 1, ADR-016 9).
    *
-   * Docked ships despawn: they are a roster the authority keeps, not hulls with
-   * positions, so nothing the engine has can list them. This is the one call
-   * that can, and like `BuildRoster` it is the *game* that aggregates -- which
-   * place, what to call it, and which ships count as the player's are all
-   * questions the engine must not answer.
+   * Three ways a ship can be absent from what the client draws, and the engine
+   * can distinguish none of them: docked ships despawn into a roster the
+   * authority keeps, a fleet on another grid is in a world this client is not
+   * watching, and a fleet mid-warp is in no world at all. Like `BuildRoster` it
+   * is the *game* that aggregates -- which place, what to call it, what to call
+   * its state, and which ships count as the player's are all questions the
+   * engine must not answer.
+   *
+   * **Every place, including the one being watched.** A client that draws the
+   * world it is looking at will not want to *draw* that row, and dropping it is
+   * that client's business: the same list answers "does where I am looking still
+   * hold anything of mine", which is what makes following a fleet possible, and
+   * a game that had already removed the answer would have decided what the
+   * client may notice.
    *
    * Returns how many blocks were written, never more than the span holds.
    */
-  [[nodiscard]] virtual std::uint32_t BuildDockedBlocks(std::span<DockedBlock> _outBlocks) const
+  [[nodiscard]] virtual std::uint32_t BuildLocationBlocks(std::span<LocationBlock> _outBlocks) const
   {
     (void)_outBlocks;
     return 0;
