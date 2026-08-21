@@ -217,10 +217,13 @@ the figure to keep an eye on rather than to celebrate: a capped grid now costs *
 / 16.538 ms worst** against E1b's 7.000 / 8.644, so headroom falls from 7.1 capped grids per
 core to 5.5. Inside the tripwire, and a trend R10 should be read against after E3.
 
-*(The PR carrying E2 is red at the time of writing for a reason outside it: `main`'s head
-`a6dd412` hangs `Outpost --selfTest` in both configurations — 40 minutes with no output, killed
-as an orphan — and merging that base inherited the hang. Run 155 is the same E2 code on the
-base before it.)*
+*(The merge with `main`'s station-progress work first inherited a CI hang — `a6dd412`'s
+xcopy rewrite of the content copy left the exe bootless on a fresh clone, and a startup
+failure raised a modal dialog no headless runner could dismiss. Diagnosed by instrumentation
+(per-line log flushing plus a 300 s watchdog, run 158) and fixed on this branch: the
+`CopyGameData` target is restored and the fatal dialog is gated to attended launches. Run 159
+is green in both configurations — **694 tests on MSVC**, the replay hash unmoved from run
+155's `69c58e2751c0df22`.)*
 
 **What the economy phase cost in corrections is worth reading before the next slice**, because
 all four were found by building rather than by review: the ADR's field radius did not fit the

@@ -438,8 +438,21 @@ Both are fixed on this branch: the `CopyGameData` target is restored (with the x
 post-mortem written into its comment), and the fatal dialog is gated to attended, windowed
 launches — headless, bake and self-test runs report to the log and stderr and **exit**. The
 watchdog and the per-line flush stay, because the next hang should also cost five minutes and
-name its own line. Run 155 remains E2's own verdict; the merge-head verdict is the run after
-the fix.
+name its own line.
+
+**And the merge head is green (run 159, commit `59d4a20`, 2026-08-21).** Debug|x64,
+Release|x64 and Spike 2 all pass in ten minutes; the self test is back to twelve seconds and
+`PASSED`, now including `main`'s own approach-disconnect scenario — three clients over the
+loopback, a fleet abandoned mid-approach that never docks. **694 tests pass on MSVC** in both
+configurations (650 before the merge window; E2's 38 and ADR-026's own among the growth), with
+no clang-tidy finding and the one pre-existing Release warning. Content unchanged —
+`universe ad9555dd776008a6, economy 0b07707ec843431d, mixed 1965b853a23a5115`, parsed in
+214 ms — and the replay hash is **`69c58e2751c0df22` (checkpoint `fa56d9f638cba0fe`)**, byte
+for byte what run 155 measured on E2 alone, with Spike 2 confirming Debug and Release agree:
+the merge, the ADR-026 placement work and the CI ordeal between the two runs moved the
+simulation not at all. The capped-grid soak reads 8.179 ms mean / 12.932 ms worst over 184
+ticks (6.1 grids per core), between run 155's 9.020 and E1b's 7.000 — consistent with runner
+noise on top of a real E2 cost, which is R10's trend to keep reading.
 
 ### E3 — Cargo, the Bay, and the wire cluster · 🏁 G0
 Ships carry manifests; the station roster's record grows one (ADR-017 §1 as amended — cargo is
