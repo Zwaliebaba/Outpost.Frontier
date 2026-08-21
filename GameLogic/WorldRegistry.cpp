@@ -1510,6 +1510,60 @@ bool WorldRegistry::LoadDurable(const DurableState& _state, std::vector<Persiste
     }
   }
 
+  /*
+   * And no key twice, in any of the four sets (ADR-025 §1).
+   *
+   * A duplicate is not a merge problem, it is a *statement* problem: two rows
+   * claiming one Bay are two answers to "what has this commander committed
+   * here", and there is no rule that picks one which is not an invention. A
+   * file that says it twice is a file that was not written by this code.
+   *
+   * `ShipId` bounds the ship check to one pass over a bitset-shaped vector,
+   * which matters because a shard's ships are the largest of the four sets by
+   * an order of magnitude and the others are tens of rows.
+   */
+  {
+    std::vector<bool> seenShip(static_cast<std::size_t>(INVALID_SHIP_ID) + 1, false);
+    for (const DurableShip& ship : _state.ships)
+    {
+      if (seenShip[ship.shipId])
+      {
+        return refuse("ship " + std::to_string(ship.shipId), "is in the durable set twice");
+      }
+      seenShip[ship.shipId] = true;
+    }
+  }
+  for (std::size_t index = 0; index + 1 < _state.rosters.size(); ++index)
+  {
+    for (std::size_t other = index + 1; other < _state.rosters.size(); ++other)
+    {
+      if (_state.rosters[index].anchor == _state.rosters[other].anchor)
+      {
+        return refuse("roster " + std::to_string(_state.rosters[index].anchor), "is in the durable set twice");
+      }
+    }
+  }
+  for (std::size_t index = 0; index + 1 < _state.bays.size(); ++index)
+  {
+    for (std::size_t other = index + 1; other < _state.bays.size(); ++other)
+    {
+      if (_state.bays[index].station == _state.bays[other].station && _state.bays[index].owner == _state.bays[other].owner)
+      {
+        return refuse("bay " + std::to_string(_state.bays[index].station), "is in the durable set twice for one owner");
+      }
+    }
+  }
+  for (std::size_t index = 0; index + 1 < _state.ledgers.size(); ++index)
+  {
+    for (std::size_t other = index + 1; other < _state.ledgers.size(); ++other)
+    {
+      if (_state.ledgers[index].anchor == _state.ledgers[other].anchor)
+      {
+        return refuse("ledger " + std::to_string(_state.ledgers[index].anchor), "is in the durable set twice");
+      }
+    }
+  }
+
   m_shardTick = _state.shardTick;
   m_nextDynamicId = _state.nextDynamicShipId;
 
@@ -1529,6 +1583,21 @@ bool WorldRegistry::LoadDurable(const DurableState& _state, std::vector<Persiste
   m_bays.assign(_state.bays.begin(), _state.bays.end());
   m_siteLedgers.assign(_state.ledgers.begin(), _state.ledgers.end());
   m_bus.assign(_state.transfers.begin(), _state.transfers.end());
+
+  /*
+   * Sorted on load, because sorted is not a property of the file -- it is a
+   * property `Bay` and `Ledger` *depend on*.
+   *
+   * Both look their key up with `lower_bound`, so a set that arrived in any
+   * other order would answer "no such Bay" for a Bay that is right there, and
+   * it would do it silently. A capture writes them in order and a round trip
+   * therefore never needs this; a file somebody edited, or a future writer that
+   * did not know the rule, is exactly what it is for.
+   */
+  std::sort(m_bays.begin(), m_bays.end(), [](const StationBay& _a, const StationBay& _b) noexcept
+            { return _a.station != _b.station ? _a.station < _b.station : _a.owner < _b.owner; });
+  std::sort(m_siteLedgers.begin(), m_siteLedgers.end(),
+            [](const SiteLedger& _a, const SiteLedger& _b) noexcept { return _a.anchor < _b.anchor; });
 
   /*
    * The transfer counter resumes past the highest record on the bus.

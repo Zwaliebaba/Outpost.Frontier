@@ -748,6 +748,69 @@ public:
     Assert::AreEqual(DurableHash(before), DurableHash(after), L"a worked field broke the reload proof");
   }
 
+  TEST_METHOD(BaysAndLedgersAreFoundWhateverOrderTheyArriveIn)
+  {
+    /*
+     * Sorted storage is not a property of the file -- it is a property `Bay`
+     * and `Ledger` *depend on*, because both look their key up with
+     * `lower_bound`. A set that arrived in any other order would answer "no
+     * such Bay" for a Bay that is right there, and it would do it silently.
+     */
+    DurableState state;
+    state.nextDynamicShipId = DYNAMIC_SHIP_ID_BASE;
+    for (const AnchorId station : {AnchorId{90}, AnchorId{30}, AnchorId{60}})
+    {
+      StationBay bay;
+      bay.owner = Neuron::SOLE_PLAYER_ID;
+      bay.station = station;
+      bay.oreUnits[0] = station;
+      state.bays.push_back(bay);
+    }
+    for (const AnchorId site : {AnchorId{80}, AnchorId{20}})
+    {
+      SiteLedger ledger;
+      ledger.anchor = site;
+      ledger.clusterCount = 1;
+      ledger.remainingUnits[0][0] = site;
+      state.ledgers.push_back(ledger);
+    }
+
+    WorldRegistry registry;
+    MakeRegistry(registry);
+    std::vector<PersistenceDiagnostic> diagnostics;
+    Assert::IsTrue(registry.LoadDurable(state, diagnostics), L"an out-of-order set would not load");
+    for (const AnchorId station : {AnchorId{90}, AnchorId{30}, AnchorId{60}})
+    {
+      const StationBay* bay = registry.Bay(Neuron::SOLE_PLAYER_ID, station);
+      Assert::IsNotNull(bay, L"a Bay that loaded out of order cannot be found");
+      Assert::AreEqual<std::uint32_t>(station, bay->Units(OreId::FerroChroma), L"the wrong Bay came back");
+    }
+    Assert::IsNotNull(registry.Ledger(20), L"a ledger that loaded out of order cannot be found");
+    Assert::IsNotNull(registry.Ledger(80), L"a ledger that loaded out of order cannot be found");
+  }
+
+  TEST_METHOD(AKeyThatAppearsTwiceIsRefused)
+  {
+    // A duplicate is not a merge problem, it is a statement problem: two rows
+    // claiming one Bay are two answers to "what has this commander committed
+    // here", and there is no rule that picks one which is not an invention.
+    DurableState state;
+    state.nextDynamicShipId = DYNAMIC_SHIP_ID_BASE;
+    StationBay bay;
+    bay.owner = Neuron::SOLE_PLAYER_ID;
+    bay.station = 44;
+    bay.oreUnits[0] = 10;
+    state.bays.push_back(bay);
+    bay.oreUnits[0] = 20;
+    state.bays.push_back(bay);
+
+    WorldRegistry registry;
+    MakeRegistry(registry);
+    std::vector<PersistenceDiagnostic> diagnostics;
+    Assert::IsFalse(registry.LoadDurable(state, diagnostics), L"one Bay stated twice was accepted");
+    Assert::IsNull(registry.Bay(Neuron::SOLE_PLAYER_ID, 44), L"a refused load left a Bay behind");
+  }
+
   TEST_METHOD(ARefusedLoadLeavesNothingBehind)
   {
     /*
