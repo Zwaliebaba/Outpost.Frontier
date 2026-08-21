@@ -463,6 +463,22 @@ would only say the copy ran; a name says the loader will find what it asks for, 
 thing that failed. That step is the guard, and the mechanism above it is now free to be
 whichever one reads best.
 
+*And it cost a run to land, which is the entry that earns its place here. Run 162 went red in
+both configurations on `robocopy exited 16`, and the reason is one line that had been correct
+and was then tidied: the trailing backslash `$(TargetDir)` always carries was being stripped by
+comparison, and that was replaced with `for %%I in ("%DEST%") do set "DEST=%%~fI"` on the
+belief that `%~f` trims one. **It does not** — it fully qualifies a path and keeps the trailing
+backslash exactly as given. So the second copy ran with `"D:\...\Release\"`, and while **cmd**
+has no backslash escape and saw a balanced token, **robocopy parses its own command line with
+the C runtime's rules, where `\"` is an escaped quote** — the closing quote stopped closing, and
+`ERROR 123 Accessing Destination Directory D:\...\Release" Outpost.json /NJH` is the four
+switches swallowed into the path. The comparison is back, the result is now asserted rather
+than assumed, and the excludes are spelled as names rather than paths so that nothing depends
+on agreeing with whatever robocopy canonicalised the source to. The error path is the half that
+worked: the script printed `CopyGameData.cmd : error : ...`, MSBuild raised it as an error and
+failed the build with MSB3073 — which is exactly the failure mode the xcopy version did not
+have.*
+
 **And the merge head is green (run 159, commit `59d4a20`, 2026-08-21).** Debug|x64,
 Release|x64 and Spike 2 all pass in ten minutes; the self test is back to twelve seconds and
 `PASSED`, now including `main`'s own approach-disconnect scenario — three clients over the

@@ -93,23 +93,54 @@ set "DEST=%~2"
 if not defined SRC goto :usage
 if not defined DEST goto :usage
 
-rem  Both arguments are normalised through %%~f, which does two jobs at once.
-rem  It drops the trailing backslash $(TargetDir) always carries -- a quoted
-rem  path ending in one reads as a path with a stray quote to most tools -- and
-rem  it resolves the ..\ the project passes in the content path, so the line
-rem  this script echoes and the errors it raises name a folder a person can go
-rem  and look at rather than a relative walk through the project directory.
-for %%I in ("%SRC%") do set "SRC=%%~fI"
-for %%I in ("%DEST%") do set "DEST=%%~fI"
+rem  Neither path may end in a backslash. That sentence has now cost a build,
+rem  so it is worth the paragraph.
+rem
+rem  cmd has no backslash escape, so a quoted path ending in one looks perfectly
+rem  balanced to the batch parser and raises nothing here. The program on the
+rem  other end is where it goes wrong: robocopy parses its own command line with
+rem  the C runtime's rules, and there a backslash before a quote IS an escape.
+rem  The closing quote stops closing anything, the switches after it are
+rem  swallowed into the path, and robocopy reports a destination directory with
+rem  the rest of the command line inside it -- run 162, exit code 16:
+rem
+rem      ERROR 123 Accessing Destination Directory D:\...\Release  Outpost.json /NJH ...
+rem
+rem  So it is stripped here, once, for both arguments -- MSBuild's $(OutDir) and
+rem  $(TargetDir) always carry one -- and then checked rather than assumed. The
+rem  check costs two lines and turns a future regression of the strip into a
+rem  named error instead of a mangled command line for somebody to decode.
+rem
+rem  By comparison and not by %%~f, which is the actual lesson of run 162: %%~f
+rem  fully qualifies a path but keeps a trailing backslash exactly as it was
+rem  given. These two lines were correct, were replaced by a for loop over %%~f
+rem  on the belief that it trimmed as well, and were wrong the moment they built.
+if "%SRC:~-1%"=="\" set "SRC=%SRC:~0,-1%"
+if "%DEST:~-1%"=="\" set "DEST=%DEST:~0,-1%"
+
+if "%SRC:~-1%"=="\" goto :trailingSlash
+if "%DEST:~-1%"=="\" goto :trailingSlash
 
 if not exist "%SRC%\." goto :noSource
 
 echo CopyGameData: "%SRC%" into "%DEST%\GameData", with Outpost.json beside the executable
 
-robocopy "%SRC%" "%DEST%\GameData" /E /XF *.log "%SRC%\Outpost.json" /NJH /NFL /NDL /NP
+rem  Both excludes are names and not paths. A path would have to agree with
+rem  whatever robocopy canonicalised the source to -- the project passes its
+rem  content folder as a ..\ walk out of the project directory -- and a
+rem  mismatch there fails open: Outpost.json lands inside GameData\ after
+rem  all, which is the one thing this script exists to prevent. A name
+rem  cannot mismatch. It also excludes a nested Outpost.json, which the
+rem  MSBuild item did not, and that is the better behaviour rather than a
+rem  concession: a config file anywhere but beside the executable is inert,
+rem  and shipping an inert one is what the paragraph above is about.
+robocopy "%SRC%" "%DEST%\GameData" /E /XF *.log Outpost.json /NJH /NFL /NDL /NP
 set "RC=%ERRORLEVEL%"
 if %RC% GEQ 8 goto :copyFailed
 
+rem  And then the one file, by name, as robocopy's file-set rather than as an
+rem  exclude: no recursion, so only the copy at the top of the content
+rem  folder is lifted out, which is the file the loader reads.
 robocopy "%SRC%" "%DEST%" Outpost.json /NJH /NFL /NDL /NP
 set "RC=%ERRORLEVEL%"
 if %RC% GEQ 8 goto :copyFailed
@@ -128,6 +159,10 @@ exit /b 1
 
 :noSource
 echo CopyGameData.cmd : error : there is no content folder at "%SRC%"
+exit /b 1
+
+:trailingSlash
+echo CopyGameData.cmd : error : a path still ends in a backslash: "%SRC%" and "%DEST%"
 exit /b 1
 
 :copyFailed
