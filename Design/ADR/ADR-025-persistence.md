@@ -280,6 +280,10 @@ quietly amnesiac.
   fleet, move ore into a Bay, start a refine job, **stop the host and start it again**, and
   find the roster, the ore and the job still there with the job's completion tick unmoved.
   That is E4's milestone G1 claim, and this is where it is actually proven.
+  *(Sequencing note, 2026-08-21: the build order splits E4 into **E4a**, this ADR's own slice,
+  and **E4b**, refining. The scenario therefore lands in two halves — the roster and the ore at
+  E4a, where there is no job to start, and the job at E4b. The claim is unchanged; only the
+  slice it is finished in is. See Economy-Build-Order's sequencing rationale.)*
 
 ### 9. What this deliberately does not do
 

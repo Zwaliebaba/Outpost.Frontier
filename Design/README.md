@@ -120,14 +120,16 @@ moves between the trees without a rename pass. Three things it changed in these 
   built in all three halves, and T2 has its identity cluster on the wire and its per-client
   sender**; T2's client half is not built, and T3 has no design gate left.
 - [Economy-Build-Order.md](Economy-Build-Order.md) — the mining and refining phase: E1a–E5
-  slices delivering ADR-024 (the economy content layer, sites in the bake and the epoch that
-  moves them, the Mine order and the site ledger, cargo and the Bay and the wire cluster,
-  refining with its tiers and projects, the two screens); milestones G0 (the headless mining
-  loop) / G1 (the first alloy) / G2 (the loop on screen); deliverables **D-P1, the persistence
-  ADR — it blocks E2** and is where ADR-024 §7a's journal gets its format — plus the CARGO and
-  REFINERY prints (block E5), icons, the site field's visual treatment, and audio last.
-  **Nothing is built yet.** It splits the E1 the ADR sketched and moves the screens out of E4,
-  both recorded in its sequencing rationale.
+  slices delivering ADR-024 and ADR-025 (the economy content layer, sites in the bake and the
+  epoch that moves them, the Mine order and the site ledger, cargo and the Bay and the wire
+  cluster, the durable store, refining with its tiers and projects, the two screens);
+  milestones G0 (the headless mining loop) / G1 (the first alloy) / G2 (the loop on screen);
+  deliverables **D-P1, the persistence ADR — it blocks E2** and is where ADR-024 §7a's journal
+  gets its format, implemented at E4a — plus the CARGO and REFINERY prints (block E5), icons,
+  the site field's visual treatment, and audio last.
+  **E1a, E1b, E2 and E3 are built; E4a is next.** It splits the E1 the ADR sketched, moves the
+  screens out of E4, and **splits E4 itself** into the durable store (E4a) and the refining
+  runtime (E4b) — all three recorded in its sequencing rationale.
 - [Archive/](Archive/) — corpus documents that are **finished rather than wrong**. A plan moves
   here when every slice in it is built and every open item it tracked is closed; it stays
   readable and linked because it is the record of what was built and why, and it leaves
@@ -282,6 +284,20 @@ failure raised a modal dialog no headless runner could dismiss. Diagnosed by ins
 is green in both configurations — **694 tests on MSVC**, the replay hash unmoved from run
 155's `69c58e2751c0df22`.)*
 
+**Next is E4a, and it exists because reading E4's accept found a slice hiding inside it
+(2026-08-21).** E4 asks for "the whole registry — rosters, Bays, ledgers, jobs, projects —
+round-tripping through the persistence layer", and that layer is **not in the tree**: ADR-025 is
+accepted design, and the only trace of the journal in the code is three comments pointing
+forward to it. So E4 splits the way E1 did — **E4a the durable store** (`DurableState`,
+`DurableStore`, the journal lane, the snapshot rotation, the boot path, `Outpost.json`'s
+`persistence` block, and `DurableHash()` as the second hash ADR-025 §1a insists on), then
+**E4b the refining runtime** with milestone G1. The ordering argument is that E4a's subject
+already exists and is already hash-proven, so the round-trip has something real to bite on;
+the other way round, a brand-new file format's first exercise would be against brand-new job
+state, with two unproven things debugging each other. It also starts R26's early-validation
+signal — the restart scenario on every push — a slice earlier than G1 would have. The split and
+its rationale are in [Economy-Build-Order.md](Economy-Build-Order.md).
+
 **What the economy phase cost in corrections is worth reading before the next slice**, because
 all four were found by building rather than by review: the ADR's field radius did not fit the
 grid (it read the 40 km grid as a radius when the half-extent is 20,000 m); two authored
@@ -311,8 +327,9 @@ back to gating, leaving R23 behind it. The build stopped relying on a hand-maint
 deployment: `Outpost.vcxproj` gained a `CopyGameData` target, so content and `Outpost.json`
 arrive beside the executable and a fresh clone can press F5 — the build-order note that
 recorded that gap is closed. And the boot fleet was re-parked on the owner's call, closing the
-one item ADR-015 left open (see the ship-collision entry below). The next move is **A13**, the
-per-client `SnapshotSender`.
+one item ADR-015 left open (see the ship-collision entry below). *(The "next move is A13"
+this paragraph ended with is spent — A13 closed the same day, and what is next now lives in the
+paragraph below.)*
 
 **The MVP is met — the play test was signed off 2026-08-19.** The lap the Architecture Overview
 calls "the one data flow" runs end to end — right-drag to plane point, pre-check, PENDING

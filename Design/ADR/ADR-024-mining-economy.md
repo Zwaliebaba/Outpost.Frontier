@@ -835,7 +835,9 @@ so retuning starts from the invariants rather than the values.
   two screens — milestones **G0** (the headless mining loop) / **G1** (the first alloy) /
   **G2** (the loop on screen). It **splits the E1 this ADR sketched** and **moves the screens
   out of E4**, both recorded in its sequencing rationale rather than left as a silent
-  divergence. E1a–E4 are headless-provable in the `selfTest` manner before any screen
+  divergence — and **E4 itself split on 2026-08-21** into **E4a**, the durable store ADR-025
+  designs, and **E4b**, the refining runtime that keeps G1, for the same reason and in the same
+  place. E1a–E4b are headless-provable in the `selfTest` manner before any screen
   exists.
 - **Named deliverables:** the **CARGO** and **REFINERY** tab prints (the P1 pattern —
   designed and agreed before their slices build); ore/alloy icons; the site field's
