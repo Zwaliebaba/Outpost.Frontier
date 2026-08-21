@@ -6,6 +6,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+
+#if defined(_MSC_VER)
+#include <share.h>
+#endif
+
 #include <span>
 #include <string>
 #include <vector>
@@ -37,12 +42,15 @@ namespace
  * tests have to open the files by hand to damage them. Exporting the store's
  * helper to spare four lines would put a file-opening function on a public
  * header for the sake of its test.
+ *
+ * **`_fsopen`, not `fopen_s`**, for the reason the store learned the hard way:
+ * `fopen_s` opens exclusively, so a test reading a file the store still holds
+ * open would silently read nothing and then assert about it.
  */
 [[nodiscard]] std::FILE* OpenRaw(const std::string& _path, const char* _mode) noexcept
 {
 #if defined(_MSC_VER)
-  std::FILE* file = nullptr;
-  return fopen_s(&file, _path.c_str(), _mode) == 0 ? file : nullptr;
+  return _fsopen(_path.c_str(), _mode, _SH_DENYNO);
 #else
   return std::fopen(_path.c_str(), _mode);
 #endif
@@ -212,6 +220,38 @@ public:
     Assert::AreEqual<std::size_t>(2, after.size(), L"a record was lost across the open/replay/append lifecycle");
     Assert::AreEqual<std::uint16_t>(1, after[0].kind);
     Assert::AreEqual<std::uint16_t>(2, after[1].kind);
+  }
+
+  TEST_METHOD(AJournalThatCannotBeReadIsRefusedRatherThanReplaced)
+  {
+    /*
+     * The branch that cost a shard its journal, pinned.
+     *
+     * `Replay` used to infer "there is no journal" from a read that failed, and
+     * then reopen with a truncating mode -- so the function that exists to
+     * recover a journal destroyed one instead. Absence is now established by
+     * asking whether the file is there, and a file that is there and will not
+     * open is a refusal.
+     *
+     * A directory standing where the journal should be is the portable way to
+     * say "exists and is not readable as a file"; what it refuses *with* differs
+     * by platform, and what matters is that it refuses at all rather than
+     * quietly starting a fresh shard on top of somebody's state.
+     */
+    const std::string directory = Scratch("unreadable");
+    DurableStoreDesc desc = Desc(directory);
+    std::error_code ignored;
+    std::filesystem::create_directories(std::filesystem::path(directory) / "shard-0.journal", ignored);
+
+    DurableStore store;
+    DurableLoadReport report;
+    std::vector<Seen> seen;
+    const bool opened = store.Open(desc, report);
+    const bool replayed = opened && store.Replay(Collect(seen), report);
+    Assert::IsFalse(replayed, L"a journal that cannot be read was treated as a fresh shard");
+    Assert::IsTrue(report.result == DurableLoadResult::Refused, L"the refusal did not say it was refusing");
+    Assert::IsTrue(std::filesystem::exists(std::filesystem::path(directory) / "shard-0.journal"),
+                   L"the refused load destroyed what it could not read");
   }
 
   TEST_METHOD(ATornTailRecoversToTheLastGoodRecord)
@@ -423,8 +463,20 @@ public:
       store.Append(1, 10, Payload(1, 16));
       store.Append(2, 20, Payload(2, 16));
       store.Append(3, 400, Payload(3, 16)); // Newer than the snapshot, so it survives.
-      store.Flush();
-      journalBeforeSnapshot = ReadAll(journal);
+      store.Close();
+    }
+
+    // Captured with the store shut, so what is copied is the file rather than
+    // whatever had reached the disk by then.
+    journalBeforeSnapshot = ReadAll(journal);
+    Assert::IsTrue(journalBeforeSnapshot.size() > 30, L"the fixture captured an empty journal");
+
+    {
+      DurableStore store;
+      DurableLoadReport report;
+      Assert::IsTrue(store.Open(desc, report), L"the store would not reopen");
+      std::vector<Seen> ignored;
+      Assert::IsTrue(store.Replay(Collect(ignored), report), L"the journal would not replay before the snapshot");
       Assert::IsTrue(store.WriteSnapshot(Payload(7, 64), 222, 300), L"the snapshot would not write");
       store.Close();
     }

@@ -12,6 +12,7 @@
 
 #if defined(_WIN32)
 #include <io.h>
+#include <share.h>
 #else
 #include <unistd.h>
 #endif
@@ -73,11 +74,21 @@ constexpr std::size_t FRAME_TRAILER_BYTES = 4;            // crc32.
   return ~crc;
 }
 
+/*
+ * `_fsopen` and not `fopen_s`, and the difference is a defect this cost.
+ *
+ * MSVC's `fopen_s` opens a file **exclusively** -- it is documented, it is not
+ * what `fopen` does, and it is not what any other platform does. The store
+ * reads its own journal while holding it open, so under `fopen_s` that read
+ * failed, the read failing was taken for "there is no journal", and the reopen
+ * that followed used a truncating mode. A shard's journal was destroyed by the
+ * function that exists to recover it, on the platform that ships and nowhere
+ * else. `_SH_DENYNO` is the sharing `fopen` gives everywhere, spelled out.
+ */
 [[nodiscard]] std::FILE* OpenFile(const std::string& _path, const char* _mode) noexcept
 {
 #if defined(_MSC_VER)
-  std::FILE* file = nullptr;
-  return fopen_s(&file, _path.c_str(), _mode) == 0 ? file : nullptr;
+  return _fsopen(_path.c_str(), _mode, _SH_DENYNO);
 #else
   return std::fopen(_path.c_str(), _mode);
 #endif
@@ -140,7 +151,18 @@ void CommitToDisk(std::FILE* _file) noexcept
   std::fseek(file, 0, SEEK_END);
   const long size = std::ftell(file);
   std::fseek(file, 0, SEEK_SET);
-  if (size < 0)
+
+  /*
+   * A length the OS reported is still a length read from outside, and it is
+   * bounded before a byte of it is believed -- the same rule a frame's
+   * `payloadBytes` obeys, one level up.
+   *
+   * The case that taught it: on Linux a *directory* opens as a file and reports
+   * a size near `LONG_MAX`, so the resize below threw `bad_alloc` out of a
+   * function whose entire contract is that a bad file is a diagnostic. A
+   * journal is a snapshot's size at most; anything larger is not a journal.
+   */
+  if (size < 0 || static_cast<std::uint64_t>(size) > MAX_DURABLE_RECORD_BYTES)
   {
     std::fclose(file);
     return false;
@@ -464,8 +486,39 @@ bool DurableStore::Open(const DurableStoreDesc& _desc, DurableLoadReport& _outRe
 
 bool DurableStore::Replay(const DurableReplayHandler& _handler, DurableLoadReport& _outReport)
 {
+  /*
+   * Read what we have actually written, not what happens to have reached the
+   * disk (ADR-025 §3).
+   *
+   * `Open` leaves the journal open so a fresh shard can append before it has
+   * replayed anything, and those bytes may still be sitting in the C runtime's
+   * buffer. Closing first is the whole fix: the file on disk is then the file,
+   * and this function is not reading around its own handle.
+   */
+  if (m_journal != nullptr)
+  {
+    CommitToDisk(m_journal);
+    std::fclose(m_journal);
+    m_journal = nullptr;
+  }
+
+  std::error_code existsError;
+  const bool exists = std::filesystem::exists(JournalPath(), existsError);
+
   std::vector<std::uint8_t> bytes;
-  const bool present = ReadWholeFile(JournalPath(), bytes) && bytes.size() >= JOURNAL_HEADER_BYTES;
+  const bool read = ReadWholeFile(JournalPath(), bytes);
+  if (exists && !read)
+  {
+    /*
+     * A journal that is there and will not open is a refusal, never a fresh
+     * shard. Treating it as absent is what the truncating reopen below used to
+     * do with it, which turned an unreadable file into a destroyed one.
+     */
+    _outReport.result = DurableLoadResult::Refused;
+    _outReport.message = JournalPath() + ": exists and cannot be read";
+    return false;
+  }
+  const bool present = read && bytes.size() >= JOURNAL_HEADER_BYTES;
 
   std::size_t at = present ? JOURNAL_HEADER_BYTES : 0;
   std::size_t goodBytes = at;
@@ -522,20 +575,9 @@ bool DurableStore::Replay(const DurableReplayHandler& _handler, DurableLoadRepor
     std::filesystem::resize_file(JournalPath(), goodBytes, error);
   }
 
-  /*
-   * The file is now exactly its good part, so appends continue from there --
-   * and the handle `Open` left behind is closed first.
-   *
-   * Not tidiness: `Open` opens the journal so that a fresh shard can append
-   * before it has replayed anything, and reopening over that handle would leak
-   * it on every platform and be *refused* on the one that ships, where a second
-   * writable handle to an open file is an error rather than a second handle.
-   */
-  if (m_journal != nullptr)
-  {
-    std::fclose(m_journal);
-    m_journal = nullptr;
-  }
+  // The file is now exactly its good part, so appends continue from there. The
+  // handle was closed at the top of this function, and "r+b" never truncates --
+  // "wb" is reached only when there is genuinely no file to keep.
   m_journal = OpenFile(JournalPath(), present ? "r+b" : "wb");
   if (m_journal == nullptr)
   {
