@@ -145,6 +145,21 @@ functions, and hands the results across. Thin enough that there is nothing to te
 the standing price of the arrangement and the reason the interfaces get stubbed in the engine
 test projects instead.
 
+*Two of the signatures above are illustrative and E4a adjusted them, both because §3's frame
+requires it rather than because the design moved (2026-08-21). `Append` takes the **shard
+tick**: every frame is stamped, and a store holding "the current tick" as state would be a
+second clock to forget to advance. And `recordKind` is a **`u16`**, which is what the frame
+says — a `u32` parameter feeding a `u16` field is a value that can be given and cannot be
+stored. GameLogic's three functions landed exactly as written, with two overloads added beside
+them (a captured `DurableState` rather than a live registry) so the round-trip suite can build
+its subject in code.*
+
+*One thing the ADR leaves implicit and the implementation had to make explicit: the **payload
+has its own version**, `DURABLE_FORMAT_VERSION`, beside the frame's `JOURNAL_FORMAT_VERSION`.
+The two move independently — E4b changes what a payload contains and nothing about how a record
+is wrapped — and one number covering both would refuse every existing shard for a change that
+could not affect it.*
+
 ### 3. The journal
 
 Append-only, little-endian, framed, written with `Neuron::ByteWriter` — ADR-004's discipline,

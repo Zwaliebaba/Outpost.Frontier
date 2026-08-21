@@ -748,6 +748,40 @@ public:
     Assert::AreEqual(DurableHash(before), DurableHash(after), L"a worked field broke the reload proof");
   }
 
+  TEST_METHOD(ARefusedLoadLeavesNothingBehind)
+  {
+    /*
+     * The contract, tested where it is easiest to break: a set whose *last*
+     * ship names nowhere. Everything before it -- the rosters, the Bay, the
+     * ledger -- is perfectly good, and a load that wrote those and then gave up
+     * would leave a shard holding two thirds of itself. That is worse than a
+     * refusal, because a refusal is visible at boot and this is visible when
+     * somebody notices a fleet is missing.
+     */
+    DurableState state;
+    state.nextDynamicShipId = DYNAMIC_SHIP_ID_BASE;
+    StationBay bay;
+    bay.owner = Neuron::SOLE_PLAYER_ID;
+    bay.station = FirstOfKind(AnchorKind::Station);
+    bay.oreUnits[0] = 500;
+    state.bays.push_back(bay);
+
+    DurableShip nowhere;
+    nowhere.shipId = 40000;
+    nowhere.anchor = 0xfffe; // No such anchor in any bake.
+    nowhere.hullClass = HullClass::Miner;
+    state.ships.push_back(nowhere);
+
+    WorldRegistry registry;
+    MakeRegistry(registry);
+    std::vector<PersistenceDiagnostic> diagnostics;
+    Assert::IsFalse(registry.LoadDurable(state, diagnostics), L"a ship that names nowhere was accepted");
+    Assert::IsTrue(diagnostics.size() >= 1, L"the refusal said nothing");
+    Assert::IsNull(registry.Bay(Neuron::SOLE_PLAYER_ID, bay.station), L"a refused load left a Bay behind");
+    Assert::AreEqual<std::uint32_t>(0, registry.ShardTick(), L"a refused load moved the shard tick");
+    Assert::AreEqual<std::uint32_t>(0, registry.LiveWorldCount(), L"a refused load left a grid spun up");
+  }
+
   TEST_METHOD(ALoadIntoARunningRegistryIsRefused)
   {
     // There is no answer to what merging a save file into a running shard would

@@ -728,6 +728,82 @@ named there); no SQL. **R26 is the register row this slice exists to answer**, a
 early-validation signal that row names — the restart scenario running on every push — starts
 here rather than at G1.
 
+**Built 2026-08-21.** ADR-025 stopped being an accepted design and became three files, and
+the shard stopped forgetting.
+
+`GameLogic/DurableState.{h,cpp}` is the pure half — `WriteDurableState`, `ReadDurableState` and
+`DurableHash` over `ByteWriter`/`ByteReader`, with a `PersistenceDiagnostic` list on malformed
+input, never a path and never a throw. What is written is §1's list as far as this tree has it:
+ships wherever they stand with their anchor, position, heading and hold; station rosters; Bays;
+site ledgers with the epoch they belong to; the bus, because a fleet three seconds into a warp
+is somewhere and the record is the only thing that knows where; the ship-id high-water mark; and
+the shard tick. What is *not* written is order queues, steering, guidance, undock protection and
+wrecks — so a fleet reloads at rest with an empty queue, and
+`AReloadedFleetHoldsPositionWithAnEmptyQueue` is §1's line as a test rather than a sentence.
+
+**`DurableHash` is a second hash and not a second opinion**, and this is the claim the slice
+turns on. `WorldRegistry::Hash` folds the order queues §1 has just declared transient, so a
+correct reload cannot reproduce it and a check written against it would either be wrong or
+teach everyone to ignore a red test. `TheReplayHashAndTheReloadProofAnswerDifferentQuestions`
+asserts the argument: an accepted order moves one number and not the other.
+
+`NeuronServer/DurableStore.{h,cpp}` is the store, and **it never learns what it is storing** —
+a record has a kind, a length and a checksum, and that one of those kinds is a Bay is a fact
+for the composition root. The distinction the whole boot path turns on is **torn tail versus
+corruption**: a bad frame at the end is the write that was in flight when the power went, so it
+is truncated and logged as a byte count; a bad frame with good frames after it cannot be an
+interrupted write, so it refuses and leaves both files untouched — truncating there would throw
+away good state to make a bad file parse, and the shard would come up looking healthy.
+
+**Two versions, not one.** `JOURNAL_FORMAT_VERSION` versions the frame and
+`DURABLE_FORMAT_VERSION` the payload, because they move independently: E4b changes what a
+payload contains and nothing about how a record is wrapped, and one number covering both would
+refuse every existing shard for a change that could not affect it. ADR-025 §2 carries the note,
+with the two signature adjustments §3's frame forced (`Append` takes the shard tick; the record
+kind is the `u16` the frame actually holds).
+
+**The wiring is the composition root's, and two of its consequences are the interesting part.**
+The starting fleet is what a *new* shard is built with, so the load decides whether to spawn it
+— spawning it on top of a reloaded shard would hand every commander a second fleet on every
+restart. And the scripted patrol's ship list is *intention*, so a reloaded shard rebuilds it
+from what is actually standing on the start grid rather than restoring it. `ServerHost` owns the
+cadence on the Sim thread and nowhere else — a snapshot every `SNAPSHOT_INTERVAL_SECONDS`
+counted in **ticks**, because the tick is the only clock (ADR-002 §1) and a wall-clock timer
+there would be a second one to drift, and one on the way out before anything is torn down, which
+is what makes "a clean stop loses nothing" true rather than aspirational.
+
+**Two refusals rather than repairs**, both of them ADR-025 naming a trap in advance. A ship-id
+mark that would go backwards is refused, because clamping it up is the failure the rule exists
+to prevent wearing a repair's clothes: the shard would carry on and re-issue ids that the
+rosters and transfers being loaded in the next few lines still name. And a load into a running
+registry is refused, because there is no answer to what merging a save file into a running shard
+would mean that is better than declining to have one.
+
+**Three defects, all found by reading the code back rather than by a test.** `Replay` reopened
+the journal over the handle `Open` had left — a leak on Linux and *refused outright* on the
+platform that ships, so the shard would have persisted nothing while every other check passed.
+`LoadDurable` could refuse on its last ship having already written the rosters, the Bays and the
+ledgers, which is the half-built registry its own contract promises not to leave; everything is
+judged against the content now before anything is written. And `m_journalHeaderBytes` was
+written in three places and read in none. Each has a test beside it.
+
+**The `selfTest` restart scenario is where R26's early-validation signal starts.** It runs in
+two halves because they are two claims. `RunRestartLoop` proves the **format**: dock a loaded
+Miner, commit ore to a Bay, write through a real store to a real directory, and have a second
+registry and a second store read it back — two independent runtimes meeting only through two
+files, which is what a restart is. The host section proves the **wiring**: after `Stop` and
+`Join`, the snapshot is on disk, stamped with the tick the host stopped at, carrying the shard's
+own reload proof. The second is the one a person would forget to make, and a store that works
+and is never called is a shard that loses everything while passing every unit test.
+
+*What is deliberately not here, and is E4b's: the journal's **game** records. The store's
+journal exists, is framed, CRC'd, recovered and tested, and nothing appends to it yet — so a
+hard kill today loses back to the last snapshot rather than to the last second. The per-outcome
+records that close ADR-025 §4's named window need a change-set at the registry's mutation
+points, and they land with the state E4b is about to add rather than being retrofitted twice.
+This is written here rather than left to be discovered, which is the E2 posture about ore not
+surviving a crossing.*
+
 ### E4b — Refining, tiers, and the projects · 🏁 G1
 Refine jobs `(recipe, batchCount)` submitted as station commands against a Bay — **at any
 station holding your ore, viewed or not**, because focus never gates command. Inputs debit at

@@ -29,6 +29,25 @@ namespace NeuronServerTests
 namespace
 {
 
+/*
+ * The store's own `OpenFile`, repeated here rather than exported.
+ *
+ * MSVC refuses `std::fopen` outright under this tree's conformance settings
+ * (C4996 as an error, which is what `Log.cpp` uses `fopen_s` for), and these
+ * tests have to open the files by hand to damage them. Exporting the store's
+ * helper to spare four lines would put a file-opening function on a public
+ * header for the sake of its test.
+ */
+[[nodiscard]] std::FILE* OpenRaw(const std::string& _path, const char* _mode) noexcept
+{
+#if defined(_MSC_VER)
+  std::FILE* file = nullptr;
+  return fopen_s(&file, _path.c_str(), _mode) == 0 ? file : nullptr;
+#else
+  return std::fopen(_path.c_str(), _mode);
+#endif
+}
+
 /// A directory of its own per test, removed first so a previous run cannot make
 /// this one pass or fail.
 [[nodiscard]] std::string Scratch(const char* _name)
@@ -84,7 +103,7 @@ struct Seen
 [[nodiscard]] std::vector<std::uint8_t> ReadAll(const std::string& _path)
 {
   std::vector<std::uint8_t> bytes;
-  std::FILE* file = std::fopen(_path.c_str(), "rb");
+  std::FILE* file = OpenRaw(_path, "rb");
   if (file == nullptr)
   {
     return bytes;
@@ -103,7 +122,7 @@ struct Seen
 
 void WriteAll(const std::string& _path, const std::vector<std::uint8_t>& _bytes)
 {
-  std::FILE* file = std::fopen(_path.c_str(), "wb");
+  std::FILE* file = OpenRaw(_path, "wb");
   Assert::IsNotNull(file, L"the fixture could not write a file it needs to damage");
   if (!_bytes.empty())
   {

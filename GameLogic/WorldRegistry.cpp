@@ -1484,6 +1484,32 @@ bool WorldRegistry::LoadDurable(const DurableState& _state, std::vector<Persiste
                                  std::to_string(_state.nextDynamicShipId));
   }
 
+  /*
+   * Everything is judged before anything is written.
+   *
+   * The alternative is a load that refuses on its last ship having already put
+   * the rosters, the Bays and the ledgers in -- which is the half-built
+   * registry this function's contract promises not to leave, and the reason
+   * that promise is worth making: a refusal is visible at boot, and a shard
+   * holding two thirds of itself is visible when somebody notices a fleet is
+   * missing. So the ships are checked here, against the *content*, without
+   * spinning a single grid up.
+   */
+  for (const DurableShip& ship : _state.ships)
+  {
+    const Anchor* anchor = m_universe->FindAnchor(ship.anchor);
+    if (anchor == nullptr)
+    {
+      return refuse("ship " + std::to_string(ship.shipId),
+                    "anchor " + std::to_string(ship.anchor) + " is not a place in this universe");
+    }
+    if (IsAuthoredOccupant(ship.anchor, ship.shipId))
+    {
+      return refuse("ship " + std::to_string(ship.shipId),
+                    "id belongs to anchor " + std::to_string(ship.anchor) + "'s authored occupants");
+    }
+  }
+
   m_shardTick = _state.shardTick;
   m_nextDynamicId = _state.nextDynamicShipId;
 
@@ -1534,11 +1560,10 @@ bool WorldRegistry::LoadDurable(const DurableState& _state, std::vector<Persiste
     World* world = Borrow(ship.anchor);
     if (world == nullptr)
     {
-      return refuse("ship " + std::to_string(ship.shipId), "anchor " + std::to_string(ship.anchor) + " is not a place in this universe");
-    }
-    if (IsAuthoredOccupant(ship.anchor, ship.shipId))
-    {
-      return refuse("ship " + std::to_string(ship.shipId), "id belongs to anchor " + std::to_string(ship.anchor) + "'s authored occupants");
+      // The anchor resolved in the pass above, so this is the grid refusing to
+      // exist rather than the record naming nowhere -- worth its own sentence
+      // because the two failures want different investigations.
+      return refuse("ship " + std::to_string(ship.shipId), "anchor " + std::to_string(ship.anchor) + " would not spin up");
     }
     ShipSpawn spawn;
     spawn.hullClass = ship.hullClass;
