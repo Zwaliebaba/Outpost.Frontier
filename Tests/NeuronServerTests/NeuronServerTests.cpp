@@ -59,6 +59,25 @@ public:
   [[nodiscard]] bool WriteSnapshot(PlayerId _viewer, std::uint16_t _grid, std::uint32_t _tick, ByteWriter& _writer) override
   {
     m_lastViewer.store(_viewer, std::memory_order_relaxed);
+
+    /*
+     * And EVERY viewer, not just the newest (U3c-b).
+     *
+     * `m_lastViewer` alone could carry A13's claim only while there was one
+     * commander -- with a single player it reads `SOLE_PLAYER_ID` whether the
+     * sender knew who it was serialising for or not. A set is what makes
+     * "each session got its own serialisation" checkable, and a set is only
+     * worth keeping once there is a second id to put in it.
+     *
+     * A bitmask because it is written on the Sim thread and read on the test's,
+     * and `fetch_or` is the whole synchronisation this needs. Ids above 63 fold
+     * back on themselves; no test here mints anywhere near that many, and a
+     * mask that silently aliased would be worse than one that cannot.
+     */
+    if (_viewer < 64)
+    {
+      m_viewersSeen.fetch_or(std::uint64_t{1} << _viewer, std::memory_order_relaxed);
+    }
     m_lastGrid.store(_grid, std::memory_order_relaxed);
     if (m_refuseSnapshots.load(std::memory_order_relaxed))
     {
@@ -115,6 +134,12 @@ public:
   /// Makes the simulation behave like a grid that outgrew one datagram.
   void RefuseSnapshots(bool _refuse) noexcept { m_refuseSnapshots.store(_refuse, std::memory_order_relaxed); }
   [[nodiscard]] PlayerId LastViewer() const noexcept { return m_lastViewer.load(std::memory_order_relaxed); }
+
+  /// Whether a snapshot was ever serialised for this commander in particular.
+  [[nodiscard]] bool SawViewer(PlayerId _viewer) const noexcept
+  {
+    return _viewer < 64 && (m_viewersSeen.load(std::memory_order_relaxed) & (std::uint64_t{1} << _viewer)) != 0;
+  }
 
   static constexpr std::uint32_t SNAPSHOT_MARKER = 0xfeedbeefu;
   [[nodiscard]] std::uint32_t SnapshotsWritten() const noexcept { return m_snapshotsWritten.load(std::memory_order_relaxed); }
@@ -183,6 +208,7 @@ private:
   std::atomic<std::uint32_t> m_nextOrderId{0};
   std::atomic<std::uint32_t> m_summariesWritten{0};
   std::atomic<PlayerId> m_lastViewer{INVALID_PLAYER_ID};
+  std::atomic<std::uint64_t> m_viewersSeen{0};
   std::atomic<std::uint16_t> m_lastGrid{0};
   std::atomic<std::uint32_t> m_viewChecks{0};
   std::atomic<bool> m_refuseSnapshots{false};
@@ -889,8 +915,10 @@ public:
     bool secondJoined = false;
     std::uint32_t firstSnapshots = 0;
     std::uint32_t secondSnapshots = 0;
+    PlayerId firstPlayer = INVALID_PLAYER_ID;
+    PlayerId secondPlayer = INVALID_PLAYER_ID;
 
-    const auto drain = [](QuicTransport& _transport, bool& _joined, std::uint32_t& _snapshots)
+    const auto drain = [](QuicTransport& _transport, bool& _joined, std::uint32_t& _snapshots, PlayerId& _player)
     {
       TransportEvent event;
       while (_transport.NextEvent(event))
@@ -904,6 +932,14 @@ public:
         if (type == WireType::Welcome)
         {
           _joined = true;
+
+          // Who the server says this connection is (U3c-b). Read rather than
+          // assumed, because assuming is what this test used to do.
+          Welcome welcome;
+          if (Read(reader, welcome))
+          {
+            _player = welcome.playerId;
+          }
         }
         else if (type == WireType::Snapshot)
         {
@@ -920,8 +956,8 @@ public:
     {
       first.Poll();
       second.Poll();
-      drain(first, firstJoined, firstSnapshots);
-      drain(second, secondJoined, secondSnapshots);
+      drain(first, firstJoined, firstSnapshots, firstPlayer);
+      drain(second, secondJoined, secondSnapshots, secondPlayer);
       if (firstJoined && secondJoined && firstSnapshots >= ENOUGH && secondSnapshots >= ENOUGH)
       {
         break;
@@ -933,7 +969,20 @@ public:
     Assert::IsTrue(firstSnapshots >= ENOUGH && secondSnapshots >= ENOUGH, L"both clients were not served snapshots");
     Assert::IsTrue(simulation.SnapshotsWritten() >= firstSnapshots + secondSnapshots,
                    L"more snapshots arrived than were serialised, so one serialisation was sent to more than one client");
-    Assert::AreEqual<PlayerId>(SOLE_PLAYER_ID, simulation.LastViewer(), L"the simulation was not told who the snapshot was for");
+    /*
+     * A13's actual claim, finally checkable (U3c-b).
+     *
+     * This asserted `LastViewer() == SOLE_PLAYER_ID` while every session was
+     * player one -- which a broadcast sender that ignored the viewer entirely
+     * would also have satisfied, since there was only one value it could
+     * possibly have been. Two commanders is what turns "the sender knew which
+     * client it was serialising for" from a sentence into a test.
+     */
+    Assert::IsTrue(firstPlayer != INVALID_PLAYER_ID && secondPlayer != INVALID_PLAYER_ID,
+                   L"a session was welcomed as nobody");
+    Assert::IsTrue(firstPlayer != secondPlayer, L"two sessions on one shard were given one identity");
+    Assert::IsTrue(simulation.SawViewer(firstPlayer), L"no snapshot was serialised for the first commander");
+    Assert::IsTrue(simulation.SawViewer(secondPlayer), L"no snapshot was serialised for the second commander");
     Assert::AreEqual<std::uint32_t>(0, host.SnapshotFailureCount());
 
     host.Stop();
