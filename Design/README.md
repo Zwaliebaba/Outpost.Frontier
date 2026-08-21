@@ -182,7 +182,7 @@ time, so R17's per-region split stays reserved. The tick soak is unchanged in ch
 (7.000 ms for a capped grid), which answers the question 6,223 new anchors raise: a site costs
 the tick nothing until somebody warps to it.
 
-**Built so far: E1a and E1b.** `Economy.json` is the **first hash-guarded balance content in
+**Built so far: E1a, E1b, E2 and E3.** `Economy.json` is the **first hash-guarded balance content in
 the tree** — ADR-012 §D13's hook cashed in, with `economyHash` mixed into the handshake's
 existing `contentHash` so an economy mismatch is refused with no wire field added. And
 `AnchorKind::Site` stopped being reserved: the committed universe was re-baked to **24,841
@@ -190,8 +190,97 @@ anchors in 18.93 MB at `universeHash ad9555dd776008a6`**, of which 6,223 are min
 That re-bake is **purely additive** — 180,467 lines added, zero removed, every station,
 planet and gate anchor keeping its id — because sites are appended after every other anchor
 is numbered and every site roll comes from a per-system stream that never advances the main
-sequence. **E2 is unblocked** now that ADR-025 is accepted, since the site ledger is the
-phase's first durable state.
+sequence.
+
+**E2 landed on top of that (2026-08-20).** Mining is in the tick — `OrderKind::Mine`, an ore
+filter as its parameter, 6-12 clusters split out of a pool by largest remainder so not one unit
+is lost to rounding, deterministic cycles that take **no RNG draw at all**, and the three
+per-ship exits ADR-024 §4b names — and the **site ledger** is the phase's first durable state,
+sitting beside the station rosters at the universe layer and folded into the registry hash on
+the same terms. Three things about it are worth carrying forward. The tick's named step order
+gained a sixth entry, `Mining`, *last*, so a cycle is judged against where a ship finished the
+tick. A working Mine order is the first group in this tree that **outlives its own plan**,
+which turned an implied guard into a written one — the stale-solve pass now skips a group with
+no leg left, where `ApplyLeg` would otherwise have read past the plan. And the ledger obeys
+D8's viewer rule in its own right: a ledger the shard owes a refill is skipped by the hash, or
+whether anybody happened to walk past a field would change the session's number. One thing is
+deliberately still broken and written down where it will be found — **ore does not survive a
+crossing** until E3 gives a station its Bay.
+
+**CI's verdict on E2 (run 155, 2026-08-20):** Debug|x64, Release|x64 and Spike 2 all green,
+`self test: PASSED`, no clang-tidy finding and no failing test, one pre-existing Release
+warning. Content is untouched — `universe ad9555dd776008a6, economy 0b07707ec843431d, mixed
+1965b853a23a5115`, parsed and hashed in **213 ms** — and the replay hash moved to
+**`69c58e2751c0df22`**, which it had to, because the site ledger and the cargo arrays joined
+the world hash; Spike 2 confirms Debug and Release agree on the new number. The tick soak is
+the figure to keep an eye on rather than to celebrate: a capped grid now costs **9.020 ms mean
+/ 16.538 ms worst** against E1b's 7.000 / 8.644, so headroom falls from 7.1 capped grids per
+core to 5.5. Inside the tripwire, and a trend R10 should be read against after E3.
+
+**E3 closed the loop's last hole (2026-08-21).** Ore stopped evaporating at boundaries: a
+manifest rides the transfer record and the roster row, so a hold survives a dock, an undock and
+a warp alike. The **Station Bay** joins the site ledgers and the station rosters as the third
+resident of "worlds forget, the universe layer does not" — per `(owner, station)`, created only
+when something is stored, folded into the registry hash, and with no currency rule, because
+committed property has no epoch to go stale against. `TransferToBay` and `TransferToShip` are
+**manual in both directions** (ADR-024 §5c's ruling), applied on the spot beside `AssignWing`
+since neither end of the move is on a grid. The wire cluster landed in one fail-closed bump: two
+verbs, an ore byte and a count on the command, an 18-byte roster row, and three new summary
+kinds — `SiteStatus`, `CargoStatus`, `BayStatus` — in a new `EconomyMessages.h`. **`EntityRecord`
+is untouched and a test asserts the arithmetic**: one cargo byte would take the record 21 → 22
+and the ship cap 43 → 41, exactly onto `Snapshot.h`'s floor, which is what ADR-024 §4d refused in
+advance.
+
+*One change fell outside the economy: `Simulation::ApplyOrderBytes` now carries a `PlayerId`
+beside the client id. A command that moves a commander's property has to say whose, and a
+registry that guessed would be guessing about ownership — the command half of what the outbound
+seam already does.*
+
+**And the accept found what the unit suite could not, for the second slice running.** The G0
+scenario — mine, warp, dock, commit, tear the grid down — was written to prove the loop composes
+and immediately proved it did not: `ApplyTransit` spawned arrivals with empty holds, so a fleet
+that warped anywhere lost its cargo silently. Dock and undock each had a test; transit had none.
+Fixed, with the unit test that should have caught it first added beside it.
+
+**CI's verdict on E3 (run 161, commit `93956dc`, 2026-08-21):** Debug|x64, Release|x64 and
+Spike 2 all green in eleven minutes, **717 tests on MSVC** with none failing, `self test:
+PASSED` with all thirteen 🏁 G0 checks named and passing, no clang-tidy finding and the one
+pre-existing Release warning. Content is untouched — `universe ad9555dd776008a6, economy
+0b07707ec843431d, mixed 1965b853a23a5115`, parsed and hashed in **212 ms** — and the tick soak
+is flat rather than up: a capped grid costs **8.729 ms mean / 17.573 ms worst** against E2's
+9.020 / 16.538, holding the headroom R10 watches at 5.7 capped grids per core. **The replay
+hash did not move** — `69c58e2751c0df22`, byte for byte E2's — and the build-order note
+predicted that it would. The reason is worth carrying: the replay scenario is six ships in a
+bare `World` hashed with `ComputeWorldHash`, while the Bay and the manifests are
+`WorldRegistry` state. **The replay hash is a world hash, not a shard hash**, so an unmoved
+number says nothing either way about the universe layer.
+
+**And the content copy is a post-build script now, on the owner's call (2026-08-21).**
+`Outpost/CopyGameData.cmd` replaces the `CopyGameData` MSBuild target below: one robocopy
+script called once per configuration, holding the whole rationale, with robocopy's bitmask exit
+code translated at the one place that can get it right and failures printed in MSBuild's
+canonical error form. The mechanism is the smaller half of the change. The build also gained a
+step that **names the files that must be beside the executable** — which is precisely what the
+45-minute hang lacked, because the self test reads the repo's content rather than the build's
+and so cannot notice a deployment that shipped nothing at all.
+
+*It took two runs. Run 162 died on `robocopy exited 16`: a line that stripped `$(TargetDir)`'s
+trailing backslash by comparison had been tidied into `for %%I in (...) do set "DEST=%%~fI"` on
+the belief that `%~f` trims one — **it does not**, and while cmd has no backslash escape,
+robocopy parses its own command line with the C runtime's rules, where `\"` is an escaped quote,
+so the closing quote and four switches were swallowed into the destination path. The comparison
+is back and the result is now asserted. The half that worked is worth as much as the fix: the
+script raised a named MSBuild error and failed the build in seven minutes, which is precisely
+what the xcopy version could not do. Run 163 is green — `27 files, 25 copied, 2 skipped`, and
+`content beside the executable: 25 files, 21.5 MB`.*
+
+*(The merge with `main`'s station-progress work first inherited a CI hang — `a6dd412`'s
+xcopy rewrite of the content copy left the exe bootless on a fresh clone, and a startup
+failure raised a modal dialog no headless runner could dismiss. Diagnosed by instrumentation
+(per-line log flushing plus a 300 s watchdog, run 158) and fixed on this branch: the
+`CopyGameData` target is restored and the fatal dialog is gated to attended launches. Run 159
+is green in both configurations — **694 tests on MSVC**, the replay hash unmoved from run
+155's `69c58e2751c0df22`.)*
 
 **What the economy phase cost in corrections is worth reading before the next slice**, because
 all four were found by building rather than by review: the ADR's field radius did not fit the
@@ -234,7 +323,7 @@ CI now runs headless in the shipping binary on every push (schema self-check, wi
 round-trips, a replay-determinism run, then the whole handshake + order + snapshot loop over
 QUIC loopback), 4× MSAA offscreen + resolve, cosmetic banking/hover, and the STALE marker.
 The merged tree — S14 plus ADR-015's collision and ADR-021's make-way, and now S15's audio —
-runs **593 tests green** across the four suites on MSVC, in Debug and Release alike. *(The suite stands at **650** as of the economy phase, 2026-08-20.)*
+runs **593 tests green** across the four suites on MSVC, in Debug and Release alike. *(The suite stands at **717** as of E3 — 593 before the economy phase, 650 at E1b, 694 after E2 and the merge with `main` — green on MSVC in Debug and Release alike, with no failing test, 2026-08-21.)*
 
 **The half that needed a person and a GPU is done (2026-08-19):** the MVP definition
 demonstrated in a live session, together with the visual items outstanding since the last
@@ -413,9 +502,11 @@ linger is simulation state, so it is in the hash.
 **Milestone M0 is complete (2026-08-18).** Its automated half was green at the time: 122 tests
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
 handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. The
-suite now stands at **650** — it was 593 before the economy phase, and the growth is again GameLogic's (`EconomyParseTests`, and `UniverseSiteTests`' twelve). GameLogic is
-where the growth is, and that is the universe and station phases arriving: it has gone from 136
-to 208 without a single one of those tests needing a device. Its
+suite now stands at **717** — it was 593 before the economy phase, and the growth is again
+GameLogic's (`EconomyParseTests`, `UniverseSiteTests`' twelve, E2's `MiningTests` with 38
+more, and E3's `CargoTests` with 23). GameLogic is
+where the growth is, and that is the universe, station and economy phases arriving: it has gone
+from 136 to 324 without a single one of those tests needing a device. Its
 visible half — window open, swapchain presenting, heartbeat live — together with the four
 other criteria that need a GPU and a person (five minutes clean under the debug layer,
 PresentMon showing the flip model, a clean exit, and the 60-second tick cadence on an idle

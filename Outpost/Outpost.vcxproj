@@ -27,6 +27,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
+    <None Include="CopyGameData.cmd" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Shaders\OpaqueVS.hlsl">
@@ -211,8 +212,22 @@
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
     </Manifest>
+    <!--
+      GameData beside the executable, so that a build produces something that
+      runs. The whole of the reasoning - what the loader looks for, why
+      Outpost.json is lifted out of the content folder, why robocopy and which
+      of its switches, and how its bitmask exit code is translated - is in the
+      script, along with the post-mortem of the xcopy version that hung CI.
+
+      One command, deliberately. The script owns the destination, the excludes
+      and the exit code, so the two configurations cannot drift apart and a
+      failure cannot be swallowed by a later command's exit 0. What proves the
+      files arrived is not this line but the CI step after the build, which
+      asserts the layout by name.
+    -->
     <PostBuildEvent>
-      <Command>xcopy /Y /D /I /E "$(SolutionDir)GameData\*" "$(OutDir)"</Command>
+      <Message>Copying GameData beside the executable</Message>
+      <Command>call "$(MSBuildThisFileDirectory)CopyGameData.cmd" "$(MSBuildThisFileDirectory)..\GameData" "$(TargetDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -240,9 +255,10 @@
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
     </Manifest>
+    <!-- The same event, and the same script; the reasoning is above. -->
     <PostBuildEvent>
-      <Command>xcopy /Y /D /I /E "$(MSBuildThisFileDirectory)..\GameData\*" "$(OutDir)GameData\" /EXCLUDE:$(MSBuildThisFileDirectory)..\GameData\*.log
-xcopy /Y /D "$(MSBuildThisFileDirectory)..\GameData\Outpost.json" "$(OutDir)"</Command>
+      <Message>Copying GameData beside the executable</Message>
+      <Command>call "$(MSBuildThisFileDirectory)CopyGameData.cmd" "$(MSBuildThisFileDirectory)..\GameData" "$(TargetDir)"</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

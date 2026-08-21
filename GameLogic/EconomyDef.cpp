@@ -268,6 +268,61 @@ bool TryOreId(std::string_view _text, OreId& _outOre) noexcept
   return true;
 }
 
+const char* OreFilterName(OreFilter _filter) noexcept
+{
+  switch (_filter)
+  {
+  case OreFilter::Any:
+    return "Any";
+  case OreFilter::FerroChroma:
+    return OreIdName(OreId::FerroChroma);
+  case OreFilter::Astracite:
+    return OreIdName(OreId::Astracite);
+  case OreFilter::Nebulite:
+    return OreIdName(OreId::Nebulite);
+  }
+  // Unreachable through the enum, and a label is never null: a control the
+  // player cannot name is worse than one named for what it is not.
+  return "Any";
+}
+
+bool OreFilterMatches(OreFilter _filter, OreId _ore) noexcept
+{
+  return _filter == OreFilter::Any || static_cast<std::uint8_t>(_filter) == static_cast<std::uint8_t>(_ore) + 1u;
+}
+
+bool TryOreFilter(std::uint8_t _raw, OreFilter& _outFilter) noexcept
+{
+  // A switch rather than a range test, so a filter added to the enum and not to
+  // this list is a compiler warning rather than a value refused at runtime.
+  switch (static_cast<OreFilter>(_raw))
+  {
+  case OreFilter::Any:
+  case OreFilter::FerroChroma:
+  case OreFilter::Astracite:
+  case OreFilter::Nebulite:
+    _outFilter = static_cast<OreFilter>(_raw);
+    return true;
+  }
+  return false;
+}
+
+bool TryOreId(std::uint8_t _raw, OreId& _outOre) noexcept
+{
+  // A switch for the reason `TryOreFilter` uses one: an ore added to the enum
+  // and not to this list is a compiler warning rather than a value the wire
+  // quietly refuses.
+  switch (static_cast<OreId>(_raw))
+  {
+  case OreId::FerroChroma:
+  case OreId::Astracite:
+  case OreId::Nebulite:
+    _outOre = static_cast<OreId>(_raw);
+    return true;
+  }
+  return false;
+}
+
 bool TryAlloyId(std::string_view _text, AlloyId& _outAlloy) noexcept
 {
   std::uint8_t index = 0;

@@ -21,8 +21,10 @@
     </ClCompile>
     <ClCompile Include="ReplicatedView.cpp" />
     <ClCompile Include="EconomyDef.cpp" />
+    <ClCompile Include="EconomyMessages.cpp" />
     <ClCompile Include="EconomyParse.cpp" />
     <ClCompile Include="SiteEpoch.cpp" />
+    <ClCompile Include="SiteField.cpp" />
     <ClCompile Include="Eta.cpp" />
     <ClCompile Include="EventRecord.cpp" />
     <ClCompile Include="FleetSummary.cpp" />
@@ -41,6 +43,7 @@
     <ClCompile Include="UniverseRoute.cpp" />
     <ClCompile Include="World.cpp" />
     <ClCompile Include="WorldRegistry.cpp" />
+    <ClCompile Include="WorldMining.cpp" />
     <ClCompile Include="WorldOrders.cpp" />
     <ClCompile Include="WorldHash.cpp" />
   </ItemGroup>
@@ -50,9 +53,11 @@
     <ClInclude Include="ReplicatedView.h" />
     <ClInclude Include="SchemaHash.h" />
     <ClInclude Include="EconomyDef.h" />
+    <ClInclude Include="EconomyMessages.h" />
     <ClInclude Include="EconomyParse.h" />
     <ClInclude Include="FixedAngle.h" />
     <ClInclude Include="SiteEpoch.h" />
+    <ClInclude Include="SiteField.h" />
     <ClInclude Include="Eta.h" />
     <ClInclude Include="EventRecord.h" />
     <ClInclude Include="FleetSummary.h" />

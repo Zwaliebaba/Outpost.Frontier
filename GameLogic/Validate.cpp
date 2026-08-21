@@ -64,17 +64,53 @@ struct MarkLookup
   }
 };
 
-/// The ship's mark, or null when the view carries none for it.
-[[nodiscard]] const ShipMark* FindMark(const ValidationView& _view, ShipId _shipId) noexcept
+/// Where a ship sits in the view's parallel arrays, or `npos`. One scan the
+/// two lookups below share, because a view with marks and a view with hold
+/// room index the same way and two searches could disagree about that.
+[[nodiscard]] std::size_t FindShipIndex(const ValidationView& _view, ShipId _shipId) noexcept
 {
-  for (std::size_t index = 0; index < _view.shipIds.size() && index < _view.shipMarks.size(); ++index)
+  for (std::size_t index = 0; index < _view.shipIds.size(); ++index)
   {
     if (_view.shipIds[index] == _shipId)
     {
-      return &_view.shipMarks[index];
+      return index;
     }
   }
-  return nullptr;
+  return static_cast<std::size_t>(-1);
+}
+
+/// The ship's mark, or null when the view carries none for it.
+[[nodiscard]] const ShipMark* FindMark(const ValidationView& _view, ShipId _shipId) noexcept
+{
+  const std::size_t index = FindShipIndex(_view, _shipId);
+  return index < _view.shipMarks.size() ? &_view.shipMarks[index] : nullptr;
+}
+
+/*
+ * The smallest volume, in litres, of one unit of anything this filter accepts,
+ * or zero when the view cannot say.
+ *
+ * The *smallest* rather than the filtered ore's own, because an `Any` order
+ * takes whatever the cluster is richest in and a hold with room for one
+ * Astracite unit and not one Ferro-Chroma unit is a hold that can still mine.
+ * Refusing it would ground a Miner that has work left.
+ */
+[[nodiscard]] std::uint32_t SmallestUnitLitres(const ValidationView& _view, OreFilter _filter) noexcept
+{
+  std::uint32_t smallest = 0;
+  for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+  {
+    const std::uint32_t litres = _view.oreUnitLitres[ore];
+    if (litres == 0 || !OreFilterMatches(_filter, static_cast<OreId>(ore)))
+    {
+      continue;
+    }
+    if (smallest == 0 || litres < smallest)
+    {
+      smallest = litres;
+    }
+  }
+  return smallest;
 }
 
 } // namespace
@@ -179,6 +215,18 @@ OrderVerdict ValidateOrder(const ValidationView& _view, const OrderSubmit& _orde
     return Refuse(OrderReason::UnknownAnchor);
   }
 
+  /*
+   * And a Mine has to be ordered *at* a field (ADR-024 §4a). Beside the two
+   * above it, because it is the same question with a third noun -- "is the
+   * place you named a place?" -- and grouping them is what keeps the answers
+   * comparable. A Mine names no destination: the field a wing works is the one
+   * it is standing in, so this asks about the grid rather than about the order.
+   */
+  if (_order.kind == OrderKind::Mine && _view.siteAnchor == INVALID_ID)
+  {
+    return Refuse(OrderReason::NotAtSite);
+  }
+
   // Centimetres against a centimetre bound. Converting either side to metres
   // here would put a rounding step inside the function whose whole job is to
   // round the same way on both sides of the wire (ADR-005 §4).
@@ -196,6 +244,66 @@ OrderVerdict ValidateOrder(const ValidationView& _view, const OrderSubmit& _orde
       // on the server it is a ship that died between the click and the
       // datagram. Same reason code either way, which is the point.
       return Refuse(OrderReason::UnknownShip);
+    }
+  }
+
+  /*
+   * Something in the order has to be able to mine, and to have room for what it
+   * mines (ADR-024 §4a).
+   *
+   * After every named ship is resolved and before the positional checks, which
+   * is where the check-order contract puts a question about the *selection*: a
+   * commander who selected a dead ship is told that first, and one whose wing
+   * is simply the wrong wing is told that before being told how far away it is.
+   *
+   * Mixed groups are legal and intended -- the escorts take formation stations
+   * around the worked cluster -- so this refuses only an order with no Miner in
+   * it at all, and only one whose every Miner is already full.
+   */
+  if (_order.kind == OrderKind::Mine)
+  {
+    bool anyMiner = false;
+    for (std::uint16_t index = 0; index < _order.shipCount && !anyMiner; ++index)
+    {
+      const ShipMark* mark = FindMark(_view, _order.shipIds[index]);
+      // A view with ids and no marks cannot prove there is a Miner here, and
+      // saying so is the only honest verdict -- the same refusal the dock check
+      // makes when it is asked a positional question it has no marks for.
+      anyMiner = mark != nullptr && mark->hullClass == HullClass::Miner;
+    }
+    if (!anyMiner)
+    {
+      return Refuse(OrderReason::NoMinerInOrder);
+    }
+
+    /*
+     * The hold check is **skipped by a caller that cannot answer it**, which is
+     * the client until E3 replicates cargo.
+     *
+     * Not a refusal, because a pre-check that bounced every Mine order for want
+     * of a number the client is not sent yet would make the feature unusable
+     * from the surface that offers it. The authority still applies it, and a
+     * client whose order is refused there learns it from the ack -- which is
+     * the designed asymmetry, not a hole.
+     */
+    const std::uint32_t smallest = SmallestUnitLitres(_view, _order.oreFilter);
+    if (smallest > 0 && !_view.oreHoldFreeLitres.empty())
+    {
+      bool anyRoom = false;
+      for (std::uint16_t index = 0; index < _order.shipCount && !anyRoom; ++index)
+      {
+        const std::size_t slot = FindShipIndex(_view, _order.shipIds[index]);
+        if (slot >= _view.shipMarks.size() || slot >= _view.oreHoldFreeLitres.size())
+        {
+          continue;
+        }
+        anyRoom = _view.shipMarks[slot].hullClass == HullClass::Miner &&
+                  _view.oreHoldFreeLitres[slot] >= smallest;
+      }
+      if (!anyRoom)
+      {
+        return Refuse(OrderReason::HoldFull);
+      }
     }
   }
 

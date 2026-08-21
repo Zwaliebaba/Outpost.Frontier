@@ -132,7 +132,7 @@ public:
   static constexpr std::uint32_t ORDER_MARKER = 0xc0defaceu;
   static constexpr std::uint16_t REFUSED_REASON = 4242;
 
-  [[nodiscard]] OrderVerdict ApplyOrderBytes(std::uint32_t _clientId, std::span<const std::uint8_t> _payload) override
+  [[nodiscard]] OrderVerdict ApplyOrderBytes(PlayerId, std::uint32_t _clientId, std::span<const std::uint8_t> _payload) override
   {
     ++m_ordersSeen;
     m_lastOrderClientId = _clientId;

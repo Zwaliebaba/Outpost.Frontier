@@ -44,6 +44,9 @@
     <None Include="packages.config">
       <Filter>Project Files</Filter>
     </None>
+    <None Include="CopyGameData.cmd">
+      <Filter>Project Files</Filter>
+    </None>
     <None Include="Shaders\FrameConstants.hlsli">
       <Filter>Shaders</Filter>
     </None>

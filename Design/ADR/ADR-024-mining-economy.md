@@ -297,6 +297,15 @@ is gone is gone: "this system is chewed out until tomorrow" is information a min
 plans logistics around. Roaming anomalies — *extra* transient fields that appear and
 wander as content — stay with the future system that would own them.
 
+*(**E2 found the consequence of taking that literally**, and it is recorded as
+[R27](../Risk-Register.md) rather than settled here: if a field is never re-formed under
+presence, then presence — a single ship, or a single viewer — pins its epoch indefinitely, so
+a group that strips a system's sites can hold them stripped for nothing. In Low- and Null-Sec
+that is shootable, which is the answer this design is built to give. The High-Sec case is
+open, and the two candidate levers are an amendment to this section rather than a code
+decision: re-form anyway after N hours of nobody actually mining, or re-form **around** live
+ships instead of refusing.)*
+
 **Visibility:** archetype and grade are bake content — the strategic map and system view
 may show them to everyone, like security. The *remaining pool* is presence-gated like
 everything live: you learn how eaten a field is by having a ship there (§4d's site

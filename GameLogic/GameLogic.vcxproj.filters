@@ -14,10 +14,16 @@
     <ClCompile Include="EconomyDef.cpp">
       <Filter>Economy</Filter>
     </ClCompile>
+    <ClCompile Include="EconomyMessages.cpp">
+      <Filter>Economy</Filter>
+    </ClCompile>
     <ClCompile Include="EconomyParse.cpp">
       <Filter>Economy</Filter>
     </ClCompile>
     <ClCompile Include="SiteEpoch.cpp">
+      <Filter>Economy</Filter>
+    </ClCompile>
+    <ClCompile Include="SiteField.cpp">
       <Filter>Economy</Filter>
     </ClCompile>
     <ClCompile Include="Eta.cpp">
@@ -56,6 +62,9 @@
     <ClCompile Include="WorldRegistry.cpp">
       <Filter>World</Filter>
     </ClCompile>
+    <ClCompile Include="WorldMining.cpp">
+      <Filter>Economy</Filter>
+    </ClCompile>
     <ClCompile Include="WorldOrders.cpp">
       <Filter>Orders</Filter>
     </ClCompile>
@@ -92,10 +101,16 @@
     <ClInclude Include="EconomyDef.h">
       <Filter>Economy</Filter>
     </ClInclude>
+    <ClInclude Include="EconomyMessages.h">
+      <Filter>Economy</Filter>
+    </ClInclude>
     <ClInclude Include="EconomyParse.h">
       <Filter>Economy</Filter>
     </ClInclude>
     <ClInclude Include="SiteEpoch.h">
+      <Filter>Economy</Filter>
+    </ClInclude>
+    <ClInclude Include="SiteField.h">
       <Filter>Economy</Filter>
     </ClInclude>
     <ClInclude Include="FixedAngle.h">

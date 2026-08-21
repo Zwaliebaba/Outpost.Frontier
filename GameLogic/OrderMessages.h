@@ -9,8 +9,8 @@
  * An order, as bytes (ADR-004 §7).
  *
  * `OrderSubmit{ u32 orderSeq, u8 kind, u8 formationId, u8 queueMode,
- * u16 shipCount, u16 shipIds[], Leg{ i32 xCm, i32 yCm, u16 facing } }`, in
- * that order, little-endian, no padding.
+ * u16 shipCount, u16 shipIds[], Leg{ i32 xCm, i32 yCm, u16 facing },
+ * u16 anchor, u8 oreFilter }`, in that order, little-endian, no padding.
  *
  * **The game owns this layout, not the engine.** NeuronCore frames the payload
  * behind a `WireType::OrderSubmit` word and copies the bytes without reading
@@ -74,13 +74,14 @@ inline constexpr std::size_t COMMAND_KIND_BYTES = 1;
  */
 [[nodiscard]] bool ReadCommandKind(Neuron::ByteReader& _reader, CommandKind& _outKind) noexcept;
 
-/// Bytes one order occupies. Fixed part plus two per ship. The trailing two are
-/// the anchor a Dock names (ADR-017 §2) -- written for every kind rather than
-/// only for the ones that use it, because a variable-shape record would make
-/// the decode bound depend on a byte the payload chose.
+/// Bytes one order occupies. Fixed part plus two per ship. The trailing three
+/// are the anchor a Dock names (ADR-017 §2) and the ore a Mine filters by
+/// (ADR-024 §4a) -- written for every kind rather than only for the ones that
+/// use them, because a variable-shape record would make the decode bound depend
+/// on a byte the payload chose.
 [[nodiscard]] constexpr std::size_t OrderSubmitBytes(std::size_t _shipCount) noexcept
 {
-  return 4 + 1 + 1 + 1 + 2 + _shipCount * 2 + 4 + 4 + 2 + 2;
+  return 4 + 1 + 1 + 1 + 2 + _shipCount * 2 + 4 + 4 + 2 + 2 + 1;
 }
 
 /// The largest an order can be: the per-order ship cap, which is what makes the
@@ -99,6 +100,14 @@ inline constexpr std::size_t MAX_ORDER_SUBMIT_BYTES = OrderSubmitBytes(MAX_SHIPS
  * single id is read, rather than after the read has already walked off the end
  * of the buffer -- `ByteReader` would flag the underflow, but by then the loop
  * has run sixty-five thousand times.
+ *
+ * **The ore filter is the one field this refuses on**, where `kind` and
+ * `formation` are cast through unchecked. The difference is that those two have
+ * reason codes -- `UnknownKind` and `InvalidFormation` are sentences a player
+ * reads -- and the filter has none, because every value the enum defines is
+ * legal on every grid. So a byte outside it is not a refusal owed to anyone; it
+ * is a schema disagreement the handshake should already have caught, which is
+ * exactly what `ReadCommandKind` says about its own.
  */
 [[nodiscard]] bool ReadOrderSubmit(Neuron::ByteReader& _reader, OrderSubmit& _outOrder) noexcept;
 

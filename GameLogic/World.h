@@ -3,6 +3,7 @@
 #include "Formation.h" // `FormationStation`: the placement searches speak in solved stations.
 #include "Ids.h"
 #include "Orders.h"
+#include "SiteField.h"
 #include "Station.h"
 #include "Transfer.h"
 #include "Validate.h"
@@ -80,6 +81,69 @@ struct Guidance
 };
 
 /*
+ * What one ship is carrying (ADR-024 §5a, build order E2).
+ *
+ * Units, not litres, and per `OreId`: units are what a cycle yields and what a
+ * recipe consumes, and litres are what they occupy. Storing litres would make
+ * "how much Astracite is aboard" a division, and a division is where two builds
+ * round differently.
+ *
+ * Only the ore hold is here. The general hold every hull carries is E3's, and
+ * it arrives when there is something other than ore to put in it -- a field with
+ * no consumer is a byte in the world hash that nothing reads.
+ */
+struct ShipCargo
+{
+  std::uint32_t oreUnits[ORE_COUNT] = {};
+
+  [[nodiscard]] std::uint32_t Units(OreId _ore) const noexcept { return oreUnits[static_cast<std::uint8_t>(_ore)]; }
+};
+
+/*
+ * Where one ship is in its mining cycle, and what the field has done to it
+ * (ADR-024 §3b, §4b).
+ *
+ * Per ship rather than per group, because every exit in §4b is per ship: one
+ * Miner fills and stops while the others keep working, and one Miner's
+ * radiation is its own. The group holds the *cluster*; this holds the work.
+ *
+ * All of it is hashed. Two worlds that agreed about positions and disagreed
+ * about when a cycle lands have diverged, and the tick that credits the ore is
+ * where it would show.
+ */
+struct MiningState
+{
+  /// The tick the current cycle completes on, or **zero for "not cycling"**.
+  /// A cycle is at least 800 ticks long, so zero can never be a real end tick
+  /// and the sentinel costs no field of its own.
+  std::uint32_t cycleEndTick = 0;
+
+  /// Which cluster this ship is working. Meaningless when it is not cycling.
+  std::uint8_t cluster = 0;
+
+  /// Radiation stacks (ADR-024 §3b): one per completed cycle in the field, and
+  /// one shed for every `stackDecaySeconds` spent outside it.
+  std::uint8_t radiationStacks = 0;
+
+  /// Ticks spent outside the field since the last stack was shed. A counter
+  /// rather than a timestamp, so a ship that crosses the boundary twice does
+  /// not get credit for the time it was back inside.
+  std::uint16_t outsideFieldTicks = 0;
+
+  /// Nebula heat, and the ticks of laser-off time banked toward shedding it.
+  /// Heat is added by a completed cycle and shed only while the laser is *off*,
+  /// which is what makes the authored numbers mean what §3b says they mean: at
+  /// 34 a cycle against a threshold of 100, the third cycle locks the laser out,
+  /// and 60 seconds at 2 a second is more than enough to clear it.
+  std::uint16_t heat = 0;
+  std::uint16_t coolingTicks = 0;
+
+  /// The tick the laser comes back, or zero. Nothing cycles while this is in
+  /// the future, and the ship sheds heat for the whole of it.
+  std::uint32_t lockoutUntilTick = 0;
+};
+
+/*
  * One leg of a group's plan: where to go and which way to face on arrival.
  *
  * Metres and radians, not the wire's centimetres and turns. The quantised form
@@ -129,6 +193,24 @@ struct OrderGroup
 
   /// Where a `Warp` is going. `INVALID_ID` for a Move.
   AnchorId anchor = INVALID_ID;
+
+  /// Which ore a `Mine` is after (ADR-024 §4a). `Any` for every other kind.
+  OreFilter oreFilter = OreFilter::Any;
+
+  /*
+   * Which cluster a `Mine` is working (ADR-024 §4b).
+   *
+   * Chosen once, at ingest, from the richest one the filter matches -- and
+   * **not** re-chosen as it empties: a wing that hopped clusters on its own
+   * would be moving without an order, and §4b's exit is that the order
+   * completes and the client feeds the next one. That is route-feeding applied
+   * to industry, and it is the same accepted cost the route planner already
+   * pays.
+   *
+   * `MAX_SITE_CLUSTERS` means "none", which is what a Mine order at a field
+   * with nothing the filter accepts carries into its immediate completion.
+   */
+  std::uint8_t cluster = MAX_SITE_CLUSTERS;
 
   /*
    * When the spool finishes (ADR-016 §5), for a `Warp`.
@@ -227,6 +309,18 @@ struct ShipSpawn
   /// because a ship that is protected from its first tick and a ship that
   /// becomes protected on its second are different things on the wire.
   std::uint32_t protectedUntilTick = 0;
+
+  /*
+   * What it arrives holding (ADR-024 §5, E3), and empty for a ship that was not
+   * handed over by a crossing.
+   *
+   * A spawn parameter for the same reason `protectedUntilTick` is one: a ship
+   * that is loaded on its first tick and a ship that is loaded on its second
+   * are different things to everything downstream -- the hold check, the
+   * summary, the hash. Setting it afterwards would leave one tick in which the
+   * ore existed on the record and not in the world.
+   */
+  ShipCargo cargo;
 };
 
 class World
@@ -236,6 +330,23 @@ public:
   /// A constant rather than a parameter: a variable step is the shortest path
   /// to a simulation that cannot replay.
   static constexpr float TICK_SECONDS = 0.05f;
+
+  /*
+   * The same rate, and the integer one has to agree with the float one. A build
+   * where they drifted apart would have durations converted one way and motion
+   * integrated the other, which is a divergence with no symptom until something
+   * lands a tick early.
+   *
+   * A band rather than `== 1.0f`, and the reason is the very arithmetic this
+   * pair exists to avoid: `0.05f` is not one twentieth, so twenty of them is
+   * 1.0000000149 before rounding, and whether that lands exactly on `1.0f`
+   * depends on how a compiler folds the constant. Asserting the answer to that
+   * question would make the whole build hostage to it; asserting that the two
+   * spellings mean the same rate is what was actually meant.
+   */
+  static_assert(static_cast<float>(TICKS_PER_SECOND) * TICK_SECONDS > 0.999f &&
+                  static_cast<float>(TICKS_PER_SECOND) * TICK_SECONDS < 1.001f,
+                "the tick rate is one number, written twice");
 
   /// How close counts as arrived. Set against the wire's centimetre
   /// quantisation (ADR-004) with room to spare: a tolerance below the
@@ -385,6 +496,46 @@ public:
    * there and every `Warp` from it judged the ordinary way.
    */
   void SetJump(AnchorId _jumpAnchor, ShipId _gateShip);
+
+  /*
+   * The economy's numbers, and the field on this grid (ADR-024 §4b, E2).
+   *
+   * Said by the registry at spin-up, exactly as `SetAnchor` is, and for the same
+   * reason: the registry is what knows both halves. The economy outlives every
+   * world -- it is read at boot and never changes -- so this keeps a pointer
+   * rather than a copy of it, the way the registry keeps one to the universe.
+   *
+   * The **field** is a copy, and that is the durability rule rather than an
+   * oversight. What is left of a site is universe-layer state (ADR-024 §3d): the
+   * registry seeds this from bake plus ledger at spin-up, the tick eats it, the
+   * debits travel the transfer bus back, and teardown throws this copy away
+   * without losing anything. Worlds forget; ledgers do not.
+   *
+   * A grid with no field is left unsaid, which is what makes `Site().Exists()`
+   * false there and every Mine ordered on it `NotAtSite`.
+   */
+  void SetEconomy(const EconomyDef* _economy) noexcept;
+  void SetSite(const SiteField& _field, std::uint32_t _epoch) noexcept;
+
+  [[nodiscard]] const SiteField& Site() const noexcept { return m_site; }
+
+  /*
+   * Which epoch's field this is, as an opaque number.
+   *
+   * The world is *told* it and never computes it -- what an epoch is, and when
+   * one turns, is spin-up work and map work, and the CI rule that keeps that
+   * arithmetic out of these three files is what makes the promise mechanical
+   * rather than remembered.
+   *
+   * It exists so a filed yield can say which pool it came out of. A field is
+   * never re-formed under a live grid, so a debit and the ledger it lands on
+   * always agree -- and a record that carries the epoch is how that stays true
+   * rather than being assumed by two pieces of code that cannot see each other.
+   *
+   * Identity, not state: it is not hashed, for the reason `m_anchor` is not.
+   * What *is* hashed is the field itself, which is what an epoch decides.
+   */
+  [[nodiscard]] std::uint32_t FieldEpoch() const noexcept { return m_fieldEpoch; }
 
   [[nodiscard]] AnchorId Anchor() const noexcept { return m_anchor; }
   [[nodiscard]] ShipId StationShip() const noexcept { return m_stationShip; }
@@ -562,6 +713,34 @@ public:
   [[nodiscard]] std::span<const std::uint8_t> Shields() const noexcept { return m_shields; }
   [[nodiscard]] std::span<const std::uint32_t> ProtectedUntil() const noexcept { return m_protectedUntil; }
 
+  /// What every ship is carrying, and where every ship is in its cycle. Read by
+  /// `WorldHash` and by the summaries E3 puts on the wire.
+  [[nodiscard]] std::span<const ShipCargo> Cargo() const noexcept { return m_cargo; }
+  [[nodiscard]] std::span<const MiningState> MiningStates() const noexcept { return m_mining; }
+
+  /*
+   * Room left in a ship's ore hold, in litres, and zero for a hull with no ore
+   * hold at all.
+   *
+   * Derived from the class table and the manifest rather than stored, so a hold
+   * cannot drift out of step with what is in it. It is what `Validation` fills
+   * `oreHoldFreeLitres` from and what a cycle's yield is capped by, which is
+   * the point of there being one answer.
+   */
+  [[nodiscard]] std::uint32_t OreHoldFreeLitres(std::uint32_t _slot) const noexcept;
+
+  /*
+   * How far anything on this grid can see, as a whole percentage of its own
+   * range (ADR-024 §3b). 100 everywhere except inside a nebula pocket.
+   *
+   * A property of the *grid*, not of a ship: the pocket dampens everyone in it,
+   * which is what makes the highest-value ore sit where the hunter cannot be
+   * seen coming and the hunter cannot see either. ADR-022's relevance seam is
+   * what will read this; it is exposed now, beside the field that decides it,
+   * so that seam finds a number rather than inventing one.
+   */
+  [[nodiscard]] std::uint8_t SensorDampingPct() const noexcept;
+
   /// The accepted orders, and what they are doing. Read by `WriteSnapshot` for
   /// the order-state records that promote a client's ghost (ADR-004 §6).
   [[nodiscard]] std::span<const OrderGroup> Groups() const noexcept { return m_groups; }
@@ -620,6 +799,24 @@ private:
   void Steering();
   void Integrate();
   void Separate();
+
+  /*
+   * Mining cycles, hazards and the three exits (ADR-024 §4b), last in the tick.
+   *
+   * **Last, and deliberately.** A cycle completes against where the ship
+   * actually is at the end of the tick -- after steering, integration and
+   * contact have all had their say -- so "inside the field" is a fact about the
+   * finished tick rather than about a position two systems were still arguing
+   * over. It also means a group this step sends to `Done` is retired by the
+   * *next* tick's `GroupAdvance`, which is exactly how a completed leg already
+   * behaves.
+   */
+  void Mining();
+
+  /// Seconds until a working Mine order ends -- the cluster running dry or the
+  /// last Miner filling, whichever comes first. `LegEtaSeconds`'s answer for a
+  /// group that has no leg left to fly.
+  [[nodiscard]] float MiningEtaSeconds(const OrderGroup& _group) const noexcept;
 
   /// Sends off the warps whose spool has run out (U3a). Run at the top of
   /// `GroupAdvance`, because a fleet that has left is not a fleet with a leg.
@@ -707,6 +904,22 @@ private:
   std::vector<std::uint8_t> m_hulls;
   std::vector<std::uint8_t> m_shields;
 
+  /*
+   * The economy's numbers and this grid's field (ADR-024 §4b).
+   *
+   * The pointer is content and is never hashed -- it is the same table in every
+   * run. The field *is* hashed, through `WorldHash`, because what is left of it
+   * is simulation state that the next cycle reads.
+   */
+  const EconomyDef* m_economy = nullptr;
+  SiteField m_site;
+  std::uint32_t m_fieldEpoch = 0;
+
+  /// Per slot, what it carries and where it is in its cycle. Parallel to
+  /// `m_ids` like every other table here, and swapped and popped with them.
+  std::vector<ShipCargo> m_cargo;
+  std::vector<MiningState> m_mining;
+
   /// Undock protection, per slot (ADR-017 §5). Zero means unprotected, which is
   /// every ship that did not arrive out of a station. Hashed like every other
   /// per-ship field: it is simulation state, and a replay that disagreed about
@@ -727,6 +940,10 @@ private:
   /// `m_positions` and `m_classes`, rebuilt on demand and hashed by nothing.
   /// A member so the span it is handed out as has somewhere to live.
   std::vector<ShipMark> m_validationMarks;
+
+  /// And the room left in each ship's ore hold, for the same reason and on the
+  /// same terms: derived on demand, borrowed by the view, hashed by nothing.
+  std::vector<std::uint32_t> m_validationOreRoom;
 
   std::uint32_t m_nextOrderId = 1; // Zero means "no order" in the verdict.
   std::uint32_t m_lastOrderSeqProcessed = 0;

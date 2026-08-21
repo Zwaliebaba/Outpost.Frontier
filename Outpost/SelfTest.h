@@ -2,6 +2,9 @@
 
 #include "AppConfig.h"
 
+// `Game::EconomyDef`: the balance a scenario has to share with the shard.
+#include "EconomyDef.h"
+
 /*
  * The `selfTest` configuration flag (Build Order S4).
  *
@@ -26,6 +29,17 @@ namespace Outpost
 
 /// Runs the M0 checks and returns a process exit code: 0 if every check passed,
 /// 3 if any failed. Blocks for at most a few seconds.
-[[nodiscard]] int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation);
+/*
+ * Runs the gate, and returns the exit code.
+ *
+ * Takes the **economy** as well as the simulation, and the asymmetry is the
+ * point: the simulation is reached through the engine's abstract seam (ADR-014
+ * §2), which by construction knows nothing about ore -- so a scenario that
+ * needs the shard's balance has to be handed it rather than asking a
+ * `Neuron::Simulation` a question the engine must not be able to answer.
+ *
+ * The composition root has both in scope; it is the only place that does.
+ */
+[[nodiscard]] int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const Game::EconomyDef& _economy);
 
 } // namespace Outpost

@@ -376,7 +376,7 @@ jobs:
           # mechanical rather than remembered: naming it from the tick's own
           # files would put universe-scale arithmetic back on the per-tick path
           # through the one door the list above just opened.
-          foreach ($name in @('World.h', 'World.cpp', 'WorldOrders.cpp'))
+          foreach ($name in @('World.h', 'World.cpp', 'WorldOrders.cpp', 'WorldMining.cpp'))
           {
             $path = Join-Path 'GameLogic' $name
             if ((Test-Path $path) -and ((Get-Content $path -Raw) -match '\bSiteEpoch'))
@@ -679,6 +679,70 @@ jobs:
             /v:normal /nologo "/flp:LogFile=build.log;Verbosity=diagnostic;Append"
           if ($LASTEXITCODE -ne 0) { throw 'build failed for Outpost' }
 
+      # The post-build content copy, checked where it actually matters.
+      #
+      # Outpost/CopyGameData.cmd puts GameData beside the executable and lifts
+      # Outpost.json out to sit next to it, because those are the two places
+      # `ResolveContentPath` and `LoadAppConfig` look. Nothing downstream
+      # notices when it does not: the self test runs from a scratch directory
+      # whose own Outpost.json points back at the repo's content, so a build
+      # that shipped no content at all would still reach the end of this job.
+      #
+      # That gap is not hypothetical. An xcopy version of the copy aborted
+      # having copied nothing, and put the Debug half in a folder the loader
+      # never reads; CI stayed green until the exe booted without content and
+      # blocked on a modal error box for the whole 45-minute budget, in both
+      # configurations, with no diagnostic. This step is what would have named
+      # it in one line.
+      #
+      # Files are named rather than counted, and one is named from each family
+      # the loader reaches for. A count only says the copy ran; a name says
+      # the loader will find what it asks for, which is the thing that failed.
+      - name: Check the content landed beside the executable
+        shell: pwsh
+        run: |
+          $out = "x64\${{ matrix.configuration }}"
+          if (-not (Test-Path "$out\Outpost.exe"))
+          {
+            Write-Host 'no Outpost.exe -- nothing to check'
+            exit 0
+          }
+
+          $bad = @()
+          foreach ($required in 'Outpost.json',
+                                'GameData\Universe\Frontier.json',
+                                'GameData\Economy\Economy.json',
+                                'GameData\Audio\SoundBank.json',
+                                'GameData\Meshes\Miner.obj')
+          {
+            if (-not (Test-Path (Join-Path $out $required)))
+            {
+              $bad += "$required is missing from $out"
+            }
+          }
+
+          # And the two things that must not be there. A second Outpost.json
+          # inside GameData would be inert, and an inert config file is one to
+          # edit by mistake (ADR-012 §5); a copied log is stale where it lands.
+          if (Test-Path "$out\GameData\Outpost.json")
+          {
+            $bad += "$out\GameData\Outpost.json exists; the config belongs beside the exe and nowhere else"
+          }
+          foreach ($log in @(Get-ChildItem "$out\GameData" -Recurse -Filter *.log -ErrorAction SilentlyContinue))
+          {
+            $bad += "$($log.FullName) was copied; a log is not content"
+          }
+
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_" }
+            throw 'the post-build copy did not produce the layout the loader reads'
+          }
+
+          $files = @(Get-ChildItem "$out\GameData" -Recurse -File)
+          $mb = [math]::Round(($files | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
+          Write-Host "content beside the executable: $($files.Count) files, $mb MB, and Outpost.json in $out"
+
       # The test projects are not referenced by Outpost.exe, so they are built
       # separately. Appending to the same log keeps one artifact.
       - name: Build tests
@@ -841,14 +905,40 @@ jobs:
           '@ | Out-File -Encoding utf8 ci-selftest\Outpost.json
 
           # A Windows-subsystem exe detaches from the console, so wait on the
-          # process object to get the real exit code.
-          $p = Start-Process -FilePath $exe -WorkingDirectory ci-selftest -Wait -PassThru
-          Write-Host "self test exit code: $($p.ExitCode)"
+          # process object to get the real exit code -- with a deadline. A hang
+          # here once ate the whole 45-minute job budget in both configurations
+          # and left no diagnostic at all, because this step only read the log
+          # after the process exited. Now a hang is killed at 5 minutes (a green
+          # run takes ~10-20 s) and the log -- flushed per line in self-test
+          # mode for exactly this moment -- says how far it got.
+          $p = Start-Process -FilePath $exe -WorkingDirectory ci-selftest -PassThru
+          $finished = $p.WaitForExit(300000)
+          if (-not $finished)
+          {
+            Write-Host 'self test still running after 300 s -- killing it; the log below says how far it got'
+            Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 2
+          }
+          else
+          {
+            Write-Host "self test exit code: $($p.ExitCode)"
+          }
 
           if (Test-Path ci-selftest\Outpost.log)
           {
             Get-Content ci-selftest\Outpost.log | ForEach-Object { Write-Host $_ }
             Copy-Item ci-selftest\Outpost.log selftest.log
+          }
+          if (-not $finished)
+          {
+            $tail = @()
+            if (Test-Path ci-selftest\Outpost.log)
+            {
+              $tail = Get-Content ci-selftest\Outpost.log -Tail 12
+            }
+            $lines = @('## Self test hung (${{ matrix.configuration }})', 'Killed after 300 s. The last lines it logged:', '```') + $tail + @('```')
+            $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            throw 'self test timed out after 300 s'
           }
           if ($p.ExitCode -ne 0)
           {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EconomyMessages.h"
 #include "EventRecord.h"
 #include "FleetSummary.h"
 #include "Ids.h"
@@ -51,10 +52,17 @@ public:
   WorldRegistry(const WorldRegistry&) = delete;
   WorldRegistry& operator=(const WorldRegistry&) = delete;
 
-  /// Points the registry at the baked universe. The universe outlives it -- it
-  /// is read at boot and never changes -- so this keeps a pointer rather than
-  /// a copy of several megabytes.
-  void Reset(const UniverseDef* _universe, const RegistryConfig& _config);
+  /*
+   * Points the registry at the baked content. Both files outlive it -- they are
+   * read at boot and never change -- so this keeps pointers rather than copies
+   * of several megabytes and a balance table.
+   *
+   * The economy may be null, and that is a real configuration rather than a
+   * defensive check: a registry with no economy has no mining fields, no cargo
+   * and no refineries, which is exactly what every slice before E2 ran as and
+   * what a test about warp or docking still wants.
+   */
+  void Reset(const UniverseDef* _universe, const EconomyDef* _economy, const RegistryConfig& _config);
 
   /*
    * The live world for an anchor, spinning it up if it is not live.
@@ -100,6 +108,84 @@ public:
    * and invalidated by the next dock or undock.
    */
   [[nodiscard]] std::span<const RosterEntry> Roster(AnchorId _anchor) const noexcept;
+
+  /*
+   * What is left of a mining field (ADR-024 §3d), or null for a site nobody has
+   * worked this epoch.
+   *
+   * Null is the *pristine* answer and not an absence: a ledger exists only once
+   * something has been taken, so "no ledger" and "the bake's pools, untouched"
+   * are the same statement. That is what keeps the durable set proportional to
+   * what has actually happened rather than to how many fields the bake authored
+   * -- six thousand sites, and storage for the ones being mined.
+   *
+   * Borrowed like the roster, and invalidated by the next debit or spin-up.
+   */
+  [[nodiscard]] const SiteLedger* Ledger(AnchorId _anchor) const noexcept;
+
+  /// All of them, in anchor order -- the order the hash folds them and the
+  /// order ADR-025's journal will write them.
+  [[nodiscard]] std::span<const SiteLedger> Ledgers() const noexcept { return m_siteLedgers; }
+
+  /*
+   * What a commander has committed at a station (ADR-024 §5b), or null for a
+   * Bay nobody has put anything in.
+   *
+   * Null is the empty answer and not an absence, exactly as it is for a site
+   * ledger: a Bay exists once something has been stored, so "no Bay" and "an
+   * empty Bay" are the same statement and the durable set stays proportional to
+   * what has happened rather than to how many stations exist.
+   *
+   * Takes the owner because a Bay without one is not addressable -- that is the
+   * privacy rule living in the key rather than in a filter somebody has to
+   * remember to apply (ADR-017 §1).
+   */
+  [[nodiscard]] const StationBay* Bay(Neuron::PlayerId _owner, AnchorId _station) const noexcept;
+
+  /// All of them, in `(station, owner)` order -- the order the hash folds them
+  /// and the order ADR-025's journal will write them.
+  [[nodiscard]] std::span<const StationBay> Bays() const noexcept { return m_bays; }
+
+  /*
+   * The field a site's grid would be spun up with right now.
+   *
+   * Bake plus ledger, resolved through the current epoch -- the same function
+   * `SpinUp` uses, exposed because "how eaten is that field" is a question the
+   * summaries E3 puts on the wire have to answer for a grid that is not live.
+   * A grid that *is* live is the authority on its own field; this is what the
+   * universe layer knows without one.
+   */
+  [[nodiscard]] SiteField FieldAt(AnchorId _anchor) const;
+
+  /*
+   * That field as the wire reports it (ADR-024 §8, E3).
+   *
+   * Here rather than in the sender because answering it takes three things only
+   * the registry has together: which grid is live (a live one is the authority
+   * on its own field), what the ledger has taken out, and what the epoch's
+   * layout started with. A sender that assembled those itself would be a second
+   * place for "how eaten is that field" to be computed, and the two would drift
+   * the first time one of them learned about a new hazard.
+   *
+   * A grid that is not a site answers a zeroed row, which writes as a status
+   * with no clusters -- honest, and cheaper than making every caller ask twice.
+   */
+  [[nodiscard]] SiteStatusRow SiteStatusFor(AnchorId _anchor) const;
+
+  /*
+   * What one commander's ships are carrying, across every grid they are on
+   * (ADR-024 §5, E3).
+   *
+   * **Keyed by the viewer, not filtered for them.** The privacy of a
+   * `CargoStatus` is a property of what this function is asked rather than of
+   * what the sender remembers to leave out -- there is no version of this that
+   * returns everybody's holds and trusts the caller.
+   *
+   * Docked ships are not here: their holds ride on the roster, which is already
+   * sent per viewer. One fact in one place, and a hangar screen reading two
+   * sources for the same number is exactly the drift this avoids.
+   */
+  [[nodiscard]] std::vector<CargoStatusRow> CargoFor(Neuron::PlayerId _owner) const;
 
   /*
    * What happened, in order (ADR-018 D19).
@@ -178,7 +264,7 @@ public:
    * `AssignWing` writes the roster row on the spot, because nothing crosses --
    * a wing is a number a ship carries, not a place it is.
    */
-  [[nodiscard]] OrderVerdict SubmitStationCommand(const StationCommand& _command);
+  [[nodiscard]] OrderVerdict SubmitStationCommand(Neuron::PlayerId _owner, const StationCommand& _command);
 
   /// Takes a ship off a grid and out of the index. The counterpart of `Spawn`,
   /// and the path a caller should take for the same reason: `World::Despawn`
@@ -228,6 +314,11 @@ private:
     std::uint32_t viewers = 0;
     std::uint16_t authoredCount = 0;
     std::uint32_t spunUpAtTick = 0;
+
+    /// Which epoch's field this grid was spun up with, on a site. It does not
+    /// move while the grid is live -- that is the whole of "an occupied world
+    /// is never re-formed under the players" (ADR-024 §3d).
+    std::uint32_t fieldEpoch = 0;
   };
 
   /// One station's roster. Sorted into `m_rosters` by anchor id, which is the
@@ -241,6 +332,28 @@ private:
   [[nodiscard]] StationRoster& RosterFor(AnchorId _anchor);
   void ApplyUndock(const TransferRequest& _request);
   void ApplyTransit(const TransferRequest& _request);
+
+  /// Debits a completed cycle against the ledger, creating one for a site that
+  /// has not been worked this epoch (ADR-024 §4b).
+  void ApplyMineYield(const TransferRequest& _request);
+
+  /// Which epoch a site is in *now*. `SpinUp` is the only thing allowed to act
+  /// on the answer; everything else uses the epoch the live grid was built with.
+  [[nodiscard]] std::uint32_t EpochNow(AnchorId _anchor) const noexcept;
+
+  /*
+   * Is this ledger describing a pool that still exists?
+   *
+   * ADR-018 D8's rule, applied to the ledger: a ledger the shard owes a refill
+   * is a memory rather than state -- the pool it counts was replaced at the
+   * epoch boundary -- and folding it would make the session's hash depend on
+   * whether anybody happened to spin the grid up and notice. A field held live
+   * by *ships* is judged against that grid's own epoch, because a worked field
+   * is not re-formed under them; a field held live only by a **viewer** is
+   * judged against the calendar, for the same reason D8 leaves a viewer-only
+   * grid out of the hash entirely.
+   */
+  [[nodiscard]] bool LedgerIsCurrent(const SiteLedger& _ledger) const noexcept;
 
   /// How long a crossing between two anchors takes, in ticks (U3a): a base
   /// plus the universe distance over the slowest member's warp speed, never
@@ -259,12 +372,32 @@ private:
   void ApplyDueTransfers();
   void CollectFiledTransfers();
 
+  /// The ledger for an anchor, made if it is not there. The mutable half of
+  /// `Ledger`, and the only thing that creates one -- which is what keeps a
+  /// pristine field out of the durable set.
+  [[nodiscard]] SiteLedger& LedgerFor(AnchorId _anchor);
+
+  /// The Bay for an owner at a station, made if it is not there. The mutable
+  /// half of `Bay`, and the only thing that creates one -- which is what keeps
+  /// an empty Bay out of the durable set.
+  [[nodiscard]] StationBay& BayFor(Neuron::PlayerId _owner, AnchorId _station);
+
+  /// Moves ore between the holds on a station's roster and a Bay, in roster
+  /// order, and returns how much actually moved. Validation has already said
+  /// the source can cover it; this is the arithmetic.
+  std::uint32_t MoveOre(StationRoster& _roster, StationBay& _bay, const StationCommand& _command, bool _toBay);
+
   [[nodiscard]] LiveWorld* Find(AnchorId _anchor) noexcept;
   [[nodiscard]] const LiveWorld* Find(AnchorId _anchor) const noexcept;
   [[nodiscard]] LiveWorld& SpinUp(const Anchor& _anchor);
+
+  /// The field a site's grid gets: the bake laid out by this epoch's salt, with
+  /// whatever the ledger says has already been taken out of it.
+  [[nodiscard]] SiteField ResolveField(const Anchor& _anchor, std::uint32_t& _outEpoch) const;
   void TearDownIdle();
 
   const UniverseDef* m_universe = nullptr;
+  const EconomyDef* m_economy = nullptr;
   RegistryConfig m_config;
   std::uint32_t m_shardTick = 0;
 
@@ -287,6 +420,25 @@ private:
    */
   std::vector<TransferRecord> m_bus;
   std::vector<StationRoster> m_rosters;
+
+  /*
+   * And the site ledgers beside them (ADR-024 §3d), on exactly the same terms:
+   * durable state that outlives the grids that produced it, sorted by anchor,
+   * folded into `Hash`. "Worlds forget, ledgers do not" is one rule with two
+   * residents now.
+   */
+  std::vector<SiteLedger> m_siteLedgers;
+
+  /*
+   * And the Bays (ADR-024 §5b), the third resident of the same rule.
+   *
+   * Sorted by `(station, owner)`, which is the order the hash folds them in and
+   * the order a station's screen would read them: everything about one place
+   * together, and one commander's row findable inside it. The reverse ordering
+   * would put a commander's whole estate together, which is a question nothing
+   * asks -- a Bay is a fact about a station first.
+   */
+  std::vector<StationBay> m_bays;
 
   /// Beside them, and unlike them **not** in the hash: an event describes
   /// something the simulation already did, and folding the description in as

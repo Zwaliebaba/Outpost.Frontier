@@ -53,20 +53,24 @@ const char* OrderKindName(OrderKind _kind) noexcept
     return "Warp";
   case OrderKind::Dock:
     return "Dock";
+  case OrderKind::Mine:
+    return "Mine";
   }
-  // Not a `default` label: a seventh kind should fail the switch's exhaustiveness
+  // Not a `default` label: an eighth kind should fail the switch's exhaustiveness
   // warning here rather than appear on a button as "unnamed order".
   return "unnamed order";
 }
 
 bool OrderKindHasContent(OrderKind _kind) noexcept
 {
-  // Move, Warp and Dock are simulated; the other three are numbered and inert.
+  // Move, Warp, Dock and Mine are simulated; the other three are numbered and
+  // inert.
   // `ValidateOrder` enforces the same thing from the other side, and the two
   // agreeing is not a coincidence worth relying on -- this answers "may a
   // surface offer it", that answers "may the world act on it", and a kind
   // gaining content has to change both.
-  return _kind == OrderKind::Move || _kind == OrderKind::Warp || _kind == OrderKind::Dock;
+  return _kind == OrderKind::Move || _kind == OrderKind::Warp || _kind == OrderKind::Dock ||
+         _kind == OrderKind::Mine;
 }
 
 const char* OrderKindParameterName(OrderKind _kind) noexcept
@@ -92,6 +96,19 @@ const char* OrderKindParameterName(OrderKind _kind) noexcept
     // Warp varies by formation too: the fleet arrives in one, solved at the
     // anchor's authored warp-in point.
     return "Formation";
+
+  /*
+   * And Mine varies by **ore** (ADR-024 §4a) -- the first kind whose parameter
+   * is not a formation, which is why this function exists as a lookup rather
+   * than as the constant it could have been for five slices.
+   *
+   * A Mine order is still flown in a formation and `OrderSubmit` still carries
+   * one, because the escorts in a mixed order take stations around the worked
+   * cluster. What the command surface *offers a choice of* is the ore, which is
+   * the decision the player is actually making at a field.
+   */
+  case OrderKind::Mine:
+    return "Ore Filter";
   }
   return nullptr;
 }
@@ -134,6 +151,18 @@ const char* OrderReasonText(OrderReason _reason) noexcept
     return "nothing of yours is there";
   case OrderReason::NotAtGate:
     return "not at the gate";
+  case OrderReason::NotAtSite:
+    return "no mining field here";
+  case OrderReason::NoMinerInOrder:
+    return "no miners in this order";
+  case OrderReason::HoldFull:
+    return "ore holds are full";
+  case OrderReason::InsufficientMaterials:
+    return "not enough materials";
+  case OrderReason::RefineryBusy:
+    return "the refinery is busy";
+  case OrderReason::RecipeLocked:
+    return "this station cannot make that";
   }
   // Not a default label: a new enumerator should fail the switch's exhaustive
   // warning first, and only reach here if it crossed the wire from a build that

@@ -58,6 +58,7 @@ bool WriteOrderSubmit(const OrderSubmit& _order, Neuron::ByteWriter& _writer) no
   _writer.WriteInt32(_order.target.yCm);
   _writer.WriteUInt16(_order.target.facingTurns16);
   _writer.WriteUInt16(_order.anchor);
+  _writer.WriteUInt8(static_cast<std::uint8_t>(_order.oreFilter));
   return _writer.Ok();
 }
 
@@ -98,6 +99,15 @@ bool ReadOrderSubmit(Neuron::ByteReader& _reader, OrderSubmit& _outOrder) noexce
   // not this grid's is owed `UnknownStation`, and a decoder that called it
   // malformed would answer a question the player asked with a protocol error.
   _outOrder.anchor = _reader.ReadUInt16();
+
+  // Checked, unlike the three above it, and `OrderMessages.h` says why: an ore
+  // filter has no reason code because every value it defines is legal
+  // everywhere, so a byte outside it is malformed rather than refused.
+  const std::uint8_t filter = _reader.ReadUInt8();
+  if (!_reader.Ok() || !TryOreFilter(filter, _outOrder.oreFilter))
+  {
+    return false;
+  }
   return _reader.Ok();
 }
 

@@ -55,6 +55,9 @@ bool ReadSummaryRecord(Neuron::ByteReader& _reader, SummaryKind& _outKind) noexc
   {
   case SummaryKind::StationRoster:
   case SummaryKind::FleetSummaries:
+  case SummaryKind::SiteStatus:
+  case SummaryKind::CargoStatus:
+  case SummaryKind::BayStatus:
     _outKind = static_cast<SummaryKind>(raw);
     return true;
   }
