@@ -186,6 +186,18 @@ snapshot obeys the same datagram cap as today, and summaries are a few dozen byt
 The snapshot's grid identity is also the smear guard: a late datagram from the previous view
 names the wrong grid and is dropped, never blended.
 
+*(Amended 2026-08-21 by E5a: **the family has a named receiving end**,
+`GameLogic/SummaryView`. It is recorded in the ADR rather than only in the build order because
+it fixes something this section left implicit and a reader would not otherwise infer. The
+envelope has no per-record length prefix — deliberately, since every body is self-delimiting —
+which means the reader's position after a record is **only** correct if that record's own
+reader ran. A decoder that ignores a kind therefore does not skip it, it corrupts everything
+after it, and that is exactly what happened for two slices once the economy added four kinds to
+the family (**R29**). So the rule is stronger than "refuse an unknown kind", which this section
+already implied: **every kind must be consumed, and a kind with no reader must stop the
+frame**. Anyone adding a seventh member of this family is adding a decode case as well, and the
+`default` in `SummaryView::Apply` is what makes forgetting it loud.)*
+
 ### 7. The player, fleets, and focus
 
 The player remains what the corpus made them: a **disembodied commander** (F3 — one

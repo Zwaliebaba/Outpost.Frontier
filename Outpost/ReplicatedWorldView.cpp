@@ -676,110 +676,47 @@ bool ReplicatedWorldView::ContextActionFor(std::uint16_t _entityId, std::span<co
 }
 
 /*
- * The 1 Hz family, decoded (ADR-016 6, ADR-017 1).
+ * The 1 Hz family, handed to the game (ADR-016 6, ADR-017 1).
  *
- * **A frame is a complete statement, so the block list is replaced wholesale.**
- * The alternative -- merging each record into what was there -- keeps a station
- * whose last ship undocked, because the writer stops sending a roster for a
- * place with none of your ships in it and silence is indistinguishable from
- * "unchanged". Replacing means the panel can only ever be one second stale,
- * never permanently wrong.
+ * **This used to be the decoder and is now four lines of wiring**, which is
+ * what ADR-014 6 says this project should have been holding all along. The
+ * reading, bounding, staging and refusing live in `Game::SummaryView` (E5a),
+ * where they can be proved on a machine with no device in it -- and where the
+ * four economy kinds that this `switch` silently walked past finally are.
  *
- * **The blocks come from the fleet summaries and the ship lists from the
- * rosters**, which is a split worth stating: the summary rows are always
- * written and say *where* and *how many*, while a roster is one station's
- * detail and is dropped first when the frame runs out of room. So a station
- * whose roster did not fit still draws a correct block with the right count,
- * and only the hangar behind it is empty -- the honest failure, and the one the
- * paging ADR-016 6 owes will remove.
+ * The rules the decode keeps are stated where it lives, and two of them are
+ * worth knowing from here: a frame **replaces** rather than merges, because the
+ * sender omits what is empty; and the block count comes from the fleet summary
+ * while the ship list comes from the roster, because the first is always
+ * written and the second is dropped first when the frame runs out of room.
  *
- * Staged and committed at the end rather than applied as it reads, so the
- * answer does not depend on the order the writer happened to put the records
- * in. Two builds disagreeing about that would disagree about a panel rather
- * than fail a handshake, which is the worst kind of version skew.
+ * What stays here is the part that is about *this client at this moment*: the
+ * dock and undock toasts, which are a difference between two frames rather than
+ * anything a frame says.
  */
 bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
 {
-  ByteReader reader{_payload};
-  std::uint8_t records = 0;
-  if (!Game::ReadSummaryFrame(reader, records))
+  /*
+   * Captured before the decode, because `Apply` replaces what the view holds
+   * and the toasts are about the difference. Reading it afterwards would ask
+   * "have I ever seen a summary" of a view that had just seen one, and the
+   * first frame of a session would announce everything already docked as
+   * though it had happened while the player watched.
+   */
+  const bool hadSummary = m_summary.HaveSummary();
+
+  if (!m_summary.Apply(_payload))
   {
-    ++m_rejectedSummaries;
     return false;
   }
 
-  std::vector<DockedStation> staged;
-  std::vector<DockedStation> stagedRosters;
-  for (std::uint8_t index = 0; index < records; ++index)
+  NoteRosterChanges(m_summary.DockedStations(), hadSummary);
+
+  m_dockedCountsLastFrame.clear();
+  for (const Game::DockedStationView& block : m_summary.DockedStations())
   {
-    Game::SummaryKind kind{};
-    if (!Game::ReadSummaryRecord(reader, kind))
-    {
-      // An unknown kind is a schema disagreement the handshake was supposed to
-      // have refused, and there is no way to skip a body whose length only its
-      // own reader knows -- so the frame stops here rather than guessing.
-      ++m_rejectedSummaries;
-      return false;
-    }
-
-    switch (kind)
-    {
-    case Game::SummaryKind::FleetSummaries:
-    {
-      m_decodedSummaries.clear();
-      if (!Game::ReadFleetSummaries(reader, m_decodedSummaries))
-      {
-        ++m_rejectedSummaries;
-        return false;
-      }
-      for (const Game::FleetSummary& row : m_decodedSummaries)
-      {
-        // Only the docked rows. A fleet on a grid is drawn as ships and a fleet
-        // in transit is the strategic surface's business (U3b); this panel is
-        // about the ones that are nowhere the scene can show them.
-        if (row.state == Game::FleetState::Docked)
-        {
-          staged.push_back(DockedStation{row.anchor, row.shipCount, {}});
-        }
-      }
-      break;
-    }
-
-    case Game::SummaryKind::StationRoster:
-    {
-      Game::AnchorId station = Game::INVALID_ID;
-      m_decodedRoster.clear();
-      if (!Game::ReadStationRoster(reader, station, m_decodedRoster))
-      {
-        ++m_rejectedSummaries;
-        return false;
-      }
-      stagedRosters.push_back(DockedStation{station, 0, std::move(m_decodedRoster)});
-      m_decodedRoster.clear(); // Moved from, and reused by the next record.
-      break;
-    }
-    }
+    m_dockedCountsLastFrame.push_back(DockedCount{block.anchor, block.shipCount});
   }
-
-  for (DockedStation& block : staged)
-  {
-    const auto match = std::find_if(stagedRosters.begin(), stagedRosters.end(),
-                                    [&](const DockedStation& _entry) { return _entry.anchor == block.anchor; });
-    if (match != stagedRosters.end())
-    {
-      block.docked = std::move(match->docked);
-    }
-  }
-
-  // By anchor, so the panel's order is the universe's rather than the order the
-  // records happened to arrive in: a list that reshuffles between frames is a
-  // list the player cannot point at.
-  std::sort(staged.begin(), staged.end(),
-            [](const DockedStation& _left, const DockedStation& _right) { return _left.anchor < _right.anchor; });
-
-  NoteRosterChanges(staged);
-  m_dockedStations = std::move(staged);
-  m_haveSummary = true;
   return true;
 }
 
@@ -800,17 +737,17 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
  * player was watching -- a state reported as an event, which is exactly the
  * mistake this function exists to avoid making in the other direction.
  */
-void ReplicatedWorldView::NoteRosterChanges(const std::vector<DockedStation>& _next)
+void ReplicatedWorldView::NoteRosterChanges(std::span<const Game::DockedStationView> _next, bool _hadSummary)
 {
-  if (!m_haveSummary)
+  if (!_hadSummary)
   {
     return;
   }
 
-  const auto countAt = [](const std::vector<DockedStation>& _blocks, Game::AnchorId _anchor) -> std::uint16_t {
-    const auto found = std::find_if(_blocks.begin(), _blocks.end(),
-                                    [&](const DockedStation& _entry) { return _entry.anchor == _anchor; });
-    return found == _blocks.end() ? std::uint16_t{0} : found->shipCount;
+  const auto countBefore = [this](Game::AnchorId _anchor) -> std::uint16_t {
+    const auto found = std::find_if(m_dockedCountsLastFrame.begin(), m_dockedCountsLastFrame.end(),
+                                    [&](const DockedCount& _entry) { return _entry.anchor == _anchor; });
+    return found == m_dockedCountsLastFrame.end() ? std::uint16_t{0} : found->shipCount;
   };
 
   const auto raise = [&](Game::AnchorId _anchor, std::uint16_t _delta, bool _docked) {
@@ -828,9 +765,9 @@ void ReplicatedWorldView::NoteRosterChanges(const std::vector<DockedStation>& _n
     m_notices.push_back(std::move(notice));
   };
 
-  for (const DockedStation& block : _next)
+  for (const Game::DockedStationView& block : _next)
   {
-    const std::uint16_t before = countAt(m_dockedStations, block.anchor);
+    const std::uint16_t before = countBefore(block.anchor);
     if (block.shipCount > before)
     {
       raise(block.anchor, static_cast<std::uint16_t>(block.shipCount - before), true);
@@ -843,10 +780,10 @@ void ReplicatedWorldView::NoteRosterChanges(const std::vector<DockedStation>& _n
 
   // A station that left the list entirely: its last ships undocked, and the
   // loop above cannot see it because there is no row left to compare against.
-  for (const DockedStation& block : m_dockedStations)
+  for (const DockedCount& block : m_dockedCountsLastFrame)
   {
     const auto still = std::find_if(_next.begin(), _next.end(),
-                                    [&](const DockedStation& _entry) { return _entry.anchor == block.anchor; });
+                                    [&](const Game::DockedStationView& _entry) { return _entry.anchor == block.anchor; });
     if (still == _next.end() && block.shipCount > 0)
     {
       raise(block.anchor, block.shipCount, false);
@@ -876,7 +813,7 @@ const char* ReplicatedWorldView::StationNameFor(Game::AnchorId _anchor) const
 std::uint32_t ReplicatedWorldView::BuildDockedBlocks(std::span<DockedBlock> _outBlocks) const
 {
   std::uint32_t written = 0;
-  for (const DockedStation& block : m_dockedStations)
+  for (const Game::DockedStationView& block : m_summary.DockedStations())
   {
     if (written >= _outBlocks.size())
     {
@@ -901,9 +838,7 @@ std::uint32_t ReplicatedWorldView::BuildDockedBlocks(std::span<DockedBlock> _out
 
 std::uint16_t ReplicatedWorldView::DockedCountAt(Game::AnchorId _anchor) const noexcept
 {
-  const auto found = std::find_if(m_dockedStations.begin(), m_dockedStations.end(),
-                                  [&](const DockedStation& _entry) { return _entry.anchor == _anchor; });
-  return found == m_dockedStations.end() ? std::uint16_t{0} : found->shipCount;
+  return m_summary.DockedCountAt(_anchor);
 }
 
 std::uint32_t ReplicatedWorldView::PollNotices(std::span<Notice> _outNotices)

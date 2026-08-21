@@ -53,6 +53,9 @@
     <ClCompile Include="SummaryMessages.cpp">
       <Filter>Wire</Filter>
     </ClCompile>
+    <ClCompile Include="SummaryView.cpp">
+      <Filter>Wire</Filter>
+    </ClCompile>
     <ClCompile Include="FleetSummary.cpp">
       <Filter>Wire</Filter>
     </ClCompile>
@@ -162,6 +165,9 @@
       <Filter>Wire</Filter>
     </ClInclude>
     <ClInclude Include="SummaryMessages.h">
+      <Filter>Wire</Filter>
+    </ClInclude>
+    <ClInclude Include="SummaryView.h">
       <Filter>Wire</Filter>
     </ClInclude>
     <ClInclude Include="FleetSummary.h">

@@ -358,6 +358,17 @@ itself on a free berth clear of a fleet already parked; visual checkpoint agains
 rename a wing and see it survive a client restart (user layer); undock at an unviewed
 station from the roster block and jump to it with VIEW.
 
+**T3 now gates a slice in another phase, which it did not when it was written.** The economy's
+**E5b** — the CARGO and REFINERY tabs — are *sibling tabs of the tab row this slice brings*
+([Economy-Build-Order](Economy-Build-Order.md)), so building them first would mean inventing the
+frame P1 already specifies. Two consequences worth carrying: T3's real cost is higher than its
+own accept implies, because it is also the first exercise of ADR-020's surface stack — which is
+**delivered as a design and not built**: `NeuronClient/` has no `Surface`, no input router and
+no focus model today, and the HUD is a fixed set of panels. And E5b's own data half no longer
+waits on any of it — **E5a landed 2026-08-21**, so the economy's four summary kinds are decoded
+and held client-side before a screen exists to draw them, which is the arrangement U3c-a had and
+for the same reason.
+
 ---
 
 ## Content & design deliverables (not slices — tracked so they cannot be quietly dropped)

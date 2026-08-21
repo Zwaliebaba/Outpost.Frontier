@@ -1,15 +1,19 @@
 # Economy Build Order — the Mining and Refining Phase
 
-**Status:** Session output 2026-08-20 · **E1a, E1b, E2, E3, E4a and E4b are built**, all six
-green in CI (run 176, commit `c44724d`, 2026-08-21 — 795 tests, `self test: PASSED` with all
-thirteen 🏁 G0 checks and 🏁 G1's mid-job restart); **E5, the two screens, is the last slice of
-this phase and is not built.**
+**Status:** Session output 2026-08-20 · **E1a, E1b, E2, E3, E4a, E4b and E5a are built**
+(the first six green in CI at run 176, commit `c44724d`, 2026-08-21 — 795 tests,
+`self test: PASSED` with all thirteen 🏁 G0 checks and 🏁 G1's mid-job restart).
+**E5 split 2026-08-21**: **E5a — the receiving end** is built the same day, and closes a live
+defect in which the client silently discarded four of the six summary kinds the server had
+been sending it since E3 (**R28**). **E5b, the two screens, is the last slice of this phase
+and is not built** — it is gated on ADR-020's unbuilt surface stack, on T3's hangar screen,
+and on seven owner rulings.
 **Both prints that gate E5 landed 2026-08-21** —
 [cargo-tab.png](ScreenPrints/cargo-tab.png) (D-P2) and
 [refinery-tab.png](ScreenPrints/refinery-tab.png) (D-P3), sibling tabs of P1's hangar, with
 their sources beside them. **Every design deliverable this phase tracks is now closed**; what
 they leave behind is **eight owner rulings**, listed with each print below. Seven are owed
-before E5. The eighth — whether a refine job can be cancelled — **was owed before E4b and was
+before E5b (none of them gated E5a). The eighth — whether a refine job can be cancelled — **was owed before E4b and was
 answered 2026-08-21**: a queued job cancels whole, a running one cannot. The design this plan
 delivers is [ADR-024](ADR/ADR-024-mining-economy.md), accepted 2026-08-20 with nine owner
 rulings, and [ADR-025](ADR/ADR-025-persistence.md) for the durable half; where this document
@@ -1026,6 +1030,62 @@ roster strip, and the ore/alloy icons.
 until a hold fills, watch the cluster hollow, haul home, dock, move ore into the Bay, queue a
 batch of Plates, and come back to it finished; visual checkpoint against both prints; a Null
 pocket's dampening legible as a thing happening to *you* rather than a number in a strip.
+
+**Split 2026-08-21 into E5a and E5b, and E5a built the same day.** The split was not planned;
+it came out of reading the tree before writing the tabs, and what the read found is that the
+screens sit on **three unbuilt layers**, only one of which is a screen:
+
+  E5a  **the receiving end.** The client learns to read what the server has been sending it
+       since E3. GameLogic and the composition root; no device, no print, no ruling.
+  E5b  **the two tabs**, to their prints. Gated on all three of the things below.
+
+**What the read found, and it is worth stating plainly: the client has been throwing the
+economy away.** `WriteSummaries` has written all six kinds per viewer since E4b — fleet
+summaries, station rosters, and the economy's `SiteStatus`, `CargoStatus`, `BayStatus` and
+`RefineryStatus` — and the composition root's decoder had cases for **two**. The other four
+fell out of its `switch` **with their bodies unread**, which is worse than dropping them: the
+reader was then sitting in the middle of a record, and the next kind byte came off the middle
+of somebody's cargo. So the frame either got refused as malformed or, when the stray byte
+happened to be a 0 or a 1, decoded a station roster out of a field's cluster percentages.
+
+It was reachable from the first minute of E3's own loop — any commander standing at a field
+or holding any ore sends one — and **nothing failed when it happened**. Two things let it
+live: no test anywhere built a frame with more than one kind in it, and the tree compiles at
+`/W3`, where MSVC's C4062 (*enumerator not handled and no default label*) is a level-4
+warning and never fired. `-Wswitch` under clang catches it, which is how it was finally
+confirmed. Recorded as **R28**.
+
+**E5a built 2026-08-21.** `GameLogic/SummaryView.{h,cpp}` is the family's receiving end: it
+reads a whole frame, holds the latest of every kind, and refuses anything else — with a
+`default` that exists so a *seventh* kind added tomorrow and not to the switch stops a frame
+instead of corrupting one. It is in GameLogic rather than in the composition root for
+ADR-014 §6's reason (six kinds of bounds checking, staging and refusal policy is logic, not
+wiring) and for a better one: **there it is provable without a device**, on the same harness
+that already proves the codecs it consumes. `ReplicatedWorldView::ApplySummary` shrank from a
+ninety-line decoder to four lines and the dock/undock toast diff, which is the only part of
+it that was ever about this client at this moment.
+
+Fourteen tests in `Tests/GameLogicTests/SummaryViewTests.cpp`, and the two that matter are
+`AFullFrameOfEverySixKindsReads` and `ASiteRecordDoesNotSwallowWhatFollowsIt` — the second
+uses the twelve-cluster cap on purpose, so a decoder that skipped a fixed stride fails it.
+Mutation-tested against the old decoder rather than trusted: restoring the two-case switch
+turns **seven** of the fourteen red.
+
+**E5b is gated on three things, and only one of them is code we can write today:**
+
+1. **ADR-020's surface stack is designed and not built.** `NeuronClient/` has no `Surface`,
+   no input router and no focus model — the HUD is a fixed set of panels. A tab row needs
+   the stack first.
+2. **T3, the hangar screen (🏁 H1), is not built** ([Station-Build-Order](Station-Build-Order.md)).
+   E5's CARGO and REFINERY tabs are *sibling tabs of P1's tab row*, and that row arrives
+   with T3. Building E5b first would mean inventing the frame T3 is specified to bring.
+3. **Seven owner rulings are open** — four from D-P2 and three from D-P3, listed with each
+   print below. Every one of them has a proposal from its print, so they are one sitting's
+   work rather than a design phase; but "unanswered questions in a print are how a screen
+   gets built twice" is this document's own rule and it applies here.
+
+None of the three blocked E5a, which is the whole argument for having split it out.
+
 
 ---
 

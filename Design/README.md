@@ -148,11 +148,12 @@ moves between the trees without a rename pass. Three things it changed in these 
   ([refinery-tab.png](ScreenPrints/refinery-tab.png)) both delivered 2026-08-21. What the two
   prints leave behind is **eight owner rulings, not artefacts**. The one owed before E4b —
   whether a refine job can be cancelled — was **answered 2026-08-21** (a queued job cancels
-  whole, a running one cannot); the other seven are E5's, so nothing left in this phase is gated
+  whole, a running one cannot); the other seven are E5b's, so nothing left in this phase is gated
   on a decision.
-  **E1a through E4b are built; E5, the two screens, is what is left.** The plan splits the E1
-  the ADR sketched, moves the screens out of E4, and **splits E4 itself** into the durable store
-  (E4a) and the refining runtime (E4b) — all three recorded in its sequencing rationale.
+  **E1a through E5a are built; E5b, the two screens, is what is left.** The plan splits the E1
+  the ADR sketched, moves the screens out of E4, **splits E4 itself** into the durable store
+  (E4a) and the refining runtime (E4b), and **splits E5** into the receiving end (E5a, built
+  2026-08-21) and the tabs (E5b) — all four recorded in its sequencing rationale.
 - [Archive/consistency-report-2026-08-21.md](Archive/consistency-report-2026-08-21.md) —
   **archived 2026-08-21, the day it was written**, because an audit is finished when its
   findings are acted on and these were. A cross-screen audit
@@ -225,11 +226,17 @@ this file's supersession list exists to prevent.
   lifecycle the row had spent two days suspecting. R23 — a gating test that flakes — is the
   one question that did not close with it. **R24 and R25 arrived with ADR-024** — the economy's two: faucet-without-sink
   inflation, and High-Sec site contention — **R26 with ADR-025**, the one persistence
-  brings: a torn journal or a refused load taking a shard's state with it. **R27 arrived with
+  brings: a torn journal or a refused load taking a shard's state with it. **R28 arrived with
   U3c-b (2026-08-21)**: sessions now survive a disconnect, and the token that claims one back is
   a **bearer credential nothing authenticates** — bounded by being unguessable, single-use and
   two minutes long, and named here rather than left in a header comment, because "the shard has
-  identity and no authentication" is a statement about the product and not about a file.
+  identity and no authentication" is a statement about the product and not about a file. (It was
+  filed as R27, which was already E2's; renumbered 2026-08-21, since two rows sharing a number is
+  a row nobody can cite.) **R29 is realised and fixed the same day (E5a, 2026-08-21)**: the client
+  had been decoding two of the six summary kinds the server sends and walking past the other four
+  **without reading their bodies**, which left the reader mid-record and made the rest of the frame
+  garbage. It survived two slices because no test ever built a frame with more than one kind in it,
+  and because `/W3` never fires the MSVC warning that names it.
 - [Archive/Scaling-Readiness-Review.md](Archive/Scaling-Readiness-Review.md) — **archived
   2026-08-20.** Five-lens review of the MVP
   and this corpus for scaling readiness (2026-08-19, **advisory**): consolidated findings
@@ -479,6 +486,37 @@ Nebulite; the faded-pocket repair ate the new-player floor in six regions; and C
 universe-coordinate guard correctly refused three new files before a line was compiled. Each
 is corrected at its source, and the guard's exclusion list grew a **narrower** rule beside it
 so the tick still cannot reach a site's placement.
+
+**E5a: the client had been throwing the economy away, and E5 split (2026-08-21).** Reading the
+tree before writing the two tabs turned up something bigger than the tabs. `WriteSummaries` has
+sent all six members of the summary family per viewer since E4b; the composition root's decoder
+had cases for **two**, and the other four fell out of its `switch` **with their bodies unread**.
+That is not a dropped record — the reader was left sitting in the middle of one, so the next
+kind byte came off the middle of somebody's cargo. Reachable from the first minute of E3's own
+loop, and silent every time.
+
+Two things let it live, and they are worth separating. **No test had ever built a frame with
+more than one kind in it**: every codec was round-tripped alone, which proves a body and says
+nothing about the envelope. And the tree compiles at **`/W3`**, where MSVC's C4062 — *enumerator
+not handled and no default label* — is a level-4 warning that never fired. clang's `-Wswitch`
+names it in one line, which is how it was finally confirmed. R29 carries both, and the second
+one is still open as an owner call.
+
+The fix is a slice: **`GameLogic/SummaryView`** reads a whole frame, holds the latest of every
+kind, and refuses anything else — with a `default` whose real subject is the *seventh* kind
+somebody adds tomorrow. It lives in GameLogic rather than in the composition root because six
+kinds of bounds checking and staging is logic (ADR-014 §6) and, more usefully, because there it
+is **provable without a device**: fourteen tests on the same headless harness that already
+proves the codecs it consumes. `ReplicatedWorldView::ApplySummary` went from a ninety-line
+decoder to four lines and the toast diff. Mutation-tested rather than trusted — restoring the
+old two-case switch turns seven of the fourteen red.
+
+**What did not get built, and why it is a split rather than a shortfall.** E5's two tabs sit on
+three unbuilt layers: ADR-020's surface stack (designed, no `Surface` or input router in
+`NeuronClient/`), T3's hangar screen (the tab row they are siblings of), and seven open owner
+rulings from D-P2 and D-P3. None of the three gated the receiving end, which is the whole
+argument for taking it out — and it is the same shape U3c-a had, where the half with no screen
+in it turned out to be the half that was actually load-bearing.
 
 **T2's wire half is complete and H0's loop runs (2026-08-20).** `StationCommand` had a
 format, a validator and tests, and no line of `NeuronServer`, `NeuronClient` or `Outpost`

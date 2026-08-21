@@ -5,6 +5,7 @@
 
 #include "FleetSummary.h"
 #include "Station.h"
+#include "SummaryView.h"
 
 #include <cstdint>
 #include <span>
@@ -135,44 +136,30 @@ public:
   [[nodiscard]] std::uint16_t ShipCount() const noexcept { return m_view.LatestShipCount(); }
   [[nodiscard]] std::uint32_t LatestTick() const noexcept { return m_view.LatestTick(); }
   [[nodiscard]] std::uint64_t RejectedSnapshotCount() const noexcept { return m_rejectedSnapshots; }
-  [[nodiscard]] std::uint64_t RejectedSummaryCount() const noexcept { return m_rejectedSummaries; }
+  [[nodiscard]] std::uint64_t RejectedSummaryCount() const noexcept { return m_summary.RejectedFrames(); }
 
   /// What the summary family last said is docked where, for a test to assert
   /// against without going through the HUD's span.
   [[nodiscard]] std::uint16_t DockedCountAt(Game::AnchorId _anchor) const noexcept;
 
+  /// The decoded family itself, for the surfaces that will read the economy's
+  /// four kinds (E5b). Exposed rather than forwarded one accessor at a time,
+  /// because forwarding six queries would be six lines of nothing -- and what
+  /// the seam to NeuronClient should look like is a screen question that is
+  /// still open (D-P2, D-P3), so nothing is invented here to answer it early.
+  [[nodiscard]] const Game::SummaryView& Summaries() const noexcept { return m_summary; }
+
 private:
   /*
-   * What the summary family last said is docked, one entry per station.
+   * Raises the dock/undock toasts for the difference between the counts this
+   * held and the ones that just arrived.
    *
-   * Replaced wholesale on each arrival rather than merged: a frame is a
-   * complete statement about where this commander's ships are, and a merge
-   * would keep a station the authority has stopped listing -- which on this
-   * panel is a hangar that never empties.
-   *
-   * Sorted by anchor so the panel's order is the universe's rather than
-   * arrival's: a list that reshuffles because a datagram came in a different
-   * sequence is a list the player cannot point at.
+   * `_hadSummary` is passed in rather than read, because by the time this runs
+   * the view has already accepted the frame and would answer "yes" to a
+   * question about the one before it -- and the whole point of the flag is that
+   * **the first frame of a session is a state and not a set of events**.
    */
-  struct DockedStation
-  {
-    Game::AnchorId anchor = Game::INVALID_ID;
-
-    /// From the *fleet summary* row rather than from `docked.size()`, and the
-    /// difference matters: the summaries are always written while a roster is
-    /// dropped first when the frame runs out of room, so this is the count that
-    /// survives a truncated frame and the list behind it is what may not.
-    std::uint16_t shipCount = 0;
-
-    /// The ships themselves, for the hangar screen T3 builds. Empty for a
-    /// station whose roster did not fit.
-    std::vector<Game::RosterEntry> docked;
-  };
-
-  /// Raises the dock/undock toasts for the difference between what is held and
-  /// what just arrived. Called *before* the new list replaces the old one,
-  /// because the comparison is the whole content of the message.
-  void NoteRosterChanges(const std::vector<DockedStation>& _next);
+  void NoteRosterChanges(std::span<const Game::DockedStationView> _next, bool _hadSummary);
 
   /// What the universe calls the station on this anchor, or null for one the
   /// content does not name.
@@ -215,23 +202,34 @@ private:
    */
   std::vector<Game::ShipId> m_validationIds;
 
-  std::vector<DockedStation> m_dockedStations;
+  /*
+   * The decoded summary family (`Game::SummaryView`, E5a).
+   *
+   * The decode used to be a `switch` here, which was defensible while it was
+   * two kinds and wiring; at six it is bounds checking, staging and a refusal
+   * policy, which is logic, and ADR-014 6 says this project does not hold
+   * logic. It moved to GameLogic where it can be proved without a device --
+   * and where the four economy kinds this file never read finally are.
+   */
+  Game::SummaryView m_summary;
 
   /*
-   * Whether a summary has ever arrived.
+   * The docked counts as of the previous frame, for the toasts and nothing
+   * else.
    *
-   * The toasts are the reason it exists: a count that goes from nothing to
-   * three because the *first* frame landed is not three ships docking, and
-   * without this the panel would announce the state of the world as though it
-   * had just happened while the player watched.
+   * A dock finishing is an *event* and the only evidence of it is that a count
+   * went up, so the message is the difference between two frames -- which means
+   * something has to remember the earlier one. Counts rather than whole blocks,
+   * because the rosters are what the diff explicitly does not look at: a ship
+   * list that arrived one frame and was dropped by the byte budget the next is
+   * not sixty undockings.
    */
-  bool m_haveSummary = false;
-
-  /// Scratch for one decode, kept rather than made per arrival: this runs at
-  /// the summary cadence, but the vector would otherwise be a fresh allocation
-  /// every second for the life of the session.
-  std::vector<Game::RosterEntry> m_decodedRoster;
-  std::vector<Game::FleetSummary> m_decodedSummaries;
+  struct DockedCount
+  {
+    Game::AnchorId anchor = Game::INVALID_ID;
+    std::uint16_t shipCount = 0;
+  };
+  std::vector<DockedCount> m_dockedCountsLastFrame;
 
   /*
    * What the game has to say, waiting to be drained (`PollNotices`).
@@ -253,7 +251,6 @@ private:
   std::vector<PendingNotice> m_noticesHandedOver;
 
   std::uint64_t m_rejectedSnapshots = 0;
-  std::uint64_t m_rejectedSummaries = 0;
 };
 
 } // namespace Outpost
