@@ -222,6 +222,22 @@ public:
 
   /// Message layout of the game's own wire types. Exchanged at the handshake so
   /// mismatched builds refuse each other at the door.
+  /*
+   * A commander the shard has not seen before (ADR-018 D5, U3c-b).
+   *
+   * Called once, on the Sim thread, when a `Hello` mints a new `PlayerId`
+   * rather than resuming a lapsed one -- so a resume never fires it, which is
+   * the difference between coming back and arriving.
+   *
+   * The engine has NO opinion about what a new commander is given: a starting
+   * fleet, a single hull, or nothing at all because a reloaded shard already
+   * holds their ships. That is a game question and this library must not have
+   * an answer to it (ADR-014 §3), which is why this hands over an id and
+   * returns nothing. A default that does nothing is the honest base case: a
+   * simulation with no notion of joining is not broken, it is a replay.
+   */
+  virtual void PlayerJoined(PlayerId _player) { (void)_player; }
+
   [[nodiscard]] virtual std::uint64_t SchemaHash() const = 0;
 
   /// The content the simulation was built from -- the universe definition and

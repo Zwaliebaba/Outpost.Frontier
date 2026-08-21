@@ -11,6 +11,9 @@
     <ClCompile Include="DurableStore.cpp">
       <Filter>Persistence</Filter>
     </ClCompile>
+    <ClCompile Include="SessionResume.cpp">
+      <Filter>Host</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -28,6 +31,9 @@
     </ClInclude>
     <ClInclude Include="DurableStore.h">
       <Filter>Persistence</Filter>
+    </ClInclude>
+    <ClInclude Include="SessionResume.h">
+      <Filter>Host</Filter>
     </ClInclude>
     <ClInclude Include="NeuronServer.h" />
   </ItemGroup>

@@ -18,6 +18,9 @@
     <ClCompile Include="DurableStoreTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="SessionResumeTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="NeuronServerTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

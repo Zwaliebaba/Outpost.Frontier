@@ -400,6 +400,57 @@ hold.
 `Outpost/` is Windows-only and has not been compiled here — `MayView`, the summary sender and
 the roster it sends are CI's first build of this slice.
 
+**U3c-b built 2026-08-21 — and it needed no schema bump, which is T2 collecting a debt.**
+`Hello` and `Welcome` have carried a `PlayerId` and a `resumeToken` since A12, shipped as zero
+with a note saying the alternative was "a schema bump on the day sessions first survive a
+disconnect". This is that day, and the two fields simply started carrying values: no layout
+change, no hash move, no client refused at the door.
+
+**`ServerHost` mints per PLAYER, starting at `SOLE_PLAYER_ID`** so the first client to connect
+is still player one and every single-commander scenario means what it meant. A `Hello` that can
+prove it is coming *back* is resolved **before** anything mints, because the other order would
+hand a reconnecting commander a fresh id and a fresh fleet while their ships were still
+standing on a grid.
+
+**The grace window is `ResumeTable`, in a file of its own, and that is the slice's one
+structural decision.** All of it — the deadline in ticks, the token check, expiry — is
+decidable without a socket, so it is driven by eleven tests instead of by a four-minute live
+run. That is the argument that put `DurableStore` where it is, applied again. Two of those
+tests exist because a live run would never reach them: the boundary tick (inclusive, and
+"expired" versus "expiring" differ by one), and the u32 tick rollover, where a wrapping
+deadline would end *every session on the shard* at the instant the counter turned over.
+
+**The token is a resume handle and not a credential**, and `SessionResume.h` says so at
+length rather than leaving the word "token" to imply something is verified. Nobody is
+authenticated; whoever holds one is treated as the player. It is seeded from the OS so it
+cannot be counted to, and rotated on every use so one seen on the wire is worth one reconnect.
+ADR-018 D5 declined to mint one at T2 on the ground that inventing a token would be inventing a
+security model with it — that reasoning is untouched, and what changed is only that resume
+became a requirement.
+
+**`Simulation::PlayerJoined` is a new seam, and it returns nothing on purpose.** The engine
+hands over an id; what a commander is *given* is a game question (ADR-014 §3). The composition
+root's answer is deliberately a placeholder and says so in the code: a commander who already has
+ships is not new (a reloaded shard knows them, and spawning would hand them a second fleet on
+every restart), and one who is gets **one wing on a grid of their own**. One wing rather than
+the boot fleet's eight is arithmetic, not generosity — a full snapshot carries 43 ships, the
+boot fleet is forty plus a station, and a second full fleet would sit on the cap that the
+interest/delta slice (ADR-022, D6) exists to lift.
+
+**The old `selfTest` was quietly assuming one commander, and this found it.** Its
+approach-disconnect section connects, flies a fleet, drops mid-leg, and reconnects as an
+"observer" to check the ships are still outside. Every connection used to be `SOLE_PLAYER_ID`,
+so it got the right answer without asking the question; with ids minted per player the observer
+would have been a *different* commander on a *different* grid, finding no approaching ships
+because there were none there to find. It resumes the commander that left now — which is a
+better test than it was, since the grace window is exercised by a section that is not about it.
+
+**What was verified, and how.** `ResumeTable` 11/11 and `GameLogicTests` 380/380 under clang 18
+on Linux, with the store's 14/14 and the tasking suite's 18/18 beside them; clang-tidy clean.
+`ServerHost`, `ClientConnection` and the composition root are Windows-only and have **not** been
+compiled here, and neither has the twin-client `selfTest` — **CI is the first run of U3c's
+accept**, and the numbers land in a `Record run` commit rather than being predicted.
+
 **Unblocked 2026-08-20, and worth naming what that leaves.** Both things this slice was
 waiting on are in the tree — the per-client `SnapshotSender` (A13) and U3b's view request with
 its `MayView` gate — so the machinery to serve *a* commander per connection exists. What does

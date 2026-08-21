@@ -1312,10 +1312,211 @@ void RunDockingLoop(Checklist& _checks, Neuron::ClientConnection& _client)
  * first leg -- the Move -- and what is asserted is the invariant that holds
  * whether or not the chain exists: a lost connection docks nobody.
  */
+/*
+ * U3c's accept: two commanders on one shard (ADR-018 D5/A25, build order U3c-b).
+ *
+ * This is the section U3c exists for, and the reason it is written with the
+ * second client's assertions phrased NEGATIVELY -- what B does not get -- is
+ * that every one of them would have passed a slice ago against a registry where
+ * both commanders owned everything. A privacy check that cannot fail is worse
+ * than none, because it gets reported as evidence.
+ *
+ * Disjoint grids, deliberately: two full fleets on one grid exceed the
+ * full-snapshot cap by arithmetic, and lifting that is the interest/delta
+ * slice's job (ADR-022, D6), not this one's.
+ */
+void RunSecondCommanderGate(Checklist& _checks, Neuron::ServerHost& _server, const Neuron::Simulation& _simulation)
+{
+  Neuron::ClientConnection alice;
+  Neuron::ClientConnection bob;
+
+  if (!alice.Connect("127.0.0.1", _server.BoundPort(), _simulation.SchemaHash(), _simulation.ContentHash(), "alice") ||
+      !PumpUntil(alice, [&] { return alice.State() == Neuron::ClientLinkState::Joined; }))
+  {
+    _checks.Record("the first commander joins", false);
+    return;
+  }
+  if (!bob.Connect("127.0.0.1", _server.BoundPort(), _simulation.SchemaHash(), _simulation.ContentHash(), "bob") ||
+      !PumpUntil(bob, [&] { return bob.State() == Neuron::ClientLinkState::Joined; }))
+  {
+    _checks.Record("a second commander joins the same shard", false);
+    return;
+  }
+  _checks.Record("two commanders hold sessions at once", _server.SessionCount() >= 2);
+
+  /*
+   * Distinct ids, and neither of them nobody. The second half matters on its
+   * own: `INVALID_PLAYER_ID` is what a zeroed handshake carries, and a shard
+   * that handed it out would be issuing the one identity every filter treats
+   * as "not yours".
+   */
+  _checks.Record("the two commanders have different ids", alice.Player() != bob.Player());
+  _checks.Record("and neither of them is nobody",
+                 alice.Player() != Neuron::INVALID_PLAYER_ID && bob.Player() != Neuron::INVALID_PLAYER_ID);
+
+  // Each got a resume handle. Zero would mean the grace window has nothing to
+  // work with, which is a failure the disconnect below would report far less
+  // clearly.
+  _checks.Record("each commander is given a resume handle", alice.ResumeToken() != 0 && bob.ResumeToken() != 0);
+  _checks.Record("and the two handles are different", alice.ResumeToken() != bob.ResumeToken());
+
+  // Both are put down somewhere, and not on top of each other.
+  const std::uint16_t aliceGrid = alice.GridAnchor();
+  const std::uint16_t bobGrid = bob.GridAnchor();
+  _checks.Record("the second commander is put on a grid of their own", aliceGrid != bobGrid);
+
+  /*
+   * View rights. B asking to watch A's grid is the request `MayView` exists to
+   * refuse, and until U3c-a it would have been ALLOWED -- the gate walked the
+   * composition root's scripted patrol list and answered the same for every
+   * viewer.
+   */
+  bob.ClearPendingViewChanges();
+  bool answered = false;
+  bool refused = false;
+  if (bob.RequestView(aliceGrid))
+  {
+    answered = PumpUntil(bob,
+                         [&]
+                         {
+                           for (const Neuron::ViewChanged& changed : bob.PendingViewChanges())
+                           {
+                             if (changed.gridAnchor == aliceGrid)
+                             {
+                               refused = !changed.accepted;
+                               return true;
+                             }
+                           }
+                           bob.ClearPendingViewChanges();
+                           return false;
+                         });
+  }
+  bob.ClearPendingViewChanges();
+  _checks.Record("a request to watch another commander's grid is answered", answered);
+  _checks.Record("and refused", refused);
+
+  // And B keeps their own: a refusal must not move the feed.
+  _checks.Record("the refused viewer is still on their own grid", bob.GridAnchor() == bobGrid);
+
+  /*
+   * Summaries. A's fleet must not appear in B's, in either direction -- the
+   * symmetric assertion is worth making because a filter keyed on the wrong
+   * side of the comparison would pass one and fail the other.
+   */
+  const auto fleetAnchors = [&](Neuron::ClientConnection& _client)
+  {
+    std::vector<std::uint16_t> anchors;
+    for (const std::vector<std::uint8_t>& payload : _client.PendingSummaries())
+    {
+      Neuron::ByteReader reader{payload};
+      std::uint8_t records = 0;
+      if (!Game::ReadSummaryFrame(reader, records))
+      {
+        continue;
+      }
+
+      /*
+       * The family is read in order, and every record has to be consumed even
+       * when it is not the one wanted -- the records share one reader, so
+       * skipping a payload would leave the next read pointed at the middle of
+       * it. That is why the roster branch reads rather than continues.
+       */
+      for (std::uint8_t index = 0; index < records; ++index)
+      {
+        Game::SummaryKind kind{};
+        if (!Game::ReadSummaryRecord(reader, kind))
+        {
+          break;
+        }
+        if (kind == Game::SummaryKind::FleetSummaries)
+        {
+          std::vector<Game::FleetSummary> rows;
+          if (!Game::ReadFleetSummaries(reader, rows))
+          {
+            break;
+          }
+          for (const Game::FleetSummary& row : rows)
+          {
+            anchors.push_back(row.anchor);
+          }
+          continue;
+        }
+        break; // Anything else and this reader has said what it can.
+      }
+    }
+    _client.ClearPendingSummaries();
+    return anchors;
+  };
+
+  std::vector<std::uint16_t> bobSees;
+  (void)PumpUntil(bob,
+                  [&]
+                  {
+                    const std::vector<std::uint16_t> rows = fleetAnchors(bob);
+                    bobSees.insert(bobSees.end(), rows.begin(), rows.end());
+                    return !bobSees.empty();
+                  });
+  _checks.Record("the second commander is told where their own fleet is", !bobSees.empty());
+  _checks.Record("and never where the first one's is",
+                 std::find(bobSees.begin(), bobSees.end(), aliceGrid) == bobSees.end());
+
+  /*
+   * The grace window (ADR-018 D5). B drops and comes straight back with the
+   * handle they were given.
+   *
+   * The claim is not merely that the reconnect succeeds -- it is that the
+   * SAME COMMANDER comes back. A shard that minted a fresh id here would look
+   * fine from the client's side and would have quietly orphaned a fleet.
+   */
+  const Neuron::PlayerId wasBob = bob.Player();
+  const std::uint64_t handle = bob.ResumeToken();
+  bob.Disconnect();
+  (void)PumpUntil(alice, [&] { return _server.SessionCount() <= 1; });
+
+  Neuron::ClientConnection returning;
+  const bool reconnected =
+    returning.Connect("127.0.0.1", _server.BoundPort(), _simulation.SchemaHash(), _simulation.ContentHash(), "bob",
+                      wasBob, handle) &&
+    PumpUntil(returning, [&] { return returning.State() == Neuron::ClientLinkState::Joined; });
+  _checks.Record("a dropped commander can reconnect", reconnected);
+  if (reconnected)
+  {
+    _checks.Record("and comes back as the same commander", returning.Player() == wasBob);
+    _checks.Record("on the grid they were watching", returning.GridAnchor() == bobGrid);
+    _checks.Record("with a fresh handle, so the old one is spent", returning.ResumeToken() != handle);
+
+    // The fleet is intact, which is the point of the window: their ships never
+    // left the grid, because ownership is universe-layer state and the socket
+    // was never what held it.
+    std::vector<std::uint16_t> backSees;
+    (void)PumpUntil(returning,
+                    [&]
+                    {
+                      const std::vector<std::uint16_t> rows = fleetAnchors(returning);
+                      backSees.insert(backSees.end(), rows.begin(), rows.end());
+                      return !backSees.empty();
+                    });
+    _checks.Record("with the fleet still theirs",
+                   std::find(backSees.begin(), backSees.end(), bobGrid) != backSees.end());
+    _checks.Record("and still not the other commander's",
+                   std::find(backSees.begin(), backSees.end(), aliceGrid) == backSees.end());
+    returning.Disconnect();
+  }
+
+  alice.Disconnect();
+  _checks.Record("the server outlives both commanders", _server.Running());
+}
+
 void RunApproachDisconnectGate(Checklist& _checks, Neuron::ServerHost& _server, const Neuron::Simulation& _simulation)
 {
   Game::ShipId approaching[2] = {Game::INVALID_SHIP_ID, Game::INVALID_SHIP_ID};
   std::size_t rosterBefore = 0;
+
+  /// Who was flying, so the observer can come back as them (U3c-b). Captured
+  /// inside the block below, because the connection that knows is closed by the
+  /// time the observer needs it.
+  Neuron::PlayerId approachPlayer = Neuron::INVALID_PLAYER_ID;
+  std::uint64_t approachToken = 0;
   Game::AnchorId station = Game::INVALID_ID;
 
   {
@@ -1381,6 +1582,23 @@ void RunApproachDisconnectGate(Checklist& _checks, Neuron::ServerHost& _server, 
     (void)PumpUntil(client, [&] { return client.ServerTick() >= leaveAt; });
 
     rosterBefore = ships.size();
+
+    /*
+     * Whose approach this was (U3c-b).
+     *
+     * The observer below has to come back as THIS commander, and the reason is
+     * the whole point of the slice: since `ServerHost` mints a `PlayerId` per
+     * player, a second connection is a second commander with its own fleet on
+     * its own grid -- so an observer that merely reconnected would be watching
+     * somewhere else entirely and would find no approaching ships because there
+     * were none there to find.
+     *
+     * Before U3c-b every connection was `SOLE_PLAYER_ID` and this section got
+     * the right answer without asking the question. That is exactly the class
+     * of assumption U3c exists to flush out.
+     */
+    approachPlayer = client.Player();
+    approachToken = client.ResumeToken();
   } // The connection closes here, mid-leg.
 
   // The session has to be gone before the second client asks, or this measures
@@ -1397,13 +1615,17 @@ void RunApproachDisconnectGate(Checklist& _checks, Neuron::ServerHost& _server, 
   }
   _checks.Record("the server outlives a client that left mid-approach", emptied && _server.Running());
 
+  // Back as the same commander, inside the grace window (ADR-018 D5), so what
+  // it observes is the fleet it left mid-leg rather than a fresh one.
   Neuron::ClientConnection observer;
-  if (!observer.Connect("127.0.0.1", _server.BoundPort(), _simulation.SchemaHash(), _simulation.ContentHash(), "observer") ||
+  if (!observer.Connect("127.0.0.1", _server.BoundPort(), _simulation.SchemaHash(), _simulation.ContentHash(), "observer",
+                        approachPlayer, approachToken) ||
       !PumpUntil(observer, [&] { return observer.State() == Neuron::ClientLinkState::Joined; }))
   {
     _checks.Record("an observer can join after the disconnect", false);
     return;
   }
+  _checks.Record("and comes back as the commander that left", observer.Player() == approachPlayer);
 
   Game::ReplicatedView view;
   std::vector<Game::ReplicatedShip> ships;
@@ -1667,6 +1889,10 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   // Runs here, after the first session is provably gone, because its whole
   // subject is what the authority keeps when a client is not there.
   RunApproachDisconnectGate(checks, server, _simulation);
+
+  // U3c's accept, after the single-commander loop has proved the machinery it
+  // builds on: two clients at once, on grids of their own.
+  RunSecondCommanderGate(checks, server, _simulation);
 
   // S3's acceptance is a cadence measurement, and until now it had no harness --
   // which is a good way for "mean period 50 ms +/- 0.5" to stay a sentence

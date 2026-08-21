@@ -32,13 +32,20 @@ ClientConnection::~ClientConnection()
 }
 
 bool ClientConnection::Connect(const std::string& _host, std::uint16_t _port, std::uint64_t _schemaHash, std::uint64_t _contentHash,
-                               const std::string& _playerName)
+                               const std::string& _playerName, PlayerId _resumePlayer, std::uint64_t _resumeToken)
 {
   Disconnect();
 
   m_schemaHash = _schemaHash;
   m_contentHash = _contentHash;
   m_playerName = _playerName;
+
+  // Assigned unconditionally rather than only when non-zero: `Disconnect` does
+  // not clear them, so this is what makes a fresh connect actually fresh. A
+  // client that reconnected anonymously after a session that had a token would
+  // otherwise silently offer the old one.
+  m_resumePlayer = _resumePlayer;
+  m_resumeToken = _resumeToken;
 
   auto transport = std::make_unique<QuicTransport>();
   m_connection = transport->Connect(_host, _port);
@@ -62,11 +69,16 @@ void ClientConnection::SendHello()
   hello.contentHash = m_contentHash;
   hello.playerName = m_playerName;
 
-  // Anonymous on a first connection (ADR-018 D5): the client learns its
-  // `PlayerId` from the `Welcome` and offers it back on a resume. There is no
-  // resume yet, so this is always the first connection.
-  hello.playerId = INVALID_PLAYER_ID;
-  hello.resumeToken = 0;
+  /*
+   * Anonymous on a first connection, and named on a resume (ADR-018 D5).
+   *
+   * Both are zero unless `Connect` was given a session to reclaim, which is
+   * what makes a first connection detectably anonymous rather than accidentally
+   * player one -- the server refuses a zero token outright, so nothing can
+   * claim a session by forgetting to fill this in.
+   */
+  hello.playerId = m_resumePlayer;
+  hello.resumeToken = m_resumeToken;
 
   std::array<std::uint8_t, 256> buffer{};
   ByteWriter writer{buffer};
@@ -182,6 +194,16 @@ void ClientConnection::HandleMessage(const TransportEvent& _event)
     }
     m_clientId = welcome.clientId;
     m_playerId = welcome.playerId;
+
+    /*
+     * And the handle that gets this commander back (ADR-018 D5, U3c-b).
+     *
+     * Kept rather than merely read, because the moment it is needed -- the
+     * socket has just dropped -- is the moment there is nobody to ask for it.
+     * It is rotated by the server on every use, so the one held here is always
+     * the newest.
+     */
+    m_resumeToken = welcome.resumeToken;
     m_serverTick = welcome.tick;
     m_serverTickRate = welcome.tickRate;
     m_worldId = welcome.worldId;

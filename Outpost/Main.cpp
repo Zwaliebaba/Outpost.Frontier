@@ -662,6 +662,57 @@ public:
     return loaded;
   }
 
+  /*
+   * A commander this shard has not met (ADR-018 D5, U3c-b).
+   *
+   * Two refusals before anything is spawned, and both are the same mistake in
+   * different clothes -- giving somebody a fleet they already have.
+   *
+   *   - A commander with ships anywhere is not new. A reloaded shard knows
+   *     them, and spawning here would hand them a second fleet on every
+   *     restart. This is `OpenShardState`'s rule about the boot fleet, applied
+   *     per commander instead of per shard.
+   *   - A commander with nowhere to go gets nothing rather than a fleet on top
+   *     of somebody else's. `HomeAnchorFor` returning `INVALID_ID` means the
+   *     universe ran out of disjoint grids, which is a shard that is full.
+   *
+   * **What a new commander is given is a placeholder, and is meant to be.**
+   * They get the same authored fleet the shard boots with, on a grid of their
+   * own. That generalises the existing rule rather than inventing a policy --
+   * but onboarding is a design question nobody has answered, and this is the
+   * one line to change when somebody does.
+   */
+  void PlayerJoined(PlayerId _player) override
+  {
+    if (!m_registry.Summaries(_player).empty())
+    {
+      NEURON_LOG_INFO("player %u is known to this shard already; no starting fleet", _player);
+      return;
+    }
+
+    const Game::AnchorId home = HomeAnchorFor(_player);
+    if (home == Game::INVALID_ID)
+    {
+      NEURON_LOG_WARNING("player %u joined and there was no free grid to put them on", _player);
+      return;
+    }
+
+    /*
+     * ONE wing, not the boot fleet's eight, and the reason is arithmetic rather
+     * than generosity. A full snapshot carries `MAX_SHIPS_PER_SNAPSHOT` = 43
+     * ships; the boot fleet is forty hulls and its grid also holds the station.
+     * A second forty-hull fleet on a grid with any authored occupants of its
+     * own would sit on that cap, and a grid that overflows the snapshot is the
+     * failure the interest/delta slice exists to fix (ADR-022, D6) rather than
+     * one to walk into here.
+     *
+     * Five hulls is enough for every claim U3c makes -- they are owned, they
+     * are somewhere, and they are not the other commander's.
+     */
+    SpawnFleetFor(_player, home, false, 1);
+    NEURON_LOG_INFO("player %u joined: starting fleet on anchor %u", _player, static_cast<unsigned>(home));
+  }
+
   [[nodiscard]] std::uint64_t SchemaHash() const override
   {
     return Game::GameSchemaHash();
@@ -700,6 +751,16 @@ public:
   /// The fleet, spawned into the start grid with ids the registry allocated
   /// (ADR-018 D6a), recording the mobile half as it goes.
   void SpawnStartingFleet();
+
+  /// The same fleet, for any commander, on any grid. The patrol drives only the
+  /// shard's own boot fleet -- it is a scripted demo of the start grid, not a
+  /// thing that should start flying somebody else's hulls around.
+  void SpawnFleetFor(Neuron::PlayerId _owner, Game::AnchorId _anchor, bool _patrolDrivesIt, std::size_t _wings);
+
+  /// Where a brand-new commander is put down. Deterministic and **disjoint**:
+  /// U3c serves two commanders on separate grids, because two full fleets on
+  /// one grid exceed the full-snapshot cap by arithmetic.
+  [[nodiscard]] Game::AnchorId HomeAnchorFor(Neuron::PlayerId _player) const;
 
   /*
    * The patrol picks up whatever came back (ADR-025 §1).
@@ -940,6 +1001,74 @@ void ReportParkedFleet(const std::vector<ParkedHull>& _parked)
   return names;
 }
 
+Game::AnchorId UniverseSimulation::HomeAnchorFor(Neuron::PlayerId _player) const
+{
+  /*
+   * The first commander gets the start grid, and every other gets the next
+   * anchor nobody is standing on.
+   *
+   * Disjoint by construction rather than by luck, because U3c is scoped to
+   * disjoint grids: two full fleets on one grid exceed the full-snapshot cap by
+   * arithmetic (the interest/delta slice, D6, is what lifts that). "Nobody is
+   * standing on it" is asked of the registry rather than tracked here, so a
+   * grid that emptied is available again and this holds no state to go stale.
+   *
+   * Deterministic: the universe's anchors in bake order, which is the order
+   * everything else iterates them in. Two runs of the same script put the same
+   * commander in the same place.
+   */
+  if (_player == Neuron::SOLE_PLAYER_ID)
+  {
+    return m_startAnchor;
+  }
+  if (m_universe == nullptr)
+  {
+    return Game::INVALID_ID;
+  }
+
+  for (const Game::SolarSystem& system : m_universe->systems)
+  {
+    for (const Game::Anchor& anchor : system.anchors)
+    {
+      if (anchor.id == m_startAnchor)
+      {
+        continue; // Player one's, and the scripted patrol's.
+      }
+      /*
+       * A grid somebody's ships are standing on belongs to them.
+       *
+       * Asked through the owner index rather than by counting hulls against
+       * authored occupants, which is what this would have had to do a slice
+       * ago: "is anybody here" is exactly the question U3c-a taught the
+       * registry to answer, and the furniture drops out for free because it
+       * belongs to `INVALID_PLAYER_ID`.
+       *
+       * `Peek` rather than `Borrow`: choosing a home must not spin up every
+       * grid it looks at.
+       */
+      const Game::World* world = m_registry.Peek(anchor.id);
+      if (world != nullptr)
+      {
+        bool occupied = false;
+        for (const Game::ShipId id : world->Ids())
+        {
+          if (m_registry.OwnerOf(id) != Neuron::INVALID_PLAYER_ID)
+          {
+            occupied = true;
+            break;
+          }
+        }
+        if (occupied)
+        {
+          continue;
+        }
+      }
+      return anchor.id;
+    }
+  }
+  return Game::INVALID_ID;
+}
+
 void UniverseSimulation::AdoptReloadedFleet()
 {
   const Game::World* world = m_registry.Peek(m_startAnchor);
@@ -960,6 +1089,14 @@ void UniverseSimulation::AdoptReloadedFleet()
 }
 
 void UniverseSimulation::SpawnStartingFleet()
+{
+  // The shard's own boot fleet: player one's, on the start grid, driven by the
+  // scripted patrol. `SpawnFleetFor` is the general case this is one call to.
+  SpawnFleetFor(Neuron::SOLE_PLAYER_ID, m_startAnchor, true, WING_COUNT);
+}
+
+void UniverseSimulation::SpawnFleetFor(Neuron::PlayerId _owner, Game::AnchorId _anchor, bool _patrolDrivesIt,
+                                       std::size_t _wings)
 {
   /*
    * The authored fleet, into the grid the registry spun up.
@@ -986,6 +1123,10 @@ void UniverseSimulation::SpawnStartingFleet()
   std::uint32_t wing = 0;
   for (const FleetWing& entry : STARTING_FLEET)
   {
+    if (wing >= _wings)
+    {
+      break;
+    }
     const Game::HullClass hullClass = entry.hullClass;
     const float wingAngle = (static_cast<float>(ringSlot[wing]) / static_cast<float>(WING_COUNT)) * DirectX::XM_2PI;
     const Game::ShipClassInfo& info = Game::ShipClass(hullClass);
@@ -1005,10 +1146,13 @@ void UniverseSimulation::SpawnStartingFleet()
       spawn.xMetres = std::cos(wingAngle) * WING_RADIUS_METRES - std::sin(wingAngle) * offset;
       spawn.yMetres = std::sin(wingAngle) * WING_RADIUS_METRES + std::cos(wingAngle) * offset;
 
-      const Game::ShipId id = m_registry.Spawn(m_startAnchor, spawn, Neuron::SOLE_PLAYER_ID);
+      const Game::ShipId id = m_registry.Spawn(_anchor, spawn, _owner);
       if (id != Game::INVALID_SHIP_ID)
       {
-        m_patrolShips.push_back(id);
+        if (_patrolDrivesIt)
+        {
+          m_patrolShips.push_back(id);
+        }
         parked.push_back({spawn.xMetres, spawn.yMetres, info.collisionRadiusMetres, wing, entry.name});
       }
     }
