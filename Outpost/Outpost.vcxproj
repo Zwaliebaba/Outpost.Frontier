@@ -211,9 +211,6 @@
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
     </Manifest>
-    <PostBuildEvent>
-      <Command>xcopy /Y /D /I /E "$(SolutionDir)GameData\*" "$(OutDir)"</Command>
-    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <FxCompile>
@@ -240,10 +237,6 @@
     <Manifest>
       <EnableSegmentHeap>true</EnableSegmentHeap>
     </Manifest>
-    <PostBuildEvent>
-      <Command>xcopy /Y /D /I /E "$(MSBuildThisFileDirectory)..\GameData\*" "$(OutDir)GameData\" /EXCLUDE:$(MSBuildThisFileDirectory)..\GameData\*.log
-xcopy /Y /D "$(MSBuildThisFileDirectory)..\GameData\Outpost.json" "$(OutDir)"</Command>
-    </PostBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
@@ -258,6 +251,52 @@ xcopy /Y /D "$(MSBuildThisFileDirectory)..\GameData\Outpost.json" "$(OutDir)"</C
   -->
   <Target Name="EnsureCompiledShaderDirectory" BeforeTargets="FxCompile">
     <MakeDir Directories="$(ProjectDir)CompiledShaders" />
+  </Target>
+  <!--
+    GameData beside the executable, so that a build produces something that runs.
+
+    The layout was always implied and never produced. `ResolveContentPath` tries
+    the working directory and then the executable's own folder
+    (`ConfigLoad.cpp`), `LoadAppConfig` looks for `Outpost.json` the same two
+    places, and `FileSys::SetHomeDirectory` names `<exe>\GameData\` outright -
+    but nothing in the build put a single file there. The copy under
+    `x64/<config>/` was maintained by hand, which is a trap for the next person
+    to add content and find it missing at runtime, and a fresh clone pressing F5
+    never had it at all: the debugger launches with the working directory set to
+    the project folder, where there is no `Outpost.json` either.
+
+    `Outpost.json` is lifted out of `GameData/` rather than copied inside it,
+    because beside the executable is the only path the loader reads it from. A
+    second copy under `GameData/` would be inert, and an inert config file is
+    something to edit by mistake. At `$(OutDir)` it is build output: an edit made
+    there is overwritten by the next build, and the two places an edit survives
+    are the tracked `GameData/Outpost.json` and the LocalAppData user layer
+    (ADR-012 §5).
+
+    `SkipUnchangedFiles` is what keeps this cheap: the bake alone is ~15 MB, so
+    without it every incremental build would copy the whole universe again.
+    Two deliberate limits. The log is excluded - a stale log is not content.
+    And this copies, it does not mirror: content deleted from `GameData/` is
+    left behind in an old output folder, which was accepted over a `/MIR`-style
+    sync that is one wrong path away from deleting a tree.
+
+    A Target, not a PostBuildEvent - relearned the expensive way. An xcopy
+    rewrite of this shipped with two defects a stale local output tree hid:
+    `/EXCLUDE:` names a file that lists patterns, not a pattern, so the copy
+    aborted having copied nothing while the second command's exit 0 kept the
+    build green; and the Debug variant dropped the `GameData\` prefix, so
+    content landed where the loader never looks. On CI's fresh clone the
+    executable booted without its content, the startup failure raised a modal
+    error box, and both jobs hung mute for 45 minutes. `Copy` with
+    `SkipUnchangedFiles` has none of those failure modes, and a Target that
+    fails fails the build out loud.
+  -->
+  <Target Name="CopyGameData" AfterTargets="Build">
+    <ItemGroup>
+      <GameDataContent Include="$(MSBuildThisFileDirectory)..\GameData\**\*" Exclude="$(MSBuildThisFileDirectory)..\GameData\**\*.log;$(MSBuildThisFileDirectory)..\GameData\Outpost.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(GameDataContent)" DestinationFiles="@(GameDataContent->'$(OutDir)GameData\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\GameData\Outpost.json" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
   </Target>
   <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
     <PropertyGroup>

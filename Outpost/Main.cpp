@@ -60,6 +60,23 @@ namespace
 {
 volatile bool g_stopRequested = false;
 
+/*
+ * Whether a fatal report may block on a human.
+ *
+ * The modal error box exists for the double-click case: a Windows-subsystem
+ * exe has no console, so without it a broken install fails into silence. The
+ * same box is a deadlock for every unattended launch -- a headless host, a
+ * bake, a self test -- because nothing ever clicks OK. Three CI runs proved it
+ * the expensive way: a missing content file at boot raised the box, and both
+ * configurations sat mute for 45 minutes until the job budget killed them.
+ *
+ * True until the config is read, because before the config is read the
+ * double-click case cannot be told apart from the unattended ones -- and CI
+ * plants a valid config, so the path that reports without one belongs to a
+ * person at a desk.
+ */
+bool g_fatalDialogAllowed = true;
+
 BOOL WINAPI ConsoleHandler(DWORD _type)
 {
   if (_type == CTRL_C_EVENT || _type == CTRL_CLOSE_EVENT || _type == CTRL_BREAK_EVENT)
@@ -76,6 +93,10 @@ void ReportFatal(const std::string& _text)
   OutputDebugStringA(_text.c_str());
   std::fputs(_text.c_str(), stderr);
 
+  if (!g_fatalDialogAllowed)
+  {
+    return; // Unattended: the log and the exit code are the whole report.
+  }
   const int wide = MultiByteToWideChar(CP_UTF8, 0, _text.c_str(), -1, nullptr, 0);
   std::wstring message(static_cast<std::size_t>(wide), L'\0');
   MultiByteToWideChar(CP_UTF8, 0, _text.c_str(), -1, message.data(), wide);
@@ -1037,6 +1058,11 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     ReportStartupFailure(diagnostics);
     return 1;
   }
+
+  // Decided the moment the config can say: only an attended, windowed launch
+  // gets a dialog it can wait on. Everything else reports and exits.
+  g_fatalDialogAllowed =
+    (config.mode == Outpost::HostMode::Host || config.mode == Outpost::HostMode::Client) && !config.selfTest;
 
   Log::Initialise(config.logging.file, config.logging.level);
   NEURON_LOG_INFO("Outpost: Frontier starting");

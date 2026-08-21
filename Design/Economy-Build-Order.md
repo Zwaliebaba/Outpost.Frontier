@@ -414,15 +414,32 @@ R10 exists to watch, and E3 adds a per-ship manifest to the same loop. If the ca
 crosses ~15 ms the honest next move is to make `Mining` skip a grid with no field in one
 branch rather than per ship.
 
-**Run 156 — the merge commit — is red for a reason that is not this slice's.** `main`'s own
-head `a6dd412` ("Station progress") hangs `Outpost.exe --selfTest` in **both** configurations:
-its run 154 sat in *Run the self test* for 40 minutes with no output before being cancelled,
-and the runner had to kill the process as an orphan. Every gate before it passed there —
-guards, clang-tidy, all three builds, the whole VSTest suite — and the hang leaves no
-`selftest.log`, so CI's own extract steps had nothing to read. Merging that base into this
-branch inherited the hang; run 155 above is the same E2 code on the base before it, green in
-ten minutes with the self test taking nine seconds. Nothing in E2 is implicated and nothing
-here was changed for it: the fix belongs on `main`, and this PR goes green when it lands.
+**Runs 154, 156 and 157 hung for 45 minutes each, and run 158 caught the culprit in five.**
+`main`'s head `a6dd412` ("Station progress") hung `Outpost.exe --selfTest` in **both**
+configurations with zero diagnostics — the CI step only read the log after the process exited,
+and the process never exited. Reading everything reachable found no unbounded wait, so instead
+of a fourth guess the branch grew instrumentation: `Log::SetFlushEveryLine` (on in self-test
+mode) and a 300-second watchdog in the CI step that kills the process and prints the complete
+log. Run 158's log then named the line: `economy definition not found` — **the hang was at
+boot, not in the self test.** Two defects, compounding:
+
+- **`a6dd412` replaced the `CopyGameData` MSBuild target with `PostBuildEvent` xcopy lines,
+  both broken on a fresh checkout.** Release's `/EXCLUDE:` names a wildcard where xcopy wants
+  a file *listing* patterns, so the copy aborts having copied nothing — and the second
+  command's exit 0 keeps the build green. Debug's variant drops the `GameData\` prefix, so
+  content lands where the loader never looks. A stale `x64\<config>\GameData\` tree from
+  weeks of the old target hid both on the author's machine; CI's fresh clone had no such
+  shield, so the exe booted without its content.
+- **`ReportFatal` raised a modal `MessageBoxW` unconditionally**, so a startup failure on a
+  headless runner blocked forever on an OK nobody was there to click. That is what turned a
+  misconfiguration into a silent 45-minute hang, three runs over.
+
+Both are fixed on this branch: the `CopyGameData` target is restored (with the xcopy
+post-mortem written into its comment), and the fatal dialog is gated to attended, windowed
+launches — headless, bake and self-test runs report to the log and stderr and **exit**. The
+watchdog and the per-line flush stay, because the next hang should also cost five minutes and
+name its own line. Run 155 remains E2's own verdict; the merge-head verdict is the run after
+the fix.
 
 ### E3 — Cargo, the Bay, and the wire cluster · 🏁 G0
 Ships carry manifests; the station roster's record grows one (ADR-017 §1 as amended — cargo is
