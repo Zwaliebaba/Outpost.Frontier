@@ -264,6 +264,16 @@ step that **names the files that must be beside the executable** — which is pr
 45-minute hang lacked, because the self test reads the repo's content rather than the build's
 and so cannot notice a deployment that shipped nothing at all.
 
+*It took two runs. Run 162 died on `robocopy exited 16`: a line that stripped `$(TargetDir)`'s
+trailing backslash by comparison had been tidied into `for %%I in (...) do set "DEST=%%~fI"` on
+the belief that `%~f` trims one — **it does not**, and while cmd has no backslash escape,
+robocopy parses its own command line with the C runtime's rules, where `\"` is an escaped quote,
+so the closing quote and four switches were swallowed into the destination path. The comparison
+is back and the result is now asserted. The half that worked is worth as much as the fix: the
+script raised a named MSBuild error and failed the build in seven minutes, which is precisely
+what the xcopy version could not do. Run 163 is green — `27 files, 25 copied, 2 skipped`, and
+`content beside the executable: 25 files, 21.5 MB`.*
+
 *(The merge with `main`'s station-progress work first inherited a CI hang — `a6dd412`'s
 xcopy rewrite of the content copy left the exe bootless on a fresh clone, and a startup
 failure raised a modal dialog no headless runner could dismiss. Diagnosed by instrumentation

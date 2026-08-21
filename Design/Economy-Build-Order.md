@@ -479,6 +479,17 @@ worked: the script printed `CopyGameData.cmd : error : ...`, MSBuild raised it a
 failed the build with MSB3073 — which is exactly the failure mode the xcopy version did not
 have.*
 
+**Green on the second try (run 163, commit `84e276b`).** The copy reports `27 files, 25 copied,
+2 skipped, 21.47 m` — the two skipped being the tracked `Outpost.json` and `Outpost.log`, which
+is the exclusion doing real work rather than a formality: a stale log **is** in the repository,
+and without `/XF` it would ship. `Outpost.json` then lands beside the executable on its own, and
+the check step says so in the one line a reader wants: `content beside the executable: 25 files,
+21.5 MB, and Outpost.json in x64\Release`. Debug|x64, Release|x64 and Spike 2 all pass in ten
+and a half minutes, **717 tests** with none failing, `self test: PASSED`, content hashes and the
+replay hash `69c58e2751c0df22` unchanged, one pre-existing Release warning, no clang-tidy
+finding. The soak reads 9.265 ms mean / 16.312 ms worst on a capped grid — run to run against
+161's 8.729 / 17.573, which is runner variance and not a trend.
+
 **And the merge head is green (run 159, commit `59d4a20`, 2026-08-21).** Debug|x64,
 Release|x64 and Spike 2 all pass in ten minutes; the self test is back to twelve seconds and
 `PASSED`, now including `main`'s own approach-disconnect scenario — three clients over the
