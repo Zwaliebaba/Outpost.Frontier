@@ -286,6 +286,33 @@ ShipId DockLoaded(WorldRegistry& _registry, AnchorId _station, OreId _ore, std::
   Assert::IsTrue(record.what.AddMember(member), L"the fixture could not fill a crossing");
   state.transfers.push_back(record);
 
+  // And E4b's three (ADR-024 §6): a job in flight, a station somebody raised,
+  // and a project somebody is part-way through.
+  RefineJob job;
+  job.owner = Neuron::SOLE_PLAYER_ID;
+  job.station = 7;
+  job.alloy = AlloyId::ChromiteConduit;
+  job.sequence = 3;
+  job.batchUnits = 10;
+  job.outputUnits = 10;
+  job.durationTicks = 1800;
+  job.completeTick = 6000;
+  job.inputUnits[0] = 10;
+  job.inputUnits[2] = 20;
+  job.refundUnits[2] = 2;
+  state.refineJobs.push_back(job);
+
+  StationTier tier;
+  tier.station = 7;
+  tier.tier = 3;
+  state.stationTiers.push_back(tier);
+
+  UpgradeProject project;
+  project.station = 7;
+  project.toTier = 4;
+  project.contributedUnits[static_cast<std::uint8_t>(AlloyId::NovaSteel)] = 120;
+  state.projects.push_back(project);
+
   return state;
 }
 
@@ -317,6 +344,13 @@ public:
     Assert::AreEqual<std::uint32_t>(900, read.bays[0].oreUnits[0], L"a Bay did not survive");
     Assert::AreEqual<std::uint32_t>(0xABCDEF01u, read.ledgers[0].layoutSalt, L"a layout salt did not survive");
     Assert::AreEqual<std::uint16_t>(1, read.transfers[0].what.memberCount, L"a crossing lost its member");
+
+    Assert::AreEqual<std::size_t>(1, read.refineJobs.size(), L"a refine job did not survive the format");
+    Assert::AreEqual<std::uint32_t>(6000, read.refineJobs[0].completeTick, L"a job's completion tick moved");
+    Assert::AreEqual<std::uint32_t>(2, read.refineJobs[0].refundUnits[2], L"a job's refund did not survive");
+    Assert::AreEqual<std::uint8_t>(3, read.stationTiers[0].tier, L"a station's tier did not survive");
+    Assert::AreEqual<std::uint32_t>(120, read.projects[0].contributedUnits[static_cast<std::uint8_t>(AlloyId::NovaSteel)],
+                                    L"a project's contributions did not survive");
   }
 
   TEST_METHOD(EveryTruncationDiagnosesRatherThanGuesses)
@@ -390,9 +424,15 @@ public:
     state.ledgers[0].clusterCount = 2;
     std::vector<std::uint8_t> bytes = WriteTo(state);
 
-    // The cluster count sits before its two clusters, and the transfer count
-    // (a u32, zero here) trails the whole ledger block.
-    const std::size_t clusterCountAt = bytes.size() - 4u - (2u * ORE_COUNT * 4u) - 1u;
+    /*
+     * The cluster count sits before its two clusters, and four empty u32 counts
+     * trail the whole ledger block -- the transfers and E4b's three refining
+     * families. Spelled as a count of trailing families rather than a magic
+     * number, because the next slice to append one will get a failing fixture
+     * that says what it is looking for.
+     */
+    constexpr std::size_t TRAILING_FAMILIES = 4;
+    const std::size_t clusterCountAt = bytes.size() - TRAILING_FAMILIES * 4u - (2u * ORE_COUNT * 4u) - 1u;
     Assert::AreEqual<std::uint8_t>(2, bytes[clusterCountAt], L"the fixture is looking at the wrong byte");
     bytes[clusterCountAt] = static_cast<std::uint8_t>(MAX_SITE_CLUSTERS + 1);
 
@@ -418,6 +458,10 @@ public:
     DurableState shortRoster = full;
     shortRoster.rosters[0].docked.clear();
     Assert::AreNotEqual(DurableHash(full), DurableHash(shortRoster), L"losing a docked ship did not move the reload proof");
+
+    DurableState noJob = full;
+    noJob.refineJobs.clear();
+    Assert::AreNotEqual(DurableHash(full), DurableHash(noJob), L"losing a refine job did not move the reload proof");
   }
 };
 

@@ -323,6 +323,24 @@ bool TryOreId(std::uint8_t _raw, OreId& _outOre) noexcept
   return false;
 }
 
+bool TryAlloyId(std::uint8_t _raw, AlloyId& _outAlloy) noexcept
+{
+  // A switch for `TryOreId`'s reason: an alloy added to the enum and not to
+  // this list is a compiler warning rather than a value the wire quietly
+  // refuses.
+  switch (static_cast<AlloyId>(_raw))
+  {
+  case AlloyId::FerrocitePlates:
+  case AlloyId::AstraGlass:
+  case AlloyId::ChromiteConduit:
+  case AlloyId::QuantumMatrix:
+  case AlloyId::NovaSteel:
+    _outAlloy = static_cast<AlloyId>(_raw);
+    return true;
+  }
+  return false;
+}
+
 bool TryAlloyId(std::string_view _text, AlloyId& _outAlloy) noexcept
 {
   std::uint8_t index = 0;

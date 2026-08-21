@@ -4,6 +4,7 @@
 #include "EventRecord.h"
 #include "FleetSummary.h"
 #include "Ids.h"
+#include "Refining.h"
 #include "Station.h"
 #include "Transfer.h"
 #include "Universe.h"
@@ -189,6 +190,40 @@ public:
    * succeed.
    */
   [[nodiscard]] std::uint32_t NextDynamicShipId() const noexcept { return m_nextDynamicId; }
+
+  /*
+   * The refinery's three residents (ADR-024 §6, E4b), on the Bay's terms.
+   *
+   * Jobs are per `(owner, station)` and sorted by `(station, owner, sequence)`,
+   * which is the order the queue drains, the order the hash folds them and the
+   * order the journal writes them. Tiers and projects are per **station** with
+   * no owner in the key at all, because a refinery is public infrastructure:
+   * anyone may invest in it and the tier rises for everyone.
+   *
+   * All three keep the site ledger's discipline -- a row exists only once
+   * something has happened. There is no tier row for a station nobody has
+   * upgraded and no project row for one nobody has contributed to, so the
+   * durable set is proportional to what commanders have actually done rather
+   * than to how many stations the bake authored.
+   */
+  [[nodiscard]] std::span<const RefineJob> RefineJobs() const noexcept { return m_refineJobs; }
+  [[nodiscard]] std::span<const StationTier> StationTiers() const noexcept { return m_stationTiers; }
+  [[nodiscard]] std::span<const UpgradeProject> Projects() const noexcept { return m_projects; }
+
+  /*
+   * A station's refinery tier as everything should ask it: the authored floor,
+   * raised by whatever has been built, and **never above its band's cap**.
+   *
+   * One function because the cap is the industrial map (ADR-024 §6c) and a
+   * second copy of it would eventually let a High-Sec station cook Nova-Steel.
+   * Zero for an anchor that is not a station.
+   */
+  [[nodiscard]] std::uint8_t TierAt(AnchorId _station) const noexcept;
+
+  /// The open project at a station, or null when nobody has contributed to one
+  /// yet. Null is the *untouched* answer and not an absence, exactly as it is
+  /// for a site ledger and a Bay.
+  [[nodiscard]] const UpgradeProject* Project(AnchorId _station) const noexcept;
 
   /*
    * Is this ship one the bake put on this grid (ADR-018 D6a)?
@@ -434,6 +469,38 @@ private:
   void ApplyDueTransfers();
   void CollectFiledTransfers();
 
+  /*
+   * Completes what is due and starts what fits (ADR-024 §6b).
+   *
+   * Between ticks, beside the transfer bus, because a job's completion is a
+   * universe-layer credit exactly as a mining debit is -- and because "runs
+   * while the commander is offline" means it must not be a grid's job to
+   * advance. Completion first, then starts, so a slot freed this tick is
+   * filled this tick rather than next: a queue that idled for one tick per job
+   * would lose a tick per job forever.
+   */
+  void AdvanceRefining();
+
+  /// The tier row for a station, made if it is not there. The mutable half of
+  /// `TierAt`, and the only thing that creates one -- which is what keeps an
+  /// un-upgraded station out of the durable set.
+  [[nodiscard]] StationTier& TierFor(AnchorId _station);
+
+  /// The open project for a station, made if it is not there, for the tier it
+  /// would buy. Null when the station is already at its band's cap and there is
+  /// nothing left to build.
+  [[nodiscard]] UpgradeProject* ProjectFor(AnchorId _station);
+
+  /// Which band a station sits in, from its system's security value. The one
+  /// place the two are connected, so a second reading of the same number cannot
+  /// drift from this one.
+  [[nodiscard]] SecurityBand BandAt(AnchorId _station) const noexcept;
+
+  /// How many jobs this commander has here, running and queued together.
+  [[nodiscard]] std::uint32_t RefineJobCountFor(Neuron::PlayerId _owner, AnchorId _station) const noexcept;
+
+  [[nodiscard]] OrderVerdict ApplyRefineCommand(Neuron::PlayerId _owner, const StationCommand& _command);
+
   /// The ledger for an anchor, made if it is not there. The mutable half of
   /// `Ledger`, and the only thing that creates one -- which is what keeps a
   /// pristine field out of the durable set.
@@ -501,6 +568,18 @@ private:
    * asks -- a Bay is a fact about a station first.
    */
   std::vector<StationBay> m_bays;
+
+  /*
+   * And the refinery's three (ADR-024 §6, E4b).
+   *
+   * `m_nextRefineSequence` is monotonic per host like the transfer counter and
+   * for the same reason: a sequence is how a cancel names a job, and two jobs
+   * sharing a number would let one command cancel the other.
+   */
+  std::vector<RefineJob> m_refineJobs;
+  std::vector<StationTier> m_stationTiers;
+  std::vector<UpgradeProject> m_projects;
+  std::uint32_t m_nextRefineSequence = 1;
 
   /// Beside them, and unlike them **not** in the hash: an event describes
   /// something the simulation already did, and folding the description in as

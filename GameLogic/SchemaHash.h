@@ -83,9 +83,9 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "enums{OrderKind:Move=0,Attack=1,Stance=2,Abilities=3,Warp=4,Dock=5,Mine=6;FormationId:Line=0,Wedge=1,Claw=2;"
     "QueueMode:Replace=0,Append=1;"
     "OrderState:Underway=0,Arriving=1,Done=2;"
-    "StationVerb:Undock=0,AssignWing=1,TransferToBay=2,TransferToShip=3;"
+    "StationVerb:Undock=0,AssignWing=1,TransferToBay=2,TransferToShip=3,RefineStart=4,RefineCancel=5,ProjectContribute=6;"
     "FleetState:OnGrid=0,Docked=1,InTransit=2;"
-    "SummaryKind:StationRoster=0,FleetSummaries=1,SiteStatus=2,CargoStatus=3,BayStatus=4;"
+    "SummaryKind:StationRoster=0,FleetSummaries=1,SiteStatus=2,CargoStatus=3,BayStatus=4,RefineryStatus=5;"
     "CommandKind:Order=0,Station=1;"
     // A Mine order's parameter, where every other kind's is a formation
     // (ADR-024 §4a). In the hash because it is a byte on the wire and because
@@ -98,6 +98,10 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     // different rule: `Any` is not a quantity, so the decoder refuses zero here
     // where it accepts it there (E3).
     "OreId:FerroChroma=0,Astracite=1,Nebulite=2;"
+    // And the alloy a refine job cooks and a contribution names (E4b), on the
+    // ore byte's terms exactly: refused rather than cast, because it indexes a
+    // recipe and a Bay before anything could have an opinion about it.
+    "AlloyId:FerrocitePlates=0,AstraGlass=1,ChromiteConduit=2,QuantumMatrix=3,NovaSteel=4;"
     "OrderReason:Accepted=0,EmptySelection=1,NotOwned=2,UnknownShip=3,QueueFull=4,OutOfBounds=5,"
     "InvalidFormation=6,TooManyShips=7,UnknownKind=8,UnknownStation=9,NotAtStation=10,NotDocked=11,"
     "InvalidQueueMode=12,CombatEngaged=13,UnknownAnchor=14,NoPresence=15,NotAtGate=16,"
@@ -115,7 +119,11 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
      */
     "checkOrder{order:EmptySelection,TooManyShips,UnknownKind,InvalidQueueMode,InvalidFormation,QueueFull,"
     "UnknownStation,UnknownAnchor,NotAtSite,OutOfBounds,UnknownShip,NoMinerInOrder,HoldFull,NotAtStation,NotAtGate;"
-    "station:EmptySelection,TooManyShips,InvalidFormation,UnknownStation,NotDocked,InsufficientMaterials}";
+    "station:EmptySelection,TooManyShips,InvalidFormation,UnknownStation,NotDocked,InsufficientMaterials;"
+    // The refining verbs name no ships and require no dock (ADR-024 §6b), so
+    // they take their own order -- in the hash for the same reason the other two
+    // are: it is behaviour both machines must match.
+    "refine:UnknownStation,RecipeLocked,RefineryBusy,InsufficientMaterials}";
 
 /// Stable across runs and builds by construction: FNV-1a over the text above,
 /// computed at compile time so it costs nothing to ask.

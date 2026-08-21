@@ -107,6 +107,20 @@ struct StationBay
   AnchorId station = INVALID_ID;
   std::uint32_t oreUnits[ORE_COUNT] = {};
 
+  /*
+   * And what refining turned it into (ADR-024 §6, E4b) -- the second half the
+   * E3 comment above promised.
+   *
+   * The same Bay rather than a second ledger beside it, because it is the same
+   * statement: what this commander has committed at this station. A refine job
+   * takes ore out of one array and puts alloy into the other, and an upgrade
+   * project takes alloy out again; splitting them would be two records that had
+   * to agree about one place.
+   */
+  std::uint32_t alloyUnits[ALLOY_COUNT] = {};
+
+  [[nodiscard]] std::uint32_t Units(AlloyId _alloy) const noexcept { return alloyUnits[static_cast<std::uint8_t>(_alloy)]; }
+
   [[nodiscard]] std::uint32_t Units(OreId _ore) const noexcept { return oreUnits[static_cast<std::uint8_t>(_ore)]; }
   [[nodiscard]] std::uint32_t TotalUnits() const noexcept;
 };
@@ -142,6 +156,55 @@ struct RosterView
    * designed asymmetry ADR-005 §4 already names.
    */
   std::span<const std::uint32_t> bayUnits;
+
+  /*
+   * And the refinery's half of the same view (ADR-024 §6, E4b), on `bayUnits`'
+   * terms exactly: what the caller knows, and empty or zero when it cannot say.
+   *
+   * `refineryTier` is the station's *effective* tier -- authored floor, raised
+   * by any completed project, and never above its band's cap. Zero means "the
+   * caller does not know", which refuses every recipe as `RecipeLocked`: the
+   * designed asymmetry ADR-005 §4 already names, applied to a client that has
+   * not yet had a `RefineryStatus`.
+   */
+  std::uint8_t refineryTier = 0;
+
+  /// How many jobs this commander already has here, running and queued
+  /// together. Compared against the tier's slots plus the authored queue depth.
+  std::uint32_t refineJobCount = 0;
+
+  /// The tier's slots and the content's queue depth, so the validator does not
+  /// need the economy table to answer `RefineryBusy` -- the same reason
+  /// `bayUnits` is a span of counts rather than a `StationBay`.
+  std::uint32_t refineSlotCount = 0;
+  std::uint32_t refineQueueDepth = 0;
+
+  /// What the commanding player has in the Bay here, per alloy. What a
+  /// `ProjectContribute` is judged against.
+  std::span<const std::uint32_t> bayAlloyUnits;
+
+  /*
+   * Is there an open upgrade project here, and how much of `alloy` will it
+   * still take?
+   *
+   * A *remaining* count rather than the project's totals, because the print
+   * clamps its preview at what remains (D-P3): the project completes exactly
+   * once, so the screen must never offer units it will not take -- and the
+   * validator must refuse the ones it would not.
+   */
+  bool projectOpen = false;
+  std::span<const std::uint32_t> projectRemainingUnits;
+
+  /*
+   * Whether the batch size and the recipe are ones this station will cook.
+   *
+   * Two booleans rather than the economy table, for `refineSlotCount`'s
+   * reason: the view carries answers, not the data to derive them, so the
+   * shared validator stays a pure function over a small struct on both
+   * machines.
+   */
+  bool batchKnown = false;
+  bool recipeUnlocked = false;
 };
 
 /*
@@ -179,8 +242,38 @@ enum class StationVerb : std::uint8_t
    * `AssignWing` and for the same reason.
    */
   TransferToBay = 2,
-  TransferToShip = 3
+  TransferToShip = 3,
+
+  /*
+   * And the three refining adds (ADR-024 §6, E4b): start a job, cancel a
+   * queued one, and put alloys into a station's upgrade project.
+   *
+   * **None of them names a ship, and none of them requires being docked.**
+   * That is ADR-024 §6b's "at a docked-or-remote station -- focus never gates
+   * command", and it is why the check order below forks: a refine command is
+   * about a *Bay*, and a Bay is universe-layer state that a fleet's whereabouts
+   * has nothing to do with. Requiring a docked hull to name would be inventing
+   * a rule to reuse a code path.
+   *
+   * `RefineCancel` cancels a **queued** job only, whole, with its inputs
+   * returning to the Bay untouched -- a running job cannot be cancelled,
+   * because §6b debits at submission and those inputs are spent (owner ruling,
+   * 2026-08-21, on D-P3's first open question). Two states, one rule each, and
+   * nothing is ever created or destroyed by a cancel.
+   */
+  RefineStart = 4,
+  RefineCancel = 5,
+  ProjectContribute = 6
 };
+
+/// Does this verb name ships and require them docked? The fork the check order
+/// turns on, written once so the validator and the registry cannot disagree
+/// about which family a verb is in.
+[[nodiscard]] constexpr bool NamesShips(StationVerb _verb) noexcept
+{
+  return _verb == StationVerb::Undock || _verb == StationVerb::AssignWing || _verb == StationVerb::TransferToBay
+         || _verb == StationVerb::TransferToShip;
+}
 
 /// What to call one. Never null, for the same reason `OrderReasonText` is not.
 [[nodiscard]] const char* StationVerbName(StationVerb _verb) noexcept;
@@ -232,6 +325,29 @@ struct StationCommand
   OreId ore = OreId::FerroChroma;
   std::uint32_t units = 0;
 
+  /*
+   * The refining verbs' pair, and meaningless for the other four -- the
+   * arrangement `formation`, `wing` and `ore` already have.
+   *
+   * `alloy` is what a `RefineStart` cooks and what a `ProjectContribute` puts
+   * in. `units` serves both as the **batch size** and as the **contribution**,
+   * which is the same field doing the same job in both: an explicit quantity
+   * the player chose. A batch size the content does not author is refused
+   * rather than rounded, because a silently-adjusted batch is a different job
+   * from the one the form priced.
+   */
+  AlloyId alloy = AlloyId::FerrocitePlates;
+
+  /*
+   * `RefineCancel` only: which of your jobs, by the sequence `RefineryStatus`
+   * reports.
+   *
+   * Its own field rather than `units` wearing a third hat. A sequence is an
+   * *identity* and the other two are *quantities*, and a field that meant both
+   * would eventually cancel job 50 because somebody meant a batch of 50.
+   */
+  std::uint32_t sequence = 0;
+
   std::uint16_t shipCount = 0;
   ShipId shipIds[MAX_SHIPS_PER_ORDER] = {};
 
@@ -256,6 +372,19 @@ struct StationCommand
  *
  *   `EmptySelection` -> `TooManyShips` -> `InvalidFormation` -> `UnknownStation`
  *   -> `NotDocked` -> `InsufficientMaterials`
+ *
+ * **The refining verbs take a different order, because they name no ships**
+ * (ADR-024 §6b, E4b):
+ *
+ *   `UnknownStation` -> `RecipeLocked` -> `RefineryBusy` -> `InsufficientMaterials`
+ *
+ * Same shape and same reasoning -- target, then the parameter, then the
+ * quantity last -- with the three ship checks absent because there is nothing
+ * to check. A refine command is about a Bay, and being docked has nothing to do
+ * with one. `RecipeLocked` precedes `RefineryBusy` because a locked recipe is a
+ * fact about the *station* and a full queue is a fact about *you*: telling a
+ * player their queue is full when the real answer is that this station will
+ * never cook Nova-Steel would send them to wait instead of to fly.
  *
  * Selection first (it is the cheapest and the most likely), then the parameter,
  * then the target, then the ships -- target before ship resolution, which is

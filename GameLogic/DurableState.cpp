@@ -165,6 +165,15 @@ void CaptureDurableState(const WorldRegistry& _registry, DurableState& _outState
 
   const std::span<const TransferRecord> transfers = _registry.PendingTransfers();
   _outState.transfers.assign(transfers.begin(), transfers.end());
+
+  const std::span<const RefineJob> jobs = _registry.RefineJobs();
+  _outState.refineJobs.assign(jobs.begin(), jobs.end());
+
+  const std::span<const StationTier> tiers = _registry.StationTiers();
+  _outState.stationTiers.assign(tiers.begin(), tiers.end());
+
+  const std::span<const UpgradeProject> projects = _registry.Projects();
+  _outState.projects.assign(projects.begin(), projects.end());
 }
 
 std::uint64_t DurableHash(const DurableState& _state) noexcept
@@ -214,6 +223,10 @@ std::uint64_t DurableHash(const DurableState& _state) noexcept
     hash = Neuron::HashValue(bay.station, hash);
     hash = Neuron::HashValue(bay.owner, hash);
     HashOre(hash, bay.oreUnits);
+    for (const std::uint32_t units : bay.alloyUnits)
+    {
+      hash = Neuron::HashValue(units, hash);
+    }
   }
 
   hash = Neuron::HashValue(static_cast<std::uint32_t>(_state.ledgers.size()), hash);
@@ -251,6 +264,45 @@ std::uint64_t DurableHash(const DurableState& _state) noexcept
       hash = Neuron::HashValue(static_cast<std::uint8_t>(member.hullClass), hash);
       hash = Neuron::HashValue(member.wing, hash);
       HashOre(hash, member.oreUnits);
+    }
+  }
+
+  /*
+   * And the refinery (E4b), folded last because it was added last -- the
+   * append discipline the record kinds keep, applied to the fold: a set that
+   * inserted its newest members in the middle would move every existing
+   * shard's hash for a change that added nothing to them.
+   */
+  hash = Neuron::HashValue(static_cast<std::uint32_t>(_state.refineJobs.size()), hash);
+  for (const RefineJob& job : _state.refineJobs)
+  {
+    hash = Neuron::HashValue(job.station, hash);
+    hash = Neuron::HashValue(job.owner, hash);
+    hash = Neuron::HashValue(job.sequence, hash);
+    hash = Neuron::HashValue(static_cast<std::uint8_t>(job.alloy), hash);
+    hash = Neuron::HashValue(job.batchUnits, hash);
+    hash = Neuron::HashValue(job.outputUnits, hash);
+    hash = Neuron::HashValue(job.durationTicks, hash);
+    hash = Neuron::HashValue(job.completeTick, hash);
+    HashOre(hash, job.inputUnits);
+    HashOre(hash, job.refundUnits);
+  }
+
+  hash = Neuron::HashValue(static_cast<std::uint32_t>(_state.stationTiers.size()), hash);
+  for (const StationTier& row : _state.stationTiers)
+  {
+    hash = Neuron::HashValue(row.station, hash);
+    hash = Neuron::HashValue(row.tier, hash);
+  }
+
+  hash = Neuron::HashValue(static_cast<std::uint32_t>(_state.projects.size()), hash);
+  for (const UpgradeProject& project : _state.projects)
+  {
+    hash = Neuron::HashValue(project.station, hash);
+    hash = Neuron::HashValue(project.toTier, hash);
+    for (const std::uint32_t units : project.contributedUnits)
+    {
+      hash = Neuron::HashValue(units, hash);
     }
   }
 
@@ -305,6 +357,10 @@ bool WriteDurableState(const DurableState& _state, Neuron::ByteWriter& _writer)
     _writer.WriteUInt32(bay.owner);
     _writer.WriteUInt16(bay.station);
     WriteOre(_writer, bay.oreUnits);
+    for (const std::uint32_t units : bay.alloyUnits)
+    {
+      _writer.WriteUInt32(units);
+    }
   }
 
   _writer.WriteUInt32(static_cast<std::uint32_t>(_state.ledgers.size()));
@@ -338,6 +394,39 @@ bool WriteDurableState(const DurableState& _state, Neuron::ByteWriter& _writer)
     for (std::uint16_t index = 0; index < record.what.memberCount; ++index)
     {
       WriteMember(_writer, record.what.members[index]);
+    }
+  }
+
+  _writer.WriteUInt32(static_cast<std::uint32_t>(_state.refineJobs.size()));
+  for (const RefineJob& job : _state.refineJobs)
+  {
+    _writer.WriteUInt32(job.owner);
+    _writer.WriteUInt16(job.station);
+    _writer.WriteUInt8(static_cast<std::uint8_t>(job.alloy));
+    _writer.WriteUInt32(job.sequence);
+    _writer.WriteUInt32(job.batchUnits);
+    _writer.WriteUInt32(job.outputUnits);
+    _writer.WriteUInt32(job.durationTicks);
+    _writer.WriteUInt32(job.completeTick);
+    WriteOre(_writer, job.inputUnits);
+    WriteOre(_writer, job.refundUnits);
+  }
+
+  _writer.WriteUInt32(static_cast<std::uint32_t>(_state.stationTiers.size()));
+  for (const StationTier& row : _state.stationTiers)
+  {
+    _writer.WriteUInt16(row.station);
+    _writer.WriteUInt8(row.tier);
+  }
+
+  _writer.WriteUInt32(static_cast<std::uint32_t>(_state.projects.size()));
+  for (const UpgradeProject& project : _state.projects)
+  {
+    _writer.WriteUInt16(project.station);
+    _writer.WriteUInt8(project.toTier);
+    for (const std::uint32_t units : project.contributedUnits)
+    {
+      _writer.WriteUInt32(units);
     }
   }
 
@@ -468,6 +557,10 @@ bool ReadDurableState(Neuron::ByteReader& _reader, DurableState& _outState, std:
     bay.owner = _reader.ReadUInt32();
     bay.station = _reader.ReadUInt16();
     ReadOre(_reader, bay.oreUnits);
+    for (std::uint32_t& units : bay.alloyUnits)
+    {
+      units = _reader.ReadUInt32();
+    }
     if (!_reader.Ok())
     {
       Report(_outDiagnostics, _reader, Indexed("bay", index), "ended mid-record");
@@ -580,6 +673,97 @@ bool ReadDurableState(Neuron::ByteReader& _reader, DurableState& _outState, std:
       }
     }
     state.transfers.push_back(record);
+  }
+
+  const std::uint32_t jobCount = _reader.ReadUInt32();
+  if (!_reader.Ok())
+  {
+    Report(_outDiagnostics, _reader, "jobs", "ended before the refine-job count");
+    return false;
+  }
+  state.refineJobs.reserve(jobCount);
+  for (std::uint32_t index = 0; index < jobCount; ++index)
+  {
+    RefineJob job;
+    job.owner = _reader.ReadUInt32();
+    job.station = _reader.ReadUInt16();
+    const std::uint8_t alloy = _reader.ReadUInt8();
+    job.sequence = _reader.ReadUInt32();
+    job.batchUnits = _reader.ReadUInt32();
+    job.outputUnits = _reader.ReadUInt32();
+    job.durationTicks = _reader.ReadUInt32();
+    job.completeTick = _reader.ReadUInt32();
+    ReadOre(_reader, job.inputUnits);
+    ReadOre(_reader, job.refundUnits);
+    if (!_reader.Ok())
+    {
+      Report(_outDiagnostics, _reader, Indexed("job", index), "ended mid-record");
+      return false;
+    }
+    if (alloy >= ALLOY_COUNT)
+    {
+      Report(_outDiagnostics, _reader, Indexed("job", index), "alloy " + std::to_string(alloy) + " does not exist");
+      return false;
+    }
+    job.alloy = static_cast<AlloyId>(alloy);
+    state.refineJobs.push_back(job);
+  }
+
+  const std::uint32_t tierCount = _reader.ReadUInt32();
+  if (!_reader.Ok())
+  {
+    Report(_outDiagnostics, _reader, "tiers", "ended before the station-tier count");
+    return false;
+  }
+  state.stationTiers.reserve(tierCount);
+  for (std::uint32_t index = 0; index < tierCount; ++index)
+  {
+    StationTier row;
+    row.station = _reader.ReadUInt16();
+    row.tier = _reader.ReadUInt8();
+    if (!_reader.Ok())
+    {
+      Report(_outDiagnostics, _reader, Indexed("tier", index), "ended mid-record");
+      return false;
+    }
+    if (row.tier == 0 || row.tier > REFINERY_TIER_COUNT)
+    {
+      // Bounded before it indexes the tier table, which is the one thing a
+      // corrupt tier must never be allowed to do.
+      Report(_outDiagnostics, _reader, Indexed("tier", index),
+             "tier " + std::to_string(row.tier) + ", and a refinery has " + std::to_string(REFINERY_TIER_COUNT));
+      return false;
+    }
+    state.stationTiers.push_back(row);
+  }
+
+  const std::uint32_t projectCount = _reader.ReadUInt32();
+  if (!_reader.Ok())
+  {
+    Report(_outDiagnostics, _reader, "projects", "ended before the project count");
+    return false;
+  }
+  state.projects.reserve(projectCount);
+  for (std::uint32_t index = 0; index < projectCount; ++index)
+  {
+    UpgradeProject project;
+    project.station = _reader.ReadUInt16();
+    project.toTier = _reader.ReadUInt8();
+    for (std::uint32_t& units : project.contributedUnits)
+    {
+      units = _reader.ReadUInt32();
+    }
+    if (!_reader.Ok())
+    {
+      Report(_outDiagnostics, _reader, Indexed("project", index), "ended mid-record");
+      return false;
+    }
+    if (project.toTier == 0 || project.toTier > REFINERY_TIER_COUNT)
+    {
+      Report(_outDiagnostics, _reader, Indexed("project", index), "builds toward tier " + std::to_string(project.toTier));
+      return false;
+    }
+    state.projects.push_back(project);
   }
 
   _outState = std::move(state);

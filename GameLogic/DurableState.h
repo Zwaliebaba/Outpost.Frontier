@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Ids.h"
+#include "Refining.h"
 #include "SiteField.h"
 #include "Station.h"
 #include "Transfer.h"
@@ -51,8 +52,14 @@ class WorldRegistry;
  * guessing (ADR-025 §6.1): a shard that reads an older format optimistically
  * writes a newer one over it, and the state it destroyed was the thing it
  * existed to keep.
+ *
+ * **2 with E4b**, which added refine jobs, station tiers and upgrade projects
+ * to §1's durable list and alloys to the Bay. No migration, deliberately: this
+ * is the version's whole job, and ADR-025 §9 names the first re-bake of a
+ * universe a live shard has state against as the trigger for designing one --
+ * which is a different and larger question from a format that grew a field.
  */
-inline constexpr std::uint32_t DURABLE_FORMAT_VERSION = 1;
+inline constexpr std::uint32_t DURABLE_FORMAT_VERSION = 2;
 
 /// Recognises the blob and refuses somebody else's. "OPFD" -- Outpost Frontier
 /// durable -- little-endian like everything else this tree writes.
@@ -132,6 +139,20 @@ struct DurableState
   std::vector<StationBay> bays;
   std::vector<SiteLedger> ledgers;
   std::vector<TransferRecord> transfers;
+
+  /*
+   * And the refinery (ADR-024 §6, E4b), which is the reason G1 is a claim about
+   * persistence at all: a refine job is the first thing in this game that a
+   * player is invited to walk away from, so a shard that forgot one would have
+   * eaten their ore and produced nothing.
+   *
+   * Tiers and projects are durable for a stronger reason than jobs are: they
+   * are **permanent and communal**. A completed project that did not survive a
+   * restart would un-build something a dozen commanders paid for.
+   */
+  std::vector<RefineJob> refineJobs;
+  std::vector<StationTier> stationTiers;
+  std::vector<UpgradeProject> projects;
 };
 
 /*

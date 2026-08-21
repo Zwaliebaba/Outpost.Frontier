@@ -1569,6 +1569,8 @@ public:
     writer.WriteUInt8(0);
     writer.WriteUInt8(static_cast<std::uint8_t>(OreId::FerroChroma)); // E3's ore byte.
     writer.WriteUInt32(0);                                            // ...and its unit count.
+    writer.WriteUInt8(static_cast<std::uint8_t>(AlloyId::FerrocitePlates)); // E4b's alloy byte.
+    writer.WriteUInt32(0);                                                  // ...and its job sequence.
     writer.WriteUInt16(1);
     writer.WriteUInt32(65537);
     Assert::IsTrue(writer.Ok());
@@ -1589,6 +1591,8 @@ public:
     writer.WriteUInt8(0);
     writer.WriteUInt8(0);
     writer.WriteUInt8(static_cast<std::uint8_t>(OreId::FerroChroma));
+    writer.WriteUInt32(0);
+    writer.WriteUInt8(static_cast<std::uint8_t>(AlloyId::FerrocitePlates));
     writer.WriteUInt32(0);
     writer.WriteUInt16(65535); // Sixty-five thousand ships in one command.
     Assert::IsTrue(writer.Ok());

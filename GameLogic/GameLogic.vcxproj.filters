@@ -23,6 +23,9 @@
     <ClCompile Include="DurableState.cpp">
       <Filter>Persistence</Filter>
     </ClCompile>
+    <ClCompile Include="Refining.cpp">
+      <Filter>Economy</Filter>
+    </ClCompile>
     <ClCompile Include="SiteEpoch.cpp">
       <Filter>Economy</Filter>
     </ClCompile>
@@ -112,6 +115,9 @@
     </ClInclude>
     <ClInclude Include="DurableState.h">
       <Filter>Persistence</Filter>
+    </ClInclude>
+    <ClInclude Include="Refining.h">
+      <Filter>Economy</Filter>
     </ClInclude>
     <ClInclude Include="SiteEpoch.h">
       <Filter>Economy</Filter>

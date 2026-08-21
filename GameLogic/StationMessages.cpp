@@ -42,6 +42,8 @@ bool WriteStationCommand(const StationCommand& _command, Neuron::ByteWriter& _wr
   _writer.WriteUInt8(_command.wing);
   _writer.WriteUInt8(static_cast<std::uint8_t>(_command.ore));
   _writer.WriteUInt32(_command.units);
+  _writer.WriteUInt8(static_cast<std::uint8_t>(_command.alloy));
+  _writer.WriteUInt32(_command.sequence);
   _writer.WriteUInt16(_command.shipCount);
   for (std::uint16_t index = 0; index < _command.shipCount; ++index)
   {
@@ -80,6 +82,15 @@ bool ReadStationCommand(Neuron::ByteReader& _reader, StationCommand& _outCommand
     return false;
   }
   _outCommand.units = _reader.ReadUInt32();
+
+  // The alloy byte on the ore byte's terms exactly (E4b): refused rather than
+  // cast, because it indexes a recipe and a Bay before validation could have an
+  // opinion about it.
+  if (!TryAlloyId(_reader.ReadUInt8(), _outCommand.alloy))
+  {
+    return false;
+  }
+  _outCommand.sequence = _reader.ReadUInt32();
 
   const std::uint16_t shipCount = _reader.ReadUInt16();
   if (!_reader.Ok() || shipCount > MAX_SHIPS_PER_ORDER)

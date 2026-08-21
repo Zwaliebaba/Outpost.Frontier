@@ -91,8 +91,12 @@ void WorldRegistry::Reset(const UniverseDef* _universe, const EconomyDef* _econo
   m_rosters.clear();
   m_siteLedgers.clear();
   m_bays.clear();
+  m_refineJobs.clear();
+  m_stationTiers.clear();
+  m_projects.clear();
   m_events.Clear();
   m_nextTransferCounter = 1;
+  m_nextRefineSequence = 1;
 
   /*
    * The dynamic id space is this host's to issue from (ADR-019 §5c): two hosts
@@ -319,6 +323,13 @@ OrderVerdict WorldRegistry::SubmitStationCommand(Neuron::PlayerId _owner, const 
 {
   RosterView view;
   view.station = INVALID_ID;
+
+  /// What the open project still wants, per alloy. A local the view borrows,
+  /// because the remaining counts are derived and there is nowhere durable they
+  /// belong -- the project stores what was *given*, and what is left is
+  /// arithmetic against the content.
+  std::uint32_t remainingScratch[ALLOY_COUNT] = {};
+
   if (m_universe != nullptr)
   {
     const Anchor* anchor = m_universe->FindAnchor(_command.station);
@@ -344,6 +355,49 @@ OrderVerdict WorldRegistry::SubmitStationCommand(Neuron::PlayerId _owner, const 
       if (const StationBay* bay = Bay(_owner, _command.station); bay != nullptr)
       {
         view.bayUnits = bay->oreUnits;
+        view.bayAlloyUnits = bay->alloyUnits;
+      }
+
+      /*
+       * And the refinery's half of the view (ADR-024 §6, E4b).
+       *
+       * Answers rather than tables, which is the shape `bayUnits` already set:
+       * the shared validator is a pure function over a small struct on both
+       * machines, so what crosses is "may this recipe be cooked here" and never
+       * the tier table it was derived from.
+       */
+      view.refineryTier = TierAt(_command.station);
+      view.refineJobCount = RefineJobCountFor(_owner, _command.station);
+      if (m_economy != nullptr && view.refineryTier != 0)
+      {
+        view.refineSlotCount = m_economy->Tier(view.refineryTier).slotsPerPlayer;
+        view.refineQueueDepth = m_economy->refining.queueDepthPerPlayer;
+        view.recipeUnlocked = TierCooks(*m_economy, view.refineryTier, _command.alloy);
+        view.batchKnown = FindRefineBatch(m_economy->refining, _command.units) != nullptr;
+      }
+      if (const UpgradeProject* project = Project(_command.station); project != nullptr && m_economy != nullptr)
+      {
+        const RefineryUpgradeProject& cost = m_economy->refining.upgradeProjects[project->toTier - 1];
+        for (std::uint8_t alloy = 0; alloy < ALLOY_COUNT; ++alloy)
+        {
+          remainingScratch[alloy] = cost.costUnits[alloy] - std::min(cost.costUnits[alloy], project->contributedUnits[alloy]);
+        }
+        view.projectOpen = true;
+        view.projectRemainingUnits = remainingScratch;
+      }
+      else if (m_economy != nullptr && ProjectFor(_command.station) != nullptr)
+      {
+        // No contributions yet, so no row -- but the project is open, and the
+        // validator must say so or the first contribution to every station in
+        // the shard would be refused for want of a record it is about to make.
+        const UpgradeProject* opened = Project(_command.station);
+        const RefineryUpgradeProject& cost = m_economy->refining.upgradeProjects[opened->toTier - 1];
+        for (std::uint8_t alloy = 0; alloy < ALLOY_COUNT; ++alloy)
+        {
+          remainingScratch[alloy] = cost.costUnits[alloy];
+        }
+        view.projectOpen = true;
+        view.projectRemainingUnits = remainingScratch;
       }
     }
   }
@@ -352,6 +406,14 @@ OrderVerdict WorldRegistry::SubmitStationCommand(Neuron::PlayerId _owner, const 
   if (!verdict.accepted)
   {
     return verdict;
+  }
+
+  // The refining verbs apply on the spot beside `AssignWing` and for the same
+  // reason: both ends are universe-layer state on one host, and the bus exists
+  // to stop one grid reading another mid-tick, which this does not do.
+  if (!NamesShips(_command.verb))
+  {
+    return ApplyRefineCommand(_owner, _command);
   }
 
   StationRoster& roster = RosterFor(_command.station);
@@ -1349,6 +1411,17 @@ void WorldRegistry::Tick(std::uint32_t _shardTick)
   ApplyDueTransfers();
 
   /*
+   * And the refinery, beside the bus and for the same reason (ADR-024 §6b).
+   *
+   * Here rather than in a world's tick because a job **runs while its commander
+   * is offline and while its station's grid is torn down** -- it is universe-
+   * layer work on the shard-global tick, which is precisely what the transfer
+   * bus's apply point already is. A refinery that needed a live grid would be a
+   * refinery nobody could walk away from, and walking away is the feature.
+   */
+  AdvanceRefining();
+
+  /*
    * Every live world, with the same number, sharing nothing.
    *
    * There is no communication between these calls and there must not be: the
@@ -1424,6 +1497,348 @@ void WorldRegistry::TearDownIdle()
                m_live.end());
 }
 
+namespace
+{
+/// `Station.cpp`'s helper, repeated rather than exported: a two-line
+/// constructor on a public header would be a shared function whose only job is
+/// to save typing a brace.
+[[nodiscard]] OrderVerdict Refuse(OrderReason _reason) noexcept
+{
+  return OrderVerdict{false, _reason};
+}
+} // namespace
+
+SecurityBand WorldRegistry::BandAt(AnchorId _station) const noexcept
+{
+  if (m_universe == nullptr || m_economy == nullptr)
+  {
+    return SecurityBand::High;
+  }
+  const Anchor* anchor = m_universe->FindAnchor(_station);
+  if (anchor == nullptr)
+  {
+    return SecurityBand::High;
+  }
+  const SolarSystem* system = m_universe->FindSystem(anchor->system);
+  // A system the anchor names and the universe does not have is content that
+  // could not have baked; High-Sec is the cautious answer, being the band that
+  // permits least.
+  return system == nullptr ? SecurityBand::High : m_economy->BandFor(system->security);
+}
+
+std::uint8_t WorldRegistry::TierAt(AnchorId _station) const noexcept
+{
+  if (m_universe == nullptr || m_economy == nullptr)
+  {
+    return 0;
+  }
+  const Anchor* anchor = m_universe->FindAnchor(_station);
+  if (anchor == nullptr || anchor->kind != AnchorKind::Station)
+  {
+    return 0;
+  }
+
+  const bool starter = anchor->id == m_universe->StartAnchorId();
+  std::uint8_t tier = AuthoredStationTier(starter);
+  for (const StationTier& row : m_stationTiers)
+  {
+    if (row.station == _station)
+    {
+      tier = std::max(tier, row.tier);
+      break;
+    }
+  }
+
+  /*
+   * And never above the band's cap (ADR-024 §6c).
+   *
+   * Clamped on the way *out* rather than trusted on the way in, because this is
+   * the industrial map and it has to hold against every path that could ever
+   * raise a tier -- a project, a reload, a content retune that lowered a cap
+   * under a station somebody already upgraded.
+   */
+  const std::uint8_t cap = BandTierCap(*m_economy, BandAt(_station));
+  return std::min(tier, cap == 0 ? tier : cap);
+}
+
+const UpgradeProject* WorldRegistry::Project(AnchorId _station) const noexcept
+{
+  const auto at = std::lower_bound(m_projects.begin(), m_projects.end(), _station,
+                                   [](const UpgradeProject& _entry, AnchorId _id) { return _entry.station < _id; });
+  return at != m_projects.end() && at->station == _station ? &*at : nullptr;
+}
+
+StationTier& WorldRegistry::TierFor(AnchorId _station)
+{
+  const auto at = std::lower_bound(m_stationTiers.begin(), m_stationTiers.end(), _station,
+                                   [](const StationTier& _entry, AnchorId _id) { return _entry.station < _id; });
+  if (at != m_stationTiers.end() && at->station == _station)
+  {
+    return *at;
+  }
+  StationTier row;
+  row.station = _station;
+  row.tier = TierAt(_station);
+  return *m_stationTiers.insert(at, row);
+}
+
+UpgradeProject* WorldRegistry::ProjectFor(AnchorId _station)
+{
+  if (m_economy == nullptr)
+  {
+    return nullptr;
+  }
+
+  /*
+   * The project a station is *currently* building, which is the next tier and
+   * nothing else.
+   *
+   * A station already at its band's cap has none, and that is the amber row
+   * the print draws pointing out of the station entirely: geography rather than
+   * progress. A row whose `toTier` no longer matches -- because the project it
+   * was for completed -- is retargeted rather than kept, since a station builds
+   * one thing at a time and the contributions to a finished project were
+   * consumed by finishing it.
+   */
+  const std::uint8_t tier = TierAt(_station);
+  const std::uint8_t cap = BandTierCap(*m_economy, BandAt(_station));
+  if (tier == 0 || tier >= REFINERY_TIER_COUNT || (cap != 0 && tier >= cap))
+  {
+    return nullptr;
+  }
+  const std::uint8_t next = static_cast<std::uint8_t>(tier + 1);
+  if (!m_economy->refining.upgradeProjects[next - 1].Exists())
+  {
+    return nullptr;
+  }
+
+  const auto at = std::lower_bound(m_projects.begin(), m_projects.end(), _station,
+                                   [](const UpgradeProject& _entry, AnchorId _id) { return _entry.station < _id; });
+  if (at != m_projects.end() && at->station == _station)
+  {
+    if (at->toTier != next)
+    {
+      *at = UpgradeProject{};
+      at->station = _station;
+      at->toTier = next;
+    }
+    return &*at;
+  }
+  UpgradeProject row;
+  row.station = _station;
+  row.toTier = next;
+  return &*m_projects.insert(at, row);
+}
+
+std::uint32_t WorldRegistry::RefineJobCountFor(Neuron::PlayerId _owner, AnchorId _station) const noexcept
+{
+  std::uint32_t count = 0;
+  for (const RefineJob& job : m_refineJobs)
+  {
+    if (job.owner == _owner && job.station == _station)
+    {
+      ++count;
+    }
+  }
+  return count;
+}
+
+void WorldRegistry::AdvanceRefining()
+{
+  if (m_economy == nullptr)
+  {
+    return;
+  }
+
+  /*
+   * Completion first (ADR-024 §6b): outputs and the refund credit the Bay, and
+   * the event record learns what finished so the away-log can say so.
+   *
+   * The plan was priced at submission and is carried on the record, so nothing
+   * here reads a tier table -- a station that was upgraded mid-job does not
+   * retroactively improve a job the player already agreed the numbers for.
+   */
+  for (std::size_t index = 0; index < m_refineJobs.size();)
+  {
+    const RefineJob& job = m_refineJobs[index];
+    if (!job.Running() || job.completeTick > m_shardTick)
+    {
+      ++index;
+      continue;
+    }
+
+    StationBay& bay = BayFor(job.owner, job.station);
+    bay.alloyUnits[static_cast<std::uint8_t>(job.alloy)] += job.outputUnits;
+    for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+    {
+      bay.oreUnits[ore] += job.refundUnits[ore];
+    }
+    m_events.Emit(m_shardTick, EventKind::RefineComplete, job.station, job.outputUnits);
+    m_refineJobs.erase(m_refineJobs.begin() + static_cast<std::ptrdiff_t>(index));
+  }
+
+  /*
+   * Then the starts, so a slot freed above is filled now rather than next tick.
+   *
+   * In `sequence` order within each `(owner, station)`, which is what makes
+   * "the queue drains in order" a fact about the record: the vector is sorted
+   * on that key, so the first queued job found for a pair is that pair's next.
+   */
+  for (RefineJob& job : m_refineJobs)
+  {
+    if (job.Running())
+    {
+      continue;
+    }
+    const std::uint8_t tier = TierAt(job.station);
+    if (tier == 0)
+    {
+      continue;
+    }
+    std::uint32_t running = 0;
+    for (const RefineJob& other : m_refineJobs)
+    {
+      if (other.owner == job.owner && other.station == job.station && other.Running())
+      {
+        ++running;
+      }
+    }
+    if (running >= m_economy->Tier(tier).slotsPerPlayer)
+    {
+      continue;
+    }
+    job.completeTick = m_shardTick + job.durationTicks;
+  }
+}
+
+OrderVerdict WorldRegistry::ApplyRefineCommand(Neuron::PlayerId _owner, const StationCommand& _command)
+{
+  const OrderVerdict accepted{true, OrderReason::Accepted};
+
+  if (_command.verb == StationVerb::RefineCancel)
+  {
+    /*
+     * A **queued** job cancels whole and its inputs return to the Bay
+     * untouched; a running one cannot be cancelled at all, its inputs being
+     * spent (owner ruling, 2026-08-21). Nothing is created or destroyed here:
+     * what goes back is exactly what came out, because it is the same array.
+     */
+    for (std::size_t index = 0; index < m_refineJobs.size(); ++index)
+    {
+      const RefineJob& job = m_refineJobs[index];
+      if (job.owner != _owner || job.station != _command.station || job.sequence != _command.sequence)
+      {
+        continue;
+      }
+      if (job.Running())
+      {
+        return Refuse(OrderReason::RefineryBusy);
+      }
+      StationBay& bay = BayFor(_owner, _command.station);
+      for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+      {
+        bay.oreUnits[ore] += job.inputUnits[ore];
+      }
+      m_refineJobs.erase(m_refineJobs.begin() + static_cast<std::ptrdiff_t>(index));
+      return accepted;
+    }
+    // No such queued job of yours here: the queue is not in the state the
+    // command assumed, which is what `RefineryBusy` says.
+    return Refuse(OrderReason::RefineryBusy);
+  }
+
+  if (_command.verb == StationVerb::ProjectContribute)
+  {
+    UpgradeProject* project = ProjectFor(_command.station);
+    if (project == nullptr)
+    {
+      return Refuse(OrderReason::RecipeLocked);
+    }
+    StationBay& bay = BayFor(_owner, _command.station);
+    const auto alloy = static_cast<std::uint8_t>(_command.alloy);
+    const RefineryUpgradeProject& cost = m_economy->refining.upgradeProjects[project->toTier - 1];
+    const std::uint32_t remaining = cost.costUnits[alloy] - std::min(cost.costUnits[alloy], project->contributedUnits[alloy]);
+    const std::uint32_t moved = std::min({_command.units, bay.alloyUnits[alloy], remaining});
+    if (moved == 0)
+    {
+      return Refuse(OrderReason::InsufficientMaterials);
+    }
+    bay.alloyUnits[alloy] -= moved;
+    project->contributedUnits[alloy] += moved;
+
+    /*
+     * And the tier rises **exactly once**, on the tick the last unit lands.
+     *
+     * The check is right here rather than on a sweep, which is what makes
+     * "exactly once" true when two commanders complete it in the same tick:
+     * the second contribution finds `remaining` already zero and is refused
+     * `InsufficientMaterials` before it can move a unit, so there is no second
+     * completion to suppress.
+     */
+    if (project->IsComplete(cost))
+    {
+      TierFor(_command.station).tier = project->toTier;
+      m_events.Emit(m_shardTick, EventKind::ProjectComplete, _command.station, project->toTier);
+      m_projects.erase(m_projects.begin() + (project - m_projects.data()));
+    }
+    return accepted;
+  }
+
+  // `RefineStart`. The plan is priced against the tier *now* and carried, and
+  // the inputs debit at submission (ADR-024 §6b) -- which is what makes the
+  // print's "the Bay's after-state" the number the player is deciding with.
+  const std::uint8_t tier = TierAt(_command.station);
+  const RefinePlan plan = PlanRefine(*m_economy, _command.alloy, _command.units, tier);
+  if (!plan.valid)
+  {
+    return Refuse(OrderReason::RecipeLocked);
+  }
+  StationBay& bay = BayFor(_owner, _command.station);
+  for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+  {
+    if (bay.oreUnits[ore] < plan.inputUnits[ore])
+    {
+      return Refuse(OrderReason::InsufficientMaterials);
+    }
+  }
+
+  RefineJob job;
+  job.owner = _owner;
+  job.station = _command.station;
+  job.alloy = _command.alloy;
+  job.sequence = m_nextRefineSequence++;
+  job.batchUnits = _command.units;
+  job.outputUnits = plan.outputUnits;
+  job.durationTicks = plan.durationTicks;
+  for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+  {
+    bay.oreUnits[ore] -= plan.inputUnits[ore];
+    job.inputUnits[ore] = plan.inputUnits[ore];
+    job.refundUnits[ore] = plan.refundUnits[ore];
+  }
+
+  const auto at = std::lower_bound(m_refineJobs.begin(), m_refineJobs.end(), job,
+                                   [](const RefineJob& _a, const RefineJob& _b)
+                                   {
+                                     if (_a.station != _b.station)
+                                     {
+                                       return _a.station < _b.station;
+                                     }
+                                     if (_a.owner != _b.owner)
+                                     {
+                                       return _a.owner < _b.owner;
+                                     }
+                                     return _a.sequence < _b.sequence;
+                                   });
+  m_refineJobs.insert(at, job);
+
+  // Started now if a slot is free, rather than on the next tick: a job
+  // submitted into an empty refinery should not sit idle for fifty
+  // milliseconds because the loop had already run.
+  AdvanceRefining();
+  return accepted;
+}
+
 bool WorldRegistry::IsAuthoredOccupant(AnchorId _anchor, ShipId _shipId) const noexcept
 {
   if (m_universe == nullptr)
@@ -1461,7 +1876,8 @@ bool WorldRegistry::LoadDurable(const DurableState& _state, std::vector<Persiste
    * refusal at boot is visible where a silent merge would be visible weeks
    * later as a duplicated fleet.
    */
-  if (!m_live.empty() || !m_rosters.empty() || !m_bays.empty() || !m_siteLedgers.empty() || !m_bus.empty())
+  if (!m_live.empty() || !m_rosters.empty() || !m_bays.empty() || !m_siteLedgers.empty() || !m_bus.empty()
+      || !m_refineJobs.empty() || !m_stationTiers.empty() || !m_projects.empty())
   {
     return refuse("registry", "a durable set loads into a freshly reset registry, and this one is running");
   }
@@ -1583,6 +1999,20 @@ bool WorldRegistry::LoadDurable(const DurableState& _state, std::vector<Persiste
   m_bays.assign(_state.bays.begin(), _state.bays.end());
   m_siteLedgers.assign(_state.ledgers.begin(), _state.ledgers.end());
   m_bus.assign(_state.transfers.begin(), _state.transfers.end());
+  m_refineJobs.assign(_state.refineJobs.begin(), _state.refineJobs.end());
+  m_stationTiers.assign(_state.stationTiers.begin(), _state.stationTiers.end());
+  m_projects.assign(_state.projects.begin(), _state.projects.end());
+
+  /*
+   * The job sequence resumes past everything on the books, for the transfer
+   * counter's reason exactly: a sequence is how a cancel names a job, and a
+   * counter that restarted would let one command cancel a job it did not mean.
+   */
+  m_nextRefineSequence = 1;
+  for (const RefineJob& job : m_refineJobs)
+  {
+    m_nextRefineSequence = std::max(m_nextRefineSequence, job.sequence + 1);
+  }
 
   /*
    * Sorted on load, because sorted is not a property of the file -- it is a
@@ -1598,6 +2028,18 @@ bool WorldRegistry::LoadDurable(const DurableState& _state, std::vector<Persiste
             { return _a.station != _b.station ? _a.station < _b.station : _a.owner < _b.owner; });
   std::sort(m_siteLedgers.begin(), m_siteLedgers.end(),
             [](const SiteLedger& _a, const SiteLedger& _b) noexcept { return _a.anchor < _b.anchor; });
+  std::sort(m_refineJobs.begin(), m_refineJobs.end(), [](const RefineJob& _a, const RefineJob& _b) noexcept
+            {
+              if (_a.station != _b.station)
+              {
+                return _a.station < _b.station;
+              }
+              return _a.owner != _b.owner ? _a.owner < _b.owner : _a.sequence < _b.sequence;
+            });
+  std::sort(m_stationTiers.begin(), m_stationTiers.end(),
+            [](const StationTier& _a, const StationTier& _b) noexcept { return _a.station < _b.station; });
+  std::sort(m_projects.begin(), m_projects.end(),
+            [](const UpgradeProject& _a, const UpgradeProject& _b) noexcept { return _a.station < _b.station; });
 
   /*
    * The transfer counter resumes past the highest record on the bus.
@@ -1814,6 +2256,54 @@ std::uint64_t WorldRegistry::Hash() const
     hash = Neuron::HashValue(bay.station, hash);
     hash = Neuron::HashValue(bay.owner, hash);
     for (const std::uint32_t units : bay.oreUnits)
+    {
+      hash = Neuron::HashValue(units, hash);
+    }
+    // And the alloys refining turned it into (E4b), in the same fold: it is the
+    // same statement about the same place, and a second loop would be a second
+    // place for the order to drift.
+    for (const std::uint32_t units : bay.alloyUnits)
+    {
+      hash = Neuron::HashValue(units, hash);
+    }
+  }
+
+  /*
+   * And the refinery (ADR-024 §6, E4b), on the Bays' terms exactly: durable,
+   * universe-layer, folded in key order.
+   *
+   * Jobs are in the fold because a refine job **is** state a replay has to
+   * reproduce -- a shard that lost one would have eaten somebody's ore and
+   * produced nothing. Tiers and projects are in it for the stronger reason that
+   * they are permanent and communal: a project that completed on one machine
+   * and not the other is two different universes.
+   */
+  for (const RefineJob& job : m_refineJobs)
+  {
+    hash = Neuron::HashValue(job.station, hash);
+    hash = Neuron::HashValue(job.owner, hash);
+    hash = Neuron::HashValue(job.sequence, hash);
+    hash = Neuron::HashValue(static_cast<std::uint8_t>(job.alloy), hash);
+    hash = Neuron::HashValue(job.batchUnits, hash);
+    hash = Neuron::HashValue(job.outputUnits, hash);
+    hash = Neuron::HashValue(job.durationTicks, hash);
+    hash = Neuron::HashValue(job.completeTick, hash);
+    for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+    {
+      hash = Neuron::HashValue(job.inputUnits[ore], hash);
+      hash = Neuron::HashValue(job.refundUnits[ore], hash);
+    }
+  }
+  for (const StationTier& row : m_stationTiers)
+  {
+    hash = Neuron::HashValue(row.station, hash);
+    hash = Neuron::HashValue(row.tier, hash);
+  }
+  for (const UpgradeProject& project : m_projects)
+  {
+    hash = Neuron::HashValue(project.station, hash);
+    hash = Neuron::HashValue(project.toTier, hash);
+    for (const std::uint32_t units : project.contributedUnits)
     {
       hash = Neuron::HashValue(units, hash);
     }
