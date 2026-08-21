@@ -1,8 +1,9 @@
 # Economy Build Order — the Mining and Refining Phase
 
-**Status:** Session output 2026-08-20 · **E1a, E1b, E2, E3 and E4a are built**, the first
-four green in CI (run 161, commit `93956dc`, 2026-08-21 — 717 tests, `self test: PASSED` with
-all thirteen 🏁 G0 checks); **E4b is the next slice**, and the rest is not built.
+**Status:** Session output 2026-08-20 · **E1a, E1b, E2, E3, E4a and E4b are built**, all six
+green in CI (run 176, commit `c44724d`, 2026-08-21 — 795 tests, `self test: PASSED` with all
+thirteen 🏁 G0 checks and 🏁 G1's mid-job restart); **E5, the two screens, is the last slice of
+this phase and is not built.**
 **Both prints that gate E5 landed 2026-08-21** —
 [cargo-tab.png](ScreenPrints/cargo-tab.png) (D-P2) and
 [refinery-tab.png](ScreenPrints/refinery-tab.png) (D-P3), sibling tabs of P1's hangar, with
@@ -841,7 +842,7 @@ This is written here rather than left to be discovered, which is the E2 posture 
 surviving a crossing.*
 
 ### E4b — Refining, tiers, and the projects · 🏁 G1
-Refine jobs `(recipe, batchCount)` submitted as station commands against a Bay — **at any
+Refine jobs `(recipe, batch)` submitted as station commands against a Bay — **at any
 station holding your ore, viewed or not**, because focus never gates command. Inputs debit at
 submission, outputs and the deterministic **ME refund** credit at completion, floored per
 material: no crit-crafts, no probabilistic bonus units, the ledger always adding up. Jobs run
@@ -1137,7 +1138,12 @@ pocket's dampening legible as a thing happening to *you* rather than a number in
      `AQueuedJobCancelsWholeAndARunningOneCannot`. **Three rulings remain, all E5's.**
   2. **What a job is on the wire.** Drawn as one batch per job with the queue holding many; if
      E4b spells `(recipe, batchCount)`, the composer gains a count and the queue rows collapse
-     — same screen, one field.
+     — same screen, one field. **E4b has since built it, and it did not take that branch:** a
+     `RefineJob` carries one `batchUnits` — the batch's *size*, 1, 10 or 50, which is what
+     multiplies the refine time — and the queue holds up to ten of them. So the composer gains
+     nothing and the rows do not collapse: **the screen builds as drawn.** Recorded as what was
+     built rather than as a ruling; the owner may still prefer the other reading, and changing
+     it now would be a wire change rather than a screen one.
   3. **Contribution granularity.** Whole stacks with a clamp, as drawn, versus a partial-amount
      picker. The print proposes no: it would be the only quantity keypad either economy print
      has.

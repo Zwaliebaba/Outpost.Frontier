@@ -362,7 +362,7 @@ ADR-025 §4's named window need a change-set at the registry's mutation points, 
 with the state E4b is about to add rather than being retrofitted twice.*
 
 **E4b closed the phase's simulation half (2026-08-21).** The station became industry: refine
-jobs `(recipe, batchCount)` against a Bay at any station holding your ore, per-player slots and
+jobs `(recipe, batch)` against a Bay at any station holding your ore, per-player slots and
 a queue of ten, station tiers with their band caps, and communal upgrade projects that raise a
 tier permanently for everyone. The claim it rests on is that **a refinery is a ledger** — the ME
 refund is exact and floored per material, there is nowhere in the arithmetic to put an RNG, and
