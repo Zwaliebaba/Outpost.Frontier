@@ -89,6 +89,16 @@ inline constexpr OreFilter ORE_FILTER_IDS[] = {OreFilter::Any, OreFilter::FerroC
 /// because a value outside the enum is reachable from any client.
 [[nodiscard]] bool TryOreFilter(std::uint8_t _raw, OreFilter& _outFilter) noexcept;
 
+/*
+ * The *ore* a byte off the wire names, or false (E3).
+ *
+ * Beside `TryOreFilter` and deliberately not it: a transfer names one ore and
+ * `Any` is not a quantity you can move, so the filter's zero is a value this
+ * has to refuse. Two decoders because the two bytes mean different things, and
+ * folding them would let a client commit "some of everything" to a Bay.
+ */
+[[nodiscard]] bool TryOreId(std::uint8_t _raw, OreId& _outOre) noexcept;
+
 /// The five alloys (ADR-024 §6a), in tier order. An alloy id crosses the wire
 /// in a Bay record, so these renumber never.
 enum class AlloyId : std::uint8_t

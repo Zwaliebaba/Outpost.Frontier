@@ -104,6 +104,24 @@ struct TransferMember
   ShipId shipId = INVALID_SHIP_ID;
   HullClass hullClass = HullClass::Interceptor;
   WingId wing = INVALID_WING_ID;
+
+  /*
+   * And what it is carrying (ADR-024 §5, E3).
+   *
+   * The fourth field, and the sentence above needed amending to admit it: the
+   * roster held exactly three things because a docked ship has no position to
+   * carry and no gauges to repair. Cargo is neither. It is not a *gauge* --
+   * nothing regenerates it and nothing repairs it -- it is property, and
+   * property that evaporated because its owner docked would be the game taking
+   * something the player earned.
+   *
+   * E2 shipped without this and said so where it would be found: a Miner that
+   * docked arrived empty, and the ore it had been credited was a number that
+   * existed in a world and then did not. This is the field that closes it, and
+   * it closes the undock direction at the same time, because a crossing does
+   * not know which way it is going.
+   */
+  std::uint32_t oreUnits[ORE_COUNT] = {};
 };
 
 /*

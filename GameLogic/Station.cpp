@@ -29,7 +29,45 @@ namespace
   return false;
 }
 
+/// How much of one ore a selection of docked ships is holding, saturating
+/// rather than wrapping: 64 ships cannot overflow a u32 with today's holds, and
+/// a total that silently wrapped would turn a refusal into an acceptance.
+[[nodiscard]] std::uint32_t HeldBySelection(const RosterView& _view, const StationCommand& _command, OreId _ore) noexcept
+{
+  std::uint64_t total = 0;
+  for (std::uint16_t index = 0; index < _command.shipCount; ++index)
+  {
+    const ShipId shipId = _command.shipIds[index];
+    for (const RosterEntry& row : _view.docked)
+    {
+      if (row.shipId == shipId)
+      {
+        total += row.Units(_ore);
+        break;
+      }
+    }
+  }
+  return total > 0xffffffffull ? 0xffffffffu : static_cast<std::uint32_t>(total);
+}
+
+/// Is this one of the two verbs that moves ore? Asked in three places, so it is
+/// a function rather than a repeated pair of comparisons.
+[[nodiscard]] bool IsTransferVerb(StationVerb _verb) noexcept
+{
+  return _verb == StationVerb::TransferToBay || _verb == StationVerb::TransferToShip;
+}
+
 } // namespace
+
+std::uint32_t StationBay::TotalUnits() const noexcept
+{
+  std::uint64_t total = 0;
+  for (const std::uint32_t units : oreUnits)
+  {
+    total += units;
+  }
+  return total > 0xffffffffull ? 0xffffffffu : static_cast<std::uint32_t>(total);
+}
 
 const char* StationVerbName(StationVerb _verb) noexcept
 {
@@ -39,6 +77,10 @@ const char* StationVerbName(StationVerb _verb) noexcept
     return "Undock";
   case StationVerb::AssignWing:
     return "Assign wing";
+  case StationVerb::TransferToBay:
+    return "Transfer to bay";
+  case StationVerb::TransferToShip:
+    return "Transfer to ship";
   }
   // Not a `default` label: a third verb should fail the switch's exhaustiveness
   // warning here rather than appear on a button with no word on it.
@@ -87,6 +129,39 @@ OrderVerdict ValidateStationCommand(const RosterView& _view, const StationComman
        * without new machinery.
        */
       return Refuse(OrderReason::NotDocked);
+    }
+  }
+
+  /*
+   * And last, the quantity (ADR-024 §5c).
+   *
+   * After the ships resolve, because a shortfall is only meaningful once you
+   * know which holds are being counted -- see the check-order note in the
+   * header. Zero units is refused here rather than earlier for the same reason:
+   * "you asked to move nothing" and "you asked to move more than there is" are
+   * the same complaint about the same field, and giving them one reason keeps
+   * the enum honest about what it is describing.
+   *
+   * The two directions ask the same question of different sources. Into the
+   * Bay, the selection's holds have to cover it; out of it, the Bay does. The
+   * *destination* is not checked at all, and that is a decision rather than an
+   * omission: a Bay has no capacity (ADR-024 §5b), and a hold that cannot take
+   * the whole amount is E4's problem to shape, once a refinery exists to make
+   * partial fills mean something. Until then a `TransferToShip` past the
+   * selection's room is refused by the apply path filling what it can and
+   * leaving the rest in the Bay -- which is the honest outcome, because nothing
+   * is lost either way.
+   */
+  if (IsTransferVerb(_command.verb))
+  {
+    const std::uint32_t available = _command.verb == StationVerb::TransferToBay
+                                      ? HeldBySelection(_view, _command, _command.ore)
+                                      : (_view.bayUnits.size() > static_cast<std::size_t>(_command.ore)
+                                           ? _view.bayUnits[static_cast<std::size_t>(_command.ore)]
+                                           : 0u);
+    if (_command.units == 0 || _command.units > available)
+    {
+      return Refuse(OrderReason::InsufficientMaterials);
     }
   }
 

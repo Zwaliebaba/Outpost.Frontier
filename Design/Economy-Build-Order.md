@@ -476,6 +476,89 @@ docks, and its ore moves into the Bay by command; the Bay survives the station g
 `CargoStatus` and `BayStatus` never reach the first (privacy as a testable property, the way
 T2's roster privacy was); the schema hash refuses a client built against the previous cluster.
 
+**Built 2026-08-21.** Ore stopped evaporating at boundaries, and the station grew its second
+resident.
+
+`TransferMember` and `RosterEntry` each gained a three-integer manifest, which is the whole of
+"cargo survives a crossing": a Miner that docks parks its hold on the roster, a ship that
+undocks flies out with it, and a fleet that warps arrives holding what it left with.
+ADR-017 §1's "three fields, deliberately" is amended rather than contradicted — that argument
+was about **gauges**, and cargo is not one. Nothing regenerates it and nothing repairs it; it
+is the player's property rather than the ship's condition, so **repair-by-absence is untouched**
+and the sentence saying so now lives beside the field.
+
+The **Station Bay** joins the ledgers and the rosters as the third resident of "worlds forget,
+the universe layer does not": `StationBay` is per-`(owner, station)`, sorted on that pair,
+created only once something has been stored in it, and folded into `WorldRegistry::Hash` on the
+rosters' terms — but **with no currency rule**, because a Bay has no epoch to go stale against.
+What is in it was put there by a command and stays until another command moves it, which is the
+difference between committed property and a pool the shard refills on a calendar. The privacy
+rule lives in the **key**: two commanders docked at one station have two Bays, and a Bay is not
+even addressable without saying whose.
+
+`TransferToBay` and `TransferToShip` join the verb family, applied **on the spot beside
+`AssignWing`** rather than filed on the bus — both ends of the move are universe-layer state on
+one host, and the bus exists to stop one grid reading another mid-tick, which this does not do.
+One `MoveOre` serves both directions because they are one move with its sign flipped, and two
+would be two places for the conservation rule to go wrong; the suite asserts conservation rather
+than trusting it. Ore is drained and filled in **roster order**, so the outcome is a function of
+the world rather than of the order the client listed its ships in.
+
+**The command seam grew a `PlayerId`**, which is the one change outside the economy's own
+files. `Simulation::ApplyOrderBytes` now takes both the player and the client id, because they
+are different questions -- which socket said it, and whose property it is about -- and they
+coincide today only because there is one player each. A registry that had to guess whose Bay a
+transfer filled would be guessing about property. It is the command half of what `WriteSnapshot`
+and `WriteSummaries` already do outbound, and ADR-018 D5's note applies unchanged: with one
+player it filters nothing, and the shape does not change when there are two.
+
+**The wire cluster landed as one fail-closed bump.** `StationCommand` gained an ore byte and a
+u32 count; `StationRoster`'s row went 6 bytes to 18; `SummaryKind` gained `SiteStatus = 2`,
+`CargoStatus = 3` and `BayStatus = 4` with bodies in a new `EconomyMessages.h`; the station
+check-order string gained `InsufficientMaterials`; and `OreId` joined the schema text beside
+`OreFilter`, because they are different bytes with different rules — `Any` is not a quantity, so
+the transfer decoder refuses zero where the order decoder accepts it. The ore byte is **the one
+field of the command the decoder refuses on**, where the verb and the formation are cast
+through: an out-of-range ore would index the manifest arrays before validation got an opinion,
+and there is no sentence to show a player whose client believes in a fourth ore.
+
+**`EntityRecord` is untouched, and a test asserts the arithmetic** rather than the intention:
+21 bytes, 43 ships per datagram, and one added byte would make it 22 and 41 — landing exactly
+on `Snapshot.h`'s asserted floor with nothing left over. That is the calculation ADR-024 §4d
+refused in advance, and the test recomputes it so the next person tempted by a cargo byte finds
+a failing assertion instead of a mystery about the ship cap.
+
+**What running the accept found.** The G0 scenario was written to prove the loop composes, and
+it immediately proved it did not: `ApplyTransit` spawned arrivals with empty holds, so a fleet
+that warped anywhere lost its cargo in silence. Dock had a test, undock had a test, and transit
+had neither — so ore survived both boundaries anybody had thought to check and evaporated on the
+one nobody had. Fixed, and `AWarpCarriesTheHoldToTheFarSide` is the unit test that should have
+caught it first. This is the second slice running where the end-to-end check earned its cost by
+finding something the unit suite could not.
+
+**What was verified, and how.** All of GameLogic compiles clean under **clang 18 on Linux**,
+clang-tidy reports nothing in the files this slice touched, and the source guards run by hand
+are green. **The whole `GameLogicTests` suite compiles and runs** through the `CppUnitTest`
+shim — **324 methods across nine files, 0 failures**, including 23 new ones in `CargoTests.cpp`.
+Three existing tests needed updating and each is the suite doing its job: two hand-built
+`StationCommand` payloads in `RegistryTests` name the wire layout and had to grow the two new
+fields, and every `SubmitStationCommand` call site had to say who was calling. The G0 scenario
+itself was extracted and **run** against the real registry rather than only compiled, which is
+how the transit defect surfaced: mine 24 units, warp ~2,400 ticks, dock, and find all 24 on the
+roster.
+
+*The harness earned a fix too. `runall.sh` never re-copied the sources, so a GameLogic edit made
+after the last manual sync was silently not compiled — twice it reported on code that no longer
+existed, once as a phantom test failure and once as a real one that would not go away. It syncs
+unconditionally now.*
+
+**What CI has not said yet.** This ran on clang and Linux; the gating toolchain is MSVC on
+Windows, and the suite total, the replay hash across configurations and the self test come from
+there. `Main.cpp` cannot be compiled here at all — it reaches COM headers the shim does not have
+— so the summary sender was reviewed by reading. Content is untouched, so `universeHash` and
+`economyHash` are unchanged; `GameSchemaHash` moves, which is the point of the slice, and the
+replay hash moves with the Bay joining the registry fold.
+
 ### E4 — Refining, tiers, and the projects · 🏁 G1
 Refine jobs `(recipe, batchCount)` submitted as station commands against a Bay — **at any
 station holding your ore, viewed or not**, because focus never gates command. Inputs debit at

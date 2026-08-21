@@ -84,7 +84,22 @@ enum class EventKind : std::uint8_t
    * that was always planned.
    */
   RefineComplete = 7,  // Reserved: E4.
-  ProjectComplete = 8  // Reserved: E4.
+  ProjectComplete = 8, // Reserved: E4.
+
+  /*
+   * Ore committed to a station's Bay, and ore taken back out (ADR-024 §5c, E3).
+   *
+   * Appended after E4's two reserved values rather than before them, because
+   * those numbers were published the moment they were written down: renumbering
+   * a reserved value costs exactly what renumbering a used one costs, and the
+   * whole point of reserving was to spend that cost once.
+   *
+   * `count` is what **moved**, not what was asked for. A withdrawal past the
+   * holds' room fills what it can, and an away-log line that reported the
+   * request would be describing the command instead of the world.
+   */
+  OreStored = 9,
+  OreWithdrawn = 10
 };
 
 /*

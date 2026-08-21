@@ -11,6 +11,7 @@
 
 // GameLogic, reached only from here: the executable is the one project
 // entitled to know both halves (ADR-014 §1).
+#include "EconomyMessages.h"
 #include "FleetSummary.h"
 #include "OrderMessages.h"
 #include "Orders.h"
@@ -169,6 +170,7 @@ public:
       // as of main's UI slice, so a copy here is three allocations per boot for
       // nothing.
       m_worldMeta(std::move(_worldMeta)),
+      m_economy(&_economy),
       m_startAnchor(_universe.StartAnchorId())
   {
     Game::RegistryConfig config;
@@ -371,7 +373,65 @@ public:
                          _viewer, dropped);
     }
 
-    const auto records = static_cast<std::uint8_t>(rosters.size() + 1);
+    /*
+     * And the economy's three (ADR-024 §8, E3), measured on the same budget.
+     *
+     * `SiteStatus` for every site this commander has a fleet at, `CargoStatus`
+     * once for everything they are carrying on grids, `BayStatus` per station
+     * they have stored anything at. All three are cheap enough to be
+     * unconditional and all three are dropped rather than truncated when the
+     * budget runs out, because a half-written record is a lie about a hold.
+     */
+    std::vector<Game::AnchorId> sites;
+    for (const Game::FleetSummary& row : summaries)
+    {
+      if (row.state != Game::FleetState::OnGrid || !m_registry.FieldAt(row.anchor).Exists())
+      {
+        continue;
+      }
+      if (std::find(sites.begin(), sites.end(), row.anchor) != sites.end())
+      {
+        continue;
+      }
+      const std::size_t bytes =
+        Game::SUMMARY_RECORD_HEADER_BYTES + Game::SiteStatusBytes(m_registry.FieldAt(row.anchor).clusterCount);
+      if (bytes > budget || rosters.size() + sites.size() + 2 >= Game::MAX_SUMMARY_RECORDS)
+      {
+        continue;
+      }
+      budget -= bytes;
+      sites.push_back(row.anchor);
+    }
+
+    // Owner-only, and keyed by the viewer rather than filtered afterwards: the
+    // registry is asked what *this* player has, so there is no path on which
+    // somebody else's could be written into this frame.
+    const std::vector<Game::CargoStatusRow> cargo = m_registry.CargoFor(_viewer);
+    const bool withCargo =
+      !cargo.empty() && Game::SUMMARY_RECORD_HEADER_BYTES + Game::CargoStatusBytes(cargo.size()) <= budget;
+    if (withCargo)
+    {
+      budget -= Game::SUMMARY_RECORD_HEADER_BYTES + Game::CargoStatusBytes(cargo.size());
+    }
+
+    std::vector<Game::AnchorId> bays;
+    for (const Game::StationBay& bay : m_registry.Bays())
+    {
+      if (bay.owner != _viewer || bay.TotalUnits() == 0)
+      {
+        continue;
+      }
+      const std::size_t bytes = Game::SUMMARY_RECORD_HEADER_BYTES + Game::BAY_STATUS_BYTES;
+      if (bytes > budget || rosters.size() + sites.size() + bays.size() + 2 >= Game::MAX_SUMMARY_RECORDS)
+      {
+        break;
+      }
+      budget -= bytes;
+      bays.push_back(bay.station);
+    }
+
+    const auto records =
+      static_cast<std::uint8_t>(rosters.size() + sites.size() + bays.size() + (withCargo ? 1u : 0u) + 1u);
     if (!Game::BeginSummaryFrame(records, _writer))
     {
       return false;
@@ -384,6 +444,28 @@ public:
     {
       if (!Game::BeginSummaryRecord(Game::SummaryKind::StationRoster, _writer) ||
           !Game::WriteStationRoster(anchor, m_registry.Roster(anchor), _writer))
+      {
+        return false;
+      }
+    }
+    for (const Game::AnchorId anchor : sites)
+    {
+      if (!Game::BeginSummaryRecord(Game::SummaryKind::SiteStatus, _writer) ||
+          !Game::WriteSiteStatus(m_registry.SiteStatusFor(anchor), _writer))
+      {
+        return false;
+      }
+    }
+    if (withCargo && (!Game::BeginSummaryRecord(Game::SummaryKind::CargoStatus, _writer) ||
+                      !Game::WriteCargoStatus(cargo, _writer)))
+    {
+      return false;
+    }
+    for (const Game::AnchorId station : bays)
+    {
+      const Game::StationBay* bay = m_registry.Bay(_viewer, station);
+      if (bay == nullptr || !Game::BeginSummaryRecord(Game::SummaryKind::BayStatus, _writer) ||
+          !Game::WriteBayStatus(station, bay->oreUnits, _writer))
       {
         return false;
       }
@@ -405,7 +487,7 @@ public:
    * ghost then falls back on the snapshot's `lastOrderSeqProcessed`, which will
    * never mention it.
    */
-  [[nodiscard]] OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t> _payload) override
+  [[nodiscard]] OrderVerdict ApplyOrderBytes(PlayerId _player, std::uint32_t, std::span<const std::uint8_t> _payload) override
   {
     Neuron::ByteReader reader{_payload};
 
@@ -427,7 +509,7 @@ public:
 
     if (kind == Game::CommandKind::Station)
     {
-      return ApplyStationCommand(reader, _payload.size());
+      return ApplyStationCommand(_player, reader, _payload.size());
     }
 
     Game::OrderSubmit order;
@@ -461,7 +543,7 @@ public:
    * and neither touches the grid this session happens to be serving. That is
    * why this does not go through `ServedWorld()`.
    */
-  [[nodiscard]] OrderVerdict ApplyStationCommand(Neuron::ByteReader& _reader, std::size_t _payloadBytes)
+  [[nodiscard]] OrderVerdict ApplyStationCommand(PlayerId _player, Neuron::ByteReader& _reader, std::size_t _payloadBytes)
   {
     Game::StationCommand command;
     if (!Game::ReadStationCommand(_reader, command))
@@ -470,7 +552,10 @@ public:
       return Malformed();
     }
 
-    const Game::OrderVerdict decided = m_registry.SubmitStationCommand(command);
+    // Whose command it is, carried rather than assumed: a transfer verb moves
+    // ore into or out of *this* player's Bay (ADR-024 §5b), and a registry that
+    // had to guess would be guessing about property.
+    const Game::OrderVerdict decided = m_registry.SubmitStationCommand(_player, command);
 
     OrderVerdict verdict;
     verdict.accepted = decided.accepted;
@@ -496,6 +581,11 @@ public:
     malformed.reasonCode = static_cast<std::uint16_t>(Game::OrderReason::UnknownKind);
     return malformed;
   }
+
+  /// The balance this simulation runs on. Exposed for the same reason
+  /// `ContentHash` is: a diagnostic that built its own content would be
+  /// measuring something the shard is not.
+  [[nodiscard]] const Game::EconomyDef& Economy() const noexcept { return *m_economy; }
 
   [[nodiscard]] std::uint64_t SchemaHash() const override
   {
@@ -544,6 +634,11 @@ public:
 private:
   std::uint64_t m_contentHash = 0;
   WorldMeta m_worldMeta;
+
+  /// The content this simulation was built from, kept because the self test
+  /// bakes a small universe of its own to drive the economy loop through and
+  /// has to use the *same* balance the shard is running (E3's G0 scenario).
+  const Game::EconomyDef* m_economy = nullptr;
 
   Game::WorldRegistry m_registry;
   Game::AnchorId m_startAnchor = Game::INVALID_ID;
@@ -1187,7 +1282,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
     // watchdog kills it on a hang, and a log whose tail is sitting in a stdio
     // buffer at that moment says nothing about where it stopped.
     Log::SetFlushEveryLine(true);
-    const int result = Outpost::RunSelfTest(config, simulation);
+    const int result = Outpost::RunSelfTest(config, simulation, economy.economy);
     Log::Shutdown();
     return result;
   }

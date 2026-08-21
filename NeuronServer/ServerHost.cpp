@@ -301,7 +301,7 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
       return;
     }
 
-    const OrderVerdict verdict = m_simulation->ApplyOrderBytes(session->clientId, reader.Remaining());
+    const OrderVerdict verdict = m_simulation->ApplyOrderBytes(session->playerId, session->clientId, reader.Remaining());
 
     OrderAck ack;
     ack.orderSeq = verdict.orderSeq; // The game's echo: the engine never read it.

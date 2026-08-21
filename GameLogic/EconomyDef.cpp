@@ -307,6 +307,22 @@ bool TryOreFilter(std::uint8_t _raw, OreFilter& _outFilter) noexcept
   return false;
 }
 
+bool TryOreId(std::uint8_t _raw, OreId& _outOre) noexcept
+{
+  // A switch for the reason `TryOreFilter` uses one: an ore added to the enum
+  // and not to this list is a compiler warning rather than a value the wire
+  // quietly refuses.
+  switch (static_cast<OreId>(_raw))
+  {
+  case OreId::FerroChroma:
+  case OreId::Astracite:
+  case OreId::Nebulite:
+    _outOre = static_cast<OreId>(_raw);
+    return true;
+  }
+  return false;
+}
+
 bool TryAlloyId(std::string_view _text, AlloyId& _outAlloy) noexcept
 {
   std::uint8_t index = 0;

@@ -167,7 +167,7 @@ struct ReplayResult
  * round-trips and the replay run. First, before any socket opens, so a
  * transport failure cannot mask a determinism one.
  */
-void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation)
+void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation, const Game::EconomyDef& _economy)
 {
   // Schema: the number the handshake fails closed on. Nonzero, stable across
   // computation, and the shipping simulation states the same one the game's
@@ -393,6 +393,234 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation)
         arrived = registry.LocationOf(ship, where) && where == there;
       }
       _checks.Record("the crossing lands the fleet in the system on the far side", arrived);
+    }
+  }
+
+  /*
+   * 🏁 G0: the headless mining loop, end to end (ADR-024, build order E3).
+   *
+   * A Miner warps nowhere and mines where it stands, fills up and stops on its
+   * own, docks with the ore still aboard, commits it to the Bay by command, and
+   * the Bay survives the grid tearing down. Every one of those was a separate
+   * slice; this is the first check that they compose.
+   *
+   * Ticked here rather than driven over the loopback for `GATE_JUMP_TICKS`'
+   * reason: a mining cycle is 800 ticks and a hold is hundreds of units, so
+   * doing this at 20 Hz would add minutes of wall clock to a gate that runs on
+   * every push. What the wire half proves is that the *commands* cross, and the
+   * QUIC section below already does that for the station family.
+   */
+  {
+    Game::UniverseGenConfig recipe;
+    recipe.regionCount = 1;
+    recipe.constellationsPerRegion = 1;
+    recipe.systemCount = 4;
+
+    Game::UniverseDef universe;
+    bool ok = Game::GenerateUniverse(recipe, _economy.sites, universe);
+
+    // Both from the **same system**, because the loop this proves is an
+    // in-system warp: a site in one system and a station in another would make
+    // this a gate-jump test wearing a mining costume.
+    Game::AnchorId site = Game::INVALID_ID;
+    Game::AnchorId station = Game::INVALID_ID;
+    for (const Game::SolarSystem& system : universe.systems)
+    {
+      Game::AnchorId here = Game::INVALID_ID;
+      Game::AnchorId dock = Game::INVALID_ID;
+      for (const Game::Anchor& anchor : system.anchors)
+      {
+        if (anchor.kind == Game::AnchorKind::Site && here == Game::INVALID_ID)
+        {
+          here = anchor.id;
+        }
+        if (anchor.kind == Game::AnchorKind::Station && dock == Game::INVALID_ID)
+        {
+          dock = anchor.id;
+        }
+      }
+      if (here != Game::INVALID_ID && dock != Game::INVALID_ID)
+      {
+        site = here;
+        station = dock;
+        break;
+      }
+    }
+    ok = ok && site != Game::INVALID_ID && station != Game::INVALID_ID;
+    _checks.Record("the bake has a field and a station to run the loop between", ok);
+
+    if (ok)
+    {
+      Game::WorldRegistry registry;
+      Game::RegistryConfig config;
+      config.sessionSeed = 0x60A1u;
+      registry.Reset(&universe, &_economy, config);
+
+      const Game::SiteStatusRow before = registry.SiteStatusFor(site);
+      std::uint32_t startingUnits = 0;
+      for (const std::uint32_t units : before.remainingUnits)
+      {
+        startingUnits += units;
+      }
+
+      Game::ShipSpawn spawn;
+      spawn.hullClass = Game::HullClass::Miner;
+      spawn.wing = 1;
+      const Game::ShipId miner = registry.Spawn(site, spawn);
+
+      Game::OrderSubmit mine;
+      mine.orderSeq = 8001;
+      mine.kind = Game::OrderKind::Mine;
+      Game::World* field = registry.Borrow(site);
+      const bool ordered = miner != Game::INVALID_SHIP_ID && mine.AddShip(miner) && field != nullptr &&
+                           field->SubmitOrder(mine).accepted;
+      _checks.Record("a Miner standing in a field is allowed to work it", ordered);
+
+      // Long enough for several cycles to land and cross the bus, and far short
+      // of filling a 120,000-litre hold -- which is the point: the loop has to
+      // work without waiting for the exit condition.
+      std::uint32_t tick = 0;
+      for (std::uint32_t step = 0; step < 4000; ++step)
+      {
+        registry.Tick(++tick);
+      }
+
+      const Game::ShipCargo* aboard = nullptr;
+      if (const Game::World* world = registry.Peek(site); world != nullptr)
+      {
+        const std::span<const Game::ShipId> ids = world->Ids();
+        const std::span<const Game::ShipCargo> holds = world->Cargo();
+        for (std::size_t slot = 0; slot < ids.size() && slot < holds.size(); ++slot)
+        {
+          if (ids[slot] == miner)
+          {
+            aboard = &holds[slot];
+          }
+        }
+      }
+      std::uint32_t mined = 0;
+      if (aboard != nullptr)
+      {
+        for (const std::uint32_t units : aboard->oreUnits)
+        {
+          mined += units;
+        }
+      }
+      _checks.Record("mining puts ore in the hold", mined > 0);
+
+      const Game::SiteStatusRow after = registry.SiteStatusFor(site);
+      std::uint32_t leftUnits = 0;
+      for (const std::uint32_t units : after.remainingUnits)
+      {
+        leftUnits += units;
+      }
+      _checks.Record("and the field's status shows it measurably emptier", leftUnits + mined == startingUnits);
+
+      const bool dented = std::any_of(std::begin(after.clusterFullPct), std::begin(after.clusterFullPct) + after.clusterCount,
+                                      [](std::uint8_t _pct) { return _pct < 100; });
+      _checks.Record("with the worked cluster reading below full", dented);
+
+      /*
+       * Warp to the station and dock: the ore has to survive both crossings,
+       * which is the gap E2 shipped with and E3 closed.
+       *
+       * Flown rather than teleported. A test-only mover on the registry would
+       * have been quicker and would have proved a path the game does not have
+       * -- and the transit bus is exactly where a manifest could go missing.
+       */
+      Game::OrderSubmit warp;
+      warp.orderSeq = 8002;
+      warp.kind = Game::OrderKind::Warp;
+      warp.anchor = station;
+      field = registry.Borrow(site);
+      bool moved = field != nullptr && warp.AddShip(miner) && field->SubmitOrder(warp).accepted;
+      _checks.Record("a loaded Miner may warp to the station", moved);
+
+      // An in-system warp to a site's ring is ~2,400 ticks on the bake this
+      // scenario generates -- the sites sit 40 % beyond the outermost planet
+      // (ADR-024 §3a) -- so the bound is generous rather than tight. Ticking a
+      // four-system registry is microseconds; guessing the number and being
+      // wrong is a gate that fails for a reason nobody can read.
+      for (std::uint32_t step = 0; step < 20000 && moved; ++step)
+      {
+        registry.Tick(++tick);
+        Game::AnchorId where = Game::INVALID_ID;
+        if (registry.LocationOf(miner, where) && where == station)
+        {
+          break;
+        }
+      }
+
+      Game::OrderSubmit dock;
+      dock.orderSeq = 8003;
+      dock.kind = Game::OrderKind::Dock;
+      dock.anchor = station;
+      Game::World* home = registry.Borrow(station);
+      bool docked = home != nullptr && dock.AddShip(miner) && home->SubmitOrder(dock).accepted;
+      _checks.Record("and dock when it gets there", docked);
+      for (std::uint32_t step = 0; step < 8; ++step)
+      {
+        registry.Tick(++tick);
+      }
+
+      const std::span<const Game::RosterEntry> roster = registry.Roster(station);
+      const auto row = std::find_if(roster.begin(), roster.end(),
+                                    [miner](const Game::RosterEntry& _r) { return _r.shipId == miner; });
+      docked = row != roster.end();
+      _checks.Record("the Miner reaches the station's roster", docked);
+
+      std::uint32_t held = 0;
+      if (docked)
+      {
+        for (const std::uint32_t units : row->oreUnits)
+        {
+          held += units;
+        }
+      }
+      _checks.Record("with every unit it was carrying", held == mined && mined > 0);
+
+      // And into the Bay by command -- manual, which is the ruling (ADR-024 §5c).
+      Game::OreId richest = Game::OreId::FerroChroma;
+      std::uint32_t richestUnits = 0;
+      if (docked)
+      {
+        for (std::uint8_t ore = 0; ore < Game::ORE_COUNT; ++ore)
+        {
+          if (row->oreUnits[ore] > richestUnits)
+          {
+            richestUnits = row->oreUnits[ore];
+            richest = static_cast<Game::OreId>(ore);
+          }
+        }
+      }
+
+      Game::StationCommand store;
+      store.orderSeq = 8004;
+      store.verb = Game::StationVerb::TransferToBay;
+      store.station = station;
+      store.ore = richest;
+      store.units = richestUnits;
+      const bool stored = docked && richestUnits > 0 && store.AddShip(miner) &&
+                          registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, store).accepted;
+      _checks.Record("and the commander can commit it to the Bay", stored);
+
+      const Game::StationBay* bay = registry.Bay(Neuron::SOLE_PLAYER_ID, station);
+      _checks.Record("which holds exactly what was committed",
+                     bay != nullptr && bay->Units(richest) == richestUnits && richestUnits > 0);
+
+      // Nobody else's, which is the privacy rule living in the key. The host
+      // issues one player id today, so the two-commander case is proven in
+      // `CargoTests`; what this asserts is that a viewer with no Bay has none.
+      _checks.Record("and belongs to nobody else", registry.Bay(Neuron::SOLE_PLAYER_ID + 1, station) == nullptr);
+
+      // Then let the station grid go idle and tear down under it.
+      for (std::uint32_t step = 0; step < 4000; ++step)
+      {
+        registry.Tick(++tick);
+      }
+      const Game::StationBay* survivor = registry.Bay(Neuron::SOLE_PLAYER_ID, station);
+      _checks.Record("the Bay outlives the grid it was filled at",
+                     survivor != nullptr && survivor->Units(richest) == richestUnits);
     }
   }
 
@@ -1046,7 +1274,7 @@ void RunApproachDisconnectGate(Checklist& _checks, Neuron::ServerHost& _server, 
 
 } // namespace
 
-int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
+int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const Game::EconomyDef& _economy)
 {
   NEURON_LOG_INFO("self test: starting (schema, wire round-trips, replay determinism, the tick soak, then the QUIC loopback loop)");
 
@@ -1056,7 +1284,7 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation)
   // round-trips, the replay-determinism run and R10's tick soak need no socket,
   // so a transport failure cannot mask them -- and on a GPU-less CI runner they
   // are most of what this gate proves.
-  RunLocalChecks(checks, _simulation);
+  RunLocalChecks(checks, _simulation, _economy);
 
   // Port 0 whatever the config says: a self test must not fail because the
   // configured port is already taken by the thing it is testing.

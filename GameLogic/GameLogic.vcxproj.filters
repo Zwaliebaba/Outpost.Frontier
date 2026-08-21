@@ -14,6 +14,9 @@
     <ClCompile Include="EconomyDef.cpp">
       <Filter>Economy</Filter>
     </ClCompile>
+    <ClCompile Include="EconomyMessages.cpp">
+      <Filter>Economy</Filter>
+    </ClCompile>
     <ClCompile Include="EconomyParse.cpp">
       <Filter>Economy</Filter>
     </ClCompile>
@@ -96,6 +99,9 @@
       <Filter>Orders</Filter>
     </ClInclude>
     <ClInclude Include="EconomyDef.h">
+      <Filter>Economy</Filter>
+    </ClInclude>
+    <ClInclude Include="EconomyMessages.h">
       <Filter>Economy</Filter>
     </ClInclude>
     <ClInclude Include="EconomyParse.h">

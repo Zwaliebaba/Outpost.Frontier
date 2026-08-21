@@ -182,7 +182,7 @@ time, so R17's per-region split stays reserved. The tick soak is unchanged in ch
 (7.000 ms for a capped grid), which answers the question 6,223 new anchors raise: a site costs
 the tick nothing until somebody warps to it.
 
-**Built so far: E1a, E1b and E2.** `Economy.json` is the **first hash-guarded balance content in
+**Built so far: E1a, E1b, E2 and E3.** `Economy.json` is the **first hash-guarded balance content in
 the tree** — ADR-012 §D13's hook cashed in, with `economyHash` mixed into the handshake's
 existing `contentHash` so an economy mismatch is refused with no wire field added. And
 `AnchorKind::Site` stopped being reserved: the committed universe was re-baked to **24,841
@@ -216,6 +216,31 @@ the world hash; Spike 2 confirms Debug and Release agree on the new number. The 
 the figure to keep an eye on rather than to celebrate: a capped grid now costs **9.020 ms mean
 / 16.538 ms worst** against E1b's 7.000 / 8.644, so headroom falls from 7.1 capped grids per
 core to 5.5. Inside the tripwire, and a trend R10 should be read against after E3.
+
+**E3 closed the loop's last hole (2026-08-21).** Ore stopped evaporating at boundaries: a
+manifest rides the transfer record and the roster row, so a hold survives a dock, an undock and
+a warp alike. The **Station Bay** joins the site ledgers and the station rosters as the third
+resident of "worlds forget, the universe layer does not" — per `(owner, station)`, created only
+when something is stored, folded into the registry hash, and with no currency rule, because
+committed property has no epoch to go stale against. `TransferToBay` and `TransferToShip` are
+**manual in both directions** (ADR-024 §5c's ruling), applied on the spot beside `AssignWing`
+since neither end of the move is on a grid. The wire cluster landed in one fail-closed bump: two
+verbs, an ore byte and a count on the command, an 18-byte roster row, and three new summary
+kinds — `SiteStatus`, `CargoStatus`, `BayStatus` — in a new `EconomyMessages.h`. **`EntityRecord`
+is untouched and a test asserts the arithmetic**: one cargo byte would take the record 21 → 22
+and the ship cap 43 → 41, exactly onto `Snapshot.h`'s floor, which is what ADR-024 §4d refused in
+advance.
+
+*One change fell outside the economy: `Simulation::ApplyOrderBytes` now carries a `PlayerId`
+beside the client id. A command that moves a commander's property has to say whose, and a
+registry that guessed would be guessing about ownership — the command half of what the outbound
+seam already does.*
+
+**And the accept found what the unit suite could not, for the second slice running.** The G0
+scenario — mine, warp, dock, commit, tear the grid down — was written to prove the loop composes
+and immediately proved it did not: `ApplyTransit` spawned arrivals with empty holds, so a fleet
+that warped anywhere lost its cargo silently. Dock and undock each had a test; transit had none.
+Fixed, with the unit test that should have caught it first added beside it.
 
 *(The merge with `main`'s station-progress work first inherited a CI hang — `a6dd412`'s
 xcopy rewrite of the content copy left the exe bootless on a fresh clone, and a startup
@@ -446,10 +471,10 @@ linger is simulation state, so it is in the hash.
 across four assemblies with zero unique warnings, plus a `selfTest` mode that runs the whole
 handshake-and-heartbeat exchange over a real loopback socket and returns an exit code. The
 suite now stands at **650** — it was 593 before the economy phase, and the growth is again
-GameLogic's (`EconomyParseTests`, `UniverseSiteTests`' twelve, and E2's `MiningTests` with 38
-more, all of them green on MSVC in run 155). GameLogic is
+GameLogic's (`EconomyParseTests`, `UniverseSiteTests`' twelve, E2's `MiningTests` with 38
+more, and E3's `CargoTests` with 23). GameLogic is
 where the growth is, and that is the universe, station and economy phases arriving: it has gone
-from 136 to 301 without a single one of those tests needing a device. Its
+from 136 to 324 without a single one of those tests needing a device. Its
 visible half — window open, swapchain presenting, heartbeat live — together with the four
 other criteria that need a GPU and a person (five minutes clean under the debug layer,
 PresentMon showing the flip model, a clean exit, and the 60-second tick cadence on an idle

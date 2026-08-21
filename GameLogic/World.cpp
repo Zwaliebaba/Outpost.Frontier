@@ -549,11 +549,12 @@ ShipId World::Spawn(const ShipSpawn& _spawn, ShipId _shipId)
   // (ADR-017 §1), and it stamps the window on the way out (§5).
   m_protectedUntil.push_back(_spawn.protectedUntilTick);
 
-  // Empty holds and a cold laser. A ship arrives carrying nothing because
-  // cargo crosses on the transfer record, not on the spawn -- E3 is what gives
-  // a crossing a manifest, and until then a spawned ship starting loaded would
-  // be ore the ledger never gave out.
-  m_cargo.push_back(ShipCargo{});
+  // The hold it arrived with, and a cold laser. Cargo crosses on the transfer
+  // record (E3), so a ship handed over by an undock arrives holding exactly
+  // what it was carrying when it docked, and a ship spawned from nothing
+  // arrives empty -- which is what keeps a spawn from inventing ore the ledger
+  // never gave out.
+  m_cargo.push_back(_spawn.cargo);
   m_mining.push_back(MiningState{});
   return shipId;
 }
@@ -583,6 +584,14 @@ bool World::TransferOut(ShipId _shipId, TransferMember& _outMember)
   _outMember.shipId = _shipId;
   _outMember.hullClass = static_cast<HullClass>(m_classes[slot]);
   _outMember.wing = m_wings[slot];
+
+  // And the hold with it (E3). A ship's ore is the player's property, so it
+  // crosses rather than evaporating -- and it crosses *here*, on the way out of
+  // the world, because this is the last moment anything knows the slot.
+  for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+  {
+    _outMember.oreUnits[ore] = m_cargo[slot].oreUnits[ore];
+  }
   return Despawn(_shipId);
 }
 

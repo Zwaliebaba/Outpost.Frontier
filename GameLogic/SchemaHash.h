@@ -49,7 +49,8 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "u8 memberCount}"
     "OrderSubmit{u32 orderSeq,u8 kind,u8 formation,u8 queueMode,u16 shipCount,u16 shipIds[shipCount],"
     "i32 targetXCm,i32 targetYCm,u16 targetFacingTurns16,u16 anchor,u8 oreFilter}"
-    "StationCommand{u32 orderSeq,u8 verb,u16 station,u8 formation,u8 wing,u16 shipCount,u32 shipIds[shipCount]}"
+    "StationCommand{u32 orderSeq,u8 verb,u16 station,u8 formation,u8 wing,u8 ore,u32 units,u16 shipCount,"
+    "u32 shipIds[shipCount]}"
     // ADR-017 §8 put station commands on the *acked order stream* rather than a
     // stream of their own -- one sequence, one ack, one reason enum -- so both
     // messages share `WireType::OrderSubmit` and this byte is what tells them
@@ -57,7 +58,7 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     // byte whose value spaces overlap, so a build that disagreed about the
     // discriminator would read an Undock as a Move and validate it.
     "CommandFrame{u8 kind,body}"
-    "StationRoster{u16 station,u16 count,(u32 shipId,u8 classId,u8 wingId)[count]}"
+    "StationRoster{u16 station,u16 count,(u32 shipId,u8 classId,u8 wingId,u32 oreUnits[3])[count]}"
     "FleetSummaries{u16 count,(u16 anchor,u8 state,u16 shipCount,u16 etaSeconds)[count]}"
     // ADR-016 §6's family shares one engine wire type, so the byte that says
     // which member a record carries is ours and belongs in this hash. No length
@@ -65,6 +66,13 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     // know a kind must refuse rather than skip -- which is only safe *because*
     // this line makes a build that renumbered `SummaryKind` fail the handshake.
     "SummaryFrame{u8 recordCount,(u8 kind,body)[recordCount]}"
+    // The economy's three summary bodies (ADR-024 §8, E3). `SiteStatus` is
+    // public and the other two are owner-only, which is a property of who the
+    // sender is given rather than of the layout -- so the hash covers the bytes
+    // and the privacy is tested rather than declared.
+    "SiteStatus{u16 anchor,u32 epoch,u32 remainingUnits[3],u8 clusterCount,u8 fullPct[clusterCount]}"
+    "CargoStatus{u16 count,(u32 shipId,u32 oreUnits[3])[count]}"
+    "BayStatus{u16 station,u32 oreUnits[3]}"
     "meaning{typeId=HullClass,groupId=WingId,gaugeA=hull255,gaugeB=shield255,state=OrderState,etaSeconds=s|65535=none,"
     "anchor=AnchorId|0=none,statusBits.bit0=undockProtected,"
     "summary.anchor=whereItIsOrWhereItIsGoing,summary.etaSeconds=s|65535=none}"
@@ -75,9 +83,9 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "enums{OrderKind:Move=0,Attack=1,Stance=2,Abilities=3,Warp=4,Dock=5,Mine=6;FormationId:Line=0,Wedge=1,Claw=2;"
     "QueueMode:Replace=0,Append=1;"
     "OrderState:Underway=0,Arriving=1,Done=2;"
-    "StationVerb:Undock=0,AssignWing=1;"
+    "StationVerb:Undock=0,AssignWing=1,TransferToBay=2,TransferToShip=3;"
     "FleetState:OnGrid=0,Docked=1,InTransit=2;"
-    "SummaryKind:StationRoster=0,FleetSummaries=1;"
+    "SummaryKind:StationRoster=0,FleetSummaries=1,SiteStatus=2,CargoStatus=3,BayStatus=4;"
     "CommandKind:Order=0,Station=1;"
     // A Mine order's parameter, where every other kind's is a formation
     // (ADR-024 §4a). In the hash because it is a byte on the wire and because
@@ -86,6 +94,10 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     // mining the wrong rock, which is the right failure and still a failure
     // worth refusing at the door instead.
     "OreFilter:Any=0,FerroChroma=1,Astracite=2,Nebulite=3;"
+    // And the *ore* a transfer names, which is a different byte with a
+    // different rule: `Any` is not a quantity, so the decoder refuses zero here
+    // where it accepts it there (E3).
+    "OreId:FerroChroma=0,Astracite=1,Nebulite=2;"
     "OrderReason:Accepted=0,EmptySelection=1,NotOwned=2,UnknownShip=3,QueueFull=4,OutOfBounds=5,"
     "InvalidFormation=6,TooManyShips=7,UnknownKind=8,UnknownStation=9,NotAtStation=10,NotDocked=11,"
     "InvalidQueueMode=12,CombatEngaged=13,UnknownAnchor=14,NoPresence=15,NotAtGate=16,"
@@ -103,7 +115,7 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
      */
     "checkOrder{order:EmptySelection,TooManyShips,UnknownKind,InvalidQueueMode,InvalidFormation,QueueFull,"
     "UnknownStation,UnknownAnchor,NotAtSite,OutOfBounds,UnknownShip,NoMinerInOrder,HoldFull,NotAtStation,NotAtGate;"
-    "station:EmptySelection,TooManyShips,InvalidFormation,UnknownStation,NotDocked}";
+    "station:EmptySelection,TooManyShips,InvalidFormation,UnknownStation,NotDocked,InsufficientMaterials}";
 
 /// Stable across runs and builds by construction: FNV-1a over the text above,
 /// computed at compile time so it costs nothing to ask.

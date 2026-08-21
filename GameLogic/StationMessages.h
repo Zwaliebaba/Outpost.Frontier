@@ -44,20 +44,31 @@
 namespace Game
 {
 
-/// Bytes one command occupies. Fixed part plus four per ship.
+/// Bytes one command occupies. Fixed part plus four per ship. The fixed part
+/// grew by five with E3's transfer verbs: an ore byte and a unit count.
 [[nodiscard]] constexpr std::size_t StationCommandBytes(std::size_t _shipCount) noexcept
 {
-  return 4 + 1 + 2 + 1 + 1 + 2 + _shipCount * 4;
+  return 4 + 1 + 2 + 1 + 1 + 1 + 4 + 2 + _shipCount * 4;
 }
 
 /// The largest a command can be: the per-order ship cap, which is what makes
 /// the decode bound checkable without trusting the count in the payload.
 inline constexpr std::size_t MAX_STATION_COMMAND_BYTES = StationCommandBytes(MAX_SHIPS_PER_ORDER);
 
-/// Bytes one roster occupies. Fixed part plus six per docked ship.
+/*
+ * Bytes one roster occupies. Fixed part plus eighteen per docked ship: six for
+ * the identity and twelve for the hold (E3).
+ *
+ * Tripling the row is the cost of ADR-024 §5's decision that a docked ship
+ * keeps its cargo, and it is worth stating what it buys and what it spends. A
+ * full 64-ship roster goes from 388 bytes to 1,156 -- comfortably inside a
+ * datagram either way, because a roster is a ~1 Hz summary rather than a
+ * per-tick record, which is precisely why the manifest rides here and not on
+ * `EntityRecord` (ADR-024 §4d).
+ */
 [[nodiscard]] constexpr std::size_t StationRosterBytes(std::size_t _shipCount) noexcept
 {
-  return 2 + 2 + _shipCount * 6;
+  return 2 + 2 + _shipCount * (6 + ORE_COUNT * 4);
 }
 
 /// Writes the command. False and nothing useful written if it does not fit; the

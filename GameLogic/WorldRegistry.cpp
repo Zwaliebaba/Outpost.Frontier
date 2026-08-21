@@ -14,6 +14,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
+#include <utility>
+#include <vector>
 
 namespace Game
 {
@@ -85,6 +88,7 @@ void WorldRegistry::Reset(const UniverseDef* _universe, const EconomyDef* _econo
   m_bus.clear();
   m_rosters.clear();
   m_siteLedgers.clear();
+  m_bays.clear();
   m_events.Clear();
   m_nextTransferCounter = 1;
 
@@ -309,7 +313,7 @@ ShipId WorldRegistry::Spawn(AnchorId _anchor, const ShipSpawn& _spawn)
   return id;
 }
 
-OrderVerdict WorldRegistry::SubmitStationCommand(const StationCommand& _command)
+OrderVerdict WorldRegistry::SubmitStationCommand(Neuron::PlayerId _owner, const StationCommand& _command)
 {
   RosterView view;
   view.station = INVALID_ID;
@@ -324,6 +328,21 @@ OrderVerdict WorldRegistry::SubmitStationCommand(const StationCommand& _command)
       // `NotDocked` rather than `UnknownStation`, which is the honest answer.
       view.station = _command.station;
       view.docked = Roster(_command.station);
+
+      /*
+       * And what this commander has stored here (ADR-024 §5b), which is what a
+       * `TransferToShip` is judged against.
+       *
+       * `Bay` answers null for a Bay nobody has filled, and the view's span
+       * stays empty -- which the validator reads as an empty Bay, because that
+       * is exactly what it is. The alternative, materialising a Bay to look at
+       * it, would put a durable record in the hash for a command that was about
+       * to be refused.
+       */
+      if (const StationBay* bay = Bay(_owner, _command.station); bay != nullptr)
+      {
+        view.bayUnits = bay->oreUnits;
+      }
     }
   }
 
@@ -361,6 +380,32 @@ OrderVerdict WorldRegistry::SubmitStationCommand(const StationCommand& _command)
   }
 
   /*
+   * The two transfer verbs, applied on the spot for `AssignWing`'s reason
+   * exactly (ADR-024 §5c).
+   *
+   * Nothing crosses. A roster and a Bay are both universe-layer state on this
+   * host, and the bus exists to keep one grid from reading another mid-tick --
+   * this reads no grid at all. Filing a record for it would buy an apply-order
+   * guarantee over a move that has no second party to be ordered against.
+   *
+   * Validation has already established the source covers the amount, so what
+   * is left here is the arithmetic and the event. `moved` can still come back
+   * short on the way *out* -- holds have capacity where a Bay does not -- and
+   * the event carries what actually happened rather than what was asked for,
+   * because a log that reported the request would be describing the command
+   * instead of the world.
+   */
+  if (_command.verb == StationVerb::TransferToBay || _command.verb == StationVerb::TransferToShip)
+  {
+    const bool toBay = _command.verb == StationVerb::TransferToBay;
+    StationBay& bay = BayFor(_owner, _command.station);
+    const std::uint32_t moved = MoveOre(roster, bay, _command, toBay);
+    m_events.Emit(m_shardTick, toBay ? EventKind::OreStored : EventKind::OreWithdrawn, _command.station,
+                  static_cast<std::uint16_t>(std::min<std::uint32_t>(moved, 0xffffu)));
+    return verdict;
+  }
+
+  /*
    * Undock. The ships leave the roster **now** and arrive on the grid when the
    * record applies, which is exactly the shape a dock has in reverse: leave the
    * source at filing, arrive at the destination at the apply point. It is also
@@ -381,7 +426,18 @@ OrderVerdict WorldRegistry::SubmitStationCommand(const StationCommand& _command)
     {
       continue; // Validation already refused this case; belt and braces.
     }
-    if (!request.AddMember(TransferMember{row->shipId, row->hullClass, row->wing}))
+    TransferMember member;
+    member.shipId = row->shipId;
+    member.hullClass = row->hullClass;
+    member.wing = row->wing;
+    // Whatever was not committed to the Bay flies out with it (E3). The two
+    // directions of the crossing are symmetric on purpose: a ship that docks
+    // loaded and undocks without transferring is carrying the same ore.
+    for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+    {
+      member.oreUnits[ore] = row->oreUnits[ore];
+    }
+    if (!request.AddMember(member))
     {
       break;
     }
@@ -444,6 +500,121 @@ const SiteLedger* WorldRegistry::Ledger(AnchorId _anchor) const noexcept
   const auto at = std::lower_bound(m_siteLedgers.begin(), m_siteLedgers.end(), _anchor,
                                    [](const SiteLedger& _entry, AnchorId _id) { return _entry.anchor < _id; });
   return at != m_siteLedgers.end() && at->anchor == _anchor ? &*at : nullptr;
+}
+
+/*
+ * The Bays, keyed by `(station, owner)` and kept sorted on that pair.
+ *
+ * The same lower-bound-and-insert shape the ledgers use, over two keys instead
+ * of one: station first because a Bay is a fact about a place before it is a
+ * fact about a person, which is also the order the hash folds them and the
+ * order a station screen reads them.
+ */
+StationBay& WorldRegistry::BayFor(Neuron::PlayerId _owner, AnchorId _station)
+{
+  const auto less = [](const StationBay& _entry, const std::pair<AnchorId, Neuron::PlayerId>& _key)
+  { return _entry.station != _key.first ? _entry.station < _key.first : _entry.owner < _key.second; };
+
+  const std::pair<AnchorId, Neuron::PlayerId> key{_station, _owner};
+  const auto at = std::lower_bound(m_bays.begin(), m_bays.end(), key, less);
+  if (at != m_bays.end() && at->station == _station && at->owner == _owner)
+  {
+    return *at;
+  }
+  StationBay created;
+  created.station = _station;
+  created.owner = _owner;
+  return *m_bays.insert(at, created);
+}
+
+const StationBay* WorldRegistry::Bay(Neuron::PlayerId _owner, AnchorId _station) const noexcept
+{
+  const auto less = [](const StationBay& _entry, const std::pair<AnchorId, Neuron::PlayerId>& _key)
+  { return _entry.station != _key.first ? _entry.station < _key.first : _entry.owner < _key.second; };
+
+  const std::pair<AnchorId, Neuron::PlayerId> key{_station, _owner};
+  const auto at = std::lower_bound(m_bays.begin(), m_bays.end(), key, less);
+  return at != m_bays.end() && at->station == _station && at->owner == _owner ? &*at : nullptr;
+}
+
+/*
+ * The arithmetic behind both transfer verbs (ADR-024 §5c).
+ *
+ * One function for the two directions because they are one move with its sign
+ * flipped, and two would be two places for the conservation rule to be got
+ * wrong in. Nothing is created and nothing is destroyed here: every unit
+ * subtracted from one side is added to the other in the same statement, which
+ * is the property the suite asserts rather than trusting.
+ *
+ * **Roster order, and it is the contract.** Into the Bay the holds are drained
+ * in the order the ships docked; out of it they are filled the same way. That
+ * makes the outcome a function of the world rather than of the order the client
+ * happened to list its ships in -- the same reason the parking scan fixes its
+ * bearing order.
+ *
+ * Returns what actually moved, which can be less than asked on the way *out*:
+ * validation checked the Bay covers it, not that the holds have room, and a
+ * hold that fills stops taking. Nothing is lost -- the remainder stays in the
+ * Bay -- and E4 is where a refinery makes partial fills worth reporting.
+ */
+std::uint32_t WorldRegistry::MoveOre(StationRoster& _roster, StationBay& _bay, const StationCommand& _command, bool _toBay)
+{
+  const auto oreIndex = static_cast<std::uint8_t>(_command.ore);
+  const std::uint32_t litresPerUnit =
+    m_economy != nullptr ? m_economy->ores[oreIndex].unitVolumeLitres : 0;
+
+  std::uint32_t moved = 0;
+  for (RosterEntry& row : _roster.docked)
+  {
+    if (moved >= _command.units)
+    {
+      break;
+    }
+    const bool named = std::any_of(_command.shipIds, _command.shipIds + _command.shipCount,
+                                   [&row](ShipId _id) { return _id == row.shipId; });
+    if (!named)
+    {
+      continue;
+    }
+
+    const std::uint32_t wanted = _command.units - moved;
+    if (_toBay)
+    {
+      const std::uint32_t taken = std::min(wanted, row.oreUnits[oreIndex]);
+      row.oreUnits[oreIndex] -= taken;
+      _bay.oreUnits[oreIndex] += taken;
+      moved += taken;
+      continue;
+    }
+
+    /*
+     * Outward, the hold's own capacity is the limit -- the same litre
+     * arithmetic `World::OreHoldFreeLitres` does, done here because a docked
+     * ship has no world to ask.
+     *
+     * A zero volume means the economy is absent, and then nothing moves rather
+     * than everything: an unbounded hold would be the one place in this file
+     * where missing content invented capacity.
+     */
+    const std::uint32_t capacity = m_economy != nullptr ? m_economy->Cargo(row.hullClass).oreHoldLitres : 0;
+    if (litresPerUnit == 0 || capacity == 0)
+    {
+      continue;
+    }
+    std::uint32_t usedLitres = 0;
+    for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+    {
+      usedLitres += row.oreUnits[ore] * m_economy->ores[ore].unitVolumeLitres;
+    }
+    const std::uint32_t freeLitres = capacity > usedLitres ? capacity - usedLitres : 0;
+    const std::uint32_t room = freeLitres / litresPerUnit;
+
+    const std::uint32_t given = std::min({wanted, room, _bay.oreUnits[oreIndex]});
+    _bay.oreUnits[oreIndex] -= given;
+    row.oreUnits[oreIndex] += given;
+    moved += given;
+  }
+  return moved;
 }
 
 std::uint32_t WorldRegistry::EpochNow(AnchorId _anchor) const noexcept
@@ -511,6 +682,101 @@ SiteField WorldRegistry::FieldAt(AnchorId _anchor) const
   return ResolveField(*anchor, epoch);
 }
 
+/*
+ * The field, and the field the epoch laid out, diffed into a wire row.
+ *
+ * A **live grid is the authority on its own field** and the ledger is the
+ * authority on one that is not, which is the same split `SpinUp` and
+ * `ResolveField` already make -- asked here so the sender never has to know
+ * which case it is in. The pristine field comes from `BuildSiteField` on the
+ * bake's own pools with the epoch's salt: the same call `ResolveField` makes
+ * before it subtracts, which is what makes the denominator the numerator's
+ * actual starting point rather than an estimate of it.
+ */
+SiteStatusRow WorldRegistry::SiteStatusFor(AnchorId _anchor) const
+{
+  const Anchor* anchor = m_universe == nullptr ? nullptr : m_universe->FindAnchor(_anchor);
+  if (anchor == nullptr || anchor->kind != AnchorKind::Site || m_economy == nullptr)
+  {
+    return SiteStatusRow{};
+  }
+
+  std::uint32_t epoch = 0;
+  SiteField field = ResolveField(*anchor, epoch);
+
+  // A grid with ships in it has been mining out of its own copy since spin-up,
+  // and that copy is ahead of the ledger by whatever has not yet crossed the
+  // bus. Preferring it is what keeps a `SiteStatus` from reporting rocks a
+  // wing has visibly already eaten.
+  if (const LiveWorld* live = Find(_anchor); live != nullptr)
+  {
+    field = live->world->Site();
+    epoch = live->fieldEpoch;
+  }
+
+  /*
+   * The denominator: the same `BuildSiteField` call `ResolveField` makes before
+   * it subtracts, with the salt that laid *this* epoch out.
+   *
+   * Resolved through `ResolveSiteEpochAt` for the epoch the field is actually
+   * in -- a live grid keeps its own until it tears down (ADR-024 §3d), so
+   * asking about "now" would be the wrong question. The salt is the whole
+   * identity of a layout -- a status computed against a
+   * different epoch's clusters would compare a field to rocks that were never
+   * there, and the failure mode is silent: every cluster reads 100 % while the
+   * totals visibly fall.
+   */
+  SiteEpochState state;
+  if (!ResolveSiteEpochAt(*m_universe, _anchor, m_economy->sites, epoch, state))
+  {
+    return SiteStatusRow{};
+  }
+  const SiteField pristine = BuildSiteField(m_economy->sites, anchor->site.archetype, anchor->site.grade,
+                                            anchor->site.fieldRadiusCm, state.placement.layoutSalt, anchor->site.poolUnits);
+  return MakeSiteStatus(_anchor, field, pristine, epoch);
+}
+
+std::vector<CargoStatusRow> WorldRegistry::CargoFor(Neuron::PlayerId _owner) const
+{
+  /*
+   * One player today, so every ship on a grid is theirs (ADR-018 D5).
+   *
+   * The parameter is not decoration: it is where the filter goes when there are
+   * two, and taking it now is what makes that a one-line change rather than a
+   * signature change through the sender. `INVALID_PLAYER_ID` gets nothing,
+   * which is the honest answer to "what does nobody own".
+   */
+  std::vector<CargoStatusRow> rows;
+  if (_owner == Neuron::INVALID_PLAYER_ID)
+  {
+    return rows;
+  }
+
+  for (const LiveWorld& entry : m_live)
+  {
+    const std::span<const ShipId> ids = entry.world->Ids();
+    const std::span<const ShipCargo> holds = entry.world->Cargo();
+    for (std::size_t slot = 0; slot < ids.size() && slot < holds.size(); ++slot)
+    {
+      const ShipCargo& cargo = holds[slot];
+      const bool carrying = std::any_of(std::begin(cargo.oreUnits), std::end(cargo.oreUnits),
+                                        [](std::uint32_t _units) { return _units > 0; });
+      if (!carrying || rows.size() >= MAX_CARGO_STATUS_ROWS)
+      {
+        continue;
+      }
+      CargoStatusRow row;
+      row.shipId = ids[slot];
+      for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+      {
+        row.oreUnits[ore] = cargo.oreUnits[ore];
+      }
+      rows.push_back(row);
+    }
+  }
+  return rows;
+}
+
 std::span<const RosterEntry> WorldRegistry::Roster(AnchorId _anchor) const noexcept
 {
   const auto at = std::lower_bound(m_rosters.begin(), m_rosters.end(), _anchor,
@@ -556,7 +822,17 @@ void WorldRegistry::ApplyDueTransfers()
 
         // The roster keeps the id (ADR-017 §1): the ship that undocks is the
         // ship that docked, and every log and order that named it still does.
-        roster.docked.push_back(RosterEntry{member.shipId, member.hullClass, member.wing});
+        // And the hold with it (E3) -- ore is property, so docking parks it
+        // rather than spending it.
+        RosterEntry row;
+        row.shipId = member.shipId;
+        row.hullClass = member.hullClass;
+        row.wing = member.wing;
+        for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+        {
+          row.oreUnits[ore] = member.oreUnits[ore];
+        }
+        roster.docked.push_back(row);
 
         // Docked counts as presence (ADR-017 §7), so the index keeps pointing
         // at the station rather than forgetting where the ship went.
@@ -850,6 +1126,20 @@ void WorldRegistry::ApplyTransit(const TransferRequest& _request)
     spawn.xMetres = stations[index].positionMetres.x;
     spawn.yMetres = stations[index].positionMetres.y;
     spawn.headingRadians = facing;
+
+    /*
+     * And the hold (E3). A crossing is a crossing: a fleet that warps out
+     * loaded arrives loaded, exactly as one that undocks does.
+     *
+     * This was the one of the three that got missed, and the G0 scenario is
+     * what found it -- the unit suite had a dock and an undock and no warp, so
+     * ore survived both boundaries anybody had thought to test and evaporated
+     * on the one nobody had.
+     */
+    for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+    {
+      spawn.cargo.oreUnits[ore] = member->oreUnits[ore];
+    }
     if (world->Spawn(spawn, member->shipId) != INVALID_SHIP_ID)
     {
       RecordLocation(member->shipId, _request.anchor);
@@ -955,9 +1245,14 @@ void WorldRegistry::ApplyUndock(const TransferRequest& _request)
     spawn.yMetres = stations[index].positionMetres.y;
     spawn.headingRadians = facing;
     spawn.protectedUntilTick = m_shardTick + protectionTicks;
+    for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+    {
+      spawn.cargo.oreUnits[ore] = member->oreUnits[ore];
+    }
 
     // Undocking spawns it **full**, and that is not a repair step: the roster
-    // held no gauges to be damaged (ADR-017 §1).
+    // held no gauges to be damaged (ADR-017 §1). It also spawns it **loaded**,
+    // which is not a gauge either: the hold crossed on the record (E3).
     if (world->Spawn(spawn, member->shipId) != INVALID_SHIP_ID)
     {
       RecordLocation(member->shipId, _request.anchor);
@@ -1258,6 +1553,36 @@ std::uint64_t WorldRegistry::Hash() const
       hash = Neuron::HashValue(docked.shipId, hash);
       hash = Neuron::HashValue(static_cast<std::uint8_t>(docked.hullClass), hash);
       hash = Neuron::HashValue(docked.wing, hash);
+      // And the hold (E3). Ore that survived a dock is state a reload has to
+      // reproduce, so a replay that lost a manifest in the crossing says so
+      // here rather than at the moment somebody notices their haul is gone.
+      for (const std::uint32_t units : docked.oreUnits)
+      {
+        hash = Neuron::HashValue(units, hash);
+      }
+    }
+  }
+
+  /*
+   * And the Bays (ADR-024 §5b, E3), on the roster's terms exactly.
+   *
+   * Durable, universe-layer, folded in key order -- and **unlike the ledgers,
+   * with no currency rule**: a Bay has no epoch to go stale against. What is in
+   * it was put there by a command and stays until another command moves it,
+   * which is the whole difference between committed property and a pool the
+   * shard refills on a calendar.
+   *
+   * A Bay exists only once something has been put in it, so this loop is
+   * proportional to what commanders have actually committed rather than to how
+   * many stations the bake authored -- the same discipline the ledgers keep.
+   */
+  for (const StationBay& bay : m_bays)
+  {
+    hash = Neuron::HashValue(bay.station, hash);
+    hash = Neuron::HashValue(bay.owner, hash);
+    for (const std::uint32_t units : bay.oreUnits)
+    {
+      hash = Neuron::HashValue(units, hash);
     }
   }
   /*

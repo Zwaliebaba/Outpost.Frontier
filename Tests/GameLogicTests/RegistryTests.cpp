@@ -250,7 +250,7 @@ public:
     const ShipId fleet[] = {first, second};
     DockAndLand(registry, station, fleet, tick);
 
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     Assert::AreEqual<std::size_t>(0, registry.Roster(station).size(), L"they left the roster when the record was filed");
 
     registry.Tick(++tick);
@@ -291,7 +291,7 @@ public:
     const ShipId fleet[] = {ship};
     DockAndLand(registry, station, fleet, tick);
 
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     registry.Tick(++tick);
 
     const std::uint32_t arrival = tick;
@@ -319,7 +319,7 @@ public:
     const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
     const ShipId fleet[] = {ship};
     DockAndLand(registry, station, fleet, tick);
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     registry.Tick(++tick);
 
     World* world = registry.Borrow(station);
@@ -354,12 +354,12 @@ public:
     const ShipId fleet[] = {ship};
     DockAndLand(registry, stations[0], fleet, tick);
 
-    const OrderVerdict elsewhere = registry.SubmitStationCommand(Undock(stations[1], fleet));
+    const OrderVerdict elsewhere = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(stations[1], fleet));
     Assert::IsFalse(elsewhere.accepted);
     Assert::IsTrue(elsewhere.reason == OrderReason::NotDocked, L"the station is real; the ship is not on it");
 
     const ShipId stranger[] = {static_cast<ShipId>(4242)};
-    const OrderVerdict unknown = registry.SubmitStationCommand(Undock(stations[0], stranger));
+    const OrderVerdict unknown = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(stations[0], stranger));
     Assert::IsFalse(unknown.accepted);
     Assert::IsTrue(unknown.reason == OrderReason::NotDocked);
   }
@@ -378,8 +378,8 @@ public:
     const ShipId fleet[] = {ship};
     DockAndLand(registry, station, fleet, tick);
 
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
-    const OrderVerdict again = registry.SubmitStationCommand(Undock(station, fleet));
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
+    const OrderVerdict again = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet));
     Assert::IsFalse(again.accepted);
     Assert::IsTrue(again.reason == OrderReason::NotDocked);
   }
@@ -409,12 +409,12 @@ public:
     assign.wing = 7;
     Assert::IsTrue(assign.AddShip(ship));
 
-    Assert::IsTrue(registry.SubmitStationCommand(assign).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, assign).accepted);
     Assert::AreEqual<std::uint32_t>(0, registry.PendingTransferCount(), L"a wing is a number, not a place");
     Assert::AreEqual<std::uint32_t>(7, registry.Roster(station)[0].wing);
 
     // And it travels with the ship: undocking spawns it into wing 7.
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     registry.Tick(++tick);
     const World* world = registry.Peek(station);
     for (std::size_t slot = 0; slot < world->Ids().size(); ++slot)
@@ -443,19 +443,19 @@ public:
     StationCommand empty = Undock(station, {});
     empty.formation = static_cast<FormationId>(200);
     empty.station = 9999;
-    Assert::IsTrue(registry.SubmitStationCommand(empty).reason == OrderReason::EmptySelection);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, empty).reason == OrderReason::EmptySelection);
 
     StationCommand badFormation = Undock(station, fleet);
     badFormation.formation = static_cast<FormationId>(200);
     badFormation.station = 9999;
-    Assert::IsTrue(registry.SubmitStationCommand(badFormation).reason == OrderReason::InvalidFormation);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, badFormation).reason == OrderReason::InvalidFormation);
 
     StationCommand nowhere = Undock(9999, fleet);
-    Assert::IsTrue(registry.SubmitStationCommand(nowhere).reason == OrderReason::UnknownStation);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, nowhere).reason == OrderReason::UnknownStation);
 
     // And only then does the roster get to answer.
     const ShipId stranger[] = {static_cast<ShipId>(4242)};
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, stranger)).reason == OrderReason::NotDocked);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, stranger)).reason == OrderReason::NotDocked);
   }
 
   TEST_METHOD(AnUndockIntoATornDownGridSpinsOneUp)
@@ -476,7 +476,7 @@ public:
     registry.Tick(++tick); // Nothing left on the grid, nobody watching: it goes.
     Assert::IsNull(registry.Peek(station));
 
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     registry.Tick(++tick);
     Assert::IsNotNull(registry.Peek(station), L"the fleet had somewhere to arrive");
   }
@@ -499,7 +499,7 @@ public:
     const ShipId fleet[] = {ship};
     DockAndLand(registry, station, fleet, tick);
 
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     registry.Tick(++tick);
 
     const World* world = registry.Peek(station);
@@ -550,8 +550,8 @@ public:
 
     const ShipId one[] = {first};
     const ShipId two[] = {second};
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, one)).accepted);
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, two)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, one)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, two)).accepted);
     registry.Tick(++tick);
 
     const World* world = registry.Peek(station);
@@ -613,7 +613,7 @@ public:
       }
     }
 
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     registry.Tick(++tick);
 
     const World* world = registry.Peek(station);
@@ -668,10 +668,10 @@ public:
     assign.station = station;
     assign.wing = 4;
     Assert::IsTrue(assign.AddShip(first));
-    Assert::IsTrue(registry.SubmitStationCommand(assign).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, assign).accepted);
 
     const std::uint64_t before = registry.Hash();
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     registry.Tick(++tick);
 
     const std::span<const EventEntry> entries = registry.Events().Entries();
@@ -719,10 +719,10 @@ public:
       assign.station = stations[0];
       assign.wing = 3;
       Assert::IsTrue(assign.AddShip(b));
-      Assert::IsTrue(registry.SubmitStationCommand(assign).accepted);
+      Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, assign).accepted);
 
       const ShipId back[] = {a, b};
-      Assert::IsTrue(registry.SubmitStationCommand(Undock(stations[0], back, FormationId::Wedge)).accepted);
+      Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(stations[0], back, FormationId::Wedge)).accepted);
       registry.Tick(++tick);
       registry.Tick(++tick);
       registry.Tick(++tick);
@@ -1567,6 +1567,8 @@ public:
     writer.WriteUInt16(7);
     writer.WriteUInt8(static_cast<std::uint8_t>(FormationId::Line));
     writer.WriteUInt8(0);
+    writer.WriteUInt8(static_cast<std::uint8_t>(OreId::FerroChroma)); // E3's ore byte.
+    writer.WriteUInt32(0);                                            // ...and its unit count.
     writer.WriteUInt16(1);
     writer.WriteUInt32(65537);
     Assert::IsTrue(writer.Ok());
@@ -1586,6 +1588,8 @@ public:
     writer.WriteUInt16(7);
     writer.WriteUInt8(0);
     writer.WriteUInt8(0);
+    writer.WriteUInt8(static_cast<std::uint8_t>(OreId::FerroChroma));
+    writer.WriteUInt32(0);
     writer.WriteUInt16(65535); // Sixty-five thousand ships in one command.
     Assert::IsTrue(writer.Ok());
 

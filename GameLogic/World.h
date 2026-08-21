@@ -309,6 +309,18 @@ struct ShipSpawn
   /// because a ship that is protected from its first tick and a ship that
   /// becomes protected on its second are different things on the wire.
   std::uint32_t protectedUntilTick = 0;
+
+  /*
+   * What it arrives holding (ADR-024 §5, E3), and empty for a ship that was not
+   * handed over by a crossing.
+   *
+   * A spawn parameter for the same reason `protectedUntilTick` is one: a ship
+   * that is loaded on its first tick and a ship that is loaded on its second
+   * are different things to everything downstream -- the hold check, the
+   * summary, the hash. Setting it afterwards would leave one tick in which the
+   * ore existed on the record and not in the world.
+   */
+  ShipCargo cargo;
 };
 
 class World

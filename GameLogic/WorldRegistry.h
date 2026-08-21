@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EconomyMessages.h"
 #include "EventRecord.h"
 #include "FleetSummary.h"
 #include "Ids.h"
@@ -127,6 +128,25 @@ public:
   [[nodiscard]] std::span<const SiteLedger> Ledgers() const noexcept { return m_siteLedgers; }
 
   /*
+   * What a commander has committed at a station (ADR-024 §5b), or null for a
+   * Bay nobody has put anything in.
+   *
+   * Null is the empty answer and not an absence, exactly as it is for a site
+   * ledger: a Bay exists once something has been stored, so "no Bay" and "an
+   * empty Bay" are the same statement and the durable set stays proportional to
+   * what has happened rather than to how many stations exist.
+   *
+   * Takes the owner because a Bay without one is not addressable -- that is the
+   * privacy rule living in the key rather than in a filter somebody has to
+   * remember to apply (ADR-017 §1).
+   */
+  [[nodiscard]] const StationBay* Bay(Neuron::PlayerId _owner, AnchorId _station) const noexcept;
+
+  /// All of them, in `(station, owner)` order -- the order the hash folds them
+  /// and the order ADR-025's journal will write them.
+  [[nodiscard]] std::span<const StationBay> Bays() const noexcept { return m_bays; }
+
+  /*
    * The field a site's grid would be spun up with right now.
    *
    * Bake plus ledger, resolved through the current epoch -- the same function
@@ -136,6 +156,36 @@ public:
    * universe layer knows without one.
    */
   [[nodiscard]] SiteField FieldAt(AnchorId _anchor) const;
+
+  /*
+   * That field as the wire reports it (ADR-024 §8, E3).
+   *
+   * Here rather than in the sender because answering it takes three things only
+   * the registry has together: which grid is live (a live one is the authority
+   * on its own field), what the ledger has taken out, and what the epoch's
+   * layout started with. A sender that assembled those itself would be a second
+   * place for "how eaten is that field" to be computed, and the two would drift
+   * the first time one of them learned about a new hazard.
+   *
+   * A grid that is not a site answers a zeroed row, which writes as a status
+   * with no clusters -- honest, and cheaper than making every caller ask twice.
+   */
+  [[nodiscard]] SiteStatusRow SiteStatusFor(AnchorId _anchor) const;
+
+  /*
+   * What one commander's ships are carrying, across every grid they are on
+   * (ADR-024 §5, E3).
+   *
+   * **Keyed by the viewer, not filtered for them.** The privacy of a
+   * `CargoStatus` is a property of what this function is asked rather than of
+   * what the sender remembers to leave out -- there is no version of this that
+   * returns everybody's holds and trusts the caller.
+   *
+   * Docked ships are not here: their holds ride on the roster, which is already
+   * sent per viewer. One fact in one place, and a hangar screen reading two
+   * sources for the same number is exactly the drift this avoids.
+   */
+  [[nodiscard]] std::vector<CargoStatusRow> CargoFor(Neuron::PlayerId _owner) const;
 
   /*
    * What happened, in order (ADR-018 D19).
@@ -214,7 +264,7 @@ public:
    * `AssignWing` writes the roster row on the spot, because nothing crosses --
    * a wing is a number a ship carries, not a place it is.
    */
-  [[nodiscard]] OrderVerdict SubmitStationCommand(const StationCommand& _command);
+  [[nodiscard]] OrderVerdict SubmitStationCommand(Neuron::PlayerId _owner, const StationCommand& _command);
 
   /// Takes a ship off a grid and out of the index. The counterpart of `Spawn`,
   /// and the path a caller should take for the same reason: `World::Despawn`
@@ -327,6 +377,16 @@ private:
   /// pristine field out of the durable set.
   [[nodiscard]] SiteLedger& LedgerFor(AnchorId _anchor);
 
+  /// The Bay for an owner at a station, made if it is not there. The mutable
+  /// half of `Bay`, and the only thing that creates one -- which is what keeps
+  /// an empty Bay out of the durable set.
+  [[nodiscard]] StationBay& BayFor(Neuron::PlayerId _owner, AnchorId _station);
+
+  /// Moves ore between the holds on a station's roster and a Bay, in roster
+  /// order, and returns how much actually moved. Validation has already said
+  /// the source can cover it; this is the arithmetic.
+  std::uint32_t MoveOre(StationRoster& _roster, StationBay& _bay, const StationCommand& _command, bool _toBay);
+
   [[nodiscard]] LiveWorld* Find(AnchorId _anchor) noexcept;
   [[nodiscard]] const LiveWorld* Find(AnchorId _anchor) const noexcept;
   [[nodiscard]] LiveWorld& SpinUp(const Anchor& _anchor);
@@ -368,6 +428,17 @@ private:
    * residents now.
    */
   std::vector<SiteLedger> m_siteLedgers;
+
+  /*
+   * And the Bays (ADR-024 §5b), the third resident of the same rule.
+   *
+   * Sorted by `(station, owner)`, which is the order the hash folds them in and
+   * the order a station's screen would read them: everything about one place
+   * together, and one commander's row findable inside it. The reverse ordering
+   * would put a commander's whole estate together, which is a question nothing
+   * asks -- a Bay is a fact about a station first.
+   */
+  std::vector<StationBay> m_bays;
 
   /// Beside them, and unlike them **not** in the hash: an event describes
   /// something the simulation already did, and folding the description in as
