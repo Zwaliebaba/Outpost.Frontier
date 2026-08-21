@@ -805,6 +805,33 @@ files, which is what a restart is. The host section proves the **wiring**: after
 own reload proof. The second is the one a person would forget to make, and a store that works
 and is never called is a shard that loses everything while passing every unit test.
 
+**CI's verdict (run 172, commit `2e67966`, 2026-08-21).** Debug|x64, Release|x64 and Spike 2
+all green. **773 tests pass on MSVC** with none failing, every source guard green, no clang-tidy
+finding, and one warning in the whole build — the pre-existing `NeuronClient\Picking.cpp(51)`
+C4723. `self test: PASSED`, including **seventeen new persistence checks**: the shard serialises
+its durable state, a shard with no state opens fresh, the restarted shard finds it and reads it
+back, **the reload reproduces the proof**, the roster, the hold and the Bay all survive, a load
+into a running shard is refused, and a re-baked universe refuses to load an old one.
+
+**The line worth quoting is from the host rather than from a test**, because it is the claim a
+person would forget to make: `shard snapshot at tick 173: 1382 bytes, durable hash
+c5dda30f194e6d2c`, immediately followed by `server host stopped after 173 ticks`. The shipping
+binary wrote itself down on the way out, on the Sim thread, before anything was torn down —
+which is "a clean stop loses nothing" as an observation instead of an intention.
+
+**The replay hash did not move, and this time that is the prediction.** It is
+`69c58e2751c0df22` (checkpoint `fa56d9f638cba0fe`), byte for byte E2's and E3's, and Spike 2
+confirms Debug and Release agree on it. E3's Built line explains why in advance: the replay
+scenario is six ships in a bare `World` hashed with `ComputeWorldHash`, and **this slice adds no
+world state at all** — it reads existing state and writes it to a file. A slice that moved the
+replay hash while claiming to add nothing to the simulation would be the thing to investigate.
+
+The tick soak is inside its tripwire and worth one sentence rather than a celebration: a capped
+grid costs **9.635 ms mean / 16.971 ms worst** against E3's 8.729 / 17.573, which is 19.3 % of
+the tick and 5.2 capped grids per core against E3's 5.7 — run-to-run variance on a shared
+runner rather than a trend, since nothing here runs per tick. Content is untouched and the
+universe parses in **219 ms** on Release.
+
 *What is deliberately not here, and is E4b's: the journal's **game** records. The store's
 journal exists, is framed, CRC'd, recovered and tested, and nothing appends to it yet — so a
 hard kill today loses back to the last snapshot rather than to the last second. The per-outcome

@@ -334,6 +334,15 @@ Each has a test beside it now. CI found a fifth that the Linux harness structura
 MSVC refuses `std::fopen` under this tree's conformance settings, in the test file that opens
 the store's files by hand to damage them.
 
+**CI's verdict (run 172, 2026-08-21):** Debug|x64, Release|x64 and Spike 2 all green, **773
+tests on MSVC** with none failing, no clang-tidy finding, one pre-existing warning, and
+`self test: PASSED` with seventeen new persistence checks. The replay hash did not move —
+`69c58e2751c0df22`, byte for byte E2's and E3's — which is the prediction rather than a
+surprise: this slice adds no world state at all, it reads existing state and writes it to a
+file. The line worth quoting came from the host rather than a test: `shard snapshot at tick 173:
+1382 bytes, durable hash c5dda30f194e6d2c`, immediately followed by `server host stopped after
+173 ticks`.
+
 **R26's early-validation signal starts here** rather than at G1 — the `selfTest` restart
 scenario, in two halves because they are two claims: `RunRestartLoop` proves the *format* (a
 second registry and a second store meeting the first only through two files, which is what a
