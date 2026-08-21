@@ -1894,16 +1894,42 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
         }
         checks.Record("the snapshot decodes to ships", applied && !ships.empty());
 
-        if (!ships.empty())
+        /*
+         * One of the COMMANDER'S OWN hulls, which used to be `ships.front()`
+         * (U3c-b).
+         *
+         * The station is an authored occupant, it is spawned first on a station
+         * grid -- "the first occupant is the structure itself" -- and so it is
+         * what `front()` returns. Ordering it was accepted until this slice,
+         * because nothing knew who owned anything; it is refused `NotOwned`
+         * now, which is right, and it makes the fixture wrong rather than the
+         * rule.
+         *
+         * Worth saying plainly: for the whole of the MVP this check has been
+         * proving that the ack path works by telling a SPACE STATION to move
+         * a hundred metres to the right.
+         */
+        const Game::ReplicatedShip* mine = nullptr;
+        for (const Game::ReplicatedShip& ship : ships)
+        {
+          if (ship.classId != static_cast<std::uint8_t>(Game::HullClass::Structure))
+          {
+            mine = &ship;
+            break;
+          }
+        }
+        checks.Record("the snapshot holds a hull of the commander's own", mine != nullptr);
+
+        if (mine != nullptr)
         {
           // A real order for a real ship, exactly as the client would send it:
           // decoded from the snapshot, validated by the game, acknowledged
           // back with the sequence it went out under (ADR-004 §7).
           Game::OrderSubmit order;
           order.orderSeq = 4242;
-          (void)order.AddShip(ships.front().id);
-          order.target.xCm = Neuron::MetresToCentimetres(ships.front().positionMetres.x + 100.0f);
-          order.target.yCm = Neuron::MetresToCentimetres(ships.front().positionMetres.y);
+          (void)order.AddShip(mine->id);
+          order.target.xCm = Neuron::MetresToCentimetres(mine->positionMetres.x + 100.0f);
+          order.target.yCm = Neuron::MetresToCentimetres(mine->positionMetres.y);
 
           std::array<std::uint8_t, Game::MAX_ORDER_SUBMIT_BYTES> orderBuffer{};
           Neuron::ByteWriter orderWriter{orderBuffer};
