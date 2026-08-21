@@ -56,8 +56,8 @@ problem with a line and a JSON path rather than the first. `ComputeEconomyHash` 
 the parsed content the way `ComputeUniverseHash` does, so comments, whitespace and key order
 never move it and a changed number always does. `Outpost/EconomyLoad.{h,cpp}` opens the file
 and computes the hash, mirroring `UniverseLoad`; `Outpost.json` gains
-`"economy": { "definition": "GameData/Economy/Economy.json" }`; `CopyGameData` picks up the
-new folder so a fresh clone still presses F5.
+`"economy": { "definition": "GameData/Economy/Economy.json" }`; the post-build content copy
+takes the whole tree, so the new folder arrives with it and a fresh clone still presses F5.
 
 **The handshake takes one number, not two.** `ServerDesc::contentHash` is mixed —
 `contentHash = Mix(universeHash, economyHash)` — so an economy mismatch is refused by the
@@ -439,6 +439,29 @@ post-mortem written into its comment), and the fatal dialog is gated to attended
 launches — headless, bake and self-test runs report to the log and stderr and **exit**. The
 watchdog and the per-line flush stay, because the next hang should also cost five minutes and
 name its own line.
+
+**And the copy is a post-build event again, on the owner's call — this time built so that the
+same failure cannot recur silently (2026-08-21).** `Outpost/CopyGameData.cmd` is one script
+called once per configuration, and every defect of the xcopy version is answered by its shape
+rather than by care. One script instead of a command per configuration, so the destination is
+written in a single place and the two configurations cannot drift apart. **robocopy** instead
+of xcopy, because `/XF` takes patterns and paths directly — the flag that broke the last
+attempt does not exist here. A single command in the event plus an explicit `exit /b`, so
+MSBuild sees the script's exit code and not the last echo's; robocopy's bitmask is translated
+at the one place that can get it right (`GEQ 8` is failure, `1` merely means files moved, and a
+caller that treated non-zero as failure would fail every build that had anything to do).
+Failures are printed in MSBuild's canonical `origin : error : text` form, so they land in the
+error list rather than in the scrollback.
+
+**None of that is what makes it safe, though.** What the last failure actually lacked was
+anybody checking the result, and the self test could not: it runs from a scratch directory
+whose `Outpost.json` points back at the repo's content, so a build that shipped no content at
+all still reaches the end of the job. So the build gained a step that names files —
+`Outpost.json` beside the exe, `Frontier.json`, `Economy.json`, `SoundBank.json` and
+`Miner.obj` under `GameData\`, no second config inside the tree and no copied log. A count
+would only say the copy ran; a name says the loader will find what it asks for, which is the
+thing that failed. That step is the guard, and the mechanism above it is now free to be
+whichever one reads best.
 
 **And the merge head is green (run 159, commit `59d4a20`, 2026-08-21).** Debug|x64,
 Release|x64 and Spike 2 all pass in ten minutes; the self test is back to twelve seconds and

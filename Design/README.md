@@ -255,6 +255,15 @@ bare `World` hashed with `ComputeWorldHash`, while the Bay and the manifests are
 `WorldRegistry` state. **The replay hash is a world hash, not a shard hash**, so an unmoved
 number says nothing either way about the universe layer.
 
+**And the content copy is a post-build script now, on the owner's call (2026-08-21).**
+`Outpost/CopyGameData.cmd` replaces the `CopyGameData` MSBuild target below: one robocopy
+script called once per configuration, holding the whole rationale, with robocopy's bitmask exit
+code translated at the one place that can get it right and failures printed in MSBuild's
+canonical error form. The mechanism is the smaller half of the change. The build also gained a
+step that **names the files that must be beside the executable** — which is precisely what the
+45-minute hang lacked, because the self test reads the repo's content rather than the build's
+and so cannot notice a deployment that shipped nothing at all.
+
 *(The merge with `main`'s station-progress work first inherited a CI hang — `a6dd412`'s
 xcopy rewrite of the content copy left the exe bootless on a fresh clone, and a startup
 failure raised a modal dialog no headless runner could dismiss. Diagnosed by instrumentation

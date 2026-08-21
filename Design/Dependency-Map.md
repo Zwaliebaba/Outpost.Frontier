@@ -155,6 +155,11 @@ the self test so the number is re-taken in Release on every push — ADR-018 A4/
 and the game says which shaders go in them, ADR-013 §1a). **Nothing else.** Nothing depends on
 it.
 
+`CopyGameData.cmd` sits in the folder but is not one of those files and is not a dependency of
+anything: it is the script the project's post-build event calls, putting `GameData/` and
+`Outpost.json` beside the built executable so that a fresh clone can press F5. Its own header
+carries the reasoning, and a CI step after the build asserts the layout it produces by name.
+
 It is also the only place universe metres become render metres: it reads the authored
 placements, converts them into the tactical grid's local frame, and hands them to the world
 view. GameLogic owns the exact coordinates and the engine owns the drawing; the conversion
