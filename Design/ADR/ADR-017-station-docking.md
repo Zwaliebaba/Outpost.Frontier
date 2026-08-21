@@ -263,13 +263,18 @@ work; a 260-px roster column was rejected as its home.
 **The print's "tabs, not tiles" call was cashed in on 2026-08-21, and it held.** P1 decided
 that the station's future arrives as *sibling tabs in a fixed row* rather than as panels
 inside the hangar, so that the hangar's layout never reshuffles when a service lands and each
-service gets a full screen. The economy phase tested that on 2026-08-21 and it held: D-P2's
-[cargo-tab.png](../ScreenPrints/cargo-tab.png) added **CARGO** and **REFINERY** to the row
-between HANGAR and REPAIR, D-P3's [refinery-tab.png](../ScreenPrints/refinery-tab.png) filled
-the second of them, and the hangar's own layout is untouched by either — no panel moved, no
-column narrowed, nothing renegotiated. Two whole services arrived and the screen this ADR
-designs did not change. That is the difference between a layout decision that anticipated
-growth and one that merely left room.
+service gets a full screen. The economy phase tested that on 2026-08-21 and it held:
+[cargo-tab.png](../ScreenPrints/cargo-tab.png) (D-P2) and
+[refinery-tab.png](../ScreenPrints/refinery-tab.png) (D-P3) added **CARGO** and **REFINERY**
+to the row between HANGAR and REPAIR, and P1's own plate was re-captured the same day to carry
+the seven-tab row rather than the five it was drawn with.
+
+**What changed was the row; what did not change was the hangar.** No panel moved, no column
+narrowed, no gesture renegotiated — two whole services arrived and the screen this ADR designs
+is the same screen. That is the difference between a layout decision that anticipated growth
+and one that merely left room, and it is worth having on the page for whoever proposes the
+next tab: a service costs a tab and nothing else, and a service that would cost more than a
+tab is a service that has misread this decision.
 
 **Wings while docked are emergent, like fleets.** `AssignWing` writes a ship's `WingId` —
 any value 1..255; a wing *exists* iff a ship carries its id, "new wing" is picking an

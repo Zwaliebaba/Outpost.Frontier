@@ -328,7 +328,12 @@ Validation, in the house grammar:
 - The grid's anchor must be a Site — else **`NotAtSite = 17`** ("there is no field here"),
   the `NotAtStation` sentence one noun along. Getting there is the client's job: the MINE
   context action on a site (system view or tactical) feeds Warp, then Mine — the DOCKING
-  chip pattern, shown as a MINING chip.
+  chip pattern, shown as a MINING chip. **The command wheel stays eight sectors**
+  (`puck-and-wheel.png`, 2026-08-21): MINE is a context-bar verb exactly as DOCK is
+  (ADR-017 §2), not a ninth sector, because a wheel whose shape changes as content lands
+  stops being learnable as a shape — which is the same sentence that print already uses to
+  keep its sectors in fixed positions. The **ore filter defaults to `Any`** and v1 draws no
+  picker; the server assigns the richest matching cluster.
 - At least one named ship must be a Miner — else **`NoMinerInOrder = 18`**. Mixed groups
   are *legal and intended*: non-Miner hulls in the order take formation stations around
   the worked cluster and hold — **escorted mining is the null-sec fantasy and it falls
@@ -475,9 +480,16 @@ past the screen.
 
 **The vocabulary is item stacks, and ore is only the first family.** Every readout on the tab
 is an `(item, units, litres)` triple — manifest columns, Bay rows, the MOVE filter chips, the
-fill preview. That is not decoration: it is what makes ADR-008c's taxonomy, and the alloys §6
-adds at E4, grow the screen **by rows and chips rather than by redesign**, and it is why no
-label on the tab says "ore" where "item" is meant. The print pre-authorises the one layout
+fill preview. That is not decoration: it is what makes the alloys §6 adds at E4 — and the
+wider item taxonomy the print calls for — grow the screen **by rows and chips rather than by
+redesign**, and it is why no label on the tab says "ore" where "item" is meant.
+
+*(A caveat on that taxonomy, because the print names one and this corpus does not have it: the
+`ItemTypeId`-and-container-kinds design D-P2 leans on lives **upstream of these documents and
+has no ADR here**. Nothing in this phase is blocked by that — ore is the only family E1–E5
+ships — but the tab's central claim, that ore is the first family of many, currently rests on
+a document this repository cannot cite. It is listed in `README.md`'s inventory of surfaces and
+designs with no home here.)* The print pre-authorises the one layout
 change it can foresee — per-item manifest columns hold to about five item types, past which
 they collapse to stacked chips per hull — so the growth path is a decision already taken
 rather than one a future slice discovers.

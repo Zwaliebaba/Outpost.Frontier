@@ -1,5 +1,26 @@
 # Screen consistency audit — 2026-08-21
 
+**Status: ARCHIVED, 2026-08-21 — the day it was written.** An audit is finished when its
+findings have been acted on, and this one's were the same day: the four inconsistencies were
+fixed in the prints, and everything it found that this corpus needed to *keep* has been lifted
+into the documents that govern — the tab-row verdict into
+[ADR-017 §6](../ADR/ADR-017-station-docking.md), the wheel's eight sectors and MINE as a
+context verb into [ADR-024 §4a](../ADR/ADR-024-mining-economy.md), and the inventory of
+surfaces with no print into [README.md](../README.md). One finding outlived the fix and is
+recorded there rather than here: the item taxonomy this audit's source document cites has no
+ADR in this corpus, so D-P2's "ore is the first family of many" is currently uncitable.
+
+It stays readable because it is the evidence — the same reason
+[Scaling-Readiness-Review.md](Scaling-Readiness-Review.md) does. Nothing owed lives only here.
+The one live document it points at, [prompt-hud-economy.md](../prompt-hud-economy.md), is still
+at the top level because its work is not done.
+
+**A caveat for anyone reading it later.** The scope line below describes `main` as it stood in
+the project this audit was written in; the branch state it names arrived in this repository
+afterwards, so a reader checking the tree against it should check the date rather than assume.
+
+---
+
 Scope: all 12 design documents in this project, cross-checked against each other and against
 `main` as built (E1a–E3 green, run 161; E4/E5 pending). Trigger: D-P2/D-P3 landing after eight
 screens were already designed and the tactical HUD already implemented.
@@ -19,7 +40,7 @@ D-P2 ↔ D-P3 agree on tier tag, Bay contents, privacy language; Alerts' WALL-TI
 covers "long industry job finished while away" (now the refinery, no change needed).
 
 ## Implemented-code impact → prompt-hud-economy.md
-The tactical HUD is live C++ and shows nothing of the built economy. `prompt-hud-economy.md`
+The tactical HUD is live C++ and shows nothing of the built economy. [prompt-hud-economy.md](../prompt-hud-economy.md)
 (new) scopes the four additions for Claude Code: MINE context verb (reason parity 17–19),
 MINING chip via the LegEtaSeconds seam, HOLD FULL on the roster strip from CargoStatus,
 minimal SiteStatus cluster bars. Station tabs stay E5's, to the D-P2/D-P3 prints.
