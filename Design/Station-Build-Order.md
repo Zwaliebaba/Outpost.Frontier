@@ -275,7 +275,10 @@ behaviour until the interest/delta slice, A13/SIM-4 — now designed as
 truncation, and whose §1 is why the sender T2 writes must be **per client from its first
 line**); the roster message is observed to reach **only** its owner's connection — which
 ADR-022 §1 restates as a rule rather than a test: on a broadcast-shaped sender that privacy
-promise is a silent leak nothing catches, because nothing before U3c runs two clients; a dock validated at fleet scale (the 41-ship
+promise is a silent leak nothing catches, because nothing before U3c runs two clients — **and
+U3c ran them on 2026-08-21, which turned the rule back into a test: the `selfTest` now asserts
+that the second commander never receives the first's roster or summaries, over a real socket**;
+a dock validated at fleet scale (the 41-ship
 starting fleet, footprint-derived radius) round-trips with parity.
 
 **🏁 H0 met, 2026-08-20 — the last four criteria closed.** The loop had run end to end
@@ -326,6 +329,12 @@ Two criteria are met by exemption rather than by a check, both recorded rather t
 over a socket, because fifteen seconds is far longer than this gate should sit; and the
 **roster-privacy observation** is ADR-022 §1's rule rather than a test, because nothing before
 U3c runs two clients to leak between.
+
+> **Closed 2026-08-21 by U3c**, and the delay was right for a reason this note did not have:
+> two clients were necessary and not sufficient. Until U3c-a gave ships owners, both commanders
+> owned everything, so a twin-client test would have asserted privacy and passed on a registry
+> that had none. The observation is a test now — `selfTest`'s twin-client section, with the
+> second commander's assertions written *negatively* — and it can fail.
 
 ### T3 — The hangar screen 🏁 H1
 **No design gate left. P1, the station-screen print, landed 2026-08-19 —

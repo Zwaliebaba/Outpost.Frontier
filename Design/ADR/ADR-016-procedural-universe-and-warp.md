@@ -205,6 +205,15 @@ The roster becomes location-grouped blocks and is the primary focus switch; the 
    is clickable.
 
 Rules: the view may point at **any grid where the player has ships** — and nowhere else.
+
+> **Built and enforced per viewer at U3c-a, 2026-08-21.** `MayView` had answered this rule for
+> the composition root's scripted patrol list rather than for the asking commander, so it
+> returned the same answer to everyone: the second commander to connect could have watched the
+> first one's grid. Presence is a question about the ship→location index, so it moved into the
+> registry as `WorldRegistry::HasPresence(owner, anchor)` — on the grid or docked at its
+> station, which §7's own sentence and ADR-017 §7 already folded into one answer — and the
+> `selfTest` asserts the refusal with two real clients over a socket.
+
 Seeing without presence is the intel overlay's territory (`strategic-map.png`'s INTEL PINGS:
 "the shape of your ignorance"), deliberately not given away for free now. Within a grid the
 camera is exactly as free as today. **Auto-follow**: a watched fleet that warps takes the

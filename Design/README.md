@@ -126,9 +126,9 @@ moves between the trees without a rename pass. Three things it changed in these 
   slices delivering ADR-016 (bake, anchors, warp, gates, strategic map, system view), plus
   the named content deliverables (system-view print, `Gate.obj`); milestones W0 (first warp)
   / W1 (first crossing) / W2 (the universe on screen). **U1, U2, U3a, U3b's sim and wire
-  halves, U4's sim half and U5's pure half are built**; U3c's blockers have cleared and what
-  is left there is the second commander's identity, and the rest of what is left is screen
-  work.
+  halves, U4's sim half, U5's pure half and U3c are built** (U3c 2026-08-21, split into
+  ownership in the simulation and the second commander on the wire). **What is left in that
+  plan is screen work, with no exceptions.**
 - [Station-Build-Order.md](Station-Build-Order.md) — the docking phase: T1–T3 slices
   delivering ADR-017 (roster + transfer bus in the sim, the wire and tactical surfaces,
   the hangar screen), interleaved **after U2, before U3a**; milestones **H0 (the headless
@@ -218,14 +218,18 @@ and 3 above cannot be *designed* until that taxonomy either lands as an ADR here
 explicitly declared out of scope, and a reference that cannot be followed is the failure mode
 this file's supersession list exists to prevent.
 
-- [Risk-Register.md](Risk-Register.md) — R1–R26 with designed-in mitigations + standing spikes.
+- [Risk-Register.md](Risk-Register.md) — R1–R27 with designed-in mitigations + standing spikes.
   R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised twice —
   closed 2026-08-20, reopened and root-caused 2026-08-21** when the Debug hang came back and
   the blame collector finally named it: a lost wake-up in `TaskPool::Stop`, not the msquic
   lifecycle the row had spent two days suspecting. R23 — a gating test that flakes — is the
   one question that did not close with it. **R24 and R25 arrived with ADR-024** — the economy's two: faucet-without-sink
-  inflation, and High-Sec site contention — and **R26 with ADR-025**, the one persistence
-  brings: a torn journal or a refused load taking a shard's state with it.
+  inflation, and High-Sec site contention — **R26 with ADR-025**, the one persistence
+  brings: a torn journal or a refused load taking a shard's state with it. **R27 arrived with
+  U3c-b (2026-08-21)**: sessions now survive a disconnect, and the token that claims one back is
+  a **bearer credential nothing authenticates** — bounded by being unguessable, single-use and
+  two minutes long, and named here rather than left in a header comment, because "the shard has
+  identity and no authentication" is a statement about the product and not about a file.
 - [Archive/Scaling-Readiness-Review.md](Archive/Scaling-Readiness-Review.md) — **archived
   2026-08-20.** Five-lens review of the MVP
   and this corpus for scaling readiness (2026-08-19, **advisory**): consolidated findings
@@ -238,8 +242,8 @@ this file's supersession list exists to prevent.
   the delta cluster lifts the full-fit constraint (D6's own staging). **A13 closed
   2026-08-20** — the per-client `SnapshotSender`, the over-cap refusal tested loudly, and
   `StationRoster` addressed per viewer through the summary family's own frame — which is
-  what U3b's client half, T2's roster privacy and U3c were all standing behind. **Five
-  remain: A15, A16, A18, A20 and A25**, each landing with U3b, T2, U5 or U3c rather than
+  what U3b's client half, T2's roster privacy and U3c were all standing behind. **Four
+  remain: A15, A16, A18 and A20** (A25 closed with U3c on 2026-08-21), each landing with U3b, T2 or U5 rather than
   waiting on a decision. The review moved to the archive once the register had absorbed all of
   it: it decided nothing, and nothing it tracks is homed only there.
 
@@ -572,13 +576,32 @@ slice** as `Stargate.obj` rather than the `Gate.obj` the ADR named, so the Struc
 was never used; its export carried a sixth material the five-material palette does not have,
 authored onto `accent`, whose colour it already was.
 
-**What is not built is, with one exception, screen work.** U3b's client half, U4's route feeder
-and icons, U5's map itself and U6 need a GPU and a person, which is the same wall S5 and R1
-have been standing at since S8. The exception is **U3c, the second-commander gate** — and its
-blockers cleared on 2026-08-20: T2's per-client `SnapshotSender` and U3b's view subscription
-are both in the tree, so what is left there is the second commander's *identity*
-(`ServerHost` mints `SOLE_PLAYER_ID`; summaries and rosters answer for everyone) rather than
-the machinery to serve one. The system-view print remains the one missing design artifact.
+**What is not built is screen work, and as of 2026-08-21 there are no exceptions.** U3b's
+client half, U4's route feeder and icons, U5's map itself and U6 need a GPU and a person, which
+is the same wall S5 and R1 have been standing at since S8. The system-view print remains the
+one missing design artifact.
+
+**U3c, the second-commander gate, was that exception and it closed (run 188).** Its blockers —
+T2's per-client `SnapshotSender` and U3b's view subscription — had cleared on 2026-08-20, and
+what remained read like wiring: `ServerHost` minted `SOLE_PLAYER_ID` for everyone, so it needed
+to mint properly. Reading the other side of the seam changed the estimate. **A ship had no
+owner.** `WorldRegistry` kept no `ShipId → PlayerId` index, `RosterEntry` had no owner field,
+and every player-keyed accessor took a `PlayerId` and ignored it — so minting a second id
+against that registry would have made both commanders own everything, and every privacy
+assertion in the accept would have passed for the wrong reason. It split: **U3c-a** built
+ownership at the universe layer (ADR-018 D2 keeps it out of the deterministic SoA) and turned
+the accessors into real filters; **U3c-b** minted per-player ids, D5's grace window, and the
+twin-client `selfTest`.
+
+**What the gate found is worth more than what it built**, because none of it would have arrived
+as a bug report — four assumptions that were true while there was one commander:
+`MayView` gated on the composition root's scripted patrol list and so answered the same for
+every viewer; the start grid and the shard's `WorldMeta` were everyone's; `ServedWorld()` was
+everyone's world, so **any commander could order any hull standing on it**; and the self test's
+oldest order fixture named `ships.front()`, which on a station grid is the station — meaning
+"the authority accepts it and the ack returns" had been proving the ack path works by telling a
+space station to move a hundred metres to the right. `OrderReason::NotOwned`, reserved and
+documented as unreachable since the MVP, is returned for the first time.
 
 **Every open design decision in the universe and station phases is answered (2026-08-20).**
 The two prints that carried an OPEN list have been ruled on: `station-screen.png` §3's four

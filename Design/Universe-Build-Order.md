@@ -1,12 +1,15 @@
 # Universe Build Order — Post-MVP Phase One
 
 **Status:** Session output 2026-08-19 · **U1, U2, U3a, U3b's sim and wire halves, U4's sim
-half and U5's pure half built** (2026-08-20). What is left in this plan is, with one
-exception, screen work: U3b's client half, U4's route feeder and icons, U5's map itself and U6
-need a GPU and a person. The exception is **U3c**, and its blockers have since cleared: it
-needed T2's per-client `SnapshotSender` (A13, built 2026-08-20) and U3b's view subscription
-(built 2026-08-20), so what remains there is the second commander's identity rather than the
-machinery to serve one. **U3c splits into U3c-a (ownership in the simulation) and U3c-b (the
+half, U5's pure half and U3c built** (U3c 2026-08-21). What is left in this plan is **screen
+work, with no exceptions left**: U3b's client half, U4's route feeder and icons, U5's map itself
+and U6 need a GPU and a person. U3c was the exception and it is done — it split into **U3c-a**
+(ownership in the simulation) and **U3c-b** (the second commander on the wire), because a ship
+had no owner and minting a second id against a registry where both commanders owned everything
+would have passed the privacy accept for the wrong reason. **🏁 Its accept is met (run 188):
+two commanders, distinct ids, disjoint grids, private rosters and summaries, view rights
+enforced, orders refused `NotOwned`, and a reconnect inside the grace window that comes back as
+the same commander with its fleet intact.** **U3c splits into U3c-a (ownership in the simulation) and U3c-b (the
 second commander on the wire) as of 2026-08-21** — a ship has no owner today, and minting a
 second id against a registry where both commanders own everything would pass the privacy
 accept for the wrong reason. The rationale is with the slice. The design this plan delivers is
@@ -339,8 +342,9 @@ beside the rosters and the bus — which also means it folds into `Hash()` for D
 rather than a new one: a replay that reproduced every ship and forgot who owned them would
 agree about a universe where nothing belonged to anybody.
 
-**Accept (U3c-a):** ships have owners through every path that moves one — spawn, transfer,
-dock, undock, load — the accessors filter on the viewer with a test per accessor that a
+**Accept (U3c-a): met, run 180 (2026-08-21)** — green on both configurations with `Outpost/`
+compiling for the first time. Ships have owners through every path that moves one — spawn,
+transfer, dock, undock, load — the accessors filter on the viewer with a test per accessor that a
 second commander sees none of the first's, the roster survives a restart with its owners, and
 the whole thing round-trips the durable format. Headless: no socket, no second connection.
 
@@ -450,6 +454,61 @@ on Linux, with the store's 14/14 and the tasking suite's 18/18 beside them; clan
 `ServerHost`, `ClientConnection` and the composition root are Windows-only and have **not** been
 compiled here, and neither has the twin-client `selfTest` — **CI is the first run of U3c's
 accept**, and the numbers land in a `Record run` commit rather than being predicted.
+
+**🏁 U3c's accept is met — run 188, 2026-08-21.** Debug|x64, Release|x64 and Spike 2 all green:
+**822 tests on MSVC with none failing**, every source guard green, no clang-tidy finding, and
+one warning in the whole build (the pre-existing `NeuronClient\Picking.cpp(51)` C4723).
+`selfTest`: **PASSED** on both configurations, and the accept is its own log:
+
+```
+self test: two commanders hold sessions at once -- ok
+self test: the two commanders have different ids -- ok
+self test: the second commander is put on a grid of their own -- ok
+self test: a request to watch another commander's grid is answered -- ok
+self test: and refused -- ok
+self test: and the authority refuses it NotOwned -- ok
+self test: the second commander is told where their own fleet is -- ok
+self test: and never where the first one's is -- ok
+self test: a dropped commander can reconnect -- ok
+self test: and comes back as the same commander -- ok
+self test: on the grid they were watching -- ok
+self test: with the fleet still theirs -- ok
+```
+
+**It took five red runs to get there, and every failure was the same thing: an assumption that
+was true while there was one commander.** Worth listing, because the list is the slice's real
+finding and none of these arrived as a bug report.
+
+1. **`EverySessionIsServedItsOwnSerialisation` asserted the viewer was `SOLE_PLAYER_ID`** —
+   which a broadcast sender ignoring the viewer entirely would also have satisfied, since there
+   was one value the field could hold. It reads both `Welcome`s now and asserts a snapshot was
+   serialised for each commander by name.
+2. **The start grid was everyone's grid.** `ServerHost` opened every session on
+   `Simulation::World()`, so a second commander was shown a grid they had no presence on and
+   refused a view of their own fleet.
+3. **The shard's `WorldMeta` was everyone's description.** Fixing (2) by handing over an anchor
+   id alone left the `Welcome` advertising the shard's grid while the feed sent another's — and
+   the client keeps no other record of where it is. Hence `WorldFor(PlayerId)` returns a whole
+   `WorldMeta`: the grid's number and its origin cannot be allowed to disagree.
+4. **`ServedWorld()` was everyone's world, and nothing checked whose ships an order named.**
+   Every order went to the start anchor and could name any hull standing there. `Validate.cpp`
+   had carried the reason since the MVP — *"NotOwned is unreachable in the MVP: there is one
+   player and every ship is theirs. The code exists because ownership is a field, not a
+   redesign"* — and this is the slice where the field exists and `NotOwned` is returned.
+5. **The self test's oldest order fixture named `ships.front()`**, which on a station grid is
+   the station. So "the authority accepts it and the ack returns" had been proving the ack path
+   works by telling a space station to move a hundred metres to the right.
+
+**The replay hash did not move:** `69c58e2751c0df22`, byte for byte E2's through E4b's, with
+Spike 2 confirming Debug and Release agree. Ownership folds into `WorldRegistry::Hash()` and the
+durable hash, not into `ComputeWorldHash`, and the replay scenario is six ships in a bare World.
+
+**The shard snapshot grew to 1,908 bytes** (durable hash `d589ed5beb6b3324`) against E4b's 1,394
+at tick 173, and unlike E4b's twelve bytes this is not arithmetic worth predicting: the self
+test now leaves three extra commanders on the shard with a wing each, so most of the growth is
+fleets that did not exist before. The Release soak reads 8.745 ms mean / 16.024 ms worst at the
+capped grid, inside the tripwire, against E4b's 9.330 / 14.542. Content is untouched and the
+universe parses in **203 ms** on Release.
 
 **Unblocked 2026-08-20, and worth naming what that leaves.** Both things this slice was
 waiting on are in the tree — the per-client `SnapshotSender` (A13) and U3b's view request with
