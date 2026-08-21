@@ -230,10 +230,6 @@ private:
   /// The snapshot's own tick, and the floor for journal replay.
   std::uint32_t m_snapshotTick = 0;
 
-  /// Where the frames start, so a truncation puts the header back rather than
-  /// emptying the file.
-  std::uint64_t m_journalHeaderBytes = 0;
-
   std::vector<std::uint8_t> m_snapshot;
 
   /// One scratch buffer, reused: a frame is assembled here and written in a

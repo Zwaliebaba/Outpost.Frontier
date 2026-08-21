@@ -175,6 +175,51 @@ public:
   [[nodiscard]] virtual OrderVerdict ApplyOrderBytes(PlayerId _player, std::uint32_t _clientId,
                                                      std::span<const std::uint8_t> _payload) = 0;
 
+  /*
+   * Everything the simulation calls durable, as bytes it alone can read
+   * (ADR-025 §2).
+   *
+   * Opaque, like the snapshot and the summaries, and for a stronger reason: the
+   * store one library out owns files, framing and checksums and **must not
+   * learn what it is storing**. A record has a kind, a length and a checksum;
+   * that one of those kinds is a station Bay is a fact for the composition root
+   * to know.
+   *
+   * False when it did not fit, which is the `ByteWriter` contract -- the caller
+   * grows the buffer and asks again rather than persisting half a shard.
+   *
+   * Defaulted rather than pure, for `World()`'s reason: a simulation with
+   * nothing durable is a real thing, and `NullSimulation` is one.
+   */
+  [[nodiscard]] virtual bool WriteDurableState(ByteWriter& _writer)
+  {
+    (void)_writer;
+    return false;
+  }
+
+  /*
+   * The same bytes, back into a simulation that has just been built.
+   *
+   * False refuses the load, and a refusal stops the shard rather than starting
+   * an amnesiac one (ADR-025 §6). The engine cannot judge these bytes and does
+   * not try: it hands them over and believes the answer.
+   */
+  [[nodiscard]] virtual bool ReadDurableState(std::span<const std::uint8_t> _state)
+  {
+    (void)_state;
+    return false;
+  }
+
+  /*
+   * The reload proof (ADR-025 §1a).
+   *
+   * **Not the replay hash.** That one folds the order queues persistence
+   * deliberately forgets, so a correct reload cannot reproduce it. This folds
+   * exactly what was written down, and it is what a snapshot records and a
+   * checkpoint verifies.
+   */
+  [[nodiscard]] virtual std::uint64_t DurableHash() const { return 0; }
+
   /// Message layout of the game's own wire types. Exchanged at the handshake so
   /// mismatched builds refuse each other at the door.
   [[nodiscard]] virtual std::uint64_t SchemaHash() const = 0;

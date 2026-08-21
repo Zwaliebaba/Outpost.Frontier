@@ -103,6 +103,19 @@ std::string ResolveContentPath(const std::string& _path)
   return PathExists(beside) ? beside : std::string{};
 }
 
+std::string ResolveWritablePath(const std::string& _path)
+{
+  if (_path.empty())
+  {
+    return {};
+  }
+  // Absolute as given. The check is the same one `ResolveContentPath` makes
+  // implicitly by trying the path first, spelled out here because there is no
+  // existence test to hide behind.
+  const bool absolute = _path.size() > 1 && (_path[1] == ':' || _path[0] == '\\' || _path[0] == '/');
+  return absolute ? _path : ExecutableDirectory() + _path;
+}
+
 std::string UserSettingsDirectory()
 {
   PWSTR folder = nullptr;

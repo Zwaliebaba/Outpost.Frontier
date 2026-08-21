@@ -170,12 +170,27 @@ private:
   void SendSnapshots(std::uint32_t _tick);
   [[nodiscard]] SessionInfo* FindSession(ConnectionId _connection);
 
+  /*
+   * Writes the whole durable state down (ADR-025 §5).
+   *
+   * On the Sim thread and nowhere else, because that is the thread that owns
+   * the state: the serialisation happens where the state is legally readable
+   * and momentarily still, which is the same reason the transfer bus applies
+   * where it does.
+   */
+  void WriteDurableSnapshot(std::uint32_t _tick);
+
   ServerConfig m_config;
   Simulation* m_simulation = nullptr;
   std::unique_ptr<Transport> m_transport;
   std::vector<SessionInfo> m_sessions;
   std::uint32_t m_nextClientId = 1;
   std::int64_t m_lastStatsCounter = 0; // Sim thread only; nothing else reads it.
+
+  /// The snapshot's scratch buffer, grown once and kept: a shard's durable
+  /// state is megabytes and allocating them every five minutes would be a
+  /// hitch on a cadence.
+  std::vector<std::uint8_t> m_durableBuffer;
 
   std::thread m_thread;
   std::atomic<bool> m_running{false};

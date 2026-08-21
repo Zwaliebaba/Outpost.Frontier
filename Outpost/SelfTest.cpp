@@ -2,14 +2,17 @@
 
 #include "SelfTest.h"
 
+#include "ConfigLoad.h"
 #include "TickSoak.h"
 
 #include "ClientConnection.h"
 
+#include "DurableStore.h"
 #include "ServerConfig.h"
 #include "ServerHost.h"
 #include "Simulation.h"
 
+#include "DurableState.h"
 #include "FleetSummary.h"
 #include "OrderMessages.h"
 #include "ReplicatedView.h"
@@ -35,6 +38,10 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <span>
+#include <string>
+#include <system_error>
 #include <vector>
 
 namespace Outpost
@@ -167,6 +174,167 @@ struct ReplayResult
  * round-trips and the replay run. First, before any socket opens, so a
  * transport failure cannot mask a determinism one.
  */
+/*
+ * The restart, in the shipping binary (ADR-025 §8, build order E4a).
+ *
+ * A shard is docked, loaded and committed; it is written to a real directory
+ * through the real store; and a **second registry and a second store** read it
+ * back and reproduce it. That is what a restart is -- two independent runtimes
+ * meeting only through two files -- so doing it in one process costs nothing
+ * the claim needs and saves this gate from spawning itself.
+ *
+ * What it is not is the whole of §8's scenario: there is no refine job to still
+ * be running, because there are no refine jobs until E4b. The build order says
+ * so where it will be found, and the check below carries the half that exists.
+ */
+void RunRestartLoop(Checklist& _checks, const Game::EconomyDef& _economy)
+{
+  const std::string directory = Outpost::ResolveWritablePath("SelfTestShardState");
+  std::error_code ignored;
+  std::filesystem::remove_all(directory, ignored);
+
+  Game::UniverseGenConfig recipe;
+  recipe.regionCount = 1;
+  recipe.constellationsPerRegion = 1;
+  recipe.systemCount = 4;
+  Game::UniverseDef universe;
+  if (!Game::GenerateUniverse(recipe, _economy.sites, universe))
+  {
+    _checks.Record("the restart scenario bakes a universe", false);
+    return;
+  }
+  const std::uint64_t universeHash = Game::ComputeUniverseHash(universe);
+
+  Game::AnchorId station = Game::INVALID_ID;
+  for (const Game::SolarSystem& system : universe.systems)
+  {
+    for (const Game::Anchor& anchor : system.anchors)
+    {
+      if (anchor.kind == Game::AnchorKind::Station && station == Game::INVALID_ID)
+      {
+        station = anchor.id;
+      }
+    }
+  }
+  if (station == Game::INVALID_ID)
+  {
+    _checks.Record("the restart scenario finds a station", false);
+    return;
+  }
+
+  Neuron::DurableStoreDesc desc;
+  desc.directory = directory;
+  desc.hostId = 0;
+  desc.universeHash = universeHash;
+  desc.economyHash = 0;
+
+  std::uint64_t writtenHash = 0;
+  std::vector<std::uint8_t> stateBytes;
+
+  // --- The shard, before it stops. ---
+  {
+    Game::WorldRegistry registry;
+    Game::RegistryConfig config;
+    config.sessionSeed = universeHash;
+    registry.Reset(&universe, &_economy, config);
+
+    Game::ShipSpawn miner;
+    miner.hullClass = Game::HullClass::Miner;
+    miner.wing = 1;
+    miner.cargo.oreUnits[static_cast<std::uint8_t>(Game::OreId::FerroChroma)] = 60;
+    const Game::ShipId ship = registry.Spawn(station, miner);
+
+    Game::World* world = registry.Borrow(station);
+    Game::OrderSubmit dock;
+    dock.orderSeq = 1;
+    dock.kind = Game::OrderKind::Dock;
+    dock.anchor = station;
+    (void)dock.AddShip(ship);
+    (void)world->SubmitOrder(dock);
+    registry.Tick(1);
+    registry.Tick(2);
+
+    Game::StationCommand toBay;
+    toBay.orderSeq = 2;
+    toBay.verb = Game::StationVerb::TransferToBay;
+    toBay.station = station;
+    toBay.ore = Game::OreId::FerroChroma;
+    toBay.units = 40;
+    (void)toBay.AddShip(ship);
+    const Game::OrderVerdict committed = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, toBay);
+    _checks.Record("the restart scenario commits ore to a Bay", committed.accepted);
+
+    writtenHash = Game::DurableHash(registry);
+    stateBytes.resize(1u << 20);
+    Neuron::ByteWriter writer{stateBytes};
+    const bool serialised = Game::WriteDurableState(registry, writer);
+    _checks.Record("the shard serialises its durable state", serialised);
+    if (!serialised)
+    {
+      return;
+    }
+    stateBytes.resize(writer.BytesWritten());
+
+    Neuron::DurableStore store;
+    Neuron::DurableLoadReport report;
+    const bool opened = store.Open(desc, report) && report.result == Neuron::DurableLoadResult::Fresh;
+    _checks.Record("a shard with no state opens fresh", opened);
+    _checks.Record("the shard writes a snapshot", opened && store.WriteSnapshot(stateBytes, writtenHash, 2));
+    store.Close();
+  }
+
+  // --- And after it starts again. Nothing above is in scope down here, which
+  // --- is the point: the only thing crossing is what is on the disk.
+  {
+    Neuron::DurableStore store;
+    Neuron::DurableLoadReport report;
+    const bool opened = store.Open(desc, report);
+    _checks.Record("the restarted shard finds its state", opened && report.result == Neuron::DurableLoadResult::Loaded);
+    _checks.Record("the snapshot carries the reload proof it was written with", report.snapshotDurableHash == writtenHash);
+
+    Game::WorldRegistry registry;
+    Game::RegistryConfig config;
+    config.sessionSeed = universeHash;
+    registry.Reset(&universe, &_economy, config);
+
+    Neuron::ByteReader reader(store.Snapshot());
+    std::vector<Game::PersistenceDiagnostic> diagnostics;
+    const bool loaded = Game::ReadDurableState(reader, registry, diagnostics);
+    for (const Game::PersistenceDiagnostic& diagnostic : diagnostics)
+    {
+      NEURON_LOG_ERROR("self test: durable state: %s", diagnostic.Text("shard-0.snapshot").c_str());
+    }
+    _checks.Record("the restarted shard reads its state back", loaded);
+    _checks.Record("the reload reproduces the proof", loaded && Game::DurableHash(registry) == writtenHash);
+
+    const std::span<const Game::RosterEntry> docked = registry.Roster(station);
+    _checks.Record("the roster survives the restart", docked.size() == 1);
+    _checks.Record("the hold survives the restart", docked.size() == 1 && docked[0].Units(Game::OreId::FerroChroma) == 20);
+
+    const Game::StationBay* bay = registry.Bay(Neuron::SOLE_PLAYER_ID, station);
+    _checks.Record("the Bay survives the restart", bay != nullptr && bay->Units(Game::OreId::FerroChroma) == 40);
+
+    std::vector<Game::PersistenceDiagnostic> refusal;
+    Game::WorldRegistry running;
+    running.Reset(&universe, &_economy, config);
+    (void)running.Borrow(station);
+    Neuron::ByteReader again(store.Snapshot());
+    _checks.Record("a load into a running shard is refused", !Game::ReadDurableState(again, running, refusal));
+    store.Close();
+  }
+
+  // --- And the guard that stops an amnesiac shard from looking healthy. ---
+  {
+    Neuron::DurableStoreDesc rebaked = desc;
+    rebaked.universeHash = universeHash ^ 0x1ull;
+    Neuron::DurableStore store;
+    Neuron::DurableLoadReport report;
+    _checks.Record("a re-baked universe refuses to load an old shard", !store.Open(rebaked, report));
+  }
+
+  std::filesystem::remove_all(directory, ignored);
+}
+
 void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation, const Game::EconomyDef& _economy)
 {
   // Schema: the number the handshake fails closed on. Nonzero, stable across
@@ -1285,12 +1453,43 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   // so a transport failure cannot mask them -- and on a GPU-less CI runner they
   // are most of what this gate proves.
   RunLocalChecks(checks, _simulation, _economy);
+  RunRestartLoop(checks, _economy);
+
+  /*
+   * The host's own store, on a scratch directory of its own (ADR-025 §5).
+   *
+   * `RunRestartLoop` above proves the *format* survives two runtimes; this
+   * proves the **wiring** -- that a host which stops cleanly writes itself down
+   * on the way out, on the Sim thread, before anything is torn down. They are
+   * different claims and the second one is the one a person would forget to
+   * make: a store that works and is never called is a shard that loses
+   * everything and passes every unit test.
+   *
+   * It guards on `ContentHash` rather than on the universe hash alone, because
+   * the mixed number is the one this function has -- and what is under test is
+   * the guard's behaviour, not which hash fills it.
+   */
+  const std::string hostDirectory = Outpost::ResolveWritablePath("SelfTestHostState");
+  std::error_code ignoredHostState;
+  std::filesystem::remove_all(hostDirectory, ignoredHostState);
+
+  Neuron::DurableStoreDesc hostDesc;
+  hostDesc.directory = hostDirectory;
+  hostDesc.hostId = 0;
+  hostDesc.universeHash = _simulation.ContentHash();
+  hostDesc.economyHash = 0;
+
+  Neuron::DurableStore hostStore;
+  Neuron::DurableLoadReport hostReport;
+  const bool hostStoreOpen = hostStore.Open(hostDesc, hostReport);
+  checks.Record("the host's durable store opens", hostStoreOpen);
 
   // Port 0 whatever the config says: a self test must not fail because the
   // configured port is already taken by the thing it is testing.
   Neuron::ServerConfig serverConfig;
   serverConfig.port = 0;
   serverConfig.maxSessions = _config.server.maxSessions;
+  serverConfig.durableStore = hostStoreOpen ? &hostStore : nullptr;
 
   Neuron::ServerHost server;
   const bool started = server.Start(serverConfig, _simulation);
@@ -1440,6 +1639,27 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   server.Stop();
   server.Join();
   checks.Record("server stops cleanly", !server.Running() && server.TickCount() > 0);
+
+  /*
+   * And what it left behind (ADR-025 §4): **a clean stop loses nothing.**
+   *
+   * The store is closed first, because reading a file this process still holds
+   * open would be testing the buffer rather than the disk -- and the disk is
+   * the whole subject.
+   */
+  if (hostStoreOpen)
+  {
+    hostStore.Close();
+
+    Neuron::DurableStore reopened;
+    Neuron::DurableLoadReport report;
+    const bool found = reopened.Open(hostDesc, report) && report.result == Neuron::DurableLoadResult::Loaded;
+    checks.Record("a host that stops cleanly leaves a snapshot behind", found && !reopened.Snapshot().empty());
+    checks.Record("the snapshot is stamped with the tick the host stopped at", found && report.snapshotTick > 0);
+    checks.Record("the snapshot carries the shard's reload proof", found && report.snapshotDurableHash == _simulation.DurableHash());
+    reopened.Close();
+  }
+  std::filesystem::remove_all(hostDirectory, ignoredHostState);
 
   // Zero on any healthy machine, but this gate now runs in CI (S14) and a
   // shared runner is not a real-time system -- the same argument S3 made for

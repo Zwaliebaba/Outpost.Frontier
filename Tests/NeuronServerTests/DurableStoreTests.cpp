@@ -159,6 +159,42 @@ public:
     Assert::IsTrue(seen[2].payload == Payload(3, 4096), L"a large payload came back different");
   }
 
+  TEST_METHOD(TheJournalSurvivesTheOpenReplayAppendLifecycle)
+  {
+    /*
+     * One handle at a time, across the whole boot sequence.
+     *
+     * `Open` leaves the journal open so a fresh shard can append before it has
+     * replayed anything, and `Replay` reopens it after truncating the tail --
+     * so the handle has to be handed over rather than shadowed. On Linux a
+     * second writable handle merely leaks; on the platform that ships it is
+     * refused outright, and the shard would then persist nothing while every
+     * other check passed.
+     */
+    const std::string directory = Scratch("lifecycle");
+    DurableStoreDesc desc = Desc(directory);
+
+    DurableStore store;
+    DurableLoadReport report;
+    Assert::IsTrue(store.Open(desc, report), L"the store would not open");
+    store.Append(1, 10, Payload(1, 16)); // Before any replay.
+
+    std::vector<Seen> seen;
+    Assert::IsTrue(store.Replay(Collect(seen), report), L"the journal would not replay");
+    store.Append(2, 11, Payload(2, 16)); // And after it.
+    store.Flush();
+    store.Close();
+
+    DurableStore reopened;
+    DurableLoadReport reopenedReport;
+    Assert::IsTrue(reopened.Open(desc, reopenedReport), L"the store would not reopen");
+    std::vector<Seen> after;
+    Assert::IsTrue(reopened.Replay(Collect(after), reopenedReport), L"the journal would not replay a second time");
+    Assert::AreEqual<std::size_t>(2, after.size(), L"a record was lost across the open/replay/append lifecycle");
+    Assert::AreEqual<std::uint16_t>(1, after[0].kind);
+    Assert::AreEqual<std::uint16_t>(2, after[1].kind);
+  }
+
   TEST_METHOD(ATornTailRecoversToTheLastGoodRecord)
   {
     /*

@@ -8,6 +8,7 @@
 #include <array>
 #include <cstring>
 #include <filesystem>
+#include <system_error>
 
 #if defined(_WIN32)
 #include <io.h>
@@ -267,7 +268,6 @@ bool DurableStore::WriteJournalHeader(std::uint32_t _snapshotTick)
   {
     return false;
   }
-  m_journalHeaderBytes = header.size();
   CommitToDisk(m_journal);
   return true;
 }
@@ -388,8 +388,6 @@ bool DurableStore::ReadJournalHeader(DurableLoadReport& _outReport, bool& _outPr
     return false;
   }
   _outReport.economyChanged = _outReport.economyChanged || economyHash != m_desc.economyHash;
-
-  m_journalHeaderBytes = JOURNAL_HEADER_BYTES;
 
   /*
    * The snapshot the *journal* thinks it follows, kept only when there is no
@@ -524,7 +522,20 @@ bool DurableStore::Replay(const DurableReplayHandler& _handler, DurableLoadRepor
     std::filesystem::resize_file(JournalPath(), goodBytes, error);
   }
 
-  // The file is now exactly its good part, so appends continue from there.
+  /*
+   * The file is now exactly its good part, so appends continue from there --
+   * and the handle `Open` left behind is closed first.
+   *
+   * Not tidiness: `Open` opens the journal so that a fresh shard can append
+   * before it has replayed anything, and reopening over that handle would leak
+   * it on every platform and be *refused* on the one that ships, where a second
+   * writable handle to an open file is an error rather than a second handle.
+   */
+  if (m_journal != nullptr)
+  {
+    std::fclose(m_journal);
+    m_journal = nullptr;
+  }
   m_journal = OpenFile(JournalPath(), present ? "r+b" : "wb");
   if (m_journal == nullptr)
   {
@@ -543,7 +554,6 @@ bool DurableStore::Replay(const DurableReplayHandler& _handler, DurableLoadRepor
   }
   else
   {
-    m_journalHeaderBytes = JOURNAL_HEADER_BYTES;
     std::fseek(m_journal, 0, SEEK_END);
   }
 

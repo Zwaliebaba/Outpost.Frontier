@@ -11,6 +11,7 @@
 
 // GameLogic, reached only from here: the executable is the one project
 // entitled to know both halves (ADR-014 §1).
+#include "DurableState.h"
 #include "EconomyMessages.h"
 #include "FleetSummary.h"
 #include "OrderMessages.h"
@@ -26,6 +27,7 @@
 #include "ClientApp.h"
 #include "ClientConfig.h"
 
+#include "DurableStore.h"
 #include "ServerConfig.h"
 #include "ServerHost.h"
 #include "Simulation.h"
@@ -170,7 +172,9 @@ public:
       // as of main's UI slice, so a copy here is three allocations per boot for
       // nothing.
       m_worldMeta(std::move(_worldMeta)),
+      m_universe(&_universe),
       m_economy(&_economy),
+      m_sessionSeed(_sessionSeed),
       m_startAnchor(_universe.StartAnchorId())
   {
     Game::RegistryConfig config;
@@ -587,6 +591,48 @@ public:
   /// measuring something the shard is not.
   [[nodiscard]] const Game::EconomyDef& Economy() const noexcept { return *m_economy; }
 
+  /*
+   * Persistence (ADR-025 §2). Three lines of glue, and that is the whole point
+   * of the arrangement: the format is GameLogic's, the file is NeuronServer's,
+   * and this is the only place that knows they are about each other.
+   */
+  [[nodiscard]] bool WriteDurableState(ByteWriter& _writer) override { return Game::WriteDurableState(m_registry, _writer); }
+
+  [[nodiscard]] std::uint64_t DurableHash() const override { return Game::DurableHash(m_registry); }
+
+  /*
+   * A load **replaces** a shard's state; it does not merge with it.
+   *
+   * So the registry goes back to freshly-reset before a byte is applied --
+   * including the start grid the constructor spun up under the session's
+   * viewer, whose authored occupants a load would otherwise find already
+   * standing there. Then the viewer goes back, because a session still holds
+   * the grid it serves (ADR-016 §7).
+   */
+  [[nodiscard]] bool ReadDurableState(std::span<const std::uint8_t> _state) override
+  {
+    Game::RegistryConfig config;
+    config.sessionSeed = m_sessionSeed;
+    config.hostId = 0;
+    m_registry.Reset(m_universe, m_economy, config);
+    m_patrolShips.clear();
+
+    ByteReader reader(_state);
+    std::vector<Game::PersistenceDiagnostic> diagnostics;
+    const bool loaded = Game::ReadDurableState(reader, m_registry, diagnostics);
+    for (const Game::PersistenceDiagnostic& diagnostic : diagnostics)
+    {
+      NEURON_LOG_ERROR("durable state: %s", diagnostic.Text("shard.snapshot").c_str());
+    }
+
+    m_registry.AddViewer(m_startAnchor);
+    if (loaded)
+    {
+      AdoptReloadedFleet();
+    }
+    return loaded;
+  }
+
   [[nodiscard]] std::uint64_t SchemaHash() const override
   {
     return Game::GameSchemaHash();
@@ -626,6 +672,18 @@ public:
   /// (ADR-018 D6a), recording the mobile half as it goes.
   void SpawnStartingFleet();
 
+  /*
+   * The patrol picks up whatever came back (ADR-025 §1).
+   *
+   * A reloaded shard has ships and no memory of which of them the scripted
+   * patrol was flying -- that list is *intention*, and intention is exactly
+   * what a restart does not restore. So it is rebuilt from what is standing on
+   * the start grid, minus the station itself, which is the same rule
+   * `SpawnStartingFleet` applies for the same reason: sending a `Structure` a
+   * waypoint is harmless, and listing it would imply it might move.
+   */
+  void AdoptReloadedFleet();
+
   /// Gives the worlds to whichever thread runs them next (ADR-007 §7). The last
   /// thing the composition root does to the simulation, and the reason the sim
   /// thread's first tick adopts rather than trips.
@@ -639,6 +697,15 @@ private:
   /// bakes a small universe of its own to drive the economy loop through and
   /// has to use the *same* balance the shard is running (E3's G0 scenario).
   const Game::EconomyDef* m_economy = nullptr;
+
+  /// And the universe beside it, kept for the same reason plus one: a reload
+  /// resets the registry, and a reset needs both halves of the content back.
+  const Game::UniverseDef* m_universe = nullptr;
+
+  /// The seed a reset has to reproduce. A reloaded shard whose grids were
+  /// seeded differently would be the same universe with different randomness in
+  /// it, which is a subtler way of losing state than losing it.
+  std::uint64_t m_sessionSeed = 0;
 
   Game::WorldRegistry m_registry;
   Game::AnchorId m_startAnchor = Game::INVALID_ID;
@@ -844,6 +911,25 @@ void ReportParkedFleet(const std::vector<ParkedHull>& _parked)
   return names;
 }
 
+void UniverseSimulation::AdoptReloadedFleet()
+{
+  const Game::World* world = m_registry.Peek(m_startAnchor);
+  if (world == nullptr)
+  {
+    return;
+  }
+  const std::span<const Game::ShipId> ids = world->Ids();
+  for (const Game::ShipId id : ids)
+  {
+    if (!m_registry.IsAuthoredOccupant(m_startAnchor, id))
+    {
+      m_patrolShips.push_back(id);
+    }
+  }
+  NEURON_LOG_INFO("reloaded shard: %zu ship(s) on the start grid, %u of them the patrol's", ids.size(),
+                  static_cast<unsigned>(m_patrolShips.size()));
+}
+
 void UniverseSimulation::SpawnStartingFleet()
 {
   /*
@@ -1029,11 +1115,112 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
 }
 
 /// The server takes the same treatment: a plain struct, assembled here.
-ServerConfig MakeServerConfig(const Outpost::AppConfig& _config)
+/// What `OpenShardState` decided, because "did it load" has three answers and
+/// two of them are not failures.
+enum class ShardState : std::uint8_t
+{
+  Fresh = 0,   ///< Nothing was there, or nothing is persisted: build from content.
+  Loaded = 1,  ///< The shard came back; do not spawn a starting fleet on top of it.
+  Refused = 2  ///< A guard failed, and the shard must not start (ADR-025 §6).
+};
+
+/*
+ * ADR-025 §6's boot, in its order: the header and its guards, the snapshot and
+ * its proof, then the journal on top.
+ *
+ * All of it before the host starts, because a shard that began ticking and then
+ * discovered it had a past would have to undo the ticks -- and because a
+ * refusal has to happen while there is still nothing to lose.
+ */
+[[nodiscard]] ShardState OpenShardState(const Outpost::AppConfig& _config, std::uint64_t _universeHash,
+                                        std::uint64_t _economyHash, UniverseSimulation& _simulation, DurableStore& _store)
+{
+  if (!_config.persistence.enabled)
+  {
+    // Said out loud rather than left to be noticed. A shard that persists
+    // nothing is a real configuration -- it is what every slice before E4a ran
+    // as -- and it is not the same thing as one that failed to.
+    NEURON_LOG_INFO("persistence is off: this shard keeps nothing across a restart");
+    return ShardState::Fresh;
+  }
+
+  DurableStoreDesc desc;
+  desc.directory = Outpost::ResolveWritablePath(_config.persistence.directory);
+  desc.hostId = 0; // ADR-019: three roles, one process, one host.
+  desc.universeHash = _universeHash;
+  desc.economyHash = _economyHash;
+
+  DurableLoadReport report;
+  if (!_store.Open(desc, report))
+  {
+    NEURON_LOG_ERROR("shard state refused: %s", report.message.c_str());
+    return ShardState::Refused;
+  }
+  if (report.economyChanged)
+  {
+    // Recorded, compared, never fatal (ADR-025 §6.2): retuning a hold size must
+    // not invalidate a shard.
+    NEURON_LOG_WARNING("the economy has been retuned since this shard was written; loading anyway");
+  }
+
+  if (!_store.Snapshot().empty())
+  {
+    if (!_simulation.ReadDurableState(_store.Snapshot()))
+    {
+      NEURON_LOG_ERROR("shard state refused: the snapshot at %s did not read", _store.SnapshotPath().c_str());
+      return ShardState::Refused;
+    }
+
+    /*
+     * And the proof (ADR-025 §1a).
+     *
+     * The store recorded a number it cannot compute and this is the only moment
+     * the comparison means anything: the state is in, and if the two disagree
+     * then something between the write and the read changed what came back --
+     * which is precisely the failure a checksum cannot see, because the bytes
+     * were fine and their meaning was not.
+     */
+    const std::uint64_t reloaded = _simulation.DurableHash();
+    if (reloaded != report.snapshotDurableHash)
+    {
+      NEURON_LOG_ERROR("shard state refused: the snapshot claims durable hash %016llx and reloaded as %016llx",
+                       static_cast<unsigned long long>(report.snapshotDurableHash), static_cast<unsigned long long>(reloaded));
+      return ShardState::Refused;
+    }
+  }
+
+  /*
+   * The journal, on top of the snapshot.
+   *
+   * There are no record kinds yet -- E4a persists through the snapshot, and the
+   * per-outcome records that narrow the loss window to a second are the next
+   * step -- so this refuses anything it finds rather than skipping it. A record
+   * a build does not understand is a build that would come up missing whatever
+   * that record said.
+   */
+  const DurableReplayHandler handler = [](std::uint16_t _kind, std::uint32_t _tick, std::span<const std::uint8_t>)
+  {
+    NEURON_LOG_ERROR("the journal holds a record of kind %u at tick %u that this build does not know",
+                     static_cast<unsigned>(_kind), _tick);
+    return false;
+  };
+  if (!_store.Replay(handler, report))
+  {
+    NEURON_LOG_ERROR("shard state refused: %s", report.message.c_str());
+    return ShardState::Refused;
+  }
+
+  const bool loaded = !_store.Snapshot().empty() || report.recordsReplayed > 0;
+  NEURON_LOG_INFO("shard state: %s (%s)", loaded ? "loaded" : "fresh", report.message.c_str());
+  return loaded ? ShardState::Loaded : ShardState::Fresh;
+}
+
+ServerConfig MakeServerConfig(const Outpost::AppConfig& _config, DurableStore* _store)
 {
   ServerConfig server;
   server.port = _config.server.port;
   server.maxSessions = _config.server.maxSessions;
+  server.durableStore = _store;
   return server;
 }
 
@@ -1260,7 +1447,27 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   // re-roll the worlds.
   UniverseSimulation simulation{contentHash, MakeWorldMeta(universe.universe), universe.universe, economy.economy,
                                 universe.universeHash};
-  simulation.SpawnStartingFleet();
+
+  /*
+   * What the shard already is, before it is given a fleet (ADR-025 §6).
+   *
+   * The starting fleet is what a *new* shard is built with, and spawning it on
+   * top of a reloaded one would hand every commander a second fleet every time
+   * the service restarted. So the load decides, and the three answers are
+   * "there was nothing", "there was something" and "there was something wrong"
+   * -- only the last of which is a failure.
+   */
+  DurableStore shardState;
+  const ShardState opened = OpenShardState(config, universe.universeHash, economy.economyHash, simulation, shardState);
+  if (opened == ShardState::Refused)
+  {
+    Log::Shutdown();
+    return 4;
+  }
+  if (opened == ShardState::Fresh)
+  {
+    simulation.SpawnStartingFleet();
+  }
 
   /*
    * And that is the last thing this thread does to the world (ADR-007 §7).
@@ -1293,7 +1500,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
 
   int exitCode = 0;
   const bool hostsServer = config.mode != Outpost::HostMode::Client;
-  if (hostsServer && !server.Start(MakeServerConfig(config), simulation))
+  if (hostsServer && !server.Start(MakeServerConfig(config, shardState.IsOpen() ? &shardState : nullptr), simulation))
   {
     NEURON_LOG_ERROR("server failed to start");
     Log::Shutdown();

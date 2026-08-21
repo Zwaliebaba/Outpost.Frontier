@@ -5,6 +5,7 @@
 #include "ByteReader.h"
 #include "ByteWriter.h"
 #include "Clock.h"
+#include "DurableStore.h"
 #include "Log.h"
 #include "Telemetry.h"
 #include "QuicTransport.h"
@@ -391,6 +392,53 @@ void ServerHost::PollTransport()
   }
 }
 
+void ServerHost::WriteDurableSnapshot(std::uint32_t _tick)
+{
+  if (m_config.durableStore == nullptr || !m_config.durableStore->IsOpen())
+  {
+    return;
+  }
+
+  /*
+   * Grow until it fits, rather than persisting half a shard.
+   *
+   * `WriteDurableState` is the `ByteWriter` contract: it says whether the whole
+   * thing went in, and a short write is not a smaller snapshot, it is a
+   * corrupt one. Doubling from a megabyte reaches the cap in six tries and the
+   * buffer is kept, so the growth happens once in a shard's life.
+   */
+  if (m_durableBuffer.empty())
+  {
+    m_durableBuffer.resize(1u << 20);
+  }
+  bool written = false;
+  while (!written)
+  {
+    ByteWriter writer{m_durableBuffer};
+    written = m_simulation->WriteDurableState(writer);
+    if (written)
+    {
+      const std::uint64_t hash = m_simulation->DurableHash();
+      if (!m_config.durableStore->WriteSnapshot(writer.Written(), hash, _tick))
+      {
+        NEURON_LOG_ERROR("the shard snapshot could not be written; the journal still covers everything since the last one");
+      }
+      else
+      {
+        NEURON_LOG_INFO("shard snapshot at tick %u: %zu bytes, durable hash %016llx", _tick, writer.BytesWritten(),
+                        static_cast<unsigned long long>(hash));
+      }
+      return;
+    }
+    if (m_durableBuffer.size() >= MAX_DURABLE_RECORD_BYTES)
+    {
+      NEURON_LOG_ERROR("the shard's durable state does not fit %zu bytes and was not written", m_durableBuffer.size());
+      return;
+    }
+    m_durableBuffer.resize(m_durableBuffer.size() * 2);
+  }
+}
+
 void ServerHost::SimThread()
 {
   // One of the two owned lanes MVP registers (ADR-007 §8). Named for the role,
@@ -448,6 +496,21 @@ void ServerHost::SimThread()
     }
     SendSnapshots(tick);
 
+    /*
+     * The snapshot cadence, counted in ticks rather than in seconds.
+     *
+     * The tick is the only clock (ADR-002 §1) and the Sim thread already holds
+     * one, so a wall-clock timer here would be a second clock to drift -- and
+     * a snapshot taken at a tick number is a snapshot two runs of one script
+     * agree about, which is what makes the interrupted-rotation cases testable
+     * at all.
+     */
+    constexpr std::uint32_t SNAPSHOT_INTERVAL_TICKS = SNAPSHOT_INTERVAL_SECONDS * TICK_RATE;
+    if (tick % SNAPSHOT_INTERVAL_TICKS == 0)
+    {
+      WriteDurableSnapshot(tick);
+    }
+
     nextDeadline += tickInterval;
 
     const std::int64_t now = Clock::Counter();
@@ -479,6 +542,21 @@ void ServerHost::SimThread()
         NEURON_COUNTER("TickCatchUp", 1);
       }
     }
+  }
+
+  /*
+   * The clean shutdown's snapshot, before anything else is torn down
+   * (ADR-025 §4): **a clean stop loses nothing.**
+   *
+   * Here rather than in `Stop`, because this is the thread that owns the state
+   * and `Stop` is called from whichever thread noticed the window close. It is
+   * also before the goodbyes, so a host that fails to write says so while the
+   * log is still about shutting down rather than about something else.
+   */
+  WriteDurableSnapshot(m_tick.load(std::memory_order_relaxed));
+  if (m_config.durableStore != nullptr)
+  {
+    m_config.durableStore->Flush();
   }
 
   // Tell whoever is still connected, rather than vanishing.

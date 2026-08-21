@@ -53,4 +53,19 @@ struct ConfigPaths
  */
 [[nodiscard]] std::string ResolveContentPath(const std::string& _path);
 
+/*
+ * `ResolveContentPath`'s sibling, for a path the process **writes** to
+ * (ADR-025 §7).
+ *
+ * Same rule -- absolute as given, relative resolved beside the executable --
+ * and one difference that is the whole reason it is a second function:
+ * existence is not a condition. A shard's state directory does not exist until
+ * the first shard runs, and a resolver that returned empty for "not there yet"
+ * would make a first boot indistinguishable from a misconfigured one.
+ *
+ * **Not** the LocalAppData user layer, deliberately: that is one player's
+ * settings on one machine, and this is a service's state.
+ */
+[[nodiscard]] std::string ResolveWritablePath(const std::string& _path);
+
 } // namespace Outpost

@@ -329,7 +329,7 @@ void ApplyConfigLayer(const JsonValue& _root, AppConfig& _config, ConfigDiagnost
     return;
   }
 
-  WarnUnknownKeys(_root, {"mode", "selfTest", "logging", "universe", "economy", "content", "server", "client"}, "",
+  WarnUnknownKeys(_root, {"mode", "selfTest", "logging", "universe", "economy", "persistence", "content", "server", "client"}, "",
                   _diagnostics);
 
   const JsonValue mode = _root.Member("mode");
@@ -382,6 +382,14 @@ void ApplyConfigLayer(const JsonValue& _root, AppConfig& _config, ConfigDiagnost
   {
     WarnUnknownKeys(economy, {"definition"}, "economy", _diagnostics);
     ReadText(economy, "definition", _config.economyDefinition, "economy", _diagnostics);
+  }
+
+  const JsonValue persistence = _root.Member("persistence");
+  if (persistence.Valid())
+  {
+    WarnUnknownKeys(persistence, {"enabled", "directory"}, "persistence", _diagnostics);
+    ReadBool(persistence, "enabled", _config.persistence.enabled, "persistence", _diagnostics);
+    ReadText(persistence, "directory", _config.persistence.directory, "persistence", _diagnostics);
   }
 
   const JsonValue server = _root.Member("server");
