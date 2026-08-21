@@ -874,6 +874,102 @@ That is G1's real claim — a refinery that stops when the shard restarts is the
 exists not to be — and it is a claim about this slice's records in a format that already
 proved itself.
 
+**Built 2026-08-21.** The station became industry, and the phase's last piece of simulation
+landed.
+
+`GameLogic/Refining.{h,cpp}` is the arithmetic — pure, integer-only, and with deliberately
+nowhere to put an RNG, because batching is the deterministic economy's answer to yield variance
+(§6b): the ME refund is **exact and floored per material**, not expected on average. Per
+material matters: a refund computed on the total and split afterwards would have to decide which
+ore eats the remainder, and there is no answer to that which is not an invention.
+
+**A job is priced once, at submission, and carries its plan.** Not recomputed at completion, and
+that is a ruling rather than an optimisation: D-P3's form shows this arithmetic *before* the
+player commits, so the numbers they agreed to are the numbers they get — a station whose tier
+rose mid-job does not retroactively improve it. It also makes the durable record
+self-contained, which is why a reloaded job needs no tier table to know what it owes.
+
+**The order of the arithmetic is a stated contract**, and stating it caught a slip in the ADR.
+§6b's worked example says a 50-batch of Plates at T3 takes 22.5 minutes — the batch factor
+applied and §6c's *tier* factor forgotten. Both are authored, both are parsed, and §6a's
+units-per-slot rates are undiscounted, so both multiply and the honest number is 20.25 minutes.
+The materials in that example were exact and are unchanged. **ADR-024 §6b carries the
+correction**, and `TheAdrsWorkedExampleAddsUpExceptForTheTierDiscount` asserts both halves.
+
+**The owner's ruling closed D-P3's one open question that was owed here** (2026-08-21): a
+**queued** job cancels whole and its inputs return to the Bay untouched; a **running** job
+cannot be cancelled, its inputs being spent. Two states with one rule each, and nothing is
+created or destroyed by a cancel — what goes back is the same array that came out. ADR-024 §6b
+was silent and now is not. **Three rulings remain and all three are E5's**, so nothing left in
+this phase is gated on a decision.
+
+**The check order forks, and that is §6b enforced rather than commented.** A refining verb names
+no ships and requires no dock — "at a docked-or-remote station, focus never gates command" — so
+the three selection checks would be asking about something that does not exist. The refining
+order is `UnknownStation → RecipeLocked → RefineryBusy → InsufficientMaterials`, in the schema
+hash beside the other two because it is behaviour both machines must match. `RecipeLocked`
+precedes `RefineryBusy` because a locked recipe is a fact about the **station** and a full queue
+is a fact about **you**: a player told their queue is full, when the real answer is that this
+station will never cook Nova-Steel, goes and waits instead of going and flying.
+
+**Jobs advance in `WorldRegistry::Tick` beside the transfer bus**, not inside a world's tick — a
+refinery that needed a live grid would be a refinery nobody could walk away from, and walking
+away is the feature. `AJobRunsWhileItsStationsGridIsNotEvenLive` asserts it with **zero worlds
+spun up** for the job's whole duration.
+
+**A project completes exactly once because the check lives at the contribution**, not on a
+sweep. Two commanders pushing on the last unit in one tick: the first completes it and the
+second finds nothing remaining, so it is refused before a single unit leaves their Bay. A sweep
+would have had to decide what to do with units it had already taken, and there is no answer to
+that which does not either keep somebody's property or invent a refund path.
+
+**The wire cluster is the phase's second and last fail-closed bump.** `RefineStart`,
+`RefineCancel` and `ProjectContribute` join the verb family; `StationCommand` grows an alloy
+byte (**refused** rather than cast, on E3's ore byte's terms, because it indexes a recipe and a
+Bay before validation could have an opinion) and a job sequence in its own field — a sequence is
+an identity where the other two are quantities, and one field meaning both would eventually
+cancel job 50 because somebody meant a batch of 50. `RefineryBusy = 21` and `RecipeLocked = 22`
+stop being reserved. `SummaryKind` gains `RefineryStatus`, carrying the **completion tick**
+rather than a duration, because wall-clock ETAs are the screen's job (D-P3) and a duration would
+make the tab's arithmetic depend on when the frame arrived. `EventKind::RefineComplete` and
+`ProjectComplete` stop being reserved: a refinery runs while the commander is offline, so the
+away-log is the only thing that can say what finished.
+
+*`BayStatus` grew the alloys rather than them getting a message of their own — a Bay is one
+statement about one place, and a screen reading two sources for it would eventually show two
+different answers. **That change found a defect in E3's code**: `StationBay::TotalUnits` counted
+ore only, and the summary sender skips a Bay whose total is zero, so a commander who refined all
+their ore would have watched their whole industrial estate vanish from the screen at exactly the
+moment it became interesting.*
+
+**The durable format goes to version 2.** Jobs, station tiers and project contributions join
+ADR-025 §1's list, and the Bay grows its alloys. Tiers and projects are durable for a stronger
+reason than jobs are — they are permanent and communal, so a completed project that did not
+survive a restart would un-build something a dozen commanders paid for. **A station's tier is
+derived, not baked**: the authored floor (T1, T2 in the starter system), raised by whatever has
+been built, and **clamped by the band on the way out** rather than trusted on the way in, which
+is what keeps "no High-Sec station can ever cook Nova-Steel" true against a project, a reload or
+a content retune that lowered a cap under a station somebody had already upgraded.
+
+**🏁 G1's claim is the completion tick, not the job.** `ARunningJobSurvivesARestartWithItsCompletionTickUnmoved`
+and the `selfTest`'s mid-job restart both assert it, because a job restored with a *duration*
+rather than a *deadline* would silently restart its own clock on every restart — a shard that
+bounced twice an hour would never finish anything, and every individual test of it would still
+pass.
+
+**What was verified, and how.** All of GameLogic compiles clean under **clang 18 on Linux** and
+the whole `GameLogicTests` suite compiles and **runs** there — **364 methods across eleven
+files, 0 failures**, of which 23 are new in `RefiningTests.cpp` plus the durable additions —
+with `NeuronServerTests`' store half at 14/14 beside it. clang-tidy reports nothing in the files
+this slice touched; it caught one implicit widening in `RefineryStatusBytes` before CI could.
+Two existing fixtures needed updating and both are the suite doing its job: the two hand-built
+`StationCommand` payloads in `RegistryTests` name the wire layout and had to grow the two new
+fields, and `DurableStateTests`' corrupt-cluster-count fixture had to learn that four families
+now trail the ledgers rather than one.
+
+**CI's verdict is owed** — the run for this slice is in flight, and the numbers land here in a
+`Record run` commit rather than being predicted.
+
 ### E5 — The two screens
 The station surface's **CARGO** and **REFINERY** tabs, built to their prints —
 [cargo-tab.png](ScreenPrints/cargo-tab.png) and

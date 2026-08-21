@@ -135,11 +135,13 @@ moves between the trees without a rename pass. Three things it changed in these 
   audio last. **Every design deliverable is closed**: D-P1 accepted 2026-08-20, D-P2
   ([cargo-tab.png](ScreenPrints/cargo-tab.png)) and D-P3
   ([refinery-tab.png](ScreenPrints/refinery-tab.png)) both delivered 2026-08-21. What the two
-  prints leave behind is **eight owner rulings, not artefacts**: seven owed before E5, and one
-  — whether a refine job can be cancelled — owed before **E4b**.
-  **E1a, E1b, E2, E3 and E4a are built; E4b is next.** The plan splits the E1 the ADR sketched,
-  moves the screens out of E4, and **splits E4 itself** into the durable store (E4a) and the
-  refining runtime (E4b) — all three recorded in its sequencing rationale.
+  prints leave behind is **eight owner rulings, not artefacts**. The one owed before E4b —
+  whether a refine job can be cancelled — was **answered 2026-08-21** (a queued job cancels
+  whole, a running one cannot); the other seven are E5's, so nothing left in this phase is gated
+  on a decision.
+  **E1a through E4b are built; E5, the two screens, is what is left.** The plan splits the E1
+  the ADR sketched, moves the screens out of E4, and **splits E4 itself** into the durable store
+  (E4a) and the refining runtime (E4b) — all three recorded in its sequencing rationale.
 - [Archive/](Archive/) — corpus documents that are **finished rather than wrong**. A plan moves
   here when every slice in it is built and every open item it tracked is closed; it stays
   readable and linked because it is the record of what was built and why, and it leaves
@@ -356,6 +358,31 @@ framed, CRC'd, recovered and tested, and nothing appends to it yet — so a hard
 back to the last snapshot rather than to the last second. The per-outcome records that close
 ADR-025 §4's named window need a change-set at the registry's mutation points, and they land
 with the state E4b is about to add rather than being retrofitted twice.*
+
+**E4b closed the phase's simulation half (2026-08-21).** The station became industry: refine
+jobs `(recipe, batchCount)` against a Bay at any station holding your ore, per-player slots and
+a queue of ten, station tiers with their band caps, and communal upgrade projects that raise a
+tier permanently for everyone. The claim it rests on is that **a refinery is a ledger** — the ME
+refund is exact and floored per material, there is nowhere in the arithmetic to put an RNG, and
+a job is priced **once, at submission**, so the numbers the player agreed to are the numbers
+they get.
+
+Three of its decisions are worth carrying. **The check order forks**, because a refining verb
+names no ships and requires no dock — `UnknownStation → RecipeLocked → RefineryBusy →
+InsufficientMaterials`, with `RecipeLocked` first because a locked recipe is a fact about the
+*station* and a full queue is a fact about *you*. **Jobs advance beside the transfer bus** at the
+universe layer rather than inside a world's tick, so a refinery runs with no grid spun up and
+nobody watching — walking away is the feature. And **a project completes exactly once** because
+the check lives at the contribution rather than on a sweep: two commanders pushing on the last
+unit in one tick, and the second is refused before a single unit leaves their Bay.
+
+*Implementing it corrected the ADR twice over.* §6b's worked example said a 50-batch of Plates
+at T3 takes 22.5 minutes — the batch factor applied and §6c's tier factor forgotten; both are
+authored and both multiply, so it is 20.25. And the owner's ruling on **job cancel** filled a
+silence: a queued job cancels whole with its inputs returned, a running one cannot. Growing
+`BayStatus` to carry alloys also found a defect in E3's code — `TotalUnits` counted ore only,
+and the sender skips a Bay whose total is zero, so a commander who refined all their ore would
+have watched their whole industrial estate vanish from the screen.
 
 **What the economy phase cost in corrections is worth reading before the next slice**, because
 all four were found by building rather than by review: the ADR's field radius did not fit the
