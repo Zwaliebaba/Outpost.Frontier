@@ -57,6 +57,8 @@ std::uint64_t ComputeWorldHash(const World& _world) noexcept
   const std::span<const std::uint8_t> hulls = _world.Hulls();
   const std::span<const std::uint8_t> shields = _world.Shields();
   const std::span<const std::uint32_t> protectedUntil = _world.ProtectedUntil();
+  const std::span<const ShipCargo> cargo = _world.Cargo();
+  const std::span<const MiningState> mining = _world.MiningStates();
 
   for (std::size_t slot = 0; slot < ids.size(); ++slot)
   {
@@ -84,6 +86,58 @@ std::uint64_t ComputeWorldHash(const World& _world) noexcept
     // that disagree about who is protected have already diverged about the
     // fight that follows.
     hash = Neuron::HashValue(protectedUntil[slot], hash);
+
+    /*
+     * What it is carrying and where it is in its cycle (ADR-024 §4b).
+     *
+     * Both are simulation state in the strongest sense: the manifest is what a
+     * refinery will consume, and the cycle clock decides which tick the next
+     * credit lands on. Two worlds that agreed about every position and
+     * disagreed about a hold have already diverged about an economy.
+     *
+     * The hazard counters are folded too, and they are the subtle half. A
+     * radiation stack lengthens the *next* cycle, so two builds that disagreed
+     * about a stack would land the following credit at different ticks -- and
+     * the tick after that, at different positions, because a full Miner stops.
+     */
+    for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+    {
+      hash = Neuron::HashValue(cargo[slot].oreUnits[ore], hash);
+    }
+    hash = Neuron::HashValue(mining[slot].cycleEndTick, hash);
+    hash = Neuron::HashValue(mining[slot].cluster, hash);
+    hash = Neuron::HashValue(mining[slot].radiationStacks, hash);
+    hash = Neuron::HashValue(mining[slot].outsideFieldTicks, hash);
+    hash = Neuron::HashValue(mining[slot].heat, hash);
+    hash = Neuron::HashValue(mining[slot].coolingTicks, hash);
+    hash = Neuron::HashValue(mining[slot].lockoutUntilTick, hash);
+  }
+
+  /*
+   * The field, which is the other half of that economy (ADR-024 §3d).
+   *
+   * A world's *copy* of what is left of the site: the durable number lives in
+   * the registry's ledger and is folded there, but the copy is what the next
+   * cycle reads, so a replay that reproduced the ledger and not the copy would
+   * agree about a field and disagree about the next unit out of it.
+   *
+   * The archetype, grade and radius go in as well even though they are content:
+   * they are what the hazard arithmetic multiplies by, and a world spun up from
+   * the wrong epoch's field should say so here rather than a day later.
+   */
+  const SiteField& site = _world.Site();
+  hash = Neuron::HashValue(static_cast<std::uint8_t>(site.archetype), hash);
+  hash = Neuron::HashValue(site.grade, hash);
+  hash = Neuron::HashValue(site.fieldRadiusCm, hash);
+  hash = Neuron::HashValue(site.clusterCount, hash);
+  for (std::uint8_t index = 0; index < site.clusterCount; ++index)
+  {
+    hash = Neuron::HashValue(site.clusters[index].xCm, hash);
+    hash = Neuron::HashValue(site.clusters[index].yCm, hash);
+    for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+    {
+      hash = Neuron::HashValue(site.clusters[index].remainingUnits[ore], hash);
+    }
   }
 
   /*
@@ -107,6 +161,11 @@ std::uint64_t ComputeWorldHash(const World& _world) noexcept
     _hash = Neuron::HashValue(_group.clientOrderSeq, _hash);
     _hash = Neuron::HashValue(static_cast<std::uint8_t>(_group.formation), _hash);
     _hash = Neuron::HashValue(static_cast<std::uint8_t>(_group.state), _hash);
+    // What a Mine is after and which rocks it is on. Both decide the future --
+    // the filter picks the ore and the cluster picks the pool -- so two groups
+    // identical but for these would diverge on the very next credit.
+    _hash = Neuron::HashValue(static_cast<std::uint8_t>(_group.oreFilter), _hash);
+    _hash = Neuron::HashValue(_group.cluster, _hash);
     _hash = Neuron::HashValue(_group.legStartTick, _hash);
     // The leg's deadline is state, not a constant, since S12 made it
     // proportional to the leg. A replay that diverged on it would advance a leg

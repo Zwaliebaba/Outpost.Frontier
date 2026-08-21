@@ -12,7 +12,11 @@ wave-2 trigger, the composer's lifetime, wing colour, and the sort inside a wing
 **further amended 2026-08-20 by [ADR-024](ADR-024-mining-economy.md)**: §1's roster record
 gains a per-ship cargo manifest (cargo is not damage — the repair rule stands); §6's tab
 family activates **CARGO** and **REFINERY**; and the "no persistence" note ends — the
-universe layer's durable state gains a journal (ADR-024 §7a)
+universe layer's durable state gains a journal (ADR-024 §7a) · **the first two of those
+cashed in 2026-08-21 by E3**: the roster row carries `oreUnits[3]` and the station gains a
+second universe-layer resident, the per-`(owner, station)` **Bay** — the roster's "three
+fields, deliberately" argument was about *gauges*, and cargo is not one, so repair-by-absence
+stands unchanged
 **Depends on:** ADR-002 (tick), ADR-004 (wire), ADR-005 (orders, validation, determinism),
 ADR-009 (universe model, stations), ADR-012 (JSON, user settings layer), ADR-014 (seam),
 ADR-015 (contact, stations as terrain), ADR-016 (anchors, universe runtime, summaries,

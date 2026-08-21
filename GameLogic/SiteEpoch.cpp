@@ -3,6 +3,7 @@
 #include "SiteEpoch.h"
 
 #include "FixedAngle.h"
+#include "SiteField.h"
 
 #include "Random.h"
 
@@ -68,6 +69,40 @@ SitePlacement SiteEpochPlacement(const UniversePos& _systemCentre, AnchorId _anc
 
   placement.layoutSalt = _site.layoutSeed ^ rng.Next();
   return placement;
+}
+
+bool ResolveSiteEpochAt(const UniverseDef& _universe, AnchorId _anchor, const SitesInfo& _sites,
+                        std::uint32_t _epochIndex, SiteEpochState& _outState) noexcept
+{
+  const Anchor* anchor = _universe.FindAnchor(_anchor);
+  if (anchor == nullptr || anchor->kind != AnchorKind::Site || anchor->site.grade == 0)
+  {
+    return false;
+  }
+  const SolarSystem* system = _universe.FindSystem(anchor->system);
+  if (system == nullptr)
+  {
+    return false;
+  }
+
+  _outState.epochIndex = _epochIndex;
+  _outState.placement = SiteEpochPlacement(system->centre, _anchor, anchor->site, _epochIndex,
+                                           static_cast<std::int64_t>(_sites.warpInStandoffMetres));
+  return true;
+}
+
+bool ResolveSiteEpoch(const UniverseDef& _universe, AnchorId _anchor, const SitesInfo& _sites,
+                      std::uint32_t _shardTick, SiteEpochState& _outState) noexcept
+{
+  /*
+   * Seconds reach this file already multiplied by an integer tick rate, which
+   * is the rule the file comment states and the reason `SiteEpochIndex` takes
+   * ticks: `86400 / 0.05f` is not 1,728,000 on every path that evaluates it,
+   * and an epoch one tick short on one machine is a field that re-forms while
+   * somebody is standing in it.
+   */
+  const std::uint32_t index = SiteEpochIndex(_shardTick, _anchor, _sites.regenSeconds * TICKS_PER_SECOND);
+  return ResolveSiteEpochAt(_universe, _anchor, _sites, index, _outState);
 }
 
 } // namespace Game

@@ -38,6 +38,7 @@ const char* LevelText(LogLevel _level) noexcept
 } // namespace
 
 LogLevel Log::sm_minimumLevel = LogLevel::Info;
+bool Log::sm_flushEveryLine = false;
 
 void Log::Initialise(std::string_view _filePath, LogLevel _minimumLevel) noexcept
 {
@@ -73,6 +74,11 @@ void Log::Shutdown() noexcept
 void Log::SetMinimumLevel(LogLevel _level) noexcept
 {
   sm_minimumLevel = _level;
+}
+
+void Log::SetFlushEveryLine(bool _enabled) noexcept
+{
+  sm_flushEveryLine = _enabled;
 }
 
 LogLevel Log::MinimumLevel() noexcept
@@ -132,7 +138,7 @@ void Log::Write(LogLevel _level, const char* _format, ...) noexcept
   if (g_logFile != nullptr)
   {
     std::fputs(line, g_logFile);
-    if (_level >= LogLevel::Warning)
+    if (_level >= LogLevel::Warning || sm_flushEveryLine)
     {
       std::fflush(g_logFile); // A crash after a warning should still have the warning on disk.
     }

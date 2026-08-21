@@ -154,9 +154,26 @@ public:
     return false;
   }
 
-  /// Validates and applies one order payload. Returning a verdict rather than a
-  /// bool keeps the refusal reason with the decision that produced it.
-  [[nodiscard]] virtual OrderVerdict ApplyOrderBytes(std::uint32_t _clientId, std::span<const std::uint8_t> _payload) = 0;
+  /*
+   * Validates and applies one order payload. Returning a verdict rather than a
+   * bool keeps the refusal reason with the decision that produced it.
+   *
+   * **Both ids, and they are not the same question.** `_clientId` is which
+   * socket said it; `_player` is whose property it is about. They coincide
+   * today -- one player, one session each -- and the pair is here because the
+   * moment they stop coinciding is the moment a command that moved somebody
+   * else's goods would have looked correct. A simulation that owns per-player
+   * state (a station Bay, ADR-024 §5b) cannot be handed a command without
+   * being told whose it is, and asking it to look the answer up would put the
+   * engine's session table inside the game.
+   *
+   * This is the command half of what `WriteSnapshot` and `WriteSummaries`
+   * already do on the way out, and ADR-018 D5's note applies unchanged: with
+   * one player it filters nothing, and the shape does not change when there
+   * are two.
+   */
+  [[nodiscard]] virtual OrderVerdict ApplyOrderBytes(PlayerId _player, std::uint32_t _clientId,
+                                                     std::span<const std::uint8_t> _payload) = 0;
 
   /// Message layout of the game's own wire types. Exchanged at the handshake so
   /// mismatched builds refuse each other at the door.
@@ -183,7 +200,7 @@ public:
   void AdvanceTick(std::uint32_t _tick) override { m_lastTick = _tick; }
   [[nodiscard]] bool WriteSnapshot(PlayerId, std::uint16_t, std::uint32_t, ByteWriter&) override { return false; }
 
-  [[nodiscard]] OrderVerdict ApplyOrderBytes(std::uint32_t, std::span<const std::uint8_t>) override
+  [[nodiscard]] OrderVerdict ApplyOrderBytes(PlayerId, std::uint32_t, std::span<const std::uint8_t>) override
   {
     return OrderVerdict{}; // Refuses everything: there is nothing to command.
   }

@@ -4,6 +4,19 @@
 * text=auto
 
 ###############################################################################
+# Batch files are parsed by cmd.exe, which wants CRLF.
+#
+# `text=auto` above already gives a Windows checkout CRLF, so on any ordinary
+# clone this changes nothing. It is stated anyway because it is not a
+# preference: cmd reads a script a line at a time, and an LF-only batch file
+# can mis-resolve labels and `goto` targets rather than fail cleanly -- which
+# would read as a bug in CopyGameData.cmd and not as a checkout setting. This
+# survives a clone with core.autocrlf off, where `text=auto` alone would not.
+###############################################################################
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+###############################################################################
 # Set default behavior for command prompt diff.
 #
 # This is need for earlier builds of msysgit that does not have it on by

@@ -243,14 +243,14 @@ public:
     Assert::IsNotNull(anchor);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
     const ShipId first = AddShip(registry, station, 200.0f, 0.0f);
     const ShipId second = AddShip(registry, station, -200.0f, 0.0f);
     const ShipId fleet[] = {first, second};
     DockAndLand(registry, station, fleet, tick);
 
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     Assert::AreEqual<std::size_t>(0, registry.Roster(station).size(), L"they left the roster when the record was filed");
 
     registry.Tick(++tick);
@@ -285,13 +285,13 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
     const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
     const ShipId fleet[] = {ship};
     DockAndLand(registry, station, fleet, tick);
 
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     registry.Tick(++tick);
 
     const std::uint32_t arrival = tick;
@@ -314,12 +314,12 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
     const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
     const ShipId fleet[] = {ship};
     DockAndLand(registry, station, fleet, tick);
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     registry.Tick(++tick);
 
     World* world = registry.Borrow(station);
@@ -348,18 +348,18 @@ public:
     const std::vector<AnchorId> stations = StationAnchors(universe, 2);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
     const ShipId ship = AddShip(registry, stations[0], 200.0f, 0.0f);
     const ShipId fleet[] = {ship};
     DockAndLand(registry, stations[0], fleet, tick);
 
-    const OrderVerdict elsewhere = registry.SubmitStationCommand(Undock(stations[1], fleet));
+    const OrderVerdict elsewhere = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(stations[1], fleet));
     Assert::IsFalse(elsewhere.accepted);
     Assert::IsTrue(elsewhere.reason == OrderReason::NotDocked, L"the station is real; the ship is not on it");
 
     const ShipId stranger[] = {static_cast<ShipId>(4242)};
-    const OrderVerdict unknown = registry.SubmitStationCommand(Undock(stations[0], stranger));
+    const OrderVerdict unknown = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(stations[0], stranger));
     Assert::IsFalse(unknown.accepted);
     Assert::IsTrue(unknown.reason == OrderReason::NotDocked);
   }
@@ -372,14 +372,14 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
     const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
     const ShipId fleet[] = {ship};
     DockAndLand(registry, station, fleet, tick);
 
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
-    const OrderVerdict again = registry.SubmitStationCommand(Undock(station, fleet));
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
+    const OrderVerdict again = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet));
     Assert::IsFalse(again.accepted);
     Assert::IsTrue(again.reason == OrderReason::NotDocked);
   }
@@ -395,7 +395,7 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
     const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
     const ShipId fleet[] = {ship};
@@ -409,12 +409,12 @@ public:
     assign.wing = 7;
     Assert::IsTrue(assign.AddShip(ship));
 
-    Assert::IsTrue(registry.SubmitStationCommand(assign).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, assign).accepted);
     Assert::AreEqual<std::uint32_t>(0, registry.PendingTransferCount(), L"a wing is a number, not a place");
     Assert::AreEqual<std::uint32_t>(7, registry.Roster(station)[0].wing);
 
     // And it travels with the ship: undocking spawns it into wing 7.
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     registry.Tick(++tick);
     const World* world = registry.Peek(station);
     for (std::size_t slot = 0; slot < world->Ids().size(); ++slot)
@@ -434,7 +434,7 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
     const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
     const ShipId fleet[] = {ship};
@@ -443,19 +443,19 @@ public:
     StationCommand empty = Undock(station, {});
     empty.formation = static_cast<FormationId>(200);
     empty.station = 9999;
-    Assert::IsTrue(registry.SubmitStationCommand(empty).reason == OrderReason::EmptySelection);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, empty).reason == OrderReason::EmptySelection);
 
     StationCommand badFormation = Undock(station, fleet);
     badFormation.formation = static_cast<FormationId>(200);
     badFormation.station = 9999;
-    Assert::IsTrue(registry.SubmitStationCommand(badFormation).reason == OrderReason::InvalidFormation);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, badFormation).reason == OrderReason::InvalidFormation);
 
     StationCommand nowhere = Undock(9999, fleet);
-    Assert::IsTrue(registry.SubmitStationCommand(nowhere).reason == OrderReason::UnknownStation);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, nowhere).reason == OrderReason::UnknownStation);
 
     // And only then does the roster get to answer.
     const ShipId stranger[] = {static_cast<ShipId>(4242)};
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, stranger)).reason == OrderReason::NotDocked);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, stranger)).reason == OrderReason::NotDocked);
   }
 
   TEST_METHOD(AnUndockIntoATornDownGridSpinsOneUp)
@@ -467,7 +467,7 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
     const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
     const ShipId fleet[] = {ship};
@@ -476,7 +476,7 @@ public:
     registry.Tick(++tick); // Nothing left on the grid, nobody watching: it goes.
     Assert::IsNull(registry.Peek(station));
 
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     registry.Tick(++tick);
     Assert::IsNotNull(registry.Peek(station), L"the fleet had somewhere to arrive");
   }
@@ -493,13 +493,13 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
     const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
     const ShipId fleet[] = {ship};
     DockAndLand(registry, station, fleet, tick);
 
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     registry.Tick(++tick);
 
     const World* world = registry.Peek(station);
@@ -541,7 +541,7 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
     const ShipId first = AddShip(registry, station, 200.0f, 0.0f);
     const ShipId second = AddShip(registry, station, -200.0f, 0.0f);
@@ -550,8 +550,8 @@ public:
 
     const ShipId one[] = {first};
     const ShipId two[] = {second};
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, one)).accepted);
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, two)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, one)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, two)).accepted);
     registry.Tick(++tick);
 
     const World* world = registry.Peek(station);
@@ -591,7 +591,7 @@ public:
     Assert::IsNotNull(anchor);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
     const ShipId ship = AddShip(registry, station, 200.0f, 0.0f);
     const ShipId fleet[] = {ship};
@@ -613,7 +613,7 @@ public:
       }
     }
 
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     registry.Tick(++tick);
 
     const World* world = registry.Peek(station);
@@ -650,7 +650,7 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
     const ShipId first = AddShip(registry, station, 200.0f, 0.0f);
     const ShipId second = AddShip(registry, station, -200.0f, 0.0f);
@@ -668,10 +668,10 @@ public:
     assign.station = station;
     assign.wing = 4;
     Assert::IsTrue(assign.AddShip(first));
-    Assert::IsTrue(registry.SubmitStationCommand(assign).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, assign).accepted);
 
     const std::uint64_t before = registry.Hash();
-    Assert::IsTrue(registry.SubmitStationCommand(Undock(station, fleet)).accepted);
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet)).accepted);
     registry.Tick(++tick);
 
     const std::span<const EventEntry> entries = registry.Events().Entries();
@@ -699,7 +699,7 @@ public:
     const auto run = [&universe, &stations]()
     {
       WorldRegistry registry;
-      registry.Reset(&universe, Config());
+      registry.Reset(&universe, nullptr, Config());
       std::uint32_t tick = 0;
 
       const ShipId a = AddShip(registry, stations[0], 200.0f, 0.0f);
@@ -719,10 +719,10 @@ public:
       assign.station = stations[0];
       assign.wing = 3;
       Assert::IsTrue(assign.AddShip(b));
-      Assert::IsTrue(registry.SubmitStationCommand(assign).accepted);
+      Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, assign).accepted);
 
       const ShipId back[] = {a, b};
-      Assert::IsTrue(registry.SubmitStationCommand(Undock(stations[0], back, FormationId::Wedge)).accepted);
+      Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(stations[0], back, FormationId::Wedge)).accepted);
       registry.Tick(++tick);
       registry.Tick(++tick);
       registry.Tick(++tick);
@@ -748,7 +748,7 @@ public:
     const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
 
     const ShipId ship = AddShip(registry, anchors[0], 300.0f, 0.0f);
@@ -787,7 +787,7 @@ public:
     const auto crossingTicks = [&universe, &anchors](HullClass _class)
     {
       WorldRegistry registry;
-      registry.Reset(&universe, Config());
+      registry.Reset(&universe, nullptr, Config());
       std::uint32_t tick = 0;
 
       ShipSpawn spawn;
@@ -817,7 +817,7 @@ public:
     const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
 
     ShipSpawn spawn;
@@ -852,7 +852,7 @@ public:
     const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     const ShipId ship = AddShip(registry, anchors[0], 300.0f, 0.0f);
     const ShipId fleet[] = {ship};
 
@@ -874,7 +874,7 @@ public:
     Assert::IsNotNull(destination);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
 
     std::vector<ShipId> fleet;
@@ -941,7 +941,7 @@ public:
     const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
 
     ShipSpawn spawn;
@@ -979,7 +979,7 @@ public:
     Assert::IsNotNull(destination);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
 
     // Descending ids in the order the order names them, so index-pairing and
@@ -1050,7 +1050,7 @@ public:
     const auto run = [&universe, &anchors]()
     {
       WorldRegistry registry;
-      registry.Reset(&universe, Config());
+      registry.Reset(&universe, nullptr, Config());
       std::uint32_t tick = 0;
 
       const ShipId here = AddShip(registry, anchors[0], 300.0f, 0.0f);
@@ -1108,7 +1108,7 @@ public:
     Assert::IsNotNull(anchor);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
 
     const World* world = registry.Borrow(pair[0]);
     Assert::IsNotNull(world);
@@ -1144,7 +1144,7 @@ public:
     const std::vector<AnchorId> pair = AGatePair(universe);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
 
     const ShipId ship = AddShip(registry, pair[0], 800.0f, 0.0f); // Inside the jump radius.
@@ -1178,7 +1178,7 @@ public:
     const std::vector<AnchorId> pair = AGatePair(universe);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
 
     const ShipId far = AddShip(registry, pair[0], 9000.0f, 0.0f);
     const ShipId fleet[] = {far};
@@ -1225,7 +1225,7 @@ public:
     Assert::IsTrue(nonGate != INVALID_ID, L"the test system has no anchor that is not a gate");
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     const ShipId ship = AddShip(registry, nonGate, 300.0f, 0.0f);
     const ShipId fleet[] = {ship};
 
@@ -1275,7 +1275,7 @@ public:
     const auto crossingTicks = [&universe](const std::vector<AnchorId>& _pair)
     {
       WorldRegistry registry;
-      registry.Reset(&universe, Config());
+      registry.Reset(&universe, nullptr, Config());
       std::uint32_t tick = 0;
       const ShipId ship = AddShip(registry, _pair[0], 800.0f, 0.0f);
       const ShipId fleet[] = {ship};
@@ -1303,7 +1303,7 @@ public:
     const auto run = [&universe, &pair]
     {
       WorldRegistry registry;
-      registry.Reset(&universe, Config(0x9A7Eu));
+      registry.Reset(&universe, nullptr, Config(0x9A7Eu));
       std::uint32_t tick = 0;
       const ShipId ship = AddShip(registry, pair[0], 800.0f, 0.0f);
       const ShipId fleet[] = {ship};
@@ -1346,7 +1346,7 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
 
     (void)AddShip(registry, anchors[0], 100.0f, 0.0f);
@@ -1389,7 +1389,7 @@ public:
     const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     std::uint32_t tick = 0;
 
     const ShipId ship = AddShip(registry, anchors[0], 300.0f, 0.0f);
@@ -1431,7 +1431,7 @@ public:
     const auto run = [&universe, &anchors]()
     {
       WorldRegistry registry;
-      registry.Reset(&universe, Config());
+      registry.Reset(&universe, nullptr, Config());
       std::uint32_t tick = 0;
       (void)AddShip(registry, anchors[1], 50.0f, 0.0f);
       const ShipId ship = AddShip(registry, anchors[0], 300.0f, 0.0f);
@@ -1567,6 +1567,8 @@ public:
     writer.WriteUInt16(7);
     writer.WriteUInt8(static_cast<std::uint8_t>(FormationId::Line));
     writer.WriteUInt8(0);
+    writer.WriteUInt8(static_cast<std::uint8_t>(OreId::FerroChroma)); // E3's ore byte.
+    writer.WriteUInt32(0);                                            // ...and its unit count.
     writer.WriteUInt16(1);
     writer.WriteUInt32(65537);
     Assert::IsTrue(writer.Ok());
@@ -1586,6 +1588,8 @@ public:
     writer.WriteUInt16(7);
     writer.WriteUInt8(0);
     writer.WriteUInt8(0);
+    writer.WriteUInt8(static_cast<std::uint8_t>(OreId::FerroChroma));
+    writer.WriteUInt32(0);
     writer.WriteUInt16(65535); // Sixty-five thousand ships in one command.
     Assert::IsTrue(writer.Ok());
 
@@ -1731,7 +1735,7 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
 
     const ShipId first = AddShip(registry, station, 200.0f, 0.0f);
     const ShipId second = AddShip(registry, station, -200.0f, 100.0f);
@@ -1769,7 +1773,7 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     const ShipId ship = AddShip(registry, station, 100.0f, 0.0f);
 
     const ShipId fleet[] = {ship};
@@ -1794,7 +1798,7 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     const ShipId ship = AddShip(registry, station, 100.0f, 0.0f);
 
     const ShipId fleet[] = {ship};
@@ -1823,7 +1827,7 @@ public:
     const auto run = [&universe, station](std::uint64_t& _afterFiling, std::uint64_t& _afterApply)
     {
       WorldRegistry registry;
-      registry.Reset(&universe, Config());
+      registry.Reset(&universe, nullptr, Config());
       const ShipId ship = AddShip(registry, station, 100.0f, 0.0f);
       const ShipId fleet[] = {ship};
       Assert::IsTrue(SubmitDock(registry, station, fleet).accepted);
@@ -1857,7 +1861,7 @@ public:
     const std::vector<AnchorId> stations = StationAnchors(universe, 2);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     const ShipId here = AddShip(registry, stations[0], 100.0f, 0.0f);
     const ShipId there = AddShip(registry, stations[1], 100.0f, 0.0f);
 
@@ -1890,7 +1894,7 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     const ShipId ship = AddShip(registry, station, 100.0f, 0.0f);
     const ShipId fleet[] = {ship};
     Assert::IsTrue(SubmitDock(registry, station, fleet).accepted);
@@ -1913,7 +1917,7 @@ public:
     Assert::IsNotNull(anchor);
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     Assert::AreEqual(0u, registry.LiveWorldCount(), L"a registry should start with nothing spun up");
 
     const World* world = registry.Borrow(station);
@@ -1935,7 +1939,7 @@ public:
     // the only destinations there are (ADR-016 §3).
     const UniverseDef universe = SmallUniverse();
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
     Assert::IsNull(registry.Borrow(static_cast<AnchorId>(60000)), L"an unauthored anchor spun a world up");
     Assert::AreEqual(0u, registry.LiveWorldCount());
   }
@@ -1955,7 +1959,7 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry ticked;
-    ticked.Reset(&universe, Config());
+    ticked.Reset(&universe, nullptr, Config());
     ticked.AddViewer(station); // Held alive, or teardown would do this test's job for it.
     for (std::uint32_t tick = 1; tick <= 200; ++tick)
     {
@@ -1963,7 +1967,7 @@ public:
     }
 
     WorldRegistry recreated;
-    recreated.Reset(&universe, Config());
+    recreated.Reset(&universe, nullptr, Config());
     recreated.AddViewer(station);
     // Spun up late, and driven to the same shard tick: ADR-019 §2 makes the
     // comparison meaningful only at equal ticks, which is exactly why the
@@ -1986,7 +1990,7 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
 
     const ShipId visitor = AddShip(registry, station, 500.0f, 0.0f);
     Assert::AreNotEqual(static_cast<std::uint16_t>(INVALID_SHIP_ID), static_cast<std::uint16_t>(visitor));
@@ -2020,11 +2024,11 @@ public:
     const AnchorId station = StationAnchors(universe, 1)[0];
 
     WorldRegistry unwatched;
-    unwatched.Reset(&universe, Config());
+    unwatched.Reset(&universe, nullptr, Config());
     unwatched.Tick(1);
 
     WorldRegistry watched;
-    watched.Reset(&universe, Config());
+    watched.Reset(&universe, nullptr, Config());
     watched.AddViewer(station);
     watched.Tick(1);
 
@@ -2054,7 +2058,7 @@ public:
     const auto run = [&universe, &stations](bool _reversed)
     {
       WorldRegistry registry;
-      registry.Reset(&universe, Config());
+      registry.Reset(&universe, nullptr, Config());
       for (const AnchorId anchor : stations)
       {
         (void)AddShip(registry, anchor, 300.0f, -200.0f);
@@ -2095,7 +2099,7 @@ public:
     const auto run = [&universe, &stations](std::uint64_t _seed)
     {
       WorldRegistry registry;
-      registry.Reset(&universe, Config(_seed));
+      registry.Reset(&universe, nullptr, Config(_seed));
       for (const AnchorId anchor : stations)
       {
         (void)AddShip(registry, anchor, 800.0f, 400.0f);
@@ -2118,7 +2122,7 @@ public:
     // from the id alone.
     const UniverseDef universe = SmallUniverse();
     WorldRegistry registry;
-    registry.Reset(&universe, Config());
+    registry.Reset(&universe, nullptr, Config());
 
     const ShipId first = registry.AllocateShipId();
     const ShipId second = registry.AllocateShipId();

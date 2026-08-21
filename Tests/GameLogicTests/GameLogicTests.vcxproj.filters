@@ -18,6 +18,12 @@
     <ClCompile Include="EconomyParseTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="CargoTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="MiningTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="UniverseTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

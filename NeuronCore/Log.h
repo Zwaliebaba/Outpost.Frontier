@@ -36,6 +36,11 @@ public:
   static void SetMinimumLevel(LogLevel _level) noexcept;
   [[nodiscard]] static LogLevel MinimumLevel() noexcept;
 
+  /// Flush the file after every line, not just after warnings. For unattended
+  /// runs that may be killed from outside (CI's self-test watchdog): the last
+  /// info line before the kill is the diagnosis, and a buffered one is lost.
+  static void SetFlushEveryLine(bool _enabled) noexcept;
+
   /// Parses "trace"/"debug"/"info"/"warning"/"error"; unknown text yields Info.
   [[nodiscard]] static LogLevel ParseLevel(std::string_view _text) noexcept;
 
@@ -43,6 +48,7 @@ public:
 
 private:
   static LogLevel sm_minimumLevel;
+  static bool sm_flushEveryLine;
 };
 
 } // namespace Neuron

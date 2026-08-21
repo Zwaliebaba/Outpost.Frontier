@@ -65,8 +65,8 @@ problem with a line and a JSON path rather than the first. `ComputeEconomyHash` 
 the parsed content the way `ComputeUniverseHash` does, so comments, whitespace and key order
 never move it and a changed number always does. `Outpost/EconomyLoad.{h,cpp}` opens the file
 and computes the hash, mirroring `UniverseLoad`; `Outpost.json` gains
-`"economy": { "definition": "GameData/Economy/Economy.json" }`; `CopyGameData` picks up the
-new folder so a fresh clone still presses F5.
+`"economy": { "definition": "GameData/Economy/Economy.json" }`; the post-build content copy
+takes the whole tree, so the new folder arrives with it and a fresh clone still presses F5.
 
 **The handshake takes one number, not two.** `ServerDesc::contentHash` is mixed —
 `contentHash = Mix(universeHash, economyHash)` — so an economy mismatch is refused by the
@@ -314,6 +314,205 @@ parity matrix over all three new reasons; **a watched site does not re-form** �
 viewer crosses an epoch boundary and its rocks and pools are unchanged until presence leaves;
 and the replay contract extended over the mining records in the transfer log.
 
+**Built (E2, 2026-08-20).** Mining is in the tick and the ledger is at the universe layer.
+`GameLogic/SiteField.h/.cpp` is the field as the tick sees it — clusters, the ore filter, the
+integer hazard arithmetic, and `SiteLedger`, the durable twin the registry keeps;
+`GameLogic/WorldMining.cpp` is the third translation unit of `World` and runs the `Mining`
+step; `SiteEpoch` gained `ResolveSiteEpoch`, which is what lets the registry resolve a site's
+epoch at spin-up without naming a universe coordinate on the path that builds worlds;
+`WorldRegistry` gained the ledgers, the `MineYield` apply point and the epoch at spin-up; and
+`Tests/GameLogicTests/MiningTests.cpp` is the suite, **38 methods across four classes**.
+
+**The tick's step order gained a sixth name, at the end.** `IngestOrders → GroupAdvance →
+Steering → Integrate → Separate → **Mining**`, and last is the decision rather than the
+leftover slot: a cycle is judged against where a ship *finished* the tick, so "inside the
+field" is a fact about the finished tick rather than about a position two systems were still
+arguing over. A group this step sends to `Done` is retired by the next tick's `GroupAdvance`,
+which is exactly how a completed leg already behaves.
+
+**A Mine order does not end when its leg does — that is when it begins.** Ingest gives the
+order the richest matching cluster and one leg to it; when the fleet arrives, `GroupAdvance`
+leaves the group `Underway` with no leg left instead of completing it, and `Mining` drives it
+from there. That is what made a guard necessary that had been *implied* for fourteen slices:
+the stale-solve pass now skips a group whose `legIndex` has passed its `legCount`, because a
+working Mine order is the first group in this tree that outlives its own plan, and `ApplyLeg`
+would have read past the plan to solve it. It also settles what a casualty does to a mining
+wing — the survivors keep the stations the cluster put them in rather than closing the hole,
+which is "no movement the player did not order" (ruling R5) applied to a fleet already parked.
+
+**No new `OrderState`, and that was a choice with a price attached.** A fourth value would be
+a wire value, a client branch and a schema bump for a distinction `etaSeconds` already draws
+(§4d): a working Mine order reports the *cluster* where a flying one reports the leg, through
+the same `LegEtaSeconds` seam. The ETA is the earlier of the cluster running dry and the
+**last** Miner filling — `max` over the Miners, not `min`, because one full Miner does not end
+the order.
+
+**One number the design did not name had to be settled: `TICKS_PER_SECOND`.** Every duration
+in this phase is authored in seconds and consumed in ticks, and `40 / 0.05f` is the arithmetic
+`GATE_JUMP_TICKS` already exists to avoid — a mining cycle one tick short on one machine is a
+hold that fills a tick early on it. So the integer rate lives beside the field model, and
+`World.h` static-asserts that it agrees with `TICK_SECONDS`, which is what keeps two spellings
+of one rate from drifting.
+
+**Three hazard readings the ADR left to the implementation**, each written down beside the
+code that makes it true. Radiation's slow is computed over the **total** stack rather than
+accumulated per stack, because `3% × hazardScale` floors to 1 % on a grade-I belt and a
+per-stack floor would make the gentlest field bite hardest per stack. Nebula heat sheds **only
+while the laser is off**, which is what makes the authored numbers mean what §3b says: at 34 a
+cycle against a threshold of 100, the third cycle locks the laser out and sixty seconds at two
+a second clears it — and it is also what leaves room for the pacing toggle §3b describes,
+which is E5's screen and not this slice's. Sensor damping is *not* scaled a second time by the
+grade, because the content's five numbers already are the five grades.
+
+**The wire moved, once.** `OrderKind::Mine = 6`, `OrderReason` gains 17–19 (and numbers 20–22
+reserved for E3/E4 so that cluster is one bump and not three), `OrderSubmit` grows a trailing
+`u8 oreFilter` beside the anchor it already wrote for every kind, and the check-order contract
+in `GAME_SCHEMA_TEXT` extends with the parity matrix. The filter is the **one field the
+decoder refuses on** where `kind` and `formation` are cast through: those two have reason codes
+a player reads, and an ore filter has none, because every value it defines is legal everywhere
+— so a byte outside it is a schema disagreement rather than a refusal owed to anyone.
+
+**What this slice deliberately leaves broken, and says so out loud:** ore does not survive a
+crossing. `TransferMember` carries an id, a hull and a wing, so a Miner that docks or warps
+arrives with empty holds. E3 is the slice that gives a crossing a manifest and a station a
+Bay, and half of that arrangement — cargo on the record with nowhere at the station to put it
+— would be worse than none. It is written into `WorldMining.cpp`'s own file comment so nobody
+finds it by surprise.
+
+**It merged with ADR-026's placement work, and the interaction is a gift rather than a
+collision.** "Solve, then slide" landed on `main` while this slice was in flight: a leg whose
+solved formation lands in something now slides the *whole* shape to the nearest free anchor. A
+Mine order's leg is the cluster it was sent to, so a wing ordered onto rocks another fleet is
+already working forms up beside them instead of inside them — for free, with nothing in this
+slice aware of it. The line worth writing down is *why* it is free: the Mine branch puts the
+cluster in `legs[0]` and lets the ordinary leg machinery have it, rather than writing guidance
+directly, and that is what left room for a rule nobody had written yet.
+
+**What was verified, and how.** All of GameLogic compiles clean under **clang 18 on Linux** —
+the cross-build route ADR-015's collision work was first proven on — with **clang-tidy clean**
+against the repository config, and the seven pre-compile source guards (the clock, the RNG,
+the `XM*Est` ban, `UniversePos`, `UniverseDef`, R2's prefixes and suffixes, repo-wide file-name
+uniqueness, and both project registries) run by hand and green. **The whole `GameLogicTests`
+suite was compiled and run** through a `CppUnitTest` shim and the DirectXMath subset GameLogic
+names — **301 methods across eight files, 0 failures**, including the 38 new ones and
+ADR-026's own, re-run after merging `main`. Three
+existing `OrderTests` methods needed updating and every one of them is the suite doing its job:
+the kind count is seven, a built kind refused on a world with no field says `NotAtSite`, and
+the check-order string in the schema text moved because two checks were inserted into it.
+
+**What CI said (run 155, commit `97a537a`, 2026-08-20).** Debug|x64, Release|x64 and Spike 2
+all green on MSVC, in ten minutes. `self test: PASSED`, every named check `-- ok`, and the
+step that matters for a slice this size — `nothing recorded: no gate wrote a report` — means
+clang-tidy found nothing and no test failed. One unique warning in Release,
+`NeuronClient\Picking.cpp(51): warning C4723`, which is the same pre-existing one E1b saw.
+Content is untouched, as designed: `content: universe ad9555dd776008a6, economy
+0b07707ec843431d, mixed 1965b853a23a5115`, all three unchanged from E1b. `universe: read,
+parsed and hashed in 213 ms` against R17's ~1000 ms threshold. The replay hash moved to
+**`69c58e2751c0df22` (checkpoint `fa56d9f638cba0fe`)** — it had to, because the ledger and the
+cargo arrays joined the world hash — and Spike 2 confirms Debug and Release agree on it, which
+is the property the number exists to prove.
+
+**The soak is the one figure worth arguing with.** At the capped rung it reads `1024 ships --
+167 ticks, mean 9.020 ms, worst 16.538 ms, 18.0 %`, against E1b's `200 ticks, mean 7.000 ms,
+worst 8.644 ms, 14.0 %`; headroom drops from 7.1 capped grids per core to 5.5, and the rung
+stopped at 167 ticks because it spent `RUNG_BUDGET_MS` rather than because it finished. Some
+of that is a shared runner and some of it is real: `Mining` is a sixth named step over every
+ship, and the soak's population is one in eight Miners. It is comfortably inside the 100 ms
+tripwire and well inside the 50 ms budget, so nothing is owed now — but the *trend* is what
+R10 exists to watch, and E3 adds a per-ship manifest to the same loop. If the capped mean
+crosses ~15 ms the honest next move is to make `Mining` skip a grid with no field in one
+branch rather than per ship.
+
+**Runs 154, 156 and 157 hung for 45 minutes each, and run 158 caught the culprit in five.**
+`main`'s head `a6dd412` ("Station progress") hung `Outpost.exe --selfTest` in **both**
+configurations with zero diagnostics — the CI step only read the log after the process exited,
+and the process never exited. Reading everything reachable found no unbounded wait, so instead
+of a fourth guess the branch grew instrumentation: `Log::SetFlushEveryLine` (on in self-test
+mode) and a 300-second watchdog in the CI step that kills the process and prints the complete
+log. Run 158's log then named the line: `economy definition not found` — **the hang was at
+boot, not in the self test.** Two defects, compounding:
+
+- **`a6dd412` replaced the `CopyGameData` MSBuild target with `PostBuildEvent` xcopy lines,
+  both broken on a fresh checkout.** Release's `/EXCLUDE:` names a wildcard where xcopy wants
+  a file *listing* patterns, so the copy aborts having copied nothing — and the second
+  command's exit 0 keeps the build green. Debug's variant drops the `GameData\` prefix, so
+  content lands where the loader never looks. A stale `x64\<config>\GameData\` tree from
+  weeks of the old target hid both on the author's machine; CI's fresh clone had no such
+  shield, so the exe booted without its content.
+- **`ReportFatal` raised a modal `MessageBoxW` unconditionally**, so a startup failure on a
+  headless runner blocked forever on an OK nobody was there to click. That is what turned a
+  misconfiguration into a silent 45-minute hang, three runs over.
+
+Both are fixed on this branch: the `CopyGameData` target is restored (with the xcopy
+post-mortem written into its comment), and the fatal dialog is gated to attended, windowed
+launches — headless, bake and self-test runs report to the log and stderr and **exit**. The
+watchdog and the per-line flush stay, because the next hang should also cost five minutes and
+name its own line.
+
+**And the copy is a post-build event again, on the owner's call — this time built so that the
+same failure cannot recur silently (2026-08-21).** `Outpost/CopyGameData.cmd` is one script
+called once per configuration, and every defect of the xcopy version is answered by its shape
+rather than by care. One script instead of a command per configuration, so the destination is
+written in a single place and the two configurations cannot drift apart. **robocopy** instead
+of xcopy, because `/XF` takes patterns and paths directly — the flag that broke the last
+attempt does not exist here. A single command in the event plus an explicit `exit /b`, so
+MSBuild sees the script's exit code and not the last echo's; robocopy's bitmask is translated
+at the one place that can get it right (`GEQ 8` is failure, `1` merely means files moved, and a
+caller that treated non-zero as failure would fail every build that had anything to do).
+Failures are printed in MSBuild's canonical `origin : error : text` form, so they land in the
+error list rather than in the scrollback.
+
+**None of that is what makes it safe, though.** What the last failure actually lacked was
+anybody checking the result, and the self test could not: it runs from a scratch directory
+whose `Outpost.json` points back at the repo's content, so a build that shipped no content at
+all still reaches the end of the job. So the build gained a step that names files —
+`Outpost.json` beside the exe, `Frontier.json`, `Economy.json`, `SoundBank.json` and
+`Miner.obj` under `GameData\`, no second config inside the tree and no copied log. A count
+would only say the copy ran; a name says the loader will find what it asks for, which is the
+thing that failed. That step is the guard, and the mechanism above it is now free to be
+whichever one reads best.
+
+*And it cost a run to land, which is the entry that earns its place here. Run 162 went red in
+both configurations on `robocopy exited 16`, and the reason is one line that had been correct
+and was then tidied: the trailing backslash `$(TargetDir)` always carries was being stripped by
+comparison, and that was replaced with `for %%I in ("%DEST%") do set "DEST=%%~fI"` on the
+belief that `%~f` trims one. **It does not** — it fully qualifies a path and keeps the trailing
+backslash exactly as given. So the second copy ran with `"D:\...\Release\"`, and while **cmd**
+has no backslash escape and saw a balanced token, **robocopy parses its own command line with
+the C runtime's rules, where `\"` is an escaped quote** — the closing quote stopped closing, and
+`ERROR 123 Accessing Destination Directory D:\...\Release" Outpost.json /NJH` is the four
+switches swallowed into the path. The comparison is back, the result is now asserted rather
+than assumed, and the excludes are spelled as names rather than paths so that nothing depends
+on agreeing with whatever robocopy canonicalised the source to. The error path is the half that
+worked: the script printed `CopyGameData.cmd : error : ...`, MSBuild raised it as an error and
+failed the build with MSB3073 — which is exactly the failure mode the xcopy version did not
+have.*
+
+**Green on the second try (run 163, commit `84e276b`).** The copy reports `27 files, 25 copied,
+2 skipped, 21.47 m` — the two skipped being the tracked `Outpost.json` and `Outpost.log`, which
+is the exclusion doing real work rather than a formality: a stale log **is** in the repository,
+and without `/XF` it would ship. `Outpost.json` then lands beside the executable on its own, and
+the check step says so in the one line a reader wants: `content beside the executable: 25 files,
+21.5 MB, and Outpost.json in x64\Release`. Debug|x64, Release|x64 and Spike 2 all pass in ten
+and a half minutes, **717 tests** with none failing, `self test: PASSED`, content hashes and the
+replay hash `69c58e2751c0df22` unchanged, one pre-existing Release warning, no clang-tidy
+finding. The soak reads 9.265 ms mean / 16.312 ms worst on a capped grid — run to run against
+161's 8.729 / 17.573, which is runner variance and not a trend.
+
+**And the merge head is green (run 159, commit `59d4a20`, 2026-08-21).** Debug|x64,
+Release|x64 and Spike 2 all pass in ten minutes; the self test is back to twelve seconds and
+`PASSED`, now including `main`'s own approach-disconnect scenario — three clients over the
+loopback, a fleet abandoned mid-approach that never docks. **694 tests pass on MSVC** in both
+configurations (650 before the merge window; E2's 38 and ADR-026's own among the growth), with
+no clang-tidy finding and the one pre-existing Release warning. Content unchanged —
+`universe ad9555dd776008a6, economy 0b07707ec843431d, mixed 1965b853a23a5115`, parsed in
+214 ms — and the replay hash is **`69c58e2751c0df22` (checkpoint `fa56d9f638cba0fe`)**, byte
+for byte what run 155 measured on E2 alone, with Spike 2 confirming Debug and Release agree:
+the merge, the ADR-026 placement work and the CI ordeal between the two runs moved the
+simulation not at all. The capped-grid soak reads 8.179 ms mean / 12.932 ms worst over 184
+ticks (6.1 grids per core), between run 155's 9.020 and E1b's 7.000 — consistent with runner
+noise on top of a real E2 cost, which is R10's trend to keep reading.
+
 ### E3 — Cargo, the Bay, and the wire cluster · 🏁 G0
 Ships carry manifests; the station roster's record grows one (ADR-017 §1 as amended — cargo is
 not damage, so repair-by-absence is untouched); the **Station Bay** joins the universe layer as
@@ -335,6 +534,107 @@ docks, and its ore moves into the Bay by command; the Bay survives the station g
 `SiteStatus` shows the field measurably emptier than it started; a second commander's
 `CargoStatus` and `BayStatus` never reach the first (privacy as a testable property, the way
 T2's roster privacy was); the schema hash refuses a client built against the previous cluster.
+
+**Built 2026-08-21.** Ore stopped evaporating at boundaries, and the station grew its second
+resident.
+
+`TransferMember` and `RosterEntry` each gained a three-integer manifest, which is the whole of
+"cargo survives a crossing": a Miner that docks parks its hold on the roster, a ship that
+undocks flies out with it, and a fleet that warps arrives holding what it left with.
+ADR-017 §1's "three fields, deliberately" is amended rather than contradicted — that argument
+was about **gauges**, and cargo is not one. Nothing regenerates it and nothing repairs it; it
+is the player's property rather than the ship's condition, so **repair-by-absence is untouched**
+and the sentence saying so now lives beside the field.
+
+The **Station Bay** joins the ledgers and the rosters as the third resident of "worlds forget,
+the universe layer does not": `StationBay` is per-`(owner, station)`, sorted on that pair,
+created only once something has been stored in it, and folded into `WorldRegistry::Hash` on the
+rosters' terms — but **with no currency rule**, because a Bay has no epoch to go stale against.
+What is in it was put there by a command and stays until another command moves it, which is the
+difference between committed property and a pool the shard refills on a calendar. The privacy
+rule lives in the **key**: two commanders docked at one station have two Bays, and a Bay is not
+even addressable without saying whose.
+
+`TransferToBay` and `TransferToShip` join the verb family, applied **on the spot beside
+`AssignWing`** rather than filed on the bus — both ends of the move are universe-layer state on
+one host, and the bus exists to stop one grid reading another mid-tick, which this does not do.
+One `MoveOre` serves both directions because they are one move with its sign flipped, and two
+would be two places for the conservation rule to go wrong; the suite asserts conservation rather
+than trusting it. Ore is drained and filled in **roster order**, so the outcome is a function of
+the world rather than of the order the client listed its ships in.
+
+**The command seam grew a `PlayerId`**, which is the one change outside the economy's own
+files. `Simulation::ApplyOrderBytes` now takes both the player and the client id, because they
+are different questions -- which socket said it, and whose property it is about -- and they
+coincide today only because there is one player each. A registry that had to guess whose Bay a
+transfer filled would be guessing about property. It is the command half of what `WriteSnapshot`
+and `WriteSummaries` already do outbound, and ADR-018 D5's note applies unchanged: with one
+player it filters nothing, and the shape does not change when there are two.
+
+**The wire cluster landed as one fail-closed bump.** `StationCommand` gained an ore byte and a
+u32 count; `StationRoster`'s row went 6 bytes to 18; `SummaryKind` gained `SiteStatus = 2`,
+`CargoStatus = 3` and `BayStatus = 4` with bodies in a new `EconomyMessages.h`; the station
+check-order string gained `InsufficientMaterials`; and `OreId` joined the schema text beside
+`OreFilter`, because they are different bytes with different rules — `Any` is not a quantity, so
+the transfer decoder refuses zero where the order decoder accepts it. The ore byte is **the one
+field of the command the decoder refuses on**, where the verb and the formation are cast
+through: an out-of-range ore would index the manifest arrays before validation got an opinion,
+and there is no sentence to show a player whose client believes in a fourth ore.
+
+**`EntityRecord` is untouched, and a test asserts the arithmetic** rather than the intention:
+21 bytes, 43 ships per datagram, and one added byte would make it 22 and 41 — landing exactly
+on `Snapshot.h`'s asserted floor with nothing left over. That is the calculation ADR-024 §4d
+refused in advance, and the test recomputes it so the next person tempted by a cargo byte finds
+a failing assertion instead of a mystery about the ship cap.
+
+**What running the accept found.** The G0 scenario was written to prove the loop composes, and
+it immediately proved it did not: `ApplyTransit` spawned arrivals with empty holds, so a fleet
+that warped anywhere lost its cargo in silence. Dock had a test, undock had a test, and transit
+had neither — so ore survived both boundaries anybody had thought to check and evaporated on the
+one nobody had. Fixed, and `AWarpCarriesTheHoldToTheFarSide` is the unit test that should have
+caught it first. This is the second slice running where the end-to-end check earned its cost by
+finding something the unit suite could not.
+
+**What was verified, and how.** All of GameLogic compiles clean under **clang 18 on Linux**,
+clang-tidy reports nothing in the files this slice touched, and the source guards run by hand
+are green. **The whole `GameLogicTests` suite compiles and runs** through the `CppUnitTest`
+shim — **324 methods across nine files, 0 failures**, including 23 new ones in `CargoTests.cpp`.
+Three existing tests needed updating and each is the suite doing its job: two hand-built
+`StationCommand` payloads in `RegistryTests` name the wire layout and had to grow the two new
+fields, and every `SubmitStationCommand` call site had to say who was calling. The G0 scenario
+itself was extracted and **run** against the real registry rather than only compiled, which is
+how the transit defect surfaced: mine 24 units, warp ~2,400 ticks, dock, and find all 24 on the
+roster.
+
+*The harness earned a fix too. `runall.sh` never re-copied the sources, so a GameLogic edit made
+after the last manual sync was silently not compiled — twice it reported on code that no longer
+existed, once as a phantom test failure and once as a real one that would not go away. It syncs
+unconditionally now.*
+
+**CI's verdict (run 161, commit `93956dc`, 2026-08-21).** Debug|x64, Release|x64 and Spike 2
+all green, in eleven minutes. **717 tests pass on MSVC** with none failing, the whole suite in
+20.8 s on Release, and `self test: PASSED` — including all thirteen new 🏁 G0 checks: mining
+puts ore in the hold, the field's status shows it measurably emptier with the worked cluster
+reading below full, a loaded Miner warps and docks, the Miner reaches the roster with every
+unit it was carrying, the commander commits it to the Bay, the Bay holds exactly what was
+committed and belongs to nobody else, and it outlives the grid it was filled at. No clang-tidy
+finding, no failing test, and one warning in the whole build — the pre-existing
+`NeuronClient\Picking.cpp(51)` C4723; Debug has none. Content is untouched, as expected:
+`universe ad9555dd776008a6, economy 0b07707ec843431d, mixed 1965b853a23a5115`, read, parsed and
+hashed in **212 ms** (4,630 ms on Debug). The tick soak is flat against E2 rather than up: a
+capped grid costs **8.729 ms mean / 17.573 ms worst** against E2's 9.020 / 16.538, which is
+17.5 % of the budget and 5.7 capped grids per core.
+
+**The replay hash did not move, and the paragraph this one replaces said it would.** It is
+`69c58e2751c0df22` (checkpoint `fa56d9f638cba0fe`), byte for byte what E2 measured, and Spike 2
+confirms Debug and Release agree on it. The prediction was wrong in a way worth keeping written
+down: `RunScriptedReplay` is six ships in a bare `World` hashed with `ComputeWorldHash`, and
+everything this slice added — the Bay, the roster manifests, the transfer manifest — is
+`WorldRegistry` state that the replay never touches. The one piece that *is* world state,
+`ShipCargo`, E2 had already folded in. **The replay hash is a world hash and not a shard hash**,
+so an unmoved number here says nothing either way about the universe layer; what covers that is
+`WorldRegistry::Hash` and the G0 scenario above. `GameSchemaHash` did move, which is the point
+of the slice.
 
 ### E4 — Refining, tiers, and the projects · 🏁 G1
 Refine jobs `(recipe, batchCount)` submitted as station commands against a Bay — **at any

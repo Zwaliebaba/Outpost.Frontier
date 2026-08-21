@@ -338,6 +338,36 @@ ValidationView World::Validation()
   view.queuedLegs = 0; // Per-group, and resolved in SubmitOrder where the group is known.
 
   /*
+   * The field on this grid, and what a hold has room for (ADR-024 §4a).
+   *
+   * The *anchor* rather than the field, because what `Mine` is judged on is
+   * whether there is one here -- the clusters and the pools are simulation
+   * state and the client's half of the validator has no copy of them.
+   *
+   * The three ore volumes are copied out of the economy rather than reached for
+   * through it, for the reason `reachableAnchors` is a span of ids: the shared
+   * validator sees the intersection of what both machines know, and content is
+   * exactly the sort of thing a mismatched pair would read differently.
+   */
+  if (m_site.Exists())
+  {
+    view.siteAnchor = m_anchor;
+  }
+  if (m_economy != nullptr)
+  {
+    m_validationOreRoom.resize(m_ids.size());
+    for (std::size_t slot = 0; slot < m_ids.size(); ++slot)
+    {
+      m_validationOreRoom[slot] = OreHoldFreeLitres(static_cast<std::uint32_t>(slot));
+    }
+    for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+    {
+      view.oreUnitLitres[ore] = m_economy->ores[ore].unitVolumeLitres;
+    }
+    view.oreHoldFreeLitres = m_validationOreRoom;
+  }
+
+  /*
    * The station, if this grid has one (ADR-017 §2).
    *
    * Its position comes out of the same table every other ship's does rather
@@ -436,6 +466,7 @@ OrderVerdict World::Submit(const OrderSubmit& _order, bool _systemIssued)
   group.systemIssued = _systemIssued;
   group.kind = _order.kind;
   group.anchor = _order.anchor;
+  group.oreFilter = _order.oreFilter;
   group.serverOrderId = append ? 0 : m_nextOrderId;
   group.clientOrderSeq = _order.orderSeq;
   group.formation = _order.formation;
@@ -526,6 +557,47 @@ void World::IngestOrders()
         {
           m_protectedUntil[slot] = 0;
         }
+      }
+    }
+
+    /*
+     * A Mine is given its cluster and a leg to it (ADR-024 §4b).
+     *
+     * At ingest and not at submit, for the reason an append resolves its group
+     * here: the field the order will be worked against is the one that exists
+     * on the tick the order lands, and a cluster chosen a tick earlier could
+     * already have been emptied by somebody else's wing.
+     *
+     * The leg the submit built pointed wherever the client clicked. It is
+     * replaced, because a Mine names no destination -- the field a wing works
+     * is the one it is standing in, and *which rocks* is the game's answer
+     * rather than the player's aim. The facing is kept, so a commander who
+     * turned their fleet before ordering still gets the arrangement they set
+     * up.
+     */
+    if (pending.kind == OrderKind::Mine)
+    {
+      submitted.cluster = RichestCluster(m_site, submitted.oreFilter);
+      if (submitted.cluster >= m_site.clusterCount)
+      {
+        /*
+         * A field with nothing this filter accepts. Done on the spot -- an
+         * empty field is not an error, it is news (ADR-024 §4a), and the toast
+         * the client raises off a completed order is the right way to say so.
+         * Refusing would tell the player they did something wrong.
+         */
+        submitted.legCount = 0;
+        submitted.legIndex = 0;
+        submitted.state = OrderState::Done;
+        submitted.doneTick = m_tick;
+      }
+      else
+      {
+        const SiteCluster& cluster = m_site.clusters[submitted.cluster];
+        submitted.legCount = 1;
+        submitted.legIndex = 0;
+        submitted.legs[0].anchorMetres = XMFLOAT2{ClampToPlayArea(Neuron::CentimetresToMetres(cluster.xCm)),
+                                                  ClampToPlayArea(Neuron::CentimetresToMetres(cluster.yCm))};
       }
     }
 
@@ -642,6 +714,24 @@ void World::IngestOrders()
   for (OrderGroup& group : m_groups)
   {
     if (group.state == OrderState::Done)
+    {
+      continue;
+    }
+
+    /*
+     * A group with no leg left has nothing to solve, and asking anyway would
+     * read `legs[legIndex]` past the plan.
+     *
+     * It was unreachable until E2: every other kind is `Done` the moment its
+     * legs run out, and a `Done` group is already skipped above. A **working
+     * Mine order** is the first group that outlives its own plan -- it has
+     * arrived at its cluster and is cycling -- so the guard that used to be
+     * implied has to be written. It also settles what a casualty does to a
+     * mining wing: the survivors keep the stations the cluster put them in
+     * rather than closing the hole, which is what "no movement the player did
+     * not order" means for a fleet already parked (ruling R5).
+     */
+    if (group.legIndex >= group.legCount)
     {
       continue;
     }
@@ -898,9 +988,16 @@ void World::ApplyLeg(OrderGroup& _group)
 
 float World::LegEtaSeconds(const OrderGroup& _group) const noexcept
 {
-  if (_group.state == OrderState::Done || _group.legIndex >= _group.legCount)
+  if (_group.state == OrderState::Done)
   {
     return -1.0f; // Nothing under way, so nothing to be due.
+  }
+
+  // A working Mine order has no leg and is very much under way: what it is due
+  // to finish is the cluster, not a journey (ADR-024 §4d).
+  if (_group.legIndex >= _group.legCount)
+  {
+    return _group.kind == OrderKind::Mine ? MiningEtaSeconds(_group) : -1.0f;
   }
 
   TravelLeg legs[MAX_SHIPS_PER_ORDER];
@@ -1065,6 +1162,23 @@ void World::GroupAdvance()
     group.legDeadlineTick = 0; // A new leg: the next ApplyLeg sizes the deadline to it.
     if (group.legIndex >= group.legCount)
     {
+      /*
+       * A Mine order does not *end* when its leg does -- that is when it
+       * begins (ADR-024 §4b). The fleet has reached the cluster; `Mining` takes
+       * it from here and is what eventually sets `Done`, by one of the two
+       * exits that mean the work is over.
+       *
+       * It stays `Underway` rather than gaining a fourth `OrderState`, because
+       * `etaSeconds` already reports what an order is doing and a mining group
+       * reports the cluster instead of the leg (§4d). A new state would be a
+       * wire value, a client branch and a schema bump for a distinction the
+       * ETA already draws.
+       */
+      if (group.kind == OrderKind::Mine)
+      {
+        group.state = OrderState::Underway;
+        continue;
+      }
       group.state = OrderState::Done;
       group.doneTick = m_tick;
       continue;

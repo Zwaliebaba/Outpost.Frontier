@@ -50,7 +50,20 @@ namespace Game
 enum class SummaryKind : std::uint8_t
 {
   StationRoster = 0,
-  FleetSummaries = 1
+  FleetSummaries = 1,
+
+  /*
+   * The economy's three (ADR-024 §8, E3).
+   *
+   * `SiteStatus` is public -- how eaten a field is, is what anybody standing at
+   * it can see. The other two are **owner-only**, and that is enforced by what
+   * the sender is handed rather than by a filter it is trusted to apply: both
+   * are written from state keyed by the viewer, so there is no code path on
+   * which one commander's holds could be written into another's frame.
+   */
+  SiteStatus = 2,
+  CargoStatus = 3,
+  BayStatus = 4
 };
 
 /*

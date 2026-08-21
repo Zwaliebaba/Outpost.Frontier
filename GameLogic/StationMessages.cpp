@@ -40,6 +40,8 @@ bool WriteStationCommand(const StationCommand& _command, Neuron::ByteWriter& _wr
   _writer.WriteUInt16(_command.station);
   _writer.WriteUInt8(static_cast<std::uint8_t>(_command.formation));
   _writer.WriteUInt8(_command.wing);
+  _writer.WriteUInt8(static_cast<std::uint8_t>(_command.ore));
+  _writer.WriteUInt32(_command.units);
   _writer.WriteUInt16(_command.shipCount);
   for (std::uint16_t index = 0; index < _command.shipCount; ++index)
   {
@@ -61,6 +63,23 @@ bool ReadStationCommand(Neuron::ByteReader& _reader, StationCommand& _outCommand
   _outCommand.station = _reader.ReadUInt16();
   _outCommand.formation = static_cast<FormationId>(_reader.ReadUInt8());
   _outCommand.wing = _reader.ReadUInt8();
+
+  /*
+   * The ore byte is **refused** rather than cast, unlike the verb and the
+   * formation beside it -- the same split `OrderSubmit`'s ore filter makes, and
+   * for the same reason (ADR-024 §4a).
+   *
+   * A verb or a formation this build does not know is a value validation can
+   * bounce with a reason the player reads. An ore outside the enum is not: it
+   * would index the manifest arrays out of bounds before anything got the
+   * chance to have an opinion, and there is no sentence to show somebody whose
+   * client believes in a fourth ore.
+   */
+  if (!TryOreId(_reader.ReadUInt8(), _outCommand.ore))
+  {
+    return false;
+  }
+  _outCommand.units = _reader.ReadUInt32();
 
   const std::uint16_t shipCount = _reader.ReadUInt16();
   if (!_reader.Ok() || shipCount > MAX_SHIPS_PER_ORDER)
@@ -103,6 +122,10 @@ bool WriteStationRoster(AnchorId _station, std::span<const RosterEntry> _docked,
     _writer.WriteUInt32(row.shipId);
     _writer.WriteUInt8(static_cast<std::uint8_t>(row.hullClass));
     _writer.WriteUInt8(row.wing);
+    for (const std::uint32_t units : row.oreUnits)
+    {
+      _writer.WriteUInt32(units);
+    }
   }
   return _writer.Ok();
 }
@@ -136,6 +159,10 @@ bool ReadStationRoster(Neuron::ByteReader& _reader, AnchorId& _outStation, std::
     }
     row.hullClass = hullClass;
     row.wing = _reader.ReadUInt8();
+    for (std::uint32_t& units : row.oreUnits)
+    {
+      units = _reader.ReadUInt32();
+    }
     _outDocked.push_back(row);
   }
   return _reader.Ok();

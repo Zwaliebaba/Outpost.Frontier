@@ -2530,7 +2530,7 @@ public:
   {
     // A greyed ATTACK button still has to be *named* by something, and the
     // engine may not name it -- so a null here is a button with no word on it.
-    Assert::AreEqual<std::size_t>(6, std::size(ORDER_KIND_IDS));
+    Assert::AreEqual<std::size_t>(7, std::size(ORDER_KIND_IDS));
     for (const OrderKind kind : ORDER_KIND_IDS)
     {
       Assert::IsNotNull(OrderKindName(kind));
@@ -2540,6 +2540,7 @@ public:
     Assert::IsTrue(OrderKindHasContent(OrderKind::Move));
     Assert::IsTrue(OrderKindHasContent(OrderKind::Dock), L"the station phase built this one");
     Assert::IsTrue(OrderKindHasContent(OrderKind::Warp), L"and U3a filled in the number ADR-016 published");
+    Assert::IsTrue(OrderKindHasContent(OrderKind::Mine), L"and the economy phase built the fourth");
     Assert::IsFalse(OrderKindHasContent(OrderKind::Attack));
     Assert::IsFalse(OrderKindHasContent(OrderKind::Stance));
     Assert::IsFalse(OrderKindHasContent(OrderKind::Abilities));
@@ -2579,14 +2580,16 @@ public:
       else if (OrderKindHasContent(kind))
       {
         /*
-         * Dock and Warp. Refused here -- this world is not a station's grid and
-         * it can reach nowhere -- but refused *for their own reasons*, which is
-         * the whole distinction being drawn: a built kind that cannot be
-         * satisfied says why, and a reserved one says it does not exist.
+         * Dock, Warp and Mine. Refused here -- this world is not a station's
+         * grid, it can reach nowhere and it has no mining field -- but refused
+         * *for their own reasons*, which is the whole distinction being drawn:
+         * a built kind that cannot be satisfied says why, and a reserved one
+         * says it does not exist.
          */
         Assert::IsFalse(verdict.accepted);
-        const bool ownReason =
-          verdict.reason == OrderReason::UnknownStation || verdict.reason == OrderReason::UnknownAnchor;
+        const bool ownReason = verdict.reason == OrderReason::UnknownStation ||
+                               verdict.reason == OrderReason::UnknownAnchor ||
+                               verdict.reason == OrderReason::NotAtSite;
         Assert::IsTrue(ownReason, L"a built kind is refused on its merits, not as unknown");
       }
       else
@@ -2728,7 +2731,13 @@ public:
     // exists is decided before where anybody is standing.
     Assert::IsTrue(ValidateOrder(view, WarpOrder({7}, 99)).reason == OrderReason::UnknownAnchor);
 
-    Assert::IsTrue(GAME_SCHEMA_TEXT.find("UnknownShip,NotAtStation,NotAtGate") != std::string_view::npos,
+    // The economy phase inserted its own two between ship resolution and the
+    // positional checks, which is where a question about the *selection*
+    // belongs -- so the tail of the sequence moved and this string moved with
+    // it. That it has to be updated by hand is the point: the check order is in
+    // the hash, and changing it is a compatibility event.
+    Assert::IsTrue(GAME_SCHEMA_TEXT.find("UnknownShip,NoMinerInOrder,HoldFull,NotAtStation,NotAtGate") !=
+                     std::string_view::npos,
                    L"the check order is part of the hash, so it has to be stated there too");
   }
 
