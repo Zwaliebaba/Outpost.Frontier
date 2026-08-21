@@ -262,8 +262,6 @@ public:
     return World();
   }
 
-  virtual void PlayerJoined(PlayerId _player) { (void)_player; }
-
   [[nodiscard]] virtual std::uint64_t SchemaHash() const = 0;
 
   /// The content the simulation was built from -- the universe definition and
