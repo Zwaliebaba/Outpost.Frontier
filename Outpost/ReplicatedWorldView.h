@@ -314,8 +314,20 @@ private:
   {
     Game::AnchorId station = Game::INVALID_ID;
     std::uint32_t oreUnits[Game::ORE_COUNT] = {};
+
+    /// E4b gave the Bay alloys as well as ore, which is the refinery's output
+    /// landing where the ore came from. Decoded for the same reason the ore is:
+    /// the record has to be consumed whether or not this surface draws it.
+    std::uint32_t alloyUnits[Game::ALLOY_COUNT] = {};
   };
   std::vector<BayHolding> m_bays;
+
+  /*
+   * One commander's refinery at one station (E4b), kept on the Bay's terms: the
+   * tactical HUD does not draw it, and it still has to be decoded because the
+   * frame has no length prefix. E5's REFINERY tab is what reads it.
+   */
+  std::vector<Game::RefineryStatusRow> m_refineries;
 
   /*
    * Whether a summary has ever arrived.

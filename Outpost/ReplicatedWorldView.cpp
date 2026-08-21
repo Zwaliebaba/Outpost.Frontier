@@ -876,6 +876,7 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
   std::vector<DockedStation> stagedRosters;
   std::vector<Game::SiteStatusRow> stagedSites;
   std::vector<BayHolding> stagedBays;
+  std::vector<Game::RefineryStatusRow> stagedRefineries;
   m_decodedCargo.clear();
   bool sawCargo = false;
 
@@ -976,12 +977,27 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
     case Game::SummaryKind::BayStatus:
     {
       BayHolding holding;
-      if (!Game::ReadBayStatus(reader, holding.station, holding.oreUnits))
+      if (!Game::ReadBayStatus(reader, holding.station, holding.oreUnits, holding.alloyUnits))
       {
         ++m_rejectedSummaries;
         return false;
       }
       stagedBays.push_back(holding);
+      break;
+    }
+
+    case Game::SummaryKind::RefineryStatus:
+    {
+      // The guard did its job: E4b added this kind and the build refused to
+      // compile until the decoder named it. That is exactly the failure the
+      // pragma above exists to convert from a silent misparse into an error.
+      Game::RefineryStatusRow row;
+      if (!Game::ReadRefineryStatus(reader, row))
+      {
+        ++m_rejectedSummaries;
+        return false;
+      }
+      stagedRefineries.push_back(row);
       break;
     }
     }
@@ -1012,6 +1028,7 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
   // after it emptied or a field reading eaten after the epoch re-laid it.
   m_siteStatus = std::move(stagedSites);
   m_bays = std::move(stagedBays);
+  m_refineries = std::move(stagedRefineries);
   m_cargo = sawCargo ? std::move(m_decodedCargo) : std::vector<Game::CargoStatusRow>{};
   m_decodedCargo.clear();
 

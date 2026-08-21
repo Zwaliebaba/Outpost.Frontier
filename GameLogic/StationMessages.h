@@ -45,10 +45,11 @@ namespace Game
 {
 
 /// Bytes one command occupies. Fixed part plus four per ship. The fixed part
-/// grew by five with E3's transfer verbs: an ore byte and a unit count.
+/// grew by five with E3's transfer verbs (an ore byte and a unit count) and by
+/// five again with E4b's refining verbs: an alloy byte and a job sequence.
 [[nodiscard]] constexpr std::size_t StationCommandBytes(std::size_t _shipCount) noexcept
 {
-  return 4 + 1 + 2 + 1 + 1 + 1 + 4 + 2 + _shipCount * 4;
+  return 4 + 1 + 2 + 1 + 1 + 1 + 4 + 1 + 4 + 2 + _shipCount * 4;
 }
 
 /// The largest a command can be: the per-order ship cap, which is what makes

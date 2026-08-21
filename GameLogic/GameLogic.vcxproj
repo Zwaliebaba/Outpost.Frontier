@@ -19,6 +19,8 @@
     <ClCompile Include="ReplicatedView.cpp" />
     <ClCompile Include="EconomyDef.cpp" />
     <ClCompile Include="EconomyMessages.cpp" />
+    <ClCompile Include="DurableState.cpp" />
+    <ClCompile Include="Refining.cpp" />
     <ClCompile Include="EconomyParse.cpp" />
     <ClCompile Include="SiteEpoch.cpp" />
     <ClCompile Include="SiteField.cpp" />
@@ -51,6 +53,8 @@
     <ClInclude Include="SchemaHash.h" />
     <ClInclude Include="EconomyDef.h" />
     <ClInclude Include="EconomyMessages.h" />
+    <ClInclude Include="DurableState.h" />
+    <ClInclude Include="Refining.h" />
     <ClInclude Include="EconomyParse.h" />
     <ClInclude Include="FixedAngle.h" />
     <ClInclude Include="SiteEpoch.h" />

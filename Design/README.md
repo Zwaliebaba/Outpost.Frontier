@@ -126,9 +126,9 @@ moves between the trees without a rename pass. Three things it changed in these 
   slices delivering ADR-016 (bake, anchors, warp, gates, strategic map, system view), plus
   the named content deliverables (system-view print, `Gate.obj`); milestones W0 (first warp)
   / W1 (first crossing) / W2 (the universe on screen). **U1, U2, U3a, U3b's sim and wire
-  halves, U4's sim half and U5's pure half are built**; U3c's blockers have cleared and what
-  is left there is the second commander's identity, and the rest of what is left is screen
-  work.
+  halves, U4's sim half, U5's pure half and U3c are built** (U3c 2026-08-21, split into
+  ownership in the simulation and the second commander on the wire). **What is left in that
+  plan is screen work, with no exceptions.**
 - [Station-Build-Order.md](Station-Build-Order.md) — the docking phase: T1–T3 slices
   delivering ADR-017 (roster + transfer bus in the sim, the wire and tactical surfaces,
   the hangar screen), interleaved **after U2, before U3a**; milestones **H0 (the headless
@@ -137,18 +137,22 @@ moves between the trees without a rename pass. Three things it changed in these 
   S15 shipped the sound bank). **T1 and T2 are built in full (2026-08-21)**; what is left of
   the phase is T3, the hangar screen, which has no design gate left.
 - [Economy-Build-Order.md](Economy-Build-Order.md) — the mining and refining phase: E1a–E5
-  slices delivering ADR-024 (the economy content layer, sites in the bake and the epoch that
-  moves them, the Mine order and the site ledger, cargo and the Bay and the wire cluster,
-  refining with its tiers and projects, the two screens); milestones G0 (the headless mining
-  loop) / G1 (the first alloy) / G2 (the loop on screen); deliverables **D-P1, the persistence
-  ADR — it blocks E2** and is where ADR-024 §7a's journal gets its format — plus the CARGO and
-  REFINERY prints (block E5), icons, the site field's visual treatment, and audio last.
-  **E1a and E1b are built, and every design deliverable is closed** — D-P1 accepted
-  2026-08-20, D-P2 ([cargo-tab.png](ScreenPrints/cargo-tab.png)) and D-P3
+  slices delivering ADR-024 and ADR-025 (the economy content layer, sites in the bake and the
+  epoch that moves them, the Mine order and the site ledger, cargo and the Bay and the wire
+  cluster, the durable store, refining with its tiers and projects, the two screens);
+  milestones G0 (the headless mining loop) / G1 (the first alloy) / G2 (the loop on screen);
+  deliverables **D-P1, the persistence ADR — it blocks E2** and is where ADR-024 §7a's journal
+  gets its format, implemented at E4a — plus icons, the site field's visual treatment, and
+  audio last. **Every design deliverable is closed**: D-P1 accepted 2026-08-20, D-P2
+  ([cargo-tab.png](ScreenPrints/cargo-tab.png)) and D-P3
   ([refinery-tab.png](ScreenPrints/refinery-tab.png)) both delivered 2026-08-21. What the two
-  prints leave behind is **eight owner rulings, not artefacts**: seven owed before E5, and one
-  — whether a refine job can be cancelled — owed before **E4**. The plan splits the E1 the ADR
-  sketched and moves the screens out of E4, both recorded in its sequencing rationale.
+  prints leave behind is **eight owner rulings, not artefacts**. The one owed before E4b —
+  whether a refine job can be cancelled — was **answered 2026-08-21** (a queued job cancels
+  whole, a running one cannot); the other seven are E5's, so nothing left in this phase is gated
+  on a decision.
+  **E1a through E4b are built; E5, the two screens, is what is left.** The plan splits the E1
+  the ADR sketched, moves the screens out of E4, and **splits E4 itself** into the durable store
+  (E4a) and the refining runtime (E4b) — all three recorded in its sequencing rationale.
 - [Archive/consistency-report-2026-08-21.md](Archive/consistency-report-2026-08-21.md) —
   **archived 2026-08-21, the day it was written**, because an audit is finished when its
   findings are acted on and these were. A cross-screen audit
@@ -214,12 +218,18 @@ and 3 above cannot be *designed* until that taxonomy either lands as an ADR here
 explicitly declared out of scope, and a reference that cannot be followed is the failure mode
 this file's supersession list exists to prevent.
 
-- [Risk-Register.md](Risk-Register.md) — R1–R26 with designed-in mitigations + standing spikes.
-  R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised and
-  closed**, and R23 — a gating test that flakes — is the one question that did not close
-  with it. **R24 and R25 arrived with ADR-024** — the economy's two: faucet-without-sink
-  inflation, and High-Sec site contention — and **R26 with ADR-025**, the one persistence
-  brings: a torn journal or a refused load taking a shard's state with it.
+- [Risk-Register.md](Risk-Register.md) — R1–R27 with designed-in mitigations + standing spikes.
+  R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised twice —
+  closed 2026-08-20, reopened and root-caused 2026-08-21** when the Debug hang came back and
+  the blame collector finally named it: a lost wake-up in `TaskPool::Stop`, not the msquic
+  lifecycle the row had spent two days suspecting. R23 — a gating test that flakes — is the
+  one question that did not close with it. **R24 and R25 arrived with ADR-024** — the economy's two: faucet-without-sink
+  inflation, and High-Sec site contention — **R26 with ADR-025**, the one persistence
+  brings: a torn journal or a refused load taking a shard's state with it. **R27 arrived with
+  U3c-b (2026-08-21)**: sessions now survive a disconnect, and the token that claims one back is
+  a **bearer credential nothing authenticates** — bounded by being unguessable, single-use and
+  two minutes long, and named here rather than left in a header comment, because "the shard has
+  identity and no authentication" is a statement about the product and not about a file.
 - [Archive/Scaling-Readiness-Review.md](Archive/Scaling-Readiness-Review.md) — **archived
   2026-08-20.** Five-lens review of the MVP
   and this corpus for scaling readiness (2026-08-19, **advisory**): consolidated findings
@@ -232,8 +242,8 @@ this file's supersession list exists to prevent.
   the delta cluster lifts the full-fit constraint (D6's own staging). **A13 closed
   2026-08-20** — the per-client `SnapshotSender`, the over-cap refusal tested loudly, and
   `StationRoster` addressed per viewer through the summary family's own frame — which is
-  what U3b's client half, T2's roster privacy and U3c were all standing behind. **Five
-  remain: A15, A16, A18, A20 and A25**, each landing with U3b, T2, U5 or U3c rather than
+  what U3b's client half, T2's roster privacy and U3c were all standing behind. **Four
+  remain: A15, A16, A18 and A20** (A25 closed with U3c on 2026-08-21), each landing with U3b, T2 or U5 rather than
   waiting on a decision. The review moved to the archive once the register had absorbed all of
   it: it decided nothing, and nothing it tracks is homed only there.
 
@@ -362,6 +372,105 @@ failure raised a modal dialog no headless runner could dismiss. Diagnosed by ins
 is green in both configurations — **694 tests on MSVC**, the replay hash unmoved from run
 155's `69c58e2751c0df22`.)*
 
+**E4a is built, and it exists because reading E4's accept found a slice hiding inside it
+(2026-08-21).** E4 asks for "the whole registry — rosters, Bays, ledgers, jobs, projects —
+round-tripping through the persistence layer", and that layer was **not in the tree**: ADR-025
+was accepted design, and the only trace of the journal in the code was three comments pointing
+forward to it. So E4 split the way E1 did — **E4a the durable store**, then **E4b the refining
+runtime** with milestone G1. The ordering argument was that E4a's subject already exists and is
+already hash-proven, so the round-trip had something real to bite on; the other way round, a
+brand-new file format's first exercise would have been against brand-new job state, with two
+unproven things debugging each other.
+
+**What landed.** `GameLogic/DurableState.{h,cpp}` is the pure half — bytes in, bytes out,
+diagnostics on malformed input, never a path and never a throw — writing ADR-025 §1's list as
+far as this tree has it: ships wherever they stand with their hold, rosters, Bays, site ledgers,
+the in-flight bus, the ship-id high-water mark and the shard tick. Order queues, steering,
+undock protection and wrecks are **not** written, so a fleet reloads at rest with an empty
+queue. `NeuronServer/DurableStore.{h,cpp}` is the store, and it never learns what it is storing:
+framed records with a CRC each, the three-step snapshot rotation, and a boot path whose central
+distinction is **torn tail versus corruption** — a bad frame at the end is the write that was in
+flight when the power went, so it is truncated and logged; a bad frame with good frames after it
+refuses and leaves both files alone, because truncating there would throw away good state to
+make a bad file parse. `Outpost.exe` is the wiring, and `Outpost.json` grows a `persistence`
+block that is **off by default**.
+
+**`DurableHash` is a second hash and not a second opinion**, which is the claim the slice turns
+on: `WorldRegistry::Hash` folds the order queues §1 declares transient, so a correct reload
+cannot reproduce it and a check written against it would teach everyone to ignore a red test. A
+test asserts the difference — an accepted order moves one number and not the other.
+
+**Four defects, every one found by reading the code back rather than by a test.** The store's
+`Replay` reopened the journal over the handle `Open` had left, which leaks on Linux and is
+*refused outright* on the platform that ships — the shard would have persisted nothing while
+every other check passed. `LoadDurable` could refuse on its last ship having already written the
+rosters, the Bays and the ledgers, which is the half-built registry its own contract promises
+not to leave. It also assigned the Bays and ledgers straight from the file, and both are found
+by `lower_bound` — so an out-of-order file would have answered "no such Bay" for a Bay that was
+right there, silently. And `m_journalHeaderBytes` was written in three places and read in none.
+Each has a test beside it now. CI found a fifth that the Linux harness structurally could not:
+MSVC refuses `std::fopen` under this tree's conformance settings, in the test file that opens
+the store's files by hand to damage them.
+
+**CI's verdict (run 172, 2026-08-21):** Debug|x64, Release|x64 and Spike 2 all green, **773
+tests on MSVC** with none failing, no clang-tidy finding, one pre-existing warning, and
+`self test: PASSED` with seventeen new persistence checks. The replay hash did not move —
+`69c58e2751c0df22`, byte for byte E2's and E3's — which is the prediction rather than a
+surprise: this slice adds no world state at all, it reads existing state and writes it to a
+file. The line worth quoting came from the host rather than a test: `shard snapshot at tick 173:
+1382 bytes, durable hash c5dda30f194e6d2c`, immediately followed by `server host stopped after
+173 ticks`.
+
+**R26's early-validation signal starts here** rather than at G1 — the `selfTest` restart
+scenario, in two halves because they are two claims: `RunRestartLoop` proves the *format* (a
+second registry and a second store meeting the first only through two files, which is what a
+restart is) and the host section proves the *wiring* (after `Stop` and `Join` the snapshot is on
+disk, stamped with the tick the host stopped at, carrying the shard's own reload proof). The
+second is the one a person would forget to make: a store that works and is never called is a
+shard that loses everything while passing every unit test.
+
+*What E4a deliberately does not carry is the journal's **game** records. The journal exists, is
+framed, CRC'd, recovered and tested, and nothing appends to it yet — so a hard kill today loses
+back to the last snapshot rather than to the last second. The per-outcome records that close
+ADR-025 §4's named window need a change-set at the registry's mutation points, and they land
+with the state E4b is about to add rather than being retrofitted twice.*
+
+**E4b closed the phase's simulation half (2026-08-21).** The station became industry: refine
+jobs `(recipe, batch)` against a Bay at any station holding your ore, per-player slots and
+a queue of ten, station tiers with their band caps, and communal upgrade projects that raise a
+tier permanently for everyone. The claim it rests on is that **a refinery is a ledger** — the ME
+refund is exact and floored per material, there is nowhere in the arithmetic to put an RNG, and
+a job is priced **once, at submission**, so the numbers the player agreed to are the numbers
+they get.
+
+Three of its decisions are worth carrying. **The check order forks**, because a refining verb
+names no ships and requires no dock — `UnknownStation → RecipeLocked → RefineryBusy →
+InsufficientMaterials`, with `RecipeLocked` first because a locked recipe is a fact about the
+*station* and a full queue is a fact about *you*. **Jobs advance beside the transfer bus** at the
+universe layer rather than inside a world's tick, so a refinery runs with no grid spun up and
+nobody watching — walking away is the feature. And **a project completes exactly once** because
+the check lives at the contribution rather than on a sweep: two commanders pushing on the last
+unit in one tick, and the second is refused before a single unit leaves their Bay.
+
+**Green on run 176** — 795 tests on MSVC with none failing, `selfTest` PASSED on both
+configurations, one pre-existing warning, no clang-tidy finding, and the replay hash unmoved at
+`69c58e2751c0df22`. 🏁 **G1 is proved by the shipping binary rather than by a fixture**: it starts
+a batch, stops the shard mid-job, starts it again, and finds the job with *its completion tick
+unmoved* — then runs it to that tick and finds the alloy in the Bay. A job that survives and
+never finishes is the same outcome as one that did not survive, reached more slowly.
+
+Getting there cost a detour that was **not this slice's**: the Debug leg deadlocked first, in
+`TaskPool::Stop`, on a lost wake-up that had been in the engine since S2 and that CI had never
+named. That is R22's fifth entry, and the register is where the story is.
+
+*Implementing it corrected the ADR twice over.* §6b's worked example said a 50-batch of Plates
+at T3 takes 22.5 minutes — the batch factor applied and §6c's tier factor forgotten; both are
+authored and both multiply, so it is 20.25. And the owner's ruling on **job cancel** filled a
+silence: a queued job cancels whole with its inputs returned, a running one cannot. Growing
+`BayStatus` to carry alloys also found a defect in E3's code — `TotalUnits` counted ore only,
+and the sender skips a Bay whose total is zero, so a commander who refined all their ore would
+have watched their whole industrial estate vanish from the screen.
+
 **What the economy phase cost in corrections is worth reading before the next slice**, because
 all four were found by building rather than by review: the ADR's field radius did not fit the
 grid (it read the 40 km grid as a radius when the half-extent is 20,000 m); two authored
@@ -387,12 +496,15 @@ answered the same day as [ADR-017 §6a](ADR/ADR-017-station-docking.md), so **ev
 gate in the station phase is now cleared** and what is left of it is screen work.
 
 **Three things landed on 2026-08-20, none of them a slice.** R22 closed and the Debug leg went
-back to gating, leaving R23 behind it. The build stopped relying on a hand-maintained
+back to gating, leaving R23 behind it. *(That close did not hold: the hang returned on
+2026-08-21 and was root-caused then — a second, independent deadlock, in `TaskPool` rather
+than in the transport. The register's fifth R22 entry has it.)* The build stopped relying on a hand-maintained
 deployment: `Outpost.vcxproj` gained a `CopyGameData` target, so content and `Outpost.json`
 arrive beside the executable and a fresh clone can press F5 — the build-order note that
 recorded that gap is closed. And the boot fleet was re-parked on the owner's call, closing the
-one item ADR-015 left open (see the ship-collision entry below). The next move is **A13**, the
-per-client `SnapshotSender`.
+one item ADR-015 left open (see the ship-collision entry below). *(The "next move is A13"
+this paragraph ended with is spent — A13 closed the same day, and what is next now lives in the
+paragraph below.)*
 
 **The MVP is met — the play test was signed off 2026-08-19.** The lap the Architecture Overview
 calls "the one data flow" runs end to end — right-drag to plane point, pre-check, PENDING
@@ -464,13 +576,32 @@ slice** as `Stargate.obj` rather than the `Gate.obj` the ADR named, so the Struc
 was never used; its export carried a sixth material the five-material palette does not have,
 authored onto `accent`, whose colour it already was.
 
-**What is not built is, with one exception, screen work.** U3b's client half, U4's route feeder
-and icons, U5's map itself and U6 need a GPU and a person, which is the same wall S5 and R1
-have been standing at since S8. The exception is **U3c, the second-commander gate** — and its
-blockers cleared on 2026-08-20: T2's per-client `SnapshotSender` and U3b's view subscription
-are both in the tree, so what is left there is the second commander's *identity*
-(`ServerHost` mints `SOLE_PLAYER_ID`; summaries and rosters answer for everyone) rather than
-the machinery to serve one. The system-view print remains the one missing design artifact.
+**What is not built is screen work, and as of 2026-08-21 there are no exceptions.** U3b's
+client half, U4's route feeder and icons, U5's map itself and U6 need a GPU and a person, which
+is the same wall S5 and R1 have been standing at since S8. The system-view print remains the
+one missing design artifact.
+
+**U3c, the second-commander gate, was that exception and it closed (run 188).** Its blockers —
+T2's per-client `SnapshotSender` and U3b's view subscription — had cleared on 2026-08-20, and
+what remained read like wiring: `ServerHost` minted `SOLE_PLAYER_ID` for everyone, so it needed
+to mint properly. Reading the other side of the seam changed the estimate. **A ship had no
+owner.** `WorldRegistry` kept no `ShipId → PlayerId` index, `RosterEntry` had no owner field,
+and every player-keyed accessor took a `PlayerId` and ignored it — so minting a second id
+against that registry would have made both commanders own everything, and every privacy
+assertion in the accept would have passed for the wrong reason. It split: **U3c-a** built
+ownership at the universe layer (ADR-018 D2 keeps it out of the deterministic SoA) and turned
+the accessors into real filters; **U3c-b** minted per-player ids, D5's grace window, and the
+twin-client `selfTest`.
+
+**What the gate found is worth more than what it built**, because none of it would have arrived
+as a bug report — four assumptions that were true while there was one commander:
+`MayView` gated on the composition root's scripted patrol list and so answered the same for
+every viewer; the start grid and the shard's `WorldMeta` were everyone's; `ServedWorld()` was
+everyone's world, so **any commander could order any hull standing on it**; and the self test's
+oldest order fixture named `ships.front()`, which on a station grid is the station — meaning
+"the authority accepts it and the ack returns" had been proving the ack path works by telling a
+space station to move a hundred metres to the right. `OrderReason::NotOwned`, reserved and
+documented as unreachable since the MVP, is returned for the first time.
 
 **Every open design decision in the universe and station phases is answered (2026-08-20).**
 The two prints that carried an OPEN list have been ruled on: `station-screen.png` §3's four

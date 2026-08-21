@@ -93,7 +93,25 @@ void TaskPool::Stop()
   // slightly slower shutdown, and every caller of this is at boot.
   Drain();
 
-  m_stopRequested.store(true, std::memory_order_release);
+  /*
+   * Under the mutex, and it has to be.
+   *
+   * A worker that has just evaluated its predicate as false still HOLDS this
+   * mutex, and does not release it until it is inside the wait. Publishing the
+   * flag beside that -- atomically, but not under the lock -- lands in the gap:
+   * the worker checks (false), Stop stores and notifies with nobody yet
+   * waiting, and only then does the worker block, on a condition that will
+   * never be signalled again. Every task has run and the pool still never
+   * stops. Taking the lock makes the gap unreachable, because the store cannot
+   * happen while a worker is in it.
+   *
+   * The notify stays outside: it costs the woken worker a second wait for a
+   * mutex the notifier is still holding, and it is not what makes this correct.
+   */
+  {
+    const std::lock_guard<std::mutex> lock(m_mutex);
+    m_stopRequested.store(true, std::memory_order_release);
+  }
   m_wakeUp.notify_all();
 
   for (std::thread& worker : m_workers)

@@ -2,19 +2,22 @@
 
 #include "SelfTest.h"
 
+#include "ConfigLoad.h"
 #include "ReplicatedWorldView.h"
 
 #include "TickSoak.h"
 
 #include "ClientConnection.h"
 
+#include "DurableStore.h"
 #include "ServerConfig.h"
 #include "ServerHost.h"
 #include "Simulation.h"
 
+#include "DurableState.h"
 #include "EconomyMessages.h"
-#include "Validate.h"
 #include "FleetSummary.h"
+#include "Refining.h"
 #include "OrderMessages.h"
 #include "ReplicatedView.h"
 #include "SchemaHash.h"
@@ -39,6 +42,10 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <span>
+#include <string>
+#include <system_error>
 #include <vector>
 
 namespace Outpost
@@ -171,6 +178,219 @@ struct ReplayResult
  * round-trips and the replay run. First, before any socket opens, so a
  * transport failure cannot mask a determinism one.
  */
+/*
+ * The restart, in the shipping binary (ADR-025 §8, build order E4a).
+ *
+ * A shard is docked, loaded and committed; it is written to a real directory
+ * through the real store; and a **second registry and a second store** read it
+ * back and reproduce it. That is what a restart is -- two independent runtimes
+ * meeting only through two files -- so doing it in one process costs nothing
+ * the claim needs and saves this gate from spawning itself.
+ *
+ * What it is not is the whole of §8's scenario: there is no refine job to still
+ * be running, because there are no refine jobs until E4b. The build order says
+ * so where it will be found, and the check below carries the half that exists.
+ */
+void RunRestartLoop(Checklist& _checks, const Game::EconomyDef& _economy)
+{
+  const std::string directory = Outpost::ResolveWritablePath("SelfTestShardState");
+  std::error_code ignored;
+  std::filesystem::remove_all(directory, ignored);
+
+  Game::UniverseGenConfig recipe;
+  recipe.regionCount = 1;
+  recipe.constellationsPerRegion = 1;
+  recipe.systemCount = 4;
+  Game::UniverseDef universe;
+  if (!Game::GenerateUniverse(recipe, _economy.sites, universe))
+  {
+    _checks.Record("the restart scenario bakes a universe", false);
+    return;
+  }
+  const std::uint64_t universeHash = Game::ComputeUniverseHash(universe);
+
+  Game::AnchorId station = Game::INVALID_ID;
+  for (const Game::SolarSystem& system : universe.systems)
+  {
+    for (const Game::Anchor& anchor : system.anchors)
+    {
+      if (anchor.kind == Game::AnchorKind::Station && station == Game::INVALID_ID)
+      {
+        station = anchor.id;
+      }
+    }
+  }
+  if (station == Game::INVALID_ID)
+  {
+    _checks.Record("the restart scenario finds a station", false);
+    return;
+  }
+
+  Neuron::DurableStoreDesc desc;
+  desc.directory = directory;
+  desc.hostId = 0;
+  desc.universeHash = universeHash;
+  desc.economyHash = 0;
+
+  std::uint64_t writtenHash = 0;
+  std::vector<std::uint8_t> stateBytes;
+
+  /// What the running job said about itself before the shard stopped. The two
+  /// numbers 🏁 G1 is about: which job, and when it finishes.
+  std::uint32_t jobSequence = 0;
+  std::uint32_t jobCompleteTick = 0;
+
+  // --- The shard, before it stops. ---
+  {
+    Game::WorldRegistry registry;
+    Game::RegistryConfig config;
+    config.sessionSeed = universeHash;
+    registry.Reset(&universe, &_economy, config);
+
+    Game::ShipSpawn miner;
+    miner.hullClass = Game::HullClass::Miner;
+    miner.wing = 1;
+    miner.cargo.oreUnits[static_cast<std::uint8_t>(Game::OreId::FerroChroma)] = 60;
+    const Game::ShipId ship = registry.Spawn(station, miner, Neuron::SOLE_PLAYER_ID);
+
+    Game::World* world = registry.Borrow(station);
+    Game::OrderSubmit dock;
+    dock.orderSeq = 1;
+    dock.kind = Game::OrderKind::Dock;
+    dock.anchor = station;
+    (void)dock.AddShip(ship);
+    (void)world->SubmitOrder(dock);
+    registry.Tick(1);
+    registry.Tick(2);
+
+    Game::StationCommand toBay;
+    toBay.orderSeq = 2;
+    toBay.verb = Game::StationVerb::TransferToBay;
+    toBay.station = station;
+    toBay.ore = Game::OreId::FerroChroma;
+    toBay.units = 40;
+    (void)toBay.AddShip(ship);
+    const Game::OrderVerdict committed = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, toBay);
+    _checks.Record("the restart scenario commits ore to a Bay", committed.accepted);
+
+    /*
+     * And a refine job on top of it -- 🏁 G1's own claim (ADR-024 §6b, E4b).
+     *
+     * The batch is deliberately the smallest the content authors, because what
+     * is under test is that a job **survives with its completion tick unmoved**
+     * rather than how long it takes: a job restored with a duration instead of
+     * a deadline would silently restart its own clock on every restart, and a
+     * shard that bounced twice an hour would then never finish anything.
+     */
+    Game::StationCommand refine;
+    refine.orderSeq = 3;
+    refine.verb = Game::StationVerb::RefineStart;
+    refine.station = station;
+    refine.alloy = Game::AlloyId::FerrocitePlates;
+    refine.units = 1;
+    const Game::OrderVerdict started = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, refine);
+    _checks.Record("the restart scenario starts a refine job", started.accepted);
+    _checks.Record("the job is running before the shard stops",
+                   registry.RefineJobs().size() == 1 && registry.RefineJobs()[0].Running());
+    if (registry.RefineJobs().size() == 1)
+    {
+      jobSequence = registry.RefineJobs()[0].sequence;
+      jobCompleteTick = registry.RefineJobs()[0].completeTick;
+    }
+
+    writtenHash = Game::DurableHash(registry);
+    stateBytes.resize(1u << 20);
+    Neuron::ByteWriter writer{stateBytes};
+    const bool serialised = Game::WriteDurableState(registry, writer);
+    _checks.Record("the shard serialises its durable state", serialised);
+    if (!serialised)
+    {
+      return;
+    }
+    stateBytes.resize(writer.BytesWritten());
+
+    Neuron::DurableStore store;
+    Neuron::DurableLoadReport report;
+    const bool opened = store.Open(desc, report) && report.result == Neuron::DurableLoadResult::Fresh;
+    _checks.Record("a shard with no state opens fresh", opened);
+    _checks.Record("the shard writes a snapshot", opened && store.WriteSnapshot(stateBytes, writtenHash, 2));
+    store.Close();
+  }
+
+  // --- And after it starts again. Nothing above is in scope down here, which
+  // --- is the point: the only thing crossing is what is on the disk.
+  {
+    Neuron::DurableStore store;
+    Neuron::DurableLoadReport report;
+    const bool opened = store.Open(desc, report);
+    _checks.Record("the restarted shard finds its state", opened && report.result == Neuron::DurableLoadResult::Loaded);
+    _checks.Record("the snapshot carries the reload proof it was written with", report.snapshotDurableHash == writtenHash);
+
+    Game::WorldRegistry registry;
+    Game::RegistryConfig config;
+    config.sessionSeed = universeHash;
+    registry.Reset(&universe, &_economy, config);
+
+    Neuron::ByteReader reader(store.Snapshot());
+    std::vector<Game::PersistenceDiagnostic> diagnostics;
+    const bool loaded = Game::ReadDurableState(reader, registry, diagnostics);
+    for (const Game::PersistenceDiagnostic& diagnostic : diagnostics)
+    {
+      NEURON_LOG_ERROR("self test: durable state: %s", diagnostic.Text("shard-0.snapshot").c_str());
+    }
+    _checks.Record("the restarted shard reads its state back", loaded);
+    _checks.Record("the reload reproduces the proof", loaded && Game::DurableHash(registry) == writtenHash);
+
+    const std::span<const Game::RosterEntry> docked = registry.Roster(station);
+    _checks.Record("the roster survives the restart", docked.size() == 1);
+    _checks.Record("the hold survives the restart", docked.size() == 1 && docked[0].Units(Game::OreId::FerroChroma) == 20);
+
+    const Game::StationBay* bay = registry.Bay(Neuron::SOLE_PLAYER_ID, station);
+    _checks.Record("the Bay survives the restart", bay != nullptr && bay->Units(Game::OreId::FerroChroma) == 38);
+
+    /*
+     * 🏁 G1: **the refinery does not stop when the shard restarts.**
+     *
+     * The completion tick unmoved is the assertion; the job still being there
+     * is only half of it. And then it is run to that tick and the alloy is in
+     * the Bay -- because a job that survives and never finishes is the same
+     * outcome as one that did not survive, arrived at more slowly.
+     */
+    const std::span<const Game::RefineJob> jobs = registry.RefineJobs();
+    _checks.Record("the refine job survives the restart", jobs.size() == 1);
+    _checks.Record("with the job it was", jobs.size() == 1 && jobs[0].sequence == jobSequence);
+    _checks.Record("and its completion tick unmoved", jobs.size() == 1 && jobs[0].completeTick == jobCompleteTick);
+
+    for (std::uint32_t tick = registry.ShardTick() + 1; tick <= jobCompleteTick; ++tick)
+    {
+      registry.Tick(tick);
+    }
+    const Game::StationBay* finished = registry.Bay(Neuron::SOLE_PLAYER_ID, station);
+    _checks.Record("the reloaded job finishes into the Bay",
+                   registry.RefineJobs().empty() && finished != nullptr
+                     && finished->Units(Game::AlloyId::FerrocitePlates) == 1);
+
+    std::vector<Game::PersistenceDiagnostic> refusal;
+    Game::WorldRegistry running;
+    running.Reset(&universe, &_economy, config);
+    (void)running.Borrow(station);
+    Neuron::ByteReader again(store.Snapshot());
+    _checks.Record("a load into a running shard is refused", !Game::ReadDurableState(again, running, refusal));
+    store.Close();
+  }
+
+  // --- And the guard that stops an amnesiac shard from looking healthy. ---
+  {
+    Neuron::DurableStoreDesc rebaked = desc;
+    rebaked.universeHash = universeHash ^ 0x1ull;
+    Neuron::DurableStore store;
+    Neuron::DurableLoadReport report;
+    _checks.Record("a re-baked universe refuses to load an old shard", !store.Open(rebaked, report));
+  }
+
+  std::filesystem::remove_all(directory, ignored);
+}
+
 void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation, const Game::EconomyDef& _economy)
 {
   // Schema: the number the handshake fails closed on. Nonzero, stable across
@@ -351,7 +571,7 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation, const G
       spawn.hullClass = Game::HullClass::Interceptor;
       spawn.wing = 1;
       spawn.xMetres = 800.0f; // Inside the jump radius, where a warp-in lands.
-      const Game::ShipId ship = registry.Spawn(here, spawn);
+      const Game::ShipId ship = registry.Spawn(here, spawn, Neuron::SOLE_PLAYER_ID);
 
       // The gate itself is on that grid, spawned from the anchor's own block.
       const Game::World* gateGrid = registry.Peek(here);
@@ -377,7 +597,7 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation, const G
       tooFar.orderSeq = 6002;
       Game::ShipSpawn awaySpawn = spawn;
       awaySpawn.xMetres = 9000.0f;
-      const Game::ShipId away = registry.Spawn(here, awaySpawn);
+      const Game::ShipId away = registry.Spawn(here, awaySpawn, Neuron::SOLE_PLAYER_ID);
       tooFar.shipCount = 0;
 
       // Borrowed again rather than kept across the spawn: `Spawn` can spin a
@@ -470,7 +690,7 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation, const G
       Game::ShipSpawn spawn;
       spawn.hullClass = Game::HullClass::Miner;
       spawn.wing = 1;
-      const Game::ShipId miner = registry.Spawn(site, spawn);
+      const Game::ShipId miner = registry.Spawn(site, spawn, Neuron::SOLE_PLAYER_ID);
 
       Game::OrderSubmit mine;
       mine.orderSeq = 8001;
@@ -1335,6 +1555,7 @@ void RunSummaryFamilyGate(Checklist& _checks)
     Game::CargoStatusRow{201, {12, 0, 0}},
   };
   const std::uint32_t bayUnits[Game::ORE_COUNT] = {1240, 310, 85};
+  const std::uint32_t bayAlloys[Game::ALLOY_COUNT] = {40, 0, 0, 0, 0};
 
   // Five records, in the order `WriteSummaries` puts them.
   bool written = Game::BeginSummaryFrame(5, writer);
@@ -1345,7 +1566,7 @@ void RunSummaryFamilyGate(Checklist& _checks)
   written = written && Game::BeginSummaryRecord(Game::SummaryKind::SiteStatus, writer) && Game::WriteSiteStatus(site, writer);
   written = written && Game::BeginSummaryRecord(Game::SummaryKind::CargoStatus, writer) && Game::WriteCargoStatus(cargo, writer);
   written = written && Game::BeginSummaryRecord(Game::SummaryKind::BayStatus, writer) &&
-            Game::WriteBayStatus(STATION, bayUnits, writer);
+            Game::WriteBayStatus(STATION, bayUnits, bayAlloys, writer);
   _checks.Record("a summary frame carrying all five kinds is written", written && writer.Ok());
 
   Outpost::ReplicatedWorldView::Desc desc;
@@ -1367,10 +1588,288 @@ void RunSummaryFamilyGate(Checklist& _checks)
   _checks.Record("the docked block the frame opened with is still there", view.DockedCountAt(STATION) == 3);
 }
 
+/*
+ * U3c's accept: two commanders on one shard (ADR-018 D5/A25, build order U3c-b).
+ *
+ * This is the section U3c exists for, and the reason it is written with the
+ * second client's assertions phrased NEGATIVELY -- what B does not get -- is
+ * that every one of them would have passed a slice ago against a registry where
+ * both commanders owned everything. A privacy check that cannot fail is worse
+ * than none, because it gets reported as evidence.
+ *
+ * Disjoint grids, deliberately: two full fleets on one grid exceed the
+ * full-snapshot cap by arithmetic, and lifting that is the interest/delta
+ * slice's job (ADR-022, D6), not this one's.
+ */
+void RunSecondCommanderGate(Checklist& _checks, Neuron::ServerHost& _server, const Neuron::Simulation& _simulation)
+{
+  Neuron::ClientConnection alice;
+  Neuron::ClientConnection bob;
+
+  if (!alice.Connect("127.0.0.1", _server.BoundPort(), _simulation.SchemaHash(), _simulation.ContentHash(), "alice") ||
+      !PumpUntil(alice, [&] { return alice.State() == Neuron::ClientLinkState::Joined; }))
+  {
+    _checks.Record("the first commander joins", false);
+    return;
+  }
+  if (!bob.Connect("127.0.0.1", _server.BoundPort(), _simulation.SchemaHash(), _simulation.ContentHash(), "bob") ||
+      !PumpUntil(bob, [&] { return bob.State() == Neuron::ClientLinkState::Joined; }))
+  {
+    _checks.Record("a second commander joins the same shard", false);
+    return;
+  }
+  _checks.Record("two commanders hold sessions at once", _server.SessionCount() >= 2);
+
+  /*
+   * Distinct ids, and neither of them nobody. The second half matters on its
+   * own: `INVALID_PLAYER_ID` is what a zeroed handshake carries, and a shard
+   * that handed it out would be issuing the one identity every filter treats
+   * as "not yours".
+   */
+  _checks.Record("the two commanders have different ids", alice.Player() != bob.Player());
+  _checks.Record("and neither of them is nobody",
+                 alice.Player() != Neuron::INVALID_PLAYER_ID && bob.Player() != Neuron::INVALID_PLAYER_ID);
+
+  // Each got a resume handle. Zero would mean the grace window has nothing to
+  // work with, which is a failure the disconnect below would report far less
+  // clearly.
+  _checks.Record("each commander is given a resume handle", alice.ResumeToken() != 0 && bob.ResumeToken() != 0);
+  _checks.Record("and the two handles are different", alice.ResumeToken() != bob.ResumeToken());
+
+  // Both are put down somewhere, and not on top of each other.
+  const std::uint16_t aliceGrid = alice.GridAnchor();
+  const std::uint16_t bobGrid = bob.GridAnchor();
+  _checks.Record("the second commander is put on a grid of their own", aliceGrid != bobGrid);
+
+  /*
+   * View rights. B asking to watch A's grid is the request `MayView` exists to
+   * refuse, and until U3c-a it would have been ALLOWED -- the gate walked the
+   * composition root's scripted patrol list and answered the same for every
+   * viewer.
+   */
+  bob.ClearPendingViewChanges();
+  bool answered = false;
+  bool refused = false;
+  if (bob.RequestView(aliceGrid))
+  {
+    answered = PumpUntil(bob,
+                         [&]
+                         {
+                           for (const Neuron::ViewChanged& changed : bob.PendingViewChanges())
+                           {
+                             if (changed.gridAnchor == aliceGrid)
+                             {
+                               refused = !changed.accepted;
+                               return true;
+                             }
+                           }
+                           bob.ClearPendingViewChanges();
+                           return false;
+                         });
+  }
+  bob.ClearPendingViewChanges();
+  _checks.Record("a request to watch another commander's grid is answered", answered);
+  _checks.Record("and refused", refused);
+
+  // And B keeps their own: a refusal must not move the feed.
+  _checks.Record("the refused viewer is still on their own grid", bob.GridAnchor() == bobGrid);
+
+  /*
+   * Orders attributed correctly -- U3c's accept clause, and the one that needed
+   * a hole closing rather than a check writing.
+   *
+   * `Validate.cpp` has said since the MVP that `NotOwned` was unreachable
+   * because "there is one player and every ship is theirs". It was, and the
+   * order path proved it: every order went to the START grid whoever sent it,
+   * and named any ship standing there. With a second commander that is a
+   * commander ordering another's fleet, and nothing in the engine would have
+   * minded -- the world it went to knows only its own ships and must not learn
+   * who owns one (ADR-018 D2), so the check could only ever live where the
+   * registry and the wire are both visible.
+   *
+   * B is handed one of A's ship ids by the harness, which is the strongest
+   * form of the test: it does not rely on B being unable to LEARN the id, only
+   * on the server refusing it.
+   */
+  Game::ReplicatedView aliceView;
+  std::vector<Game::ReplicatedShip> aliceShips;
+  (void)PumpUntil(alice,
+                  [&]
+                  {
+                    for (const std::vector<std::uint8_t>& payload : alice.PendingSnapshots())
+                    {
+                      (void)aliceView.ApplySnapshot(payload);
+                    }
+                    alice.ClearPendingSnapshots();
+                    aliceShips.clear();
+                    aliceView.SampleAt(static_cast<double>(aliceView.LatestTick()), aliceShips);
+                    return !aliceShips.empty();
+                  });
+
+  Game::ShipId alicesHull = Game::INVALID_SHIP_ID;
+  for (const Game::ReplicatedShip& ship : aliceShips)
+  {
+    if (ship.classId != static_cast<std::uint8_t>(Game::HullClass::Structure))
+    {
+      alicesHull = ship.id;
+      break;
+    }
+  }
+  _checks.Record("the harness can name one of the first commander's hulls", alicesHull != Game::INVALID_SHIP_ID);
+
+  if (alicesHull != Game::INVALID_SHIP_ID)
+  {
+    Game::OrderSubmit poach;
+    poach.orderSeq = 9301;
+    (void)poach.AddShip(alicesHull);
+    poach.target.xCm = Neuron::MetresToCentimetres(500.0f);
+    poach.target.yCm = Neuron::MetresToCentimetres(500.0f);
+
+    std::array<std::uint8_t, Game::MAX_ORDER_SUBMIT_BYTES + Game::COMMAND_KIND_BYTES> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    bob.ClearPendingVerdicts();
+    const bool sent = Game::WriteCommandKind(Game::CommandKind::Order, writer) &&
+                      Game::WriteOrderSubmit(poach, writer) && bob.SendOrder(writer.Written());
+    _checks.Record("a commander may send an order naming another's ship", sent);
+
+    bool refusedNotOwned = false;
+    (void)PumpUntil(bob,
+                    [&]
+                    {
+                      for (const Neuron::OrderVerdict& verdict : bob.PendingVerdicts())
+                      {
+                        if (verdict.orderSeq == poach.orderSeq)
+                        {
+                          refusedNotOwned = !verdict.accepted &&
+                                            verdict.reasonCode ==
+                                              static_cast<std::uint16_t>(Game::OrderReason::NotOwned);
+                          return true;
+                        }
+                      }
+                      return false;
+                    });
+    _checks.Record("and the authority refuses it NotOwned", refusedNotOwned);
+  }
+
+  /*
+   * Summaries. A's fleet must not appear in B's, in either direction -- the
+   * symmetric assertion is worth making because a filter keyed on the wrong
+   * side of the comparison would pass one and fail the other.
+   */
+  const auto fleetAnchors = [&](Neuron::ClientConnection& _client)
+  {
+    std::vector<std::uint16_t> anchors;
+    for (const std::vector<std::uint8_t>& payload : _client.PendingSummaries())
+    {
+      Neuron::ByteReader reader{payload};
+      std::uint8_t records = 0;
+      if (!Game::ReadSummaryFrame(reader, records))
+      {
+        continue;
+      }
+
+      /*
+       * The family is read in order, and every record has to be consumed even
+       * when it is not the one wanted -- the records share one reader, so
+       * skipping a payload would leave the next read pointed at the middle of
+       * it. That is why the roster branch reads rather than continues.
+       */
+      for (std::uint8_t index = 0; index < records; ++index)
+      {
+        Game::SummaryKind kind{};
+        if (!Game::ReadSummaryRecord(reader, kind))
+        {
+          break;
+        }
+        if (kind == Game::SummaryKind::FleetSummaries)
+        {
+          std::vector<Game::FleetSummary> rows;
+          if (!Game::ReadFleetSummaries(reader, rows))
+          {
+            break;
+          }
+          for (const Game::FleetSummary& row : rows)
+          {
+            anchors.push_back(row.anchor);
+          }
+          continue;
+        }
+        break; // Anything else and this reader has said what it can.
+      }
+    }
+    _client.ClearPendingSummaries();
+    return anchors;
+  };
+
+  std::vector<std::uint16_t> bobSees;
+  (void)PumpUntil(bob,
+                  [&]
+                  {
+                    const std::vector<std::uint16_t> rows = fleetAnchors(bob);
+                    bobSees.insert(bobSees.end(), rows.begin(), rows.end());
+                    return !bobSees.empty();
+                  });
+  _checks.Record("the second commander is told where their own fleet is", !bobSees.empty());
+  _checks.Record("and never where the first one's is",
+                 std::find(bobSees.begin(), bobSees.end(), aliceGrid) == bobSees.end());
+
+  /*
+   * The grace window (ADR-018 D5). B drops and comes straight back with the
+   * handle they were given.
+   *
+   * The claim is not merely that the reconnect succeeds -- it is that the
+   * SAME COMMANDER comes back. A shard that minted a fresh id here would look
+   * fine from the client's side and would have quietly orphaned a fleet.
+   */
+  const Neuron::PlayerId wasBob = bob.Player();
+  const std::uint64_t handle = bob.ResumeToken();
+  bob.Disconnect();
+  (void)PumpUntil(alice, [&] { return _server.SessionCount() <= 1; });
+
+  Neuron::ClientConnection returning;
+  const bool reconnected =
+    returning.Connect("127.0.0.1", _server.BoundPort(), _simulation.SchemaHash(), _simulation.ContentHash(), "bob",
+                      wasBob, handle) &&
+    PumpUntil(returning, [&] { return returning.State() == Neuron::ClientLinkState::Joined; });
+  _checks.Record("a dropped commander can reconnect", reconnected);
+  if (reconnected)
+  {
+    _checks.Record("and comes back as the same commander", returning.Player() == wasBob);
+    _checks.Record("on the grid they were watching", returning.GridAnchor() == bobGrid);
+    _checks.Record("with a fresh handle, so the old one is spent", returning.ResumeToken() != handle);
+
+    // The fleet is intact, which is the point of the window: their ships never
+    // left the grid, because ownership is universe-layer state and the socket
+    // was never what held it.
+    std::vector<std::uint16_t> backSees;
+    (void)PumpUntil(returning,
+                    [&]
+                    {
+                      const std::vector<std::uint16_t> rows = fleetAnchors(returning);
+                      backSees.insert(backSees.end(), rows.begin(), rows.end());
+                      return !backSees.empty();
+                    });
+    _checks.Record("with the fleet still theirs",
+                   std::find(backSees.begin(), backSees.end(), bobGrid) != backSees.end());
+    _checks.Record("and still not the other commander's",
+                   std::find(backSees.begin(), backSees.end(), aliceGrid) == backSees.end());
+    returning.Disconnect();
+  }
+
+  alice.Disconnect();
+  _checks.Record("the server outlives both commanders", _server.Running());
+}
+
 void RunApproachDisconnectGate(Checklist& _checks, Neuron::ServerHost& _server, const Neuron::Simulation& _simulation)
 {
   Game::ShipId approaching[2] = {Game::INVALID_SHIP_ID, Game::INVALID_SHIP_ID};
   std::size_t rosterBefore = 0;
+
+  /// Who was flying, so the observer can come back as them (U3c-b). Captured
+  /// inside the block below, because the connection that knows is closed by the
+  /// time the observer needs it.
+  Neuron::PlayerId approachPlayer = Neuron::INVALID_PLAYER_ID;
+  std::uint64_t approachToken = 0;
   Game::AnchorId station = Game::INVALID_ID;
 
   {
@@ -1436,6 +1935,23 @@ void RunApproachDisconnectGate(Checklist& _checks, Neuron::ServerHost& _server, 
     (void)PumpUntil(client, [&] { return client.ServerTick() >= leaveAt; });
 
     rosterBefore = ships.size();
+
+    /*
+     * Whose approach this was (U3c-b).
+     *
+     * The observer below has to come back as THIS commander, and the reason is
+     * the whole point of the slice: since `ServerHost` mints a `PlayerId` per
+     * player, a second connection is a second commander with its own fleet on
+     * its own grid -- so an observer that merely reconnected would be watching
+     * somewhere else entirely and would find no approaching ships because there
+     * were none there to find.
+     *
+     * Before U3c-b every connection was `SOLE_PLAYER_ID` and this section got
+     * the right answer without asking the question. That is exactly the class
+     * of assumption U3c exists to flush out.
+     */
+    approachPlayer = client.Player();
+    approachToken = client.ResumeToken();
   } // The connection closes here, mid-leg.
 
   // The session has to be gone before the second client asks, or this measures
@@ -1452,13 +1968,17 @@ void RunApproachDisconnectGate(Checklist& _checks, Neuron::ServerHost& _server, 
   }
   _checks.Record("the server outlives a client that left mid-approach", emptied && _server.Running());
 
+  // Back as the same commander, inside the grace window (ADR-018 D5), so what
+  // it observes is the fleet it left mid-leg rather than a fresh one.
   Neuron::ClientConnection observer;
-  if (!observer.Connect("127.0.0.1", _server.BoundPort(), _simulation.SchemaHash(), _simulation.ContentHash(), "observer") ||
+  if (!observer.Connect("127.0.0.1", _server.BoundPort(), _simulation.SchemaHash(), _simulation.ContentHash(), "observer",
+                        approachPlayer, approachToken) ||
       !PumpUntil(observer, [&] { return observer.State() == Neuron::ClientLinkState::Joined; }))
   {
     _checks.Record("an observer can join after the disconnect", false);
     return;
   }
+  _checks.Record("and comes back as the commander that left", observer.Player() == approachPlayer);
 
   Game::ReplicatedView view;
   std::vector<Game::ReplicatedShip> ships;
@@ -1561,12 +2081,43 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   // so a transport failure cannot mask them -- and on a GPU-less CI runner they
   // are most of what this gate proves.
   RunLocalChecks(checks, _simulation, _economy);
+  RunRestartLoop(checks, _economy);
+
+  /*
+   * The host's own store, on a scratch directory of its own (ADR-025 §5).
+   *
+   * `RunRestartLoop` above proves the *format* survives two runtimes; this
+   * proves the **wiring** -- that a host which stops cleanly writes itself down
+   * on the way out, on the Sim thread, before anything is torn down. They are
+   * different claims and the second one is the one a person would forget to
+   * make: a store that works and is never called is a shard that loses
+   * everything and passes every unit test.
+   *
+   * It guards on `ContentHash` rather than on the universe hash alone, because
+   * the mixed number is the one this function has -- and what is under test is
+   * the guard's behaviour, not which hash fills it.
+   */
+  const std::string hostDirectory = Outpost::ResolveWritablePath("SelfTestHostState");
+  std::error_code ignoredHostState;
+  std::filesystem::remove_all(hostDirectory, ignoredHostState);
+
+  Neuron::DurableStoreDesc hostDesc;
+  hostDesc.directory = hostDirectory;
+  hostDesc.hostId = 0;
+  hostDesc.universeHash = _simulation.ContentHash();
+  hostDesc.economyHash = 0;
+
+  Neuron::DurableStore hostStore;
+  Neuron::DurableLoadReport hostReport;
+  const bool hostStoreOpen = hostStore.Open(hostDesc, hostReport);
+  checks.Record("the host's durable store opens", hostStoreOpen);
 
   // Port 0 whatever the config says: a self test must not fail because the
   // configured port is already taken by the thing it is testing.
   Neuron::ServerConfig serverConfig;
   serverConfig.port = 0;
   serverConfig.maxSessions = _config.server.maxSessions;
+  serverConfig.durableStore = hostStoreOpen ? &hostStore : nullptr;
 
   Neuron::ServerHost server;
   const bool started = server.Start(serverConfig, _simulation);
@@ -1619,16 +2170,42 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
         }
         checks.Record("the snapshot decodes to ships", applied && !ships.empty());
 
-        if (!ships.empty())
+        /*
+         * One of the COMMANDER'S OWN hulls, which used to be `ships.front()`
+         * (U3c-b).
+         *
+         * The station is an authored occupant, it is spawned first on a station
+         * grid -- "the first occupant is the structure itself" -- and so it is
+         * what `front()` returns. Ordering it was accepted until this slice,
+         * because nothing knew who owned anything; it is refused `NotOwned`
+         * now, which is right, and it makes the fixture wrong rather than the
+         * rule.
+         *
+         * Worth saying plainly: for the whole of the MVP this check has been
+         * proving that the ack path works by telling a SPACE STATION to move
+         * a hundred metres to the right.
+         */
+        const Game::ReplicatedShip* mine = nullptr;
+        for (const Game::ReplicatedShip& ship : ships)
+        {
+          if (ship.classId != static_cast<std::uint8_t>(Game::HullClass::Structure))
+          {
+            mine = &ship;
+            break;
+          }
+        }
+        checks.Record("the snapshot holds a hull of the commander's own", mine != nullptr);
+
+        if (mine != nullptr)
         {
           // A real order for a real ship, exactly as the client would send it:
           // decoded from the snapshot, validated by the game, acknowledged
           // back with the sequence it went out under (ADR-004 §7).
           Game::OrderSubmit order;
           order.orderSeq = 4242;
-          (void)order.AddShip(ships.front().id);
-          order.target.xCm = Neuron::MetresToCentimetres(ships.front().positionMetres.x + 100.0f);
-          order.target.yCm = Neuron::MetresToCentimetres(ships.front().positionMetres.y);
+          (void)order.AddShip(mine->id);
+          order.target.xCm = Neuron::MetresToCentimetres(mine->positionMetres.x + 100.0f);
+          order.target.yCm = Neuron::MetresToCentimetres(mine->positionMetres.y);
 
           std::array<std::uint8_t, Game::MAX_ORDER_SUBMIT_BYTES> orderBuffer{};
           Neuron::ByteWriter orderWriter{orderBuffer};
@@ -1692,9 +2269,15 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   // subject is what the authority keeps when a client is not there.
   RunApproachDisconnectGate(checks, server, _simulation);
 
+  // The client-side gates first: they are pure decode and validation, so they
+  // run whether or not a second commander could be brought up.
   RunSummaryFamilyGate(checks);
   RunClientDockPreCheckGate(checks, _simulation);
   RunMineAvailabilityGate(checks, _economy);
+
+  // U3c's accept, after the single-commander loop has proved the machinery it
+  // builds on: two clients at once, on grids of their own.
+  RunSecondCommanderGate(checks, server, _simulation);
 
   // S3's acceptance is a cadence measurement, and until now it had no harness --
   // which is a good way for "mean period 50 ms +/- 0.5" to stay a sentence
@@ -1720,6 +2303,27 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   server.Stop();
   server.Join();
   checks.Record("server stops cleanly", !server.Running() && server.TickCount() > 0);
+
+  /*
+   * And what it left behind (ADR-025 §4): **a clean stop loses nothing.**
+   *
+   * The store is closed first, because reading a file this process still holds
+   * open would be testing the buffer rather than the disk -- and the disk is
+   * the whole subject.
+   */
+  if (hostStoreOpen)
+  {
+    hostStore.Close();
+
+    Neuron::DurableStore reopened;
+    Neuron::DurableLoadReport report;
+    const bool found = reopened.Open(hostDesc, report) && report.result == Neuron::DurableLoadResult::Loaded;
+    checks.Record("a host that stops cleanly leaves a snapshot behind", found && !reopened.Snapshot().empty());
+    checks.Record("the snapshot is stamped with the tick the host stopped at", found && report.snapshotTick > 0);
+    checks.Record("the snapshot carries the shard's reload proof", found && report.snapshotDurableHash == _simulation.DurableHash());
+    reopened.Close();
+  }
+  std::filesystem::remove_all(hostDirectory, ignoredHostState);
 
   // Zero on any healthy machine, but this gate now runs in CI (S14) and a
   // shared runner is not a real-time system -- the same argument S3 made for

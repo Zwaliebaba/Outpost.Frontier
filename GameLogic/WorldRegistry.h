@@ -4,6 +4,7 @@
 #include "EventRecord.h"
 #include "FleetSummary.h"
 #include "Ids.h"
+#include "Refining.h"
 #include "Station.h"
 #include "Transfer.h"
 #include "Universe.h"
@@ -32,6 +33,12 @@
 
 namespace Game
 {
+
+/// ADR-025's durable set and its diagnostics, declared rather than included:
+/// `DurableState.h` includes this header, and the registry needs only to name
+/// them.
+struct DurableState;
+struct PersistenceDiagnostic;
 
 struct RegistryConfig
 {
@@ -110,6 +117,23 @@ public:
   [[nodiscard]] std::span<const RosterEntry> Roster(AnchorId _anchor) const noexcept;
 
   /*
+   * One commander's half of a station's roster (ADR-017 §1, U3c-a).
+   *
+   * `Roster` above answers with the whole thing, and it still has two callers
+   * that need it: grid teardown, which sweeps around every docked ship
+   * regardless of whose, and the save file, which writes the station. Anything
+   * that reaches a PLAYER goes through this instead -- the summary frame, and
+   * the validator's view of what a command may name.
+   *
+   * A vector rather than a span because a filtered view of a vector is a new
+   * vector; the alternative is storing rosters per `(station, owner)` the way
+   * Bays are, which would be a bigger change to buy the same answer and would
+   * make "what is docked here" -- a question teardown genuinely asks -- into a
+   * walk of every commander.
+   */
+  [[nodiscard]] std::vector<RosterEntry> DockedFor(Neuron::PlayerId _owner, AnchorId _anchor) const;
+
+  /*
    * What is left of a mining field (ADR-024 §3d), or null for a site nobody has
    * worked this epoch.
    *
@@ -145,6 +169,126 @@ public:
   /// All of them, in `(station, owner)` order -- the order the hash folds them
   /// and the order ADR-025's journal will write them.
   [[nodiscard]] std::span<const StationBay> Bays() const noexcept { return m_bays; }
+
+  /// One station's roster. Sorted into `m_rosters` by anchor id, which is the
+  /// order the hash folds them in and the order the journal writes them.
+  struct StationRoster
+  {
+    AnchorId anchor = INVALID_ID;
+    std::vector<RosterEntry> docked;
+  };
+
+  /*
+   * Every station's roster, in anchor order (ADR-025 §1).
+   *
+   * `Roster` answers for one station because that is what a command and a
+   * summary ask; this answers for all of them because that is what a save file
+   * asks, and walking every anchor in the universe to find the dozen with
+   * something docked would be the same list arrived at expensively.
+   */
+  [[nodiscard]] std::span<const StationRoster> Rosters() const noexcept { return m_rosters; }
+
+  /*
+   * The bus, in filing order (ADR-025 §1).
+   *
+   * In-flight transfers are durable: a fleet that was three seconds into a warp
+   * when the shard stopped is somewhere, and the record is the only thing that
+   * knows where. `PendingTransferCount` is the question a test asks; this is
+   * the one a snapshot asks.
+   */
+  [[nodiscard]] std::span<const TransferRecord> PendingTransfers() const noexcept { return m_bus; }
+
+  /*
+   * The ship-id high-water mark (ADR-025 §1a).
+   *
+   * Durable, and the trap that ADR names first: a restarted shard that
+   * re-issued ids would hand a Bay row, a transfer record, a log line and a
+   * client's selection the *wrong ship*, and every one of those lookups would
+   * succeed.
+   */
+  [[nodiscard]] std::uint32_t NextDynamicShipId() const noexcept { return m_nextDynamicId; }
+
+  /*
+   * The refinery's three residents (ADR-024 §6, E4b), on the Bay's terms.
+   *
+   * Jobs are per `(owner, station)` and sorted by `(station, owner, sequence)`,
+   * which is the order the queue drains, the order the hash folds them and the
+   * order the journal writes them. Tiers and projects are per **station** with
+   * no owner in the key at all, because a refinery is public infrastructure:
+   * anyone may invest in it and the tier rises for everyone.
+   *
+   * All three keep the site ledger's discipline -- a row exists only once
+   * something has happened. There is no tier row for a station nobody has
+   * upgraded and no project row for one nobody has contributed to, so the
+   * durable set is proportional to what commanders have actually done rather
+   * than to how many stations the bake authored.
+   */
+  [[nodiscard]] std::span<const RefineJob> RefineJobs() const noexcept { return m_refineJobs; }
+  [[nodiscard]] std::span<const StationTier> StationTiers() const noexcept { return m_stationTiers; }
+  [[nodiscard]] std::span<const UpgradeProject> Projects() const noexcept { return m_projects; }
+
+  /*
+   * A station's refinery tier as everything should ask it: the authored floor,
+   * raised by whatever has been built, and **never above its band's cap**.
+   *
+   * One function because the cap is the industrial map (ADR-024 §6c) and a
+   * second copy of it would eventually let a High-Sec station cook Nova-Steel.
+   * Zero for an anchor that is not a station.
+   */
+  [[nodiscard]] std::uint8_t TierAt(AnchorId _station) const noexcept;
+
+  /*
+   * One commander's refinery at one station, as the wire reports it
+   * (ADR-024 §6, E4b).
+   *
+   * Here rather than in the sender for `SiteStatusFor`'s reason exactly: it
+   * takes three things only the registry has together -- the effective tier
+   * (authored floor, raised by projects, clamped by band), this player's jobs
+   * in queue order, and the station's open project. A sender that assembled
+   * those itself would be a second place for "what is this refinery doing" to
+   * be computed, and the two would drift the first time one of them learned
+   * about a new lock.
+   *
+   * **Keyed by the viewer, not filtered for them**, on `CargoFor`'s terms: the
+   * privacy of a refinery status is a property of what this function is asked.
+   */
+  [[nodiscard]] RefineryStatusRow RefineryStatusFor(Neuron::PlayerId _owner, AnchorId _station) const;
+
+  /// The stations where this commander has a refinery worth reporting -- which
+  /// is where they have jobs. In anchor order, so two runs of one script send
+  /// the same frame.
+  [[nodiscard]] std::vector<AnchorId> RefineriesFor(Neuron::PlayerId _owner) const;
+
+  /// The open project at a station, or null when nobody has contributed to one
+  /// yet. Null is the *untouched* answer and not an absence, exactly as it is
+  /// for a site ledger and a Bay.
+  [[nodiscard]] const UpgradeProject* Project(AnchorId _station) const noexcept;
+
+  /*
+   * Is this ship one the bake put on this grid (ADR-018 D6a)?
+   *
+   * Asked by the durable capture, which must not write authored occupants down:
+   * spin-up rebuilds them from content, so a save file carrying them would be
+   * storing content and then arguing with it after a re-bake.
+   */
+  [[nodiscard]] bool IsAuthoredOccupant(AnchorId _anchor, ShipId _shipId) const noexcept;
+
+  /*
+   * Puts a durable set back (ADR-025 §1).
+   *
+   * Into a **freshly `Reset`** registry and no other: loading over a running
+   * shard is refused rather than defined, because there is no answer to what
+   * merging two universes would mean that is better than not doing it.
+   *
+   * Ships come back **at rest with an empty queue** -- that is §1's line, and
+   * the reason this is the registry's job rather than a free function's: it is
+   * the thing that knows how a grid is spun up, and a second copy of that would
+   * be a second answer.
+   *
+   * False leaves the registry as it was found, with the reason in
+   * `_outDiagnostics`.
+   */
+  [[nodiscard]] bool LoadDurable(const DurableState& _state, std::vector<PersistenceDiagnostic>& _outDiagnostics);
 
   /*
    * The field a site's grid would be spun up with right now.
@@ -208,11 +352,14 @@ public:
    * Ordered by anchor and then by state, so two runs of one script produce the
    * same message and a client can diff two of them without sorting.
    *
-   * Everything today, because there is one commander. When there are more this
-   * takes a `PlayerId` and filters (ADR-018 D5) -- the shape does not change,
-   * only what it counts.
+   * **Per viewer** (ADR-018 D5, U3c-a). It counted everything until there was a
+   * second commander to count separately from, and the promise made here then
+   * held: the shape did not change, only what it counts.
+   *
+   * `INVALID_PLAYER_ID` gets nothing, which is the honest answer to "where are
+   * nobody's ships" and keeps an anonymous handshake from reading as a census.
    */
-  [[nodiscard]] std::vector<FleetSummary> Summaries() const;
+  [[nodiscard]] std::vector<FleetSummary> Summaries(Neuron::PlayerId _viewer) const;
 
   /// How many records are filed and not yet applied. The bus is world state --
   /// it folds into the hash -- so this is how a test asks whether a tick
@@ -252,8 +399,15 @@ public:
    * `INVALID_SHIP_ID` when the anchor has no world, or the id space is spent,
    * or the class has no content -- the same three refusals `World::Spawn` makes,
    * reported the same way.
+   *
+   * **The owner is a parameter and not a default** (ADR-018 D5, U3c-a). It sits
+   * here rather than on `ShipSpawn` because `ShipSpawn` is what `World::Spawn`
+   * reads, and the world must never learn who owns anything -- a field the SoA
+   * carried and ignored would be an invitation to fold it into the replay
+   * domain later. Pass `INVALID_PLAYER_ID` deliberately for the universe's own
+   * furniture; there is no default, so a new call site has to say which it is.
    */
-  [[nodiscard]] ShipId Spawn(AnchorId _anchor, const ShipSpawn& _spawn);
+  [[nodiscard]] ShipId Spawn(AnchorId _anchor, const ShipSpawn& _spawn, Neuron::PlayerId _owner);
 
   /*
    * Undock or reassign a wing (ADR-017 §3, §6).
@@ -288,6 +442,29 @@ public:
   [[nodiscard]] bool LocationOf(ShipId _shipId, AnchorId& _outAnchor) const noexcept;
 
   /*
+   * Whose ship that is (ADR-018 D5, U3c-a).
+   *
+   * `INVALID_PLAYER_ID` for a ship nobody owns -- an authored occupant, or one
+   * the registry has never heard of. Both answers are "not yours" to every
+   * caller that matters, which is why they are the same answer: a filter that
+   * had to distinguish "belongs to nobody" from "does not exist" would be a
+   * filter with a case nobody tested.
+   */
+  [[nodiscard]] Neuron::PlayerId OwnerOf(ShipId _shipId) const noexcept;
+
+  /*
+   * Whether this commander has ships standing on that anchor -- on the grid or
+   * docked at its station, which ADR-017 §7 folded into one answer.
+   *
+   * This is `MayView`'s whole rule (ADR-016 §7), asked of the thing that keeps
+   * the index rather than reimplemented at the seam. It lived in the
+   * composition root as a walk of the scripted patrol's ship list, which
+   * answered the same for every viewer -- so the second commander to connect
+   * could watch the first one's grid.
+   */
+  [[nodiscard]] bool HasPresence(Neuron::PlayerId _owner, AnchorId _anchor) const noexcept;
+
+  /*
    * The replay domain (ADR-018 D8).
    *
    * Folds the shard tick and every live world's hash, in anchor-id order --
@@ -319,14 +496,6 @@ private:
     /// move while the grid is live -- that is the whole of "an occupied world
     /// is never re-formed under the players" (ADR-024 §3d).
     std::uint32_t fieldEpoch = 0;
-  };
-
-  /// One station's roster. Sorted into `m_rosters` by anchor id, which is the
-  /// order the hash folds them in.
-  struct StationRoster
-  {
-    AnchorId anchor = INVALID_ID;
-    std::vector<RosterEntry> docked;
   };
 
   [[nodiscard]] StationRoster& RosterFor(AnchorId _anchor);
@@ -366,11 +535,51 @@ private:
 
   /// Writes the index, growing it as ids climb. The one place the projection is
   /// written, so it cannot drift into being a second source of truth.
-  void RecordLocation(ShipId _shipId, AnchorId _anchor);
+  /// Records where a ship is AND whose it is. One call rather than two, so that
+  /// "maintained together" is structural: there is no way to spell recording a
+  /// location without saying whose it is, which is the mistake this would
+  /// otherwise be one careless call site away from.
+  void RecordShip(ShipId _shipId, AnchorId _anchor, Neuron::PlayerId _owner);
+
+  /// Forgets both. A ship the registry cannot locate is a ship it has no owner
+  /// for -- keeping a stale owner would let a reused id inherit a commander.
+  void ForgetShip(ShipId _shipId);
 
 
   void ApplyDueTransfers();
   void CollectFiledTransfers();
+
+  /*
+   * Completes what is due and starts what fits (ADR-024 §6b).
+   *
+   * Between ticks, beside the transfer bus, because a job's completion is a
+   * universe-layer credit exactly as a mining debit is -- and because "runs
+   * while the commander is offline" means it must not be a grid's job to
+   * advance. Completion first, then starts, so a slot freed this tick is
+   * filled this tick rather than next: a queue that idled for one tick per job
+   * would lose a tick per job forever.
+   */
+  void AdvanceRefining();
+
+  /// The tier row for a station, made if it is not there. The mutable half of
+  /// `TierAt`, and the only thing that creates one -- which is what keeps an
+  /// un-upgraded station out of the durable set.
+  [[nodiscard]] StationTier& TierFor(AnchorId _station);
+
+  /// The open project for a station, made if it is not there, for the tier it
+  /// would buy. Null when the station is already at its band's cap and there is
+  /// nothing left to build.
+  [[nodiscard]] UpgradeProject* ProjectFor(AnchorId _station);
+
+  /// Which band a station sits in, from its system's security value. The one
+  /// place the two are connected, so a second reading of the same number cannot
+  /// drift from this one.
+  [[nodiscard]] SecurityBand BandAt(AnchorId _station) const noexcept;
+
+  /// How many jobs this commander has here, running and queued together.
+  [[nodiscard]] std::uint32_t RefineJobCountFor(Neuron::PlayerId _owner, AnchorId _station) const noexcept;
+
+  [[nodiscard]] OrderVerdict ApplyRefineCommand(Neuron::PlayerId _owner, const StationCommand& _command);
 
   /// The ledger for an anchor, made if it is not there. The mutable half of
   /// `Ledger`, and the only thing that creates one -- which is what keeps a
@@ -408,6 +617,27 @@ private:
   /// arrive and leave, never a second source of truth.
   std::vector<AnchorId> m_locationByShip;
 
+  /*
+   * The ship->owner index (ADR-018 D5, U3c-a), indexed the same way.
+   *
+   * **At the universe layer and not in `World`**, which is ADR-018 D2's rule
+   * rather than a preference: worlds forget, durable state lives here, and a
+   * player identity inside the deterministic SoA would put accounts in the
+   * replay domain -- so every future change to what an account IS would be a
+   * change to the physics, and a shard with two commanders would hash
+   * differently from the same shard with one.
+   *
+   * Unlike the location beside it this is **not** a projection: nothing else
+   * knows it, so it is the source of truth and the durable format carries it.
+   * The two are maintained together and cleared together, which makes the
+   * invariant one sentence: *a ship the registry cannot locate is a ship it
+   * has no owner for.* `INVALID_PLAYER_ID` is the honest answer for the
+   * universe's own furniture -- authored occupants belong to nobody, and a
+   * station that answered "player one" would hand the first commander to
+   * connect a battleship they did not build.
+   */
+  std::vector<Neuron::PlayerId> m_ownerByShip;
+
   std::uint32_t m_nextDynamicId = 0;
 
   /*
@@ -439,6 +669,18 @@ private:
    * asks -- a Bay is a fact about a station first.
    */
   std::vector<StationBay> m_bays;
+
+  /*
+   * And the refinery's three (ADR-024 §6, E4b).
+   *
+   * `m_nextRefineSequence` is monotonic per host like the transfer counter and
+   * for the same reason: a sequence is how a cancel names a job, and two jobs
+   * sharing a number would let one command cancel the other.
+   */
+  std::vector<RefineJob> m_refineJobs;
+  std::vector<StationTier> m_stationTiers;
+  std::vector<UpgradeProject> m_projects;
+  std::uint32_t m_nextRefineSequence = 1;
 
   /// Beside them, and unlike them **not** in the hash: an event describes
   /// something the simulation already did, and folding the description in as

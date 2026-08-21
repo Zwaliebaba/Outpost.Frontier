@@ -22,6 +22,14 @@
     ]
   },
 
+  // Where the shard's durable state lives (ADR-025 §7). Off by default, which
+  // is deliberate: a desktop session that persists nothing is the posture every
+  // slice before E4a ran as, and a shard that persists is a service decision
+  // somebody makes on purpose. Relative paths resolve beside the executable --
+  // not the LocalAppData user layer, which is one player's settings on one
+  // machine while this is a service's state.
+  "persistence": { "enabled": false, "directory": "ShardState" },
+
   "server": {
     "port": 7777,
     "maxSessions": 8

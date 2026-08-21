@@ -20,6 +20,8 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="ServerHost.cpp" />
+    <ClCompile Include="DurableStore.cpp" />
+    <ClCompile Include="SessionResume.cpp" />
     <ClCompile Include="SnapshotSender.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -28,6 +30,8 @@
     <ClInclude Include="ServerConfig.h" />
     <ClInclude Include="ServerHost.h" />
     <ClInclude Include="Simulation.h" />
+    <ClInclude Include="DurableStore.h" />
+    <ClInclude Include="SessionResume.h" />
     <ClInclude Include="SnapshotSender.h" />
   </ItemGroup>
   <ItemGroup>

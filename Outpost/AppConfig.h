@@ -157,6 +157,25 @@ struct ClientSettings
   DiagnosticsSettings diagnostics;
 };
 
+/*
+ * Where a shard's durable state lives (ADR-025 §7).
+ *
+ * A configured directory, JSON like everything else -- and **not** the
+ * LocalAppData user layer, which is one player's settings on one machine while
+ * this is a service's state. Resolved beside the executable when it is
+ * relative, because that is where a shard's own files belong.
+ *
+ * `enabled = false` is the headless and `selfTest` posture: a shard that
+ * persists nothing and says so at boot. It is **not a fallback** -- a shard
+ * configured to persist that cannot open its directory refuses to start, since
+ * the alternative is a service that looks healthy and is quietly amnesiac.
+ */
+struct PersistenceSettings
+{
+  bool enabled = false;
+  std::string directory = "ShardState";
+};
+
 struct AppConfig
 {
   HostMode mode = HostMode::Host;
@@ -164,6 +183,7 @@ struct AppConfig
   LogSettings logging;
   std::string universeDefinition = "GameData/Universe/Frontier.json";
   std::string economyDefinition = "GameData/Economy/Economy.json";
+  PersistenceSettings persistence;
   ServerSettings server;
   ClientSettings client;
   ContentSettings content;

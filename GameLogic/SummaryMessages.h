@@ -63,7 +63,17 @@ enum class SummaryKind : std::uint8_t
    */
   SiteStatus = 2,
   CargoStatus = 3,
-  BayStatus = 4
+  BayStatus = 4,
+
+  /*
+   * One commander's refinery at one station (ADR-024 §6, E4b): the tier, their
+   * jobs in queue order, and the station's open project.
+   *
+   * On `BayStatus`'s cadence and framing, and per viewer for the same reason:
+   * slots are the player's, so a refinery status addressed to anyone else would
+   * be answering a question nobody asked.
+   */
+  RefineryStatus = 5
 };
 
 /*

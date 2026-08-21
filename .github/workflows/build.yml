@@ -863,9 +863,21 @@ jobs:
             # A backtick-fenced here-string would be unreadable in PowerShell
             # (a fence needs six backticks inside a double-quoted string), so
             # the summary is assembled as lines and the fences are literals.
-            $detail = Select-String -Path test.log -Pattern 'Failed\s+[A-Za-z]|Error Message|Assert failed|Stack Trace' -Context 0,3 |
-              Select-Object -First 40 | ForEach-Object { $_.Line.Trim(); $_.Context.PostContext | ForEach-Object { '    ' + $_.Trim() } }
-            $totals = Select-String -Path test.log -Pattern '^(Failed|Passed)!' | ForEach-Object { $_.Line.Trim() }
+            # Two shapes, not one. A test that FAILS names itself; a test that
+            # HANGS never gets the chance -- the blame collector kills it and
+            # vstest aborts the run around it, so nothing matches "Failed" and
+            # the report comes out EMPTY, which reads as "nothing failed" at
+            # exactly the moment something did. That is what R22's recurrence
+            # printed. The collector's own verdict is picked up now.
+            #
+            # vstest colours those lines, so the escapes come off first and the
+            # patterns are unanchored: an aborted run's line starts with an
+            # escape sequence, and '^Test Run Aborted' would never match one.
+            $esc = [char]27 + '\[[0-9;]*m'
+            $detail = Select-String -Path test.log -Context 0,3 -Pattern 'Failed\s+[A-Za-z]|Error Message|Assert failed|Stack Trace|The test running when the crash occurred|was aborted|inactivity time of' |
+              Select-Object -First 40 | ForEach-Object { ($_.Line -replace $esc, '').Trim(); $_.Context.PostContext | ForEach-Object { '    ' + ($_ -replace $esc, '').Trim() } }
+            $totals = Select-String -Path test.log -Pattern '(Failed|Passed)!|Test Run Aborted|^\s*(Total tests|Passed|Failed):' |
+              ForEach-Object { ($_.Line -replace $esc, '').Trim() }
 
             Write-Host '--- failing tests ---'
             $detail | ForEach-Object { Write-Host $_ }

@@ -145,6 +145,33 @@ functions, and hands the results across. Thin enough that there is nothing to te
 the standing price of the arrangement and the reason the interfaces get stubbed in the engine
 test projects instead.
 
+*Two of the signatures above are illustrative and E4a adjusted them, both because §3's frame
+requires it rather than because the design moved (2026-08-21). `Append` takes the **shard
+tick**: every frame is stamped, and a store holding "the current tick" as state would be a
+second clock to forget to advance. And `recordKind` is a **`u16`**, which is what the frame
+says — a `u32` parameter feeding a `u16` field is a value that can be given and cannot be
+stored. GameLogic's three functions landed exactly as written, with two overloads added beside
+them (a captured `DurableState` rather than a live registry) so the round-trip suite can build
+its subject in code.*
+
+*One thing the ADR leaves implicit and the implementation had to make explicit: the **payload
+has its own version**, `DURABLE_FORMAT_VERSION`, beside the frame's `JOURNAL_FORMAT_VERSION`.
+The two move independently — E4b changes what a payload contains and nothing about how a record
+is wrapped — and one number covering both would refuse every existing shard for a change that
+could not affect it.*
+
+*And **version 3 with U3c-a**, which is the clearest case yet for why the payload version is
+separate and why there is no silent upgrade path. §1's list has always said a ship's identity is
+durable, and `DurableShip` has carried an `owner` field since E4a — but until U3c-a the
+simulation had no notion of one, so capture filled it in with `SOLE_PLAYER_ID` unconditionally.
+A version 2 file therefore does not merely **lack** ownership: it **asserts** something false,
+that every hull in the shard belongs to player one. Read under the new rules it would hand the
+first commander to connect the whole universe. That is the difference between a field that grew
+and a field whose meaning changed, and it is the case the "refuse rather than guess" rule in
+§6.1 was written for. Docked rows and in-flight crossings grew the field for real in the same
+bump, because §1's durable line is about identity, and a ship that changed hands by docking
+would have lost its identity in the one place the format was not looking.*
+
 ### 3. The journal
 
 Append-only, little-endian, framed, written with `Neuron::ByteWriter` — ADR-004's discipline,
@@ -280,6 +307,10 @@ quietly amnesiac.
   fleet, move ore into a Bay, start a refine job, **stop the host and start it again**, and
   find the roster, the ore and the job still there with the job's completion tick unmoved.
   That is E4's milestone G1 claim, and this is where it is actually proven.
+  *(Sequencing note, 2026-08-21: the build order splits E4 into **E4a**, this ADR's own slice,
+  and **E4b**, refining. The scenario therefore lands in two halves — the roster and the ore at
+  E4a, where there is no job to start, and the job at E4b. The claim is unchanged; only the
+  slice it is finished in is. See Economy-Build-Order's sequencing rationale.)*
 
 ### 9. What this deliberately does not do
 

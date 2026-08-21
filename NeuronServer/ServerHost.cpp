@@ -5,6 +5,7 @@
 #include "ByteReader.h"
 #include "ByteWriter.h"
 #include "Clock.h"
+#include "DurableStore.h"
 #include "Log.h"
 #include "Telemetry.h"
 #include "QuicTransport.h"
@@ -174,26 +175,68 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     }
 
     /*
-     * Who this is (ADR-018 D5). One value until accounts exist -- but a *value*,
-     * not the connection id, and that distinction is the whole point of minting
-     * it now: everything player-keyed can key on this from its first line
-     * instead of keying on a connection and being rewritten the day one drops.
+     * Who this is (ADR-018 D5, U3c-b).
      *
-     * It is decided here, before the session exists, because the session's own
-     * `SnapshotSender` is constructed with it (ADR-018 A13).
+     * Two paths, and the order matters: a client that can prove it is coming
+     * BACK gets its own player before anything mints a new one. The other way
+     * round, a reconnect inside the grace window would be handed a fresh id and
+     * a fresh fleet, and the commander whose ships were still standing on a grid
+     * would watch a stranger wearing their number.
+     *
+     * The distinction D5 spent a schema bump on at T2 is what makes this a
+     * lookup rather than a rewrite: everything player-keyed already keys on the
+     * PLAYER, so a resumed session picks its whole world back up by carrying one
+     * integer across.
      */
-    const PlayerId playerId = SOLE_PLAYER_ID;
+    const std::uint32_t nowTick = m_tick.load(std::memory_order_relaxed);
+    LapsedSession lapsed;
+    const bool resumed = m_resume.TryResume(hello.playerId, hello.resumeToken, nowTick, lapsed);
+
+    PlayerId playerId = INVALID_PLAYER_ID;
+    if (resumed)
+    {
+      playerId = lapsed.playerId;
+    }
+    else
+    {
+      playerId = m_nextPlayerId++;
+
+      /*
+       * A player who is genuinely new to this shard. The composition root
+       * decides what that means -- a starting fleet, or nothing at all if this
+       * commander already has ships from a reloaded shard -- because what a
+       * commander is given is a game question and this library must not have an
+       * opinion about it (ADR-014).
+       */
+      m_simulation->PlayerJoined(playerId);
+    }
 
     /*
-     * The grid a session opens on: the simulation's own (ADR-009 §8's
-     * `worldMeta`). A client that has not asked for a view yet watches the world
-     * the server would have shown it anyway, so there is no state in which a
-     * session exists with no grid and nothing to send it.
+     * The grid a session opens on: the one it was watching if it is coming
+     * back, and the simulation's own otherwise (ADR-009 §8's `worldMeta`). A
+     * client that has not asked for a view yet watches the world the server
+     * would have shown it anyway, so there is no state in which a session
+     * exists with no grid and nothing to send it -- and a client that HAS asked
+     * does not lose the answer to a dropped socket.
      */
-    const WorldMeta world = m_simulation->World();
+    const WorldMeta world = m_simulation->WorldFor(playerId);
 
-    SessionInfo& session = m_sessions.emplace_back(m_nextClientId++, playerId, _event.connection, world.gridAnchor);
+    // Where they were watching if they are coming back, and their own grid if
+    // they are not (U3c-b).
+    const std::uint16_t grid = resumed ? lapsed.grid : world.gridAnchor;
+    SessionInfo& session = m_sessions.emplace_back(m_nextClientId++, playerId, _event.connection, grid);
     session.handshakeComplete = true;
+
+    /*
+     * A fresh token every time, including on a resume.
+     *
+     * Rotating it means a token seen once on the wire is worth one reconnect
+     * rather than every reconnect until the commander logs off for good. It is
+     * still a bearer token and still not authentication -- `SessionResume.h`
+     * is explicit about that -- but a single-use one is strictly less to lose.
+     */
+    session.resumeToken = m_tokenSource();
+
     m_sessionCount.store(static_cast<std::uint32_t>(m_sessions.size()), std::memory_order_relaxed);
 
     Welcome welcome;
@@ -206,7 +249,19 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     // Where the world is, so a client in another process can place a position
     // before any snapshot arrives (ADR-009 §8).
     welcome.worldId = world.worldId;
-    welcome.gridAnchor = world.gridAnchor;
+
+    /*
+     * The grid this SESSION is on, which is the commander's own and not the
+     * shard's (U3c-b).
+     *
+     * It has to be the session's, because the client keeps no other record of
+     * where it is: `ClientConnection` sets its grid from this field and from
+     * nothing else. A `Welcome` that advertised the shard's grid while the feed
+     * sent another's would leave every client believing it was somewhere it was
+     * not -- which is how a commander comes to compose a Dock naming a station
+     * on a grid they have never been to.
+     */
+    welcome.gridAnchor = grid;
     welcome.anchorX = world.anchorX;
     welcome.anchorY = world.anchorY;
     // The display strings ride along unread, like the id and the anchor: what
@@ -216,17 +271,28 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     welcome.worldBadge = world.worldBadge;
 
     /*
-     * The resume token stays zero. There is nothing to authenticate against,
-     * and inventing a token now would be inventing a security model with it.
+     * And who they are, with the handle that gets them back (ADR-018 D5).
+     *
+     * T2 reserved both fields and shipped them as zero, on the ground that
+     * inventing a token then would have been inventing a security model with
+     * it. That reasoning has not changed and is repeated at length in
+     * `SessionResume.h`: this is a resume handle, nobody is authenticated, and
+     * what U3c-b changed is that resume became a requirement rather than that
+     * the security question got an answer.
+     *
+     * The layout is untouched, which is the point of having reserved them: two
+     * fields that were always on the wire start carrying values, and no schema
+     * hash moves.
      */
     welcome.playerId = session.playerId;
-    welcome.resumeToken = 0;
+    welcome.resumeToken = session.resumeToken;
 
     WriteWireType(writer, WireType::Welcome);
     Write(writer, welcome);
     SendTo(_event.connection, TransportChannel::Control, writer);
 
-    NEURON_LOG_INFO("client %u joined as '%s'", session.clientId, hello.playerName.empty() ? "(unnamed)" : hello.playerName.c_str());
+    NEURON_LOG_INFO("client %u %s as '%s' (player %u)", session.clientId, resumed ? "resumed" : "joined",
+                    hello.playerName.empty() ? "(unnamed)" : hello.playerName.c_str(), session.playerId);
     return;
   }
 
@@ -372,7 +438,26 @@ void ServerHost::PollTransport()
       {
         if (session->connection == event.connection)
         {
-          NEURON_LOG_INFO("client %u left (reason %u)", session->clientId, static_cast<unsigned>(event.reason));
+          /*
+           * The SOCKET ends; the commander does not (ADR-018 D5, U3c-b).
+           *
+           * Their fleet is still standing on a grid, their Bay is still full
+           * and their refine jobs are still counting down, because all of that
+           * is keyed on the player at the universe layer rather than on this
+           * connection. So the session lapses onto the resume table with the
+           * grid it was watching, and a client back inside the grace window is
+           * the same commander rather than a new one.
+           *
+           * A handshake that never completed has no player to keep, and
+           * `Lapse` refuses `INVALID_PLAYER_ID` rather than filing a row nobody
+           * can ever claim.
+           */
+          const std::uint32_t nowTick = m_tick.load(std::memory_order_relaxed);
+          m_resume.Lapse(session->playerId, session->resumeToken, session->sender.Grid(),
+                         ResumeDeadlineTick(nowTick, TICK_RATE));
+
+          NEURON_LOG_INFO("client %u left (reason %u); player %u may resume for %u s", session->clientId,
+                          static_cast<unsigned>(event.reason), session->playerId, SESSION_GRACE_SECONDS);
           m_sessions.erase(session);
           m_sessionCount.store(static_cast<std::uint32_t>(m_sessions.size()), std::memory_order_relaxed);
           break;
@@ -388,6 +473,53 @@ void ServerHost::PollTransport()
     default:
       break;
     }
+  }
+}
+
+void ServerHost::WriteDurableSnapshot(std::uint32_t _tick)
+{
+  if (m_config.durableStore == nullptr || !m_config.durableStore->IsOpen())
+  {
+    return;
+  }
+
+  /*
+   * Grow until it fits, rather than persisting half a shard.
+   *
+   * `WriteDurableState` is the `ByteWriter` contract: it says whether the whole
+   * thing went in, and a short write is not a smaller snapshot, it is a
+   * corrupt one. Doubling from a megabyte reaches the cap in six tries and the
+   * buffer is kept, so the growth happens once in a shard's life.
+   */
+  if (m_durableBuffer.empty())
+  {
+    m_durableBuffer.resize(1u << 20);
+  }
+  bool written = false;
+  while (!written)
+  {
+    ByteWriter writer{m_durableBuffer};
+    written = m_simulation->WriteDurableState(writer);
+    if (written)
+    {
+      const std::uint64_t hash = m_simulation->DurableHash();
+      if (!m_config.durableStore->WriteSnapshot(writer.Written(), hash, _tick))
+      {
+        NEURON_LOG_ERROR("the shard snapshot could not be written; the journal still covers everything since the last one");
+      }
+      else
+      {
+        NEURON_LOG_INFO("shard snapshot at tick %u: %zu bytes, durable hash %016llx", _tick, writer.BytesWritten(),
+                        static_cast<unsigned long long>(hash));
+      }
+      return;
+    }
+    if (m_durableBuffer.size() >= MAX_DURABLE_RECORD_BYTES)
+    {
+      NEURON_LOG_ERROR("the shard's durable state does not fit %zu bytes and was not written", m_durableBuffer.size());
+      return;
+    }
+    m_durableBuffer.resize(m_durableBuffer.size() * 2);
   }
 }
 
@@ -448,6 +580,31 @@ void ServerHost::SimThread()
     }
     SendSnapshots(tick);
 
+    /*
+     * The snapshot cadence, counted in ticks rather than in seconds.
+     *
+     * The tick is the only clock (ADR-002 §1) and the Sim thread already holds
+     * one, so a wall-clock timer here would be a second clock to drift -- and
+     * a snapshot taken at a tick number is a snapshot two runs of one script
+     * agree about, which is what makes the interrupted-rotation cases testable
+     * at all.
+     */
+    /*
+     * Sessions nobody came back for (ADR-018 D5).
+     *
+     * On the tick because the tick is the clock: a lapsed row whose window has
+     * closed should go whether or not anybody happens to be connecting. The
+     * claim path checks the deadline again for itself, since "did I make it
+     * back in time" must not depend on whether a sweep has run since.
+     */
+    m_resume.Expire(tick);
+
+    constexpr std::uint32_t SNAPSHOT_INTERVAL_TICKS = SNAPSHOT_INTERVAL_SECONDS * TICK_RATE;
+    if (tick % SNAPSHOT_INTERVAL_TICKS == 0)
+    {
+      WriteDurableSnapshot(tick);
+    }
+
     nextDeadline += tickInterval;
 
     const std::int64_t now = Clock::Counter();
@@ -479,6 +636,21 @@ void ServerHost::SimThread()
         NEURON_COUNTER("TickCatchUp", 1);
       }
     }
+  }
+
+  /*
+   * The clean shutdown's snapshot, before anything else is torn down
+   * (ADR-025 §4): **a clean stop loses nothing.**
+   *
+   * Here rather than in `Stop`, because this is the thread that owns the state
+   * and `Stop` is called from whichever thread noticed the window close. It is
+   * also before the goodbyes, so a host that fails to write says so while the
+   * log is still about shutting down rather than about something else.
+   */
+  WriteDurableSnapshot(m_tick.load(std::memory_order_relaxed));
+  if (m_config.durableStore != nullptr)
+  {
+    m_config.durableStore->Flush();
   }
 
   // Tell whoever is still connected, rather than vanishing.

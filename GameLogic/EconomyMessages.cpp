@@ -174,8 +174,13 @@ bool ReadCargoStatus(Neuron::ByteReader& _reader, std::vector<CargoStatusRow>& _
   return _reader.Ok();
 }
 
-bool WriteBayStatus(AnchorId _station, std::span<const std::uint32_t> _oreUnits, Neuron::ByteWriter& _writer) noexcept
+bool WriteBayStatus(AnchorId _station, std::span<const std::uint32_t> _oreUnits, std::span<const std::uint32_t> _alloyUnits,
+                    Neuron::ByteWriter& _writer) noexcept
 {
+  if (_alloyUnits.size() != ALLOY_COUNT)
+  {
+    return false; // Exactly five, for the ore counts' reason below.
+  }
   if (_oreUnits.size() != ORE_COUNT)
   {
     // Exactly three, not at least three: a Bay short of an ore would decode as
@@ -193,13 +198,96 @@ bool WriteBayStatus(AnchorId _station, std::span<const std::uint32_t> _oreUnits,
   {
     _writer.WriteUInt32(units);
   }
+  for (const std::uint32_t units : _alloyUnits)
+  {
+    _writer.WriteUInt32(units);
+  }
   return _writer.Ok();
 }
 
-bool ReadBayStatus(Neuron::ByteReader& _reader, AnchorId& _outStation, std::uint32_t (&_outOreUnits)[ORE_COUNT]) noexcept
+bool ReadBayStatus(Neuron::ByteReader& _reader, AnchorId& _outStation, std::uint32_t (&_outOreUnits)[ORE_COUNT],
+                   std::uint32_t (&_outAlloyUnits)[ALLOY_COUNT]) noexcept
 {
   _outStation = _reader.ReadUInt16();
+  for (std::uint32_t& units : _outAlloyUnits)
+  {
+    units = 0;
+  }
   for (std::uint32_t& units : _outOreUnits)
+  {
+    units = _reader.ReadUInt32();
+  }
+  for (std::uint32_t& units : _outAlloyUnits)
+  {
+    units = _reader.ReadUInt32();
+  }
+  return _reader.Ok();
+}
+
+bool WriteRefineryStatus(const RefineryStatusRow& _row, Neuron::ByteWriter& _writer) noexcept
+{
+  if (_row.jobs.size() > MAX_REFINERY_JOB_ROWS)
+  {
+    // Refused rather than truncated, for the roster's reason: half a queue is
+    // not the queue, and a tab drawing nine of ten jobs would be a tab lying
+    // about what `RefineryBusy` is counting.
+    return false;
+  }
+  if (_writer.BytesRemaining() < RefineryStatusBytes(_row.jobs.size()))
+  {
+    return false;
+  }
+
+  _writer.WriteUInt16(_row.station);
+  _writer.WriteUInt8(_row.tier);
+  _writer.WriteUInt16(static_cast<std::uint16_t>(_row.jobs.size()));
+  for (const RefineryJobRow& job : _row.jobs)
+  {
+    _writer.WriteUInt32(job.sequence);
+    _writer.WriteUInt8(static_cast<std::uint8_t>(job.alloy));
+    _writer.WriteUInt32(job.batchUnits);
+    _writer.WriteUInt32(job.completeTick);
+  }
+  _writer.WriteUInt8(_row.projectToTier);
+  for (const std::uint32_t units : _row.projectContributedUnits)
+  {
+    _writer.WriteUInt32(units);
+  }
+  return _writer.Ok();
+}
+
+bool ReadRefineryStatus(Neuron::ByteReader& _reader, RefineryStatusRow& _outRow)
+{
+  _outRow = RefineryStatusRow{};
+  _outRow.station = _reader.ReadUInt16();
+  _outRow.tier = _reader.ReadUInt8();
+  const std::uint16_t jobCount = _reader.ReadUInt16();
+  if (!_reader.Ok() || jobCount > MAX_REFINERY_JOB_ROWS)
+  {
+    // The count is bounded before it is used to size anything, which is the
+    // rule every count on this wire obeys.
+    return false;
+  }
+
+  _outRow.jobs.reserve(jobCount);
+  for (std::uint16_t index = 0; index < jobCount; ++index)
+  {
+    RefineryJobRow job;
+    job.sequence = _reader.ReadUInt32();
+    const std::uint8_t alloy = _reader.ReadUInt8();
+    job.batchUnits = _reader.ReadUInt32();
+    job.completeTick = _reader.ReadUInt32();
+    if (!_reader.Ok() || !TryAlloyId(alloy, job.alloy))
+    {
+      // The alloy byte is refused rather than cast, exactly as the command's
+      // is: it indexes a recipe on the way to a screen.
+      return false;
+    }
+    _outRow.jobs.push_back(job);
+  }
+
+  _outRow.projectToTier = _reader.ReadUInt8();
+  for (std::uint32_t& units : _outRow.projectContributedUnits)
   {
     units = _reader.ReadUInt32();
   }

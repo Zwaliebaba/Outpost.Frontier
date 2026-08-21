@@ -99,6 +99,7 @@ inline constexpr OreFilter ORE_FILTER_IDS[] = {OreFilter::Any, OreFilter::FerroC
  */
 [[nodiscard]] bool TryOreId(std::uint8_t _raw, OreId& _outOre) noexcept;
 
+
 /// The five alloys (ADR-024 §6a), in tier order. An alloy id crosses the wire
 /// in a Bay record, so these renumber never.
 enum class AlloyId : std::uint8_t
@@ -111,6 +112,11 @@ enum class AlloyId : std::uint8_t
 };
 
 inline constexpr std::uint8_t ALLOY_COUNT = 5;
+
+/// `TryOreId`'s sibling for an alloy byte, and refused for the same reason: an
+/// alloy outside the enum would index the recipe and Bay arrays before
+/// validation got an opinion (E4b).
+[[nodiscard]] bool TryAlloyId(std::uint8_t _raw, AlloyId& _outAlloy) noexcept;
 
 /// What kind of place a mining site is (ADR-024 §3b). Also its hazard, its
 /// composition and, eventually, its art.
