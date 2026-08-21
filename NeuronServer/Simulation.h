@@ -239,22 +239,30 @@ public:
   virtual void PlayerJoined(PlayerId _player) { (void)_player; }
 
   /*
-   * The grid a session opens on, for this commander (ADR-018 D5, U3c-b).
+   * The grid a session opens on, described for this commander
+   * (ADR-018 D5, U3c-b).
    *
-   * Asked after `PlayerJoined`, so a brand-new commander is looking at whatever
-   * joining gave them. It defaults to the shard's own grid, which is what every
-   * session got when every session was the same commander -- and which is
-   * exactly wrong once one is not: a second commander would open on a grid they
-   * have no presence on and be refused a view of their own fleet.
+   * A whole `WorldMeta` rather than an anchor id, because the two cannot
+   * disagree: the `Welcome` carries the grid's number AND where it sits on the
+   * universe plane, and a client handed one grid's id with another grid's
+   * origin would place every position it drew in the wrong part of space.
+   *
+   * Asked after `PlayerJoined`, so a brand-new commander is described whatever
+   * joining gave them. It defaults to `World()`, which is what every session
+   * got when every session was the same commander -- and which is exactly
+   * wrong once one is not: a second commander would open on a grid they have no
+   * presence on and be refused a view of their own fleet.
    *
    * A game question like `PlayerJoined`, and asked rather than assumed for the
    * same reason.
    */
-  [[nodiscard]] virtual std::uint16_t HomeGrid(PlayerId _player)
+  [[nodiscard]] virtual WorldMeta WorldFor(PlayerId _player)
   {
     (void)_player;
-    return World().gridAnchor;
+    return World();
   }
+
+  virtual void PlayerJoined(PlayerId _player) { (void)_player; }
 
   [[nodiscard]] virtual std::uint64_t SchemaHash() const = 0;
 

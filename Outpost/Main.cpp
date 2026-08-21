@@ -742,27 +742,56 @@ public:
    * one line to change when somebody does.
    */
   /*
-   * Where this commander's session opens (ADR-018 D5, U3c-b).
+   * The grid this commander's session opens on (ADR-018 D5, U3c-b).
    *
-   * The grid their ships are standing on, not the shard's default. Before this
-   * every session opened on the start anchor, which was right while every
-   * session was the same commander and wrong the moment one was not: a second
-   * commander would connect, be shown a grid they have no presence on, and be
-   * refused a view of their own fleet.
+   * **Where most of their fleet is**, not merely where some of it is, and that
+   * distinction is not hypothetical: the self test's local checks leave player
+   * one owning a Miner or two at sites and stations all over the universe, so
+   * "the lowest anchor they have a ship on" put the shard's own commander on a
+   * grid holding two hulls instead of the forty-hull boot fleet. Most-ships
+   * wins; `Summaries` is sorted by anchor and the comparison is strict, so a
+   * tie goes to the lowest anchor and two runs agree.
    *
-   * `Summaries` is sorted by anchor, so a commander in two places opens on the
-   * lowest -- deterministic, and a placeholder in the same sense the starting
-   * fleet is: when there is a screen to choose from, the choice is the
-   * player's.
+   * A placeholder in the same sense the starting fleet is: when there is a
+   * screen to choose from, the choice is the player's.
    */
-  [[nodiscard]] std::uint16_t HomeGrid(PlayerId _player) override
+  [[nodiscard]] WorldMeta WorldFor(PlayerId _player) override
   {
-    const std::vector<Game::FleetSummary> mine = m_registry.Summaries(_player);
-    if (!mine.empty())
+    Game::AnchorId home = m_startAnchor;
+    std::uint16_t most = 0;
+    for (const Game::FleetSummary& row : m_registry.Summaries(_player))
     {
-      return static_cast<std::uint16_t>(mine.front().anchor);
+      if (row.shipCount > most)
+      {
+        most = row.shipCount;
+        home = row.anchor;
+      }
     }
-    return static_cast<std::uint16_t>(m_startAnchor);
+    if (home == m_startAnchor)
+    {
+      return m_worldMeta; // The shard's own grid, described once at boot.
+    }
+
+    /*
+     * Somebody else's home, described in the same neutral terms
+     * (ADR-009 §8) -- the grid's number AND its origin together, because a
+     * client given one without the other draws its whole world in the wrong
+     * place.
+     */
+    const Game::Anchor* anchor = m_universe != nullptr ? m_universe->FindAnchor(home) : nullptr;
+    if (anchor == nullptr)
+    {
+      return m_worldMeta;
+    }
+
+    WorldMeta meta = m_worldMeta;
+    meta.worldId = anchor->system;
+    meta.gridAnchor = home;
+    meta.anchorX = anchor->origin.x;
+    meta.anchorY = anchor->origin.y;
+    const Game::SolarSystem* system = m_universe->FindSystem(anchor->system);
+    meta.worldName = system != nullptr ? system->name : "?";
+    return meta;
   }
 
   void PlayerJoined(PlayerId _player) override

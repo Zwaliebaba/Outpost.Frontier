@@ -219,12 +219,11 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
      * exists with no grid and nothing to send it -- and a client that HAS asked
      * does not lose the answer to a dropped socket.
      */
-    const WorldMeta world = m_simulation->World();
+    const WorldMeta world = m_simulation->WorldFor(playerId);
 
-    // Where they were watching if they are coming back, and where their own
-    // ships are if they are not (U3c-b). `world.gridAnchor` is the shard's,
-    // which is only the right answer for a commander who has nothing.
-    const std::uint16_t grid = resumed ? lapsed.grid : m_simulation->HomeGrid(playerId);
+    // Where they were watching if they are coming back, and their own grid if
+    // they are not (U3c-b).
+    const std::uint16_t grid = resumed ? lapsed.grid : world.gridAnchor;
     SessionInfo& session = m_sessions.emplace_back(m_nextClientId++, playerId, _event.connection, grid);
     session.handshakeComplete = true;
 
@@ -250,7 +249,19 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     // Where the world is, so a client in another process can place a position
     // before any snapshot arrives (ADR-009 §8).
     welcome.worldId = world.worldId;
-    welcome.gridAnchor = world.gridAnchor;
+
+    /*
+     * The grid this SESSION is on, which is the commander's own and not the
+     * shard's (U3c-b).
+     *
+     * It has to be the session's, because the client keeps no other record of
+     * where it is: `ClientConnection` sets its grid from this field and from
+     * nothing else. A `Welcome` that advertised the shard's grid while the feed
+     * sent another's would leave every client believing it was somewhere it was
+     * not -- which is how a commander comes to compose a Dock naming a station
+     * on a grid they have never been to.
+     */
+    welcome.gridAnchor = grid;
     welcome.anchorX = world.anchorX;
     welcome.anchorY = world.anchorY;
     // The display strings ride along unread, like the id and the anchor: what
