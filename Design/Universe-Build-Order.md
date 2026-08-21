@@ -6,7 +6,10 @@ exception, screen work: U3b's client half, U4's route feeder and icons, U5's map
 need a GPU and a person. The exception is **U3c**, and its blockers have since cleared: it
 needed T2's per-client `SnapshotSender` (A13, built 2026-08-20) and U3b's view subscription
 (built 2026-08-20), so what remains there is the second commander's identity rather than the
-machinery to serve one. The design this plan delivers is
+machinery to serve one. **U3c splits into U3c-a (ownership in the simulation) and U3c-b (the
+second commander on the wire) as of 2026-08-21** — a ship has no owner today, and minting a
+second id against a registry where both commanders own everything would pass the privacy
+accept for the wrong reason. The rationale is with the slice. The design this plan delivers is
 [ADR-016](ADR/ADR-016-procedural-universe-and-warp.md); where this document and that one
 disagree, the ADR wins on *what* and this one on *when*.
 
@@ -298,6 +301,48 @@ loop — handshake with distinct ids, orders attributed correctly, per-player su
 rosters private (client B never receives A's `StationRoster` or summaries), view rights
 enforced (B cannot subscribe to A's grid), disconnect + reconnect resumes B's session under
 the grace window with the fleet intact; every pre-existing suite green.
+
+**U3c splits, 2026-08-21, and the reason is that "no new mechanism" turned out to be half
+true.** The *wire* needs none: `Simulation`'s seam is already player-keyed on every method
+that matters — `WriteSnapshot(PlayerId)`, `MayView(PlayerId)`, `WriteSummaries(PlayerId)`,
+`ApplyOrderBytes(PlayerId)` — and A13's per-client `SnapshotSender` already serves one
+commander per connection. But the *simulation* needs one it has never had: **a ship has no
+owner.** `WorldRegistry` keeps no `ShipId → PlayerId` anywhere, `RosterEntry` has no owner
+field, and `DurableShip.owner` is a field the format reserved which capture fills in with
+`SOLE_PLAYER_ID` unconditionally. Every player-keyed accessor already *takes* the id and
+then ignores it, each with a comment saying that is where the filter goes — `CargoFor`'s is
+the clearest ("one player today, so every ship on a grid is theirs"). Minting a second
+`PlayerId` against that registry would prove nothing at all: both commanders would own
+everything, and every privacy assertion in the accept would pass for the wrong reason.
+
+So it splits the way E1 and E4 did, on the same two tests — a hard dependency direction and
+very different blast radii:
+
+  U3c-a  **ownership in the simulation.** `ShipId → PlayerId` at the universe layer, the
+         accessors' identity functions become real filters, the roster remembers whose ship
+         it holds, and the durable format carries an owner that was actually asked for.
+         GameLogic and the format; no wire change and no `ServerHost` change.
+  U3c-b  **the second commander on the wire.** `ServerHost` stops minting `SOLE_PLAYER_ID`
+         for every session, sessions survive a disconnect for D5's grace window, and the
+         twin-client `selfTest` is written against a registry that can already tell the two
+         apart. NeuronServer and Outpost.
+
+**U3c's accept is unchanged and belongs to U3c-b** — the slice is not done until two clients
+have run the loop over a real socket. What U3c-a buys is that when they do, a passing privacy
+assertion means what it says.
+
+**Where the owner lives is the one design decision here, and ADR-018 D2 already made it.**
+Not a column in `World`: worlds forget, durable state lives at the universe layer, and a
+player identity inside the deterministic SoA would put accounts in the replay domain and the
+physics in the way of every future change to them. So it is an index on `WorldRegistry`,
+beside the rosters and the bus — which also means it folds into `Hash()` for D8's reason
+rather than a new one: a replay that reproduced every ship and forgot who owned them would
+agree about a universe where nothing belonged to anybody.
+
+**Accept (U3c-a):** ships have owners through every path that moves one — spawn, transfer,
+dock, undock, load — the accessors filter on the viewer with a test per accessor that a
+second commander sees none of the first's, the roster survives a restart with its owners, and
+the whole thing round-trips the durable format. Headless: no socket, no second connection.
 
 **Unblocked 2026-08-20, and worth naming what that leaves.** Both things this slice was
 waiting on are in the tree — the per-client `SnapshotSender` (A13) and U3b's view request with
