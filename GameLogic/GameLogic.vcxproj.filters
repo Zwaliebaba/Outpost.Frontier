@@ -202,13 +202,8 @@
     <Filter Include="Persistence">
       <UniqueIdentifier>{6d40b3a7-2f18-4c95-b7e0-84a1c25f9d63}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Project Files">
-      <UniqueIdentifier>{82cd3cec-43b8-470b-bcd8-733fcb751dea}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <None Include="packages.config">
-      <Filter>Project Files</Filter>
-    </None>
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>

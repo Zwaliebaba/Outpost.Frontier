@@ -1,13 +1,15 @@
 # Station Build Order — the Docking Phase
 
-**Status:** Session output 2026-08-19 · **T1 built in full and T2's wire half complete**
-(2026-08-20) — **🏁 H0 is met: every named criterion is covered.** Docking, the transfer bus, undocking and its fifteen seconds,
+**Status:** Session output 2026-08-19 · **T1 and T2 built in full** (2026-08-21) —
+**🏁 H0 is met: every named criterion is covered.** Docking, the transfer bus, undocking and its fifteen seconds,
 the parking ring and the event record are in the sim; the identity cluster, the per-client
 `SnapshotSender`, the summary family's frame and the station command's own path onto the
 acked order stream are on the wire; and `selfTest` drives the whole headless loop over real
-QUIC loopback — dock, roster, undock, respawn, shimmer bit, roster follows. **What T2 still
-owes is its client half**, which is screen work: the DOCK context action, the approach chain,
-the fades, the shimmer and the DOCKED roster blocks. **P1 exists** — `ScreenPrints/
+QUIC loopback — dock, roster, undock, respawn, shimmer bit, roster follows. **T2's client
+half landed 2026-08-21**: the DOCK context action, the approach chain and its chip, the
+DOCKED blocks, the dock/undock toasts, the protection shimmer and the ~1 s transit fades.
+**One thing is owed and it is not code** — nobody has looked at the four new marks on a
+screen (R1), and they are listed below as such. **P1 exists** — `ScreenPrints/
 station-screen.png`, landed 2026-08-19 — and its four open review questions were answered
 2026-08-20 ([ADR-017 §6a](ADR/ADR-017-station-docking.md)), so **T3 has no design gate left**:
 what remains of this phase is screen work. The design it delivers is
@@ -190,15 +192,77 @@ wire and stopped at the view, so the shimmer had nothing to draw from. The shape
 held by a test rather than by a comment: `EverySessionIsServedItsOwnSerialisation` joins two
 clients over real loopback and asserts the simulation was asked to write **at least as many**
 snapshots as the two of them received — a count that sits at about half under a
-broadcast-shaped host, so it fails on the shape rather than on a symptom. What T2 still owes is
-its client half: the DOCK context action, the approach chain, the fades, the shimmer and the
-DOCKED roster blocks are screen work.
+broadcast-shaped host, so it fails on the shape rather than on a symptom.
 Client: DOCK as a **context action on the station structure** (the command row stays as
 printed), the client-feeds approach chain (Move to perimeter → Dock when every member is
 in radius, surfaced as a DOCKING chip), the ~1 s dock/undock fades in the existing overlay
 vocabulary, protection shimmer from the status bit, **DOCKED roster blocks** (station name,
 count, STATION button stub), toasts on dock and undock complete. Presence gains the docked
 clause (ADR-017 §7) — the view may stay on a grid where only docked ships remain.
+
+**Built 2026-08-21.** Seven pieces, and four of them turned on the same discovery.
+
+**The readiness test is the pre-check itself, and that is the whole of the approach chain.**
+`ApproachChain` never learns what a dock radius is, holds no geometry and measures no
+distance: each frame the client composes the chained order exactly as it will send it and
+asks `WorldView::PreCheck`, and the frame the answer stops being a refusal, the order goes.
+The condition the client waits on is therefore *the same function the authority judges with*
+— ADR-014 §3's parity rule doing a second job, with no second definition of "close
+enough" to drift from the first. The approach *leg* is aimed at the station itself rather
+than at a computed perimeter point, for the matching reason: ADR-026 already slides a
+formation clear of a hull it cannot occupy, so aiming at the station is aiming at its
+perimeter, and a perimeter this side computed would be a second piece of geometry to keep in
+step with the first. The chain holds its own copy of the fleet, because the selection is a
+live thing the player keeps editing; it cancels on a refused leg, a member leaving the
+world, an order the player gives themselves, and the link going away.
+
+**The client had summaries arriving and nothing reading them.** `ClientConnection` has
+framed, ordered and queued `Summary` payloads since T2's server half, and `PendingSummaries()`
+had exactly one caller in the tree: `selfTest`. So the client knew where its ships were and
+could not say so. `WorldView::ApplySummary` is the missing seam call — opaque bytes in,
+the game decodes them — and with it the DOCKED blocks, the counts and the toasts all fall
+out of one arrival. **A frame is a complete statement**, so the block list is replaced
+wholesale rather than merged: the writer stops sending a roster for a place with none of your
+ships in it, and silence is indistinguishable from "unchanged", so a merge is a hangar that
+never empties. The blocks come from the **fleet summary rows** and the ship lists from the
+rosters, which matters because a roster is what gets dropped first when the frame runs out of
+room — a station whose roster did not fit still draws a correct block, and only the hangar
+behind it is empty.
+
+**Toasts are a delta, and the first summary of a session raises none.** A dock finishing
+leaves no trace in the scene — the ship despawned — so the only evidence the client has
+is that a count went up. Comparing two statements is not a stand-in for a wire message that
+ought to exist: the roster *is* the authority's record of the fact, and an event message
+beside it would be a second copy to keep in step. What the guard buys is the difference
+between a state and an event: everything already docked when a client joins would otherwise
+arrive as a stack of "docking complete" toasts about things that happened before the player
+was watching. The **words** come across the seam (`WorldView::PollNotices`, drained per
+frame) because "a fleet finished docking" is a sentence only the game can write; the level
+and the dwell stay the engine's, because how loud a message is belongs to the surface.
+
+**The shimmer is drawn without the engine learning what the bit means.**
+`OverlayTuning::statusMarkBits` is a *mask*, zero by default, and the one line in the build
+that says bit zero is undock protection lives in `Outpost.exe`'s config assembly. NeuronClient
+draws a mark for any bit the mask names and knows nothing about any of them. The alpha pulses
+on the CPU over a floor rather than to zero — a mark that reached invisible for part of
+each cycle would read a protected ship as unprotected at the wrong glance, which is worse than
+no mark because it is a wrong answer rather than no answer.
+
+**The fades generalised, and the generalisation is the honest version.** A dock is an entity
+disappearing and an undock is one appearing, and the *engine can see both without being told*:
+an id in last frame's scene and not in this one has left the world. So `EntityTransitList`
+diffs the scene, and the same ~1 s ring covers a dock, an undock, a warp-out, a kill and a
+ship falling out of the interest set — every one of which is honestly "something that was
+there is not". Departing positions are remembered rather than looked up, because by the time
+a frame notices, there is nothing left to ask. Both directions grow outward and are told apart
+by which way the alpha runs; a ring collapsing inward on a docking ship would read as the ship
+being crushed.
+
+**Owed: the visual checkpoint.** Four new marks — the DOCKING chip, the DOCKED blocks, the
+shimmer and the transit rings — are tested for their arithmetic and their data path and have
+never been on a screen. R1 records three defects that every device-free test passed through,
+and this is exactly that category: a colour written the wrong way round or a ring drawn behind
+the hull it is about is a frame to notice, not a number.
 **Accept 🏁 H0:** `selfTest` drives the headless loop over the real loopback — dock a
 fleet, observe the roster message and the ships leaving the snapshot, undock a subset,
 observe spawn, shimmer bit, parking order and its lane in the order records, protection

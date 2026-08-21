@@ -119,6 +119,21 @@ once every member is inside the radius, surfacing the chained intent as a DOCKIN
 server only ever accepts in-radius docks; a disconnect mid-approach halts the fleet outside
 the station, the same accepted cost as a route halting at a gate.
 
+**→ Built 2026-08-21, and the readiness test is the pre-check itself.** The chain holds no
+geometry, never learns what a dock radius is and measures no distance. Each frame it composes
+the chained order exactly as it will send it and asks `WorldView::PreCheck`; the frame the
+answer stops being a refusal, the order goes. That is ADR-014 §3's parity rule doing a
+second job — the condition the client waits on *is* the function the authority judges with,
+so there is no second definition of "close enough" on this side to drift from the first. The
+approach **leg** is likewise aimed at the station itself rather than at a computed perimeter
+point: [ADR-026](ADR-026-obstructed-footprints.md) already slides a formation clear of a hull
+it cannot occupy, so aiming at the station is aiming at its perimeter, and a perimeter the
+client computed would be a second piece of geometry to keep in step with the first. The chain
+copies the fleet rather than following the selection, which the player keeps editing, and
+cancels on a refused leg, a member leaving the world, an order the player gives themselves, or
+the link dropping — a chip promising an arrival that stopped being coming is worse than no
+chip.
+
 On the tactical surface, DOCK is a **context action on the station structure** — select
 ships, act on the station — not a sixth button: the printed command row stays exactly as
 printed, and the station is the natural home for every future station verb (trade, repair,
@@ -214,6 +229,26 @@ packing the bit into a spare high bit of `groupId` (wings are 1..255 but a sessi
 eight) is the named fallback, rejected as the default only because a bitfield hidden in an
 id field is exactly the mistake `groupId`'s own comment was written to prevent.
 
+**→ Drawn 2026-08-21, and the engine still does not know what the bit means.**
+`OverlayTuning::statusMarkBits` is a *mask*, zero by default; NeuronClient draws a mark for
+any bit the mask names and has no opinion about any of them. The one line in the build that
+says bit zero is undock protection lives in `Outpost.exe`'s config assembly, which is the
+same arrangement `renderClassByHull` and the wing names already have. The shimmer is alpha
+over a floor rather than to zero: a mark that reached invisible for part of each cycle would
+read a protected ship as unprotected at the wrong glance, which is worse than no mark because
+it is a wrong answer rather than no answer.
+
+**And the dock/undock fades generalised, which is the honest version of them.** A dock is an
+entity disappearing and an undock is one appearing, and the client can see both *without
+being told*: an id in last frame's scene and not in this one has left the world. So the fade
+is built by diffing the scene rather than by reading a docking event, and the same ~1 s ring
+covers a dock, an undock, a warp-out, a kill and a ship falling out of the interest set —
+every one of which is honestly "something that was there is not". Positions are remembered
+from the last frame that had them, because by the time a frame notices a ship is gone there is
+nothing left to ask. Both directions grow outward and are told apart by which way the alpha
+runs; a ring collapsing inward on a docking ship would read as the ship being crushed rather
+than as it going somewhere.
+
 ### 6. The hangar screen
 
 A **full-screen surface** in the TACTICAL ⇄ MAP family — TACTICAL ⇄ STATION — reached from
@@ -224,6 +259,17 @@ roster vocabulary), multi-selection, the formation dropdown, UNDOCK, wing assign
 visible stubs for the station's future (repair pricing, refit, market) exactly as the
 strategic map stubs its unbuilt overlays. Fleet composition is a real screen's worth of
 work; a 260-px roster column was rejected as its home.
+
+**The print's "tabs, not tiles" call was cashed in on 2026-08-21, and it held.** P1 decided
+that the station's future arrives as *sibling tabs in a fixed row* rather than as panels
+inside the hangar, so that the hangar's layout never reshuffles when a service lands and each
+service gets a full screen. The economy phase tested that on 2026-08-21 and it held: D-P2's
+[cargo-tab.png](../ScreenPrints/cargo-tab.png) added **CARGO** and **REFINERY** to the row
+between HANGAR and REPAIR, D-P3's [refinery-tab.png](../ScreenPrints/refinery-tab.png) filled
+the second of them, and the hangar's own layout is untouched by either — no panel moved, no
+column narrowed, nothing renegotiated. Two whole services arrived and the screen this ADR
+designs did not change. That is the difference between a layout decision that anticipated
+growth and one that merely left room.
 
 **Wings while docked are emergent, like fleets.** `AssignWing` writes a ship's `WingId` —
 any value 1..255; a wing *exists* iff a ship carries its id, "new wing" is picking an

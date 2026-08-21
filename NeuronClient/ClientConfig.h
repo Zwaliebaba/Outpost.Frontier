@@ -104,6 +104,19 @@ struct ClientConfig
   /// arrive as more names, which is why this is a string and not a bool.
   std::string uiPalette = "default";
 
+  /*
+   * Which of the game's per-entity status bits are worth a mark on the plane,
+   * as a mask over `SceneEntity::statusBits` (ADR-014 4).
+   *
+   * **Zero by default, and the default is the point.** The engine carries that
+   * byte and has no opinion about a single bit in it; the sentence "bit zero
+   * means a ship is under undock protection, and a protected ship shimmers" is
+   * one game's, so it is written where the composition root builds this struct
+   * and nowhere in this library. A client whose game sets nothing here draws no
+   * status marks and is missing nothing.
+   */
+  std::uint8_t statusMarkBits = 0;
+
   // The world used to be here: authored scenery, a world id and a grid anchor,
   // passed in as configuration. S5c moved all three behind `Neuron::WorldView`,
   // where they belong -- configuration is how the client is set up, not what it

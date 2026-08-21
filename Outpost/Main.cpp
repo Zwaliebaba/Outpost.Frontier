@@ -1087,6 +1087,33 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
   // from the universe here because the composition root builds both.
   desc.gridAnchor = _universe.universe.StartAnchorId();
 
+  /*
+   * What each station is called, by the anchor it stands on (ADR-017 1).
+   *
+   * Walked from the anchor table rather than from the station list, because the
+   * anchor is what the wire carries and the station is what has a name -- an
+   * anchor's `owner` is the station's per-system id, so the join has to happen
+   * on this side. Every station anchor is named even for a system this session
+   * never visits: the list is a few dozen strings for a bake of this size, and
+   * a lazily filled one would be a cache invalidated by nothing.
+   */
+  for (const Game::SolarSystem& system : _universe.universe.systems)
+  {
+    for (const Game::Anchor& anchor : system.anchors)
+    {
+      if (anchor.kind != Game::AnchorKind::Station)
+      {
+        continue;
+      }
+      const Game::Station* station = _universe.universe.FindStation(system.id, anchor.owner);
+      if (station == nullptr)
+      {
+        continue; // An anchor whose station the bake did not place. Drawn unnamed.
+      }
+      desc.stationNames.push_back(Outpost::ReplicatedWorldView::StationName{anchor.id, station->name});
+    }
+  }
+
   for (const auto& mapping : MESH_FOR_HULL)
   {
     for (std::size_t index = 0; index < _config.content.meshes.size(); ++index)
@@ -1294,6 +1321,18 @@ ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
   client.uiScale = static_cast<float>(_config.client.ui.scale);
   client.uiPalette = _config.client.ui.palette;
   client.diagnosticsStrip = _config.client.diagnostics.strip; // S14: the Tier-1 strip's setting.
+
+  /*
+   * Which status bits the overlay marks (ADR-017 5).
+   *
+   * One bit today, and this line is the only place in the build that says what
+   * it means: `SHIP_STATUS_PROTECTED` is GameLogic's name for undock
+   * protection, and setting it here tells the engine "put a mark on ships
+   * carrying this flag" without telling it -- or letting it work out -- what
+   * the flag is about. NeuronClient compiles with no knowledge of docking, and
+   * a second game on these libraries names its own bits here instead.
+   */
+  client.statusMarkBits = Game::SHIP_STATUS_PROTECTED;
 
   // The world is not here any more. Scenery, the grid anchor and the handshake
   // hashes went behind `Neuron::WorldView` with S5c: configuration is how the

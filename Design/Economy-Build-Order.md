@@ -1,8 +1,15 @@
 # Economy Build Order — the Mining and Refining Phase
 
-**Status:** Session output 2026-08-20 · **E1a, E1b, E2 and E3 are built and green in CI**
-(run 161, commit `93956dc`, 2026-08-21 — 717 tests, `self test: PASSED` with all thirteen
-🏁 G0 checks); **E4a is the next slice**, and the rest is not built. The design this plan
+**Status:** Session output 2026-08-20 · **E1a, E1b, E2, E3 and E4a are built**, the first
+four green in CI (run 161, commit `93956dc`, 2026-08-21 — 717 tests, `self test: PASSED` with
+all thirteen 🏁 G0 checks); **E4b is the next slice**, and the rest is not built.
+**Both prints that gate E5 landed 2026-08-21** —
+[cargo-tab.png](ScreenPrints/cargo-tab.png) (D-P2) and
+[refinery-tab.png](ScreenPrints/refinery-tab.png) (D-P3), sibling tabs of P1's hangar, with
+their sources beside them. **Every design deliverable this phase tracks is now closed**; what
+they leave behind is **eight owner rulings**, listed with each print below. Seven are owed
+before E5. **One is owed before E4b** — whether a refine job can be cancelled — because E4b is
+what writes that verb or its absence. The design this plan
 delivers is [ADR-024](ADR/ADR-024-mining-economy.md), accepted 2026-08-20 with nine owner
 rulings, and [ADR-025](ADR/ADR-025-persistence.md) for the durable half; where this document
 and those disagree, the **ADRs win on *what*** and this one on
@@ -17,7 +24,9 @@ registry and its spin-up/teardown (U2), warp as the way a fleet reaches a site (
 transfer bus and the station roster (T1), the summary family's frame and the per-client
 sender (T2/A13). Nothing in this phase is blocked on the screen work those phases still owe:
 E1a–E4b are headless-provable, which is the same split that let T1 land while T2's client half
-waited for a GPU and a person.
+waited for a GPU and a person. *(T2's client half has since landed — 2026-08-21 — and it landed
+the same way this phase plans to: everything device-free built and tested, with the visual
+checkpoint recorded as owed rather than assumed.)*
 
 **What rides on this plan.** [ADR-018](ADR/ADR-018-scaling-baseline.md)'s baseline still
 governs: durable state lives at the universe layer and worlds forget (D2) — the site ledger
@@ -839,7 +848,9 @@ exists not to be — and it is a claim about this slice's records in a format th
 proved itself.
 
 ### E5 — The two screens
-The station surface's **CARGO** and **REFINERY** tabs, built to their prints (below): the hull
+The station surface's **CARGO** and **REFINERY** tabs, built to their prints —
+[cargo-tab.png](ScreenPrints/cargo-tab.png) and
+[refinery-tab.png](ScreenPrints/refinery-tab.png), both landed 2026-08-21: the hull
 manifest beside the Bay with stack-wise and TRANSFER ALL moves, the recipe list with its
 locked rows explained rather than hidden, the batch picker, the slot and queue state, and the
 project board with its contribution history. On the tactical side, the site field itself — the
@@ -865,15 +876,117 @@ pocket's dampening legible as a thing happening to *you* rather than a number in
   position with an empty queue); the ledger's proof is a separate **`DurableHash()`**, not
   `WorldRegistry::Hash()`, which folds the order queues E2 is about to write; and journal
   records are **outcomes**, so E2 files "this pool is now N" rather than "a cycle completed".
-  **Where it is *implemented* is E4a** (added 2026-08-21): the ADR gated E2's design and E2
-  wrote its ledger to the shape ADR-025 named, but no journal, snapshot or store exists in the
-  tree — a deliverable being accepted is not the same as its code being built, and this line
-  says so where the next reader will look for it.
-- **D-P2 — The CARGO tab print.** The hull-and-Bay transfer surface, in the P1 pattern:
-  designed and agreed **before E5 builds**, because retrofitting a screen design after the
-  screen exists is how the corpus stops being the governing artefact.
-- **D-P3 — The REFINERY tab print.** Recipes, batches, slots, queue and the project board.
-  Same clause.
+  **Where it is *implemented* is E4a** (added 2026-08-21, **built the same day**): the ADR gated
+  E2's design and E2 wrote its ledger to the shape ADR-025 named, but no journal, snapshot or
+  store existed in the tree until E4a — a deliverable being accepted is not the same as its
+  code being built, and this line says so where the next reader will look for it.
+- ~~**D-P2 — The CARGO tab print.**~~ **Delivered 2026-08-21:**
+  [cargo-tab.png](ScreenPrints/cargo-tab.png), with its source beside it. The hull-and-Bay
+  transfer surface, drawn in the P1 pattern and against ADR-024 §5c's manual-transfer
+  ruling: the docked hulls' manifests on the left, the Bay on the right, an ore filter and one
+  primary verb between them. It **still gates E5**, and it now carries four questions of its
+  own that want owner rulings first — listed below, the same way P1's four were.
+
+  **What the print decided, which the ADR left to it.** Six calls, and the first is the one
+  with the longest reach:
+
+  - **The vocabulary is item stacks; ore is only the first family.** Every readout on the tab
+    is an `(item, units, litres)` triple — the manifest columns, the Bay's rows, the MOVE
+    chips, the fill preview — so ADR-008c's taxonomy grows the screen **by rows and chips,
+    never by redesign**, and no label says "ore" where "item" is meant. One consequence is
+    pre-authorised rather than met by surprise: per-item manifest columns hold to about five
+    item types, past which they collapse to stacked chips per hull.
+  - **Units are the number, litres are the cost**, and every stack reads twice — unit volumes
+    differ per ore (300/200/250 L), so either number alone lies. The load bar is **property,
+    not a gauge**: ADR-017's no-bars rule was about *damage*, and this is the amendment saying
+    so out loud rather than by omission.
+  - **Transfers move selections, not slots.** The gesture is the hangar's — tap hulls
+    additively, pick an ore, one verb — and the only computed split is fill-to-capacity, by
+    the same pure pre-check the server validates with. A slot grid would promise per-slot
+    placement that the roster-order rule does not keep.
+  - **Direction follows the selection**, and both verbs stay visible with the inactive one
+    disabled and reasoned: they are one `MoveOre` with the sign flipped, and the screen says
+    so rather than pretending they are two systems.
+  - **The Bay draws no meter** — it has no capacity in the content and no epoch to go stale
+    against, so a meter would invent a scarcity nobody designed. The same argument that kept
+    the dock-capacity meter off P1.
+  - **Pending is a mark, not a guess.** The command acks at once and the confirming numbers
+    arrive on the next ~1 Hz `BayStatus`; in the gap the moved stack shows `◌` beside its
+    **old** value. A screen that guesses a ledger invites the ledger to disagree with it, and
+    this corpus refuses client-side truth about property everywhere else.
+
+  **Empty holds collapse to one line.** Sixty ships dock and three hold ore, so combat hulls
+  with nothing aboard are one summary row with a SHOW rather than sixty chips — the same
+  economy that let P1 fit the hangar without a scrollbar. Industrials stay visible
+  individually, because a Hauler reading READY is information: it is the fill target.
+
+  **Open — four rulings owed before E5 builds** (the P1 pattern; unanswered questions in a
+  print are how a screen gets built twice):
+  1. **Ore order on a fill.** Drawn as ore-index order (F-C → AST → NEB); value-density
+     order would favour the rare ores. It is player-visible arithmetic, so it wants a rule.
+  2. **A dock shortcut.** §5c makes the transfer manual; "TRANSFER ALL from the fleet that
+     just docked" as a one-tap toast action may still earn its convenience. The print proposes
+     yes, as an explicit tap — still manual.
+  3. **Where `CargoStatus` surfaces.** In-space holds (HOLD FULL) belong to the tactical roster
+     strip and never to this tab. Proposed here so E5 does not double-home it.
+  4. **Pending treatment.** The `◌`-beside-the-old-value above, versus applying optimistically
+     and reconciling on `BayStatus` — which reads faster and lies occasionally.
+- ~~**D-P3 — The REFINERY tab print.**~~ **Delivered 2026-08-21:**
+  [refinery-tab.png](ScreenPrints/refinery-tab.png), with its source beside it. Recipes,
+  batches, slots, queue and the project board — §6 on a screen, and the last artefact gating
+  E5. It inherited a frame rather than starting from one: D-P2 had already fixed the tab row it
+  joins and the item-stack vocabulary its recipes eat and produce.
+
+  **What the print decided, which the ADR left to it.** Five calls, and the first two reach
+  past the screen:
+
+  - **Locked rows are the industrial map, so they are explained and never hidden.** Every
+    recipe is always listed, and a locked row says **which lock and what changes it** — two
+    different sentences. A *tier* lock points at the project board directly below it ("TIER 2 —
+    THE PROJECT BELOW"): buildable, communal, this screen's own loop. A *band cap* points out
+    of the station entirely ("NEVER IN HIGH-SEC — LOW / NULL ONLY"), in amber, because it is
+    **geography rather than progress**. Hiding locked rows would hide the reason to fly
+    anywhere.
+  - **Offline is the feature, and the screen says so as permanent chrome.** The refinery is the
+    game's first walk-away loop and a player who does not know it will watch a 22-minute bar.
+    So: the offline line is chrome rather than help text, ETAs are **wall-clock, not
+    session-clock**, and a job finishing while away lands in D19's event record for the away log
+    — **this tab never owes a notification**, which keeps it honest at any staleness.
+  - **The form is arithmetic, shown before commit** — four lines, always the same four: inputs
+    now *with the Bay's after-state*, output at completion, time with the batch and tier
+    discounts named rather than folded, and refund shown even at zero, because "TIER 2 WOULD
+    RETURN 5" is the upgrade pitch in one line. The after-state earns its place: §6b debits at
+    submission, so what remains is the number actually being decided with. No probability
+    appears anywhere on the tab.
+  - **Slots are yours, not the station's.** Per-player slots and a queue of ten mean no station
+    traffic to browse and no queue-jumping UI to design, and `RefineryBusy` is always about
+    your own ten — the same privacy the roster and the Bay already keep.
+  - **The project board is communal and irreversible**, which is why contribution sits behind
+    its own confirm while QUEUE does not, and why its preview **clamps at what remains**: the
+    project completes exactly once, so the screen must never offer units it will not take.
+
+  **Open — four rulings owed, and one of them lands earlier than the rest:**
+  1. **Job cancel** — **needed before E4b**, not E5. The ADR is silent. The print proposes a
+     queued job cancels whole (inputs return to the Bay) and a running job cannot, its inputs
+     being spent. E4b writes that verb or its absence.
+  2. **What a job is on the wire.** Drawn as one batch per job with the queue holding many; if
+     E4b spells `(recipe, batchCount)`, the composer gains a count and the queue rows collapse
+     — same screen, one field.
+  3. **Contribution granularity.** Whole stacks with a clamp, as drawn, versus a partial-amount
+     picker. The print proposes no: it would be the only quantity keypad either economy print
+     has.
+  4. **Where the away log lives.** Completions land in D19's record; the print proposes the
+     alerts family owns telling the player (a toast on login) and this tab only ever shows
+     current state.
+
+**Deliverable status, 2026-08-21.** Of the four design deliverables this phase tracks,
+**three are closed** — D-P1 (the persistence ADR, accepted 2026-08-20), D-P2 and D-P3 (both
+prints, delivered today). The content deliverables D-C1–D-C3 remain, and they are art and audio
+rather than design. **What is still owed against the prints is eight owner rulings, not
+artefacts**, and they are listed with each print above: four from D-P2, all owed before E5; and
+four from D-P3, of which **job cancel is owed before E4b**. That is the one sequencing
+consequence worth carrying forward — the rest can be answered any time before the screens
+build.
 - **D-C1 — Ore and alloy icons**, in the tactical icon system's families, plus the three
   archetype glyphs the strategic and system maps need.
 - **D-C2 — The site field's visual treatment**: the Nebula pass parameter set for pockets, and

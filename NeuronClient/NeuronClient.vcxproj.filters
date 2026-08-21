@@ -2,6 +2,12 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
+    <ClCompile Include="ApproachChain.cpp">
+      <Filter>Input</Filter>
+    </ClCompile>
+    <ClCompile Include="EntityTransits.cpp">
+      <Filter>Extract</Filter>
+    </ClCompile>
     <ClCompile Include="AudioDevice.cpp">
       <Filter>Audio</Filter>
     </ClCompile>
@@ -65,9 +71,6 @@
     <ClCompile Include="Picking.cpp">
       <Filter>Input</Filter>
     </ClCompile>
-    <ClCompile Include="ApproachChain.cpp">
-      <Filter>Input</Filter>
-    </ClCompile>
     <ClCompile Include="OrderPuck.cpp">
       <Filter>Input</Filter>
     </ClCompile>
@@ -110,6 +113,12 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+    <ClInclude Include="ApproachChain.h">
+      <Filter>Input</Filter>
+    </ClInclude>
+    <ClInclude Include="EntityTransits.h">
+      <Filter>Extract</Filter>
+    </ClInclude>
     <ClInclude Include="AudioDevice.h">
       <Filter>Audio</Filter>
     </ClInclude>
@@ -183,9 +192,6 @@
       <Filter>Assets</Filter>
     </ClInclude>
     <ClInclude Include="Picking.h">
-      <Filter>Input</Filter>
-    </ClInclude>
-    <ClInclude Include="ApproachChain.h">
       <Filter>Input</Filter>
     </ClInclude>
     <ClInclude Include="OrderPuck.h">

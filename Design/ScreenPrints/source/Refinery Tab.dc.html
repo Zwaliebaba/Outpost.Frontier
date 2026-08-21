@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0a0b09;font-family:'Share Tech Mono',ui-monospace,monospace}
+a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
+</style></helmet>
+
+<div data-screen-label="Refinery Tab" style="width:1440px;background:#050705;padding:44px 48px 56px;color:#7cff3e;position:relative">
+<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.03) 0 1px,transparent 1px 3px);pointer-events:none"></div>
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(124,255,62,.3);padding-bottom:16px;margin-bottom:12px">
+  <div>
+    <div style="font-size:26px;color:#c9ff9e;letter-spacing:.08em">REFINERY TAB — D-P3</div>
+    <div style="font-size:12.5px;color:#5d7a57;letter-spacing:.06em;margin-top:6px">ADR-024 §6 — recipes, batches, slots, queue and the project board · gates E5 / milestones G1–G2 · sibling tab of P1's hangar</div>
+  </div>
+  <div style="text-align:right;font-size:11.5px;color:#4e6a49;line-height:1.8">
+    <div>SOURCE · ADR-024 §6, §7 · Economy.json refining block (E1a, hash-guarded) · E4 spec · reasons 20–22 reserved by E2/E3</div>
+    <div>PREVIEW · {{ stateLabel }}</div>
+  </div>
+</div>
+
+<p style="font-size:13px;color:#7d8c79;line-height:1.75;max-width:1010px;margin:0 0 18px;text-wrap:pretty">
+  <span style="color:#c9ff9e">The refinery is the first machine in this game that runs while you are away.</span> A job is
+  (recipe, batch): inputs leave the Bay the moment you commit, the shard cooks on its own clock — offline, through restarts (G1) —
+  and outputs plus a deterministic refund arrive at completion. The screen's job is to make that commitment
+  <em style="color:#c9ff9e;font-style:normal">arithmetic you can read before you make it</em>, and to teach the one map that
+  matters: what this station can cook, what it could cook if everyone builds it up, and what it will never cook.
+</p>
+<div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.5);padding:13px 17px;font-size:12px;color:#7d8c79;line-height:1.7;margin-bottom:34px">
+  <span style="color:#ffb000">One ruling shapes the layout:</span> <span style="color:#c9ff9e">no High-Sec station can ever cook
+  Nova-Steel</span> (bandTierCaps — high 2, low 3, null 4). The locked list is the industrial map — ore runs into the dark and alloys
+  run out of it — so locked rows are <span style="color:#c9ff9e">explained, never hidden</span>: hiding them would hide the reason to
+  fly anywhere.
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§1</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE SCREEN</span>
+  <span style="font-size:12px;color:#5d7a57">authored 1440×900 · the station surface, REFINERY tab active — Vesta-3 is High-Sec</span>
+</div>
+<div data-plate="refinery-tab" style="position:relative;width:1344px;height:840px;overflow:hidden;border:1px solid rgba(124,255,62,.22);background:#000;margin-bottom:14px">
+<div style="width:1440px;height:900px;transform:scale(.9333);transform-origin:top left;position:relative;background:#000">
+  <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 50% 44%,#0b1210 0%,#000 74%)"></div>
+  <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.035) 0 1px,transparent 1px 3px)"></div>
+
+  <div style="position:absolute;left:0;right:0;top:0;height:46px;display:flex;align-items:center;gap:16px;padding:0 18px;border-bottom:1px solid rgba(124,255,62,.3);background:rgba(4,8,5,.88);font-size:15px;letter-spacing:.06em">
+    <span style="color:#5d7a57">◀ TACTICAL</span><span style="color:#3d5a37">|</span>
+    <span style="color:#c9ff9e">VESTA-3 ANCHORAGE · STATION</span>
+    <sc-if value="{{ remote }}" hint-placeholder-val="{{ false }}">
+      <span style="font-size:12px;color:#ffb000;border:1px solid rgba(255,176,0,.4);padding:3px 9px;letter-spacing:.08em">REMOTE — FLEET NOT ON THIS GRID</span>
+    </sc-if>
+    <span style="flex:1"></span>
+    <span style="color:#8fa08b;font-size:14px">14:22:07</span>
+    <span style="color:#5d7a57">☰</span>
+  </div>
+
+  <div style="position:absolute;left:0;right:0;top:46px;height:52px;display:flex;align-items:stretch;gap:2px;padding:0 26px;border-bottom:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86)">
+    <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="7">
+      <div style="{{ t.st }}">
+        <span style="font-size:14px;letter-spacing:.08em">{{ t.name }}</span>
+        <sc-if value="{{ t.tag }}" hint-placeholder-val="{{ false }}"><span style="{{ t.tagSt }}">{{ t.tag }}</span></sc-if>
+      </div>
+    </sc-for>
+    <span style="flex:1"></span>
+    <span style="align-self:center;font-size:12px;color:#4e6a49;letter-spacing:.06em">SERVICES ARRIVE AS TABS</span>
+  </div>
+
+  <div style="position:absolute;left:0;top:98px;bottom:0;width:1032px;padding:22px 26px;overflow:hidden;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:14px">
+      <span style="font-size:22px;color:#c9ff9e;letter-spacing:.08em">REFINERY</span>
+      <span style="font-size:14px;color:#5d7a57">{{ tierSummary }}</span>
+      <span style="flex:1"></span>
+      <span style="font-size:13px;color:#4e6a49;letter-spacing:.06em">TAP A RECIPE = COMPOSE A JOB</span>
+    </div>
+    <div style="display:grid;grid-template-columns:180px 40px 240px 100px 100px 1fr;gap:10px;padding:0 12px 8px;border-bottom:1px solid rgba(124,255,62,.2);font-size:10.5px;color:#4e6a49;letter-spacing:.1em">
+      <span>ALLOY</span><span>TIER</span><span>INPUTS / UNIT</span><span style="text-align:right">OUT / UNIT</span><span style="text-align:right">TIME / UNIT</span><span style="text-align:right">STATUS</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+      <sc-for list="{{ recipeRows }}" as="r" hint-placeholder-count="5">
+        <div style="{{ r.st }}">
+          <span style="font-size:12.5px;letter-spacing:.04em">{{ r.name }}</span>
+          <span style="{{ r.tierSt }}">{{ r.tier }}</span>
+          <span style="font-size:11.5px;color:#5d7a57">{{ r.inputs }}</span>
+          <span style="font-size:11.5px;color:#5d7a57;text-align:right">{{ r.out }}</span>
+          <span style="font-size:11.5px;color:#5d7a57;text-align:right">{{ r.time }}</span>
+          <span style="{{ r.statusSt }}">{{ r.status }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px;flex:1">
+      <div style="border:1px solid rgba(124,255,62,.22);background:rgba(6,12,6,.5);padding:15px 17px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:baseline;gap:10px">
+          <span style="font-size:12px;color:#4e6a49;letter-spacing:.14em">JOB COMPOSER</span>
+          <span style="flex:1"></span>
+          <span style="font-size:11px;color:#c9ff9e;letter-spacing:.06em">FERROCITE PLATES</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;color:#5d7a57;letter-spacing:.08em">BATCH</span>
+          <sc-for list="{{ batchChips }}" as="c" hint-placeholder-count="3"><div style="{{ c.st }}">{{ c.name }}</div></sc-for>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:7px;font-size:12px;color:#7d8c79">
+          <sc-for list="{{ jobLines }}" as="j" hint-placeholder-count="4">
+            <div style="display:flex;align-items:baseline;gap:8px"><span style="color:#4e6a49;font-size:10.5px;letter-spacing:.08em;width:96px;flex:0 0 auto">{{ j.k }}</span><span style="{{ j.st }}">{{ j.v }}</span></div>
+          </sc-for>
+        </div>
+        <div style="margin-top:auto;font-size:10.5px;color:#4e6a49;line-height:1.6">Inputs leave the Bay at submission; output and refund credit at completion. The refund is floored per material — <span style="color:#7d8c79">no crit-crafts, the ledger always adds up</span>.</div>
+      </div>
+      <div style="border:1px solid rgba(124,255,62,.22);background:rgba(6,12,6,.5);padding:15px 17px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;align-items:baseline;gap:10px">
+          <span style="font-size:12px;color:#4e6a49;letter-spacing:.14em;white-space:nowrap">{{ projTitle }}</span>
+          <span style="flex:1"></span>
+          <span style="font-size:10px;color:#3d5a37;letter-spacing:.08em;white-space:nowrap">COMMUNAL · PERMANENT</span>
+        </div>
+        <sc-for list="{{ projBars }}" as="b" hint-placeholder-count="2">
+          <div>
+            <div style="display:flex;align-items:baseline;gap:8px;font-size:11.5px;margin-bottom:4px"><span style="color:#c9ff9e;white-space:nowrap">{{ b.name }}</span><span style="flex:1"></span><span style="color:#7cff3e;white-space:nowrap">{{ b.n }}</span></div>
+            <div style="height:9px;border:1px solid rgba(124,255,62,.25);position:relative;background:rgba(6,12,6,.6)"><div style="{{ b.barSt }}"></div></div>
+          </div>
+        </sc-for>
+        <div style="{{ contribSt }}">{{ contribLabel }}</div>
+        <div style="display:flex;flex-direction:column;gap:4px;font-size:10.5px;color:#4e6a49;line-height:1.5">
+          <sc-for list="{{ projHist }}" as="h" hint-placeholder-count="3"><div>{{ h }}</div></sc-for>
+        </div>
+        <div style="margin-top:auto;font-size:10.5px;color:#4e6a49;line-height:1.6">Nobody owns the station: the tier rises <span style="color:#7d8c79">for everyone, permanently</span>, and D19's event record holds who built it. <span style="color:#ffb000">A contribution cannot be taken back.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="position:absolute;right:0;top:98px;bottom:0;width:408px;border-left:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86);padding:20px 22px;display:flex;flex-direction:column;gap:13px">
+    <div style="display:flex;align-items:baseline;gap:10px">
+      <span style="font-size:13px;color:#4e6a49;letter-spacing:.14em">SLOTS &amp; QUEUE</span>
+      <span style="flex:1"></span>
+      <span style="font-size:10px;color:#3d5a37;letter-spacing:.08em">{{ slotsTag }}</span>
+    </div>
+    <sc-for list="{{ slotCards }}" as="s" hint-placeholder-count="2">
+      <div style="{{ s.st }}">
+        <div style="display:flex;align-items:baseline;gap:8px;font-size:12.5px"><span style="{{ s.nameSt }}">{{ s.name }}</span><span style="flex:1"></span><span style="font-size:11px;color:#5d7a57">{{ s.eta }}</span></div>
+        <sc-if value="{{ s.pct }}" hint-placeholder-val="{{ false }}">
+          <div style="height:8px;border:1px solid rgba(124,255,62,.25);position:relative;background:rgba(6,12,6,.6);margin-top:8px"><div style="{{ s.barSt }}"></div></div>
+        </sc-if>
+      </div>
+    </sc-for>
+    <div style="border:1px solid rgba(124,255,62,.18);background:rgba(6,12,6,.5)">
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 13px;border-bottom:1px solid rgba(124,255,62,.1);font-size:10px;color:#3d5a37;letter-spacing:.12em">QUEUE — DRAINS IN ORDER<span style="flex:1"></span><span style="{{ queueTagSt }}">{{ queueTag }}</span></div>
+      <sc-for list="{{ queueRows }}" as="q" hint-placeholder-count="3">
+        <div style="display:flex;align-items:baseline;gap:9px;padding:7px 13px;font-size:11.5px;color:#7d8c79"><span style="color:#3d5a37">{{ q.n }}</span><span>{{ q.name }}</span><span style="flex:1"></span><span style="color:#4e6a49;font-size:10.5px">{{ q.note }}</span></div>
+      </sc-for>
+    </div>
+    <div style="{{ queueBtnSt }}">{{ queueBtnLabel }}</div>
+    <sc-if value="{{ busyNote }}" hint-placeholder-val="{{ false }}">
+      <div style="font-size:11px;color:#ffb000;line-height:1.6;border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.5);padding:9px 12px">{{ busyNote }}</div>
+    </sc-if>
+    <div style="margin-top:auto;font-size:11px;color:#7d8c79;line-height:1.65;border-top:1px solid rgba(124,255,62,.14);padding-top:11px">Jobs run at the universe layer on the shard's clock — they <span style="color:#c9ff9e">continue while you are offline</span> and survive a restart (G1). Completions file into the event record; the away log says what finished.</div>
+  </div>
+</div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1010px;margin:0 0 36px">
+  <span style="color:#c9ff9e">The composer shows after-states because inputs debit at submission.</span> "BAY AFTER" is not a
+  nicety — the moment QUEUE is tapped the ore is gone from the Bay and locked into the job, so the number the player is really
+  deciding with is what remains. The pre-check runs the same pure validation the server does: an enabled QUEUE is a promise, and
+  InsufficientMaterials, RefineryBusy and RecipeLocked are states the screen shows before commit, never errors met after.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§2</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">DESIGN CALLS THE ADR LEAVES TO THE PRINT</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:14px;grid-auto-rows:auto">
+  <div style="grid-column:1/-1;border:1px solid rgba(124,255,62,.28);background:rgba(6,16,6,.65);padding:16px 18px">
+    <div style="font-size:13px;color:#7cff3e;letter-spacing:.06em;margin-bottom:10px">LOCKED ROWS ARE THE INDUSTRIAL MAP</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      Every recipe is always listed, and a locked row states <span style="color:#c9ff9e">which lock and what changes it</span> — two
+      different sentences, deliberately. A tier lock points at the project board beside it ("TIER 2 — THE PROJECT BELOW"): buildable,
+      communal, this screen's own loop. A band cap points out of the station entirely ("NEVER IN HIGH-SEC — LOW / NULL ONLY"), in amber,
+      because it is geography, not progress: the sentence that sends industry into the dark is the whole endgame economy, and this row
+      is where a player reads it for the first time.
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">THE FORM IS ARITHMETIC, SHOWN BEFORE COMMIT</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      Four lines, always the same four: INPUTS NOW (with the Bay's after-state), OUTPUT AT COMPLETION, TIME (with the batch and tier
+      discounts named, not folded silently), REFUND (a tier fact, floored, deterministic — shown even when it is zero, because "TIER 2
+      WOULD RETURN 5" is the upgrade pitch in one line). No probability appears anywhere on this tab; nothing here rolls.
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">SLOTS ARE YOURS, NOT THE STATION'S</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      Slots and the queue of ten are per player (a shared pool is a griefable queue — the ADR put contention at the field and the trade
+      lane instead), so there is <span style="color:#c9ff9e">no station traffic to browse and no queue-jumping UI to design</span>.
+      Other commanders' jobs are invisible, the same privacy the roster and the Bay already keep. RefineryBusy is therefore always
+      about <em style="font-style:normal;color:#c9ff9e">your</em> ten, and the screen counts them down in plain sight.
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">OFFLINE IS THE FEATURE — THE SCREEN SAYS SO</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      The refinery is the game's first "walk away" loop, and a player who does not know that will sit and watch a 22-minute bar. The
+      offline line is permanent chrome, not help text; ETAs are wall-clock, not session-clock; and a job finishing while away lands in
+      the event record for the away log to report — <span style="color:#c9ff9e">this tab never owes a notification</span>, which keeps
+      it honest at any staleness.
+    </div>
+  </div>
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.55);padding:16px 18px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:10px">THE PROJECT BOARD IS COMMUNAL AND IRREVERSIBLE</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      Contribution is the phase's only sink, it benefits everyone, and it cannot be taken back — three reasons the verb sits behind its
+      own confirm while QUEUE does not. The board shows per-material bars, the contributor ledger (D19's record, names client-side like
+      wing names), and — when two commanders race the last units — the preview clamps at what remains, because the project completes
+      exactly once and the screen should never offer units it will not take.
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:34px 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§3</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">DELIBERATELY ABSENT · STILL OPEN</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="border:1px solid rgba(124,255,62,.3);background:rgba(6,16,6,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#7cff3e;letter-spacing:.06em;margin-bottom:12px">ABSENT BECAUSE THE DESIGN SAYS SO</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#c9ff9e">No fuel line</span> — fuelPerJob is authored zero until a market can sell Ionized Slurry; drawing the row now would show a cost that never charges.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No shared queue view</span> — slots are per player; a station-wide job board would leak activity the roster and Bay deliberately keep private.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No reverse recipe</span> — alloys never melt back to ore; the compression is one-way by design, so no "reprocess" verb exists to draw.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No quality or blueprint knobs</span> — refund and time are tier facts from hash-guarded content; there is nothing on a job to optimise but its batch size, and that is the point.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:12px">OPEN — FOR THE PRINT REVIEW</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#ffb000">Job cancel.</span> The ADR is silent. Proposal: a queued job cancels whole (inputs return to the Bay); a running job cannot cancel — its inputs are spent. Needs a ruling before E4 writes the verb, or its absence.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">What a job is on the wire.</span> Shown as one batch per job, the queue holding many. If E4 spells (recipe, batchCount) as N batches in one job, the composer gains a count and the queue rows collapse — same screen, one field.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Contribution granularity.</span> Shown as whole stacks with a clamp at what remains. A partial-amount picker is the alternative; proposal is no — it is the only quantity keypad either cargo print would have.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Where the away log lives.</span> Completions land in D19's record; proposal: the alerts family owns telling the player (a toast on login), and this tab only ever shows current state.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1200},&quot;selection&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Compose — Plates ×50&quot;,&quot;Queue full — refinery busy&quot;,&quot;After the project — Tier 2&quot;],&quot;default&quot;:&quot;Compose — Plates ×50&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Mockup&quot;},&quot;remote&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Mockup&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const G = '#7cff3e', HOT = '#c9ff9e', AMB = '#ffb000';
+    const state = this.props.selection ?? 'Compose — Plates ×50';
+    const remote = this.props.remote ?? false;
+    const mode = state.startsWith('Compose') ? 'compose' : state.startsWith('Queue') ? 'busy' : 'tier2';
+    const t2 = mode === 'tier2';
+    const stateLabel = (remote ? 'REMOTE · ' : '') + state.toUpperCase();
+
+    const tabs = [
+      { name: 'HANGAR' },
+      { name: 'CARGO' },
+      { name: 'REFINERY', tag: t2 ? 'T2' : 'T1', active: true },
+      { name: 'REPAIR', tag: 'FREE' },
+      { name: 'REFIT', tag: 'FUTURE' },
+      { name: 'CONSTRUCT', tag: 'FUTURE' },
+      { name: 'MARKET', tag: 'FUTURE' }
+    ].map(t => ({
+      name: t.name, tag: t.tag || false,
+      st: {
+        display: 'flex', alignItems: 'center', gap: '8px', padding: '0 16px',
+        borderBottom: '2px solid ' + (t.active ? G : 'transparent'),
+        background: t.active ? 'rgba(124,255,62,.10)' : 'transparent',
+        color: t.active ? HOT : (t.tag === 'FUTURE' ? '#3d5a37' : '#5d7a57')
+      },
+      tagSt: {
+        fontSize: '9px', letterSpacing: '.12em', padding: '1.5px 6px', flex: '0 0 auto',
+        color: t.tag === 'FUTURE' ? '#3d5a37' : G,
+        border: '1px solid ' + (t.tag === 'FUTURE' ? 'rgba(124,255,62,.14)' : 'rgba(124,255,62,.4)')
+      }
+    }));
+
+    const tierSummary = t2
+      ? 'STATION TIER 2 · HIGH-SEC BAND CAPS AT TIER 2 — THIS STATION IS MAXED'
+      : 'STATION TIER 1 · HIGH-SEC BAND CAPS AT TIER 2';
+
+    const rowGrid = { display: 'grid', gridTemplateColumns: '180px 40px 240px 100px 100px 1fr', gap: '10px', alignItems: 'center', padding: '9px 12px' };
+    // [name, tier, inputs, outL, time, kind] kind: sel|running|tierlock|bandlock
+    const recipeDefs = [
+      ['FERROCITE PLATES', 1, '2 F-C', '400 L', '0:30', 'sel'],
+      ['ASTRA-GLASS', 1, '1 AST + 1 NEB', '300 L', '0:45', 'running'],
+      ['CHROMITE CONDUIT', 2, '1 F-C + 2 NEB', '550 L', '1:30', t2 ? 'open' : 'tierlock'],
+      ['QUANTUM MATRIX', 2, '2 AST + 1 F-C', '450 L', '2:00', t2 ? 'open' : 'tierlock'],
+      ['NOVA-STEEL', 3, '2 F-C + 2 AST + 2 NEB', '1,000 L', '5:00', 'bandlock']
+    ];
+    const recipeRows = recipeDefs.map(([name, tier, inputs, out, time, kind]) => {
+      const locked = kind === 'tierlock' || kind === 'bandlock';
+      const sel = kind === 'sel';
+      const status = kind === 'sel' ? 'COMPOSING ▸' : kind === 'running' ? 'RUNNING ×50'
+        : kind === 'open' ? 'AVAILABLE' : kind === 'tierlock' ? 'TIER 2 — THE PROJECT BELOW' : 'NEVER IN HIGH-SEC — LOW / NULL ONLY';
+      return {
+        name, inputs, out, time, status,
+        tier: 'T' + tier,
+        tierSt: { fontSize: '10px', letterSpacing: '.08em', textAlign: 'center', padding: '2px 0',
+          color: locked ? '#3d5a37' : G,
+          border: '1px solid ' + (locked ? 'rgba(124,255,62,.14)' : 'rgba(124,255,62,.35)') },
+        statusSt: { fontSize: '10.5px', letterSpacing: '.06em', textAlign: 'right',
+          color: kind === 'bandlock' ? AMB : kind === 'tierlock' ? '#8a7a4a' : kind === 'running' ? '#8fa08b' : sel ? HOT : '#5d7a57' },
+        st: { ...rowGrid,
+          border: '1px solid ' + (sel ? G : kind === 'bandlock' ? 'rgba(255,176,0,.25)' : 'rgba(124,255,62,.14)'),
+          background: sel ? 'rgba(124,255,62,.12)' : 'rgba(6,12,6,.55)',
+          color: sel ? HOT : locked ? '#4e6a49' : '#7d8c79' }
+      };
+    });
+
+    const batchChips = ['×1 · 100%', '×10 · −5% TIME', '×50 · −10% TIME'].map((name, i) => ({
+      name,
+      st: { padding: '5px 10px', fontSize: '10.5px', letterSpacing: '.05em', flex: '0 0 auto', whiteSpace: 'nowrap',
+        border: '1px solid ' + (i === 2 ? 'rgba(124,255,62,.5)' : 'rgba(124,255,62,.18)'),
+        background: i === 2 ? 'rgba(124,255,62,.12)' : 'transparent',
+        color: i === 2 ? HOT : '#5d7a57' }
+    }));
+
+    const line = (k, v, hot) => ({ k, v, st: { fontSize: '12px', color: hot ? HOT : '#7d8c79' } });
+    const jobLines = [
+      line('INPUTS NOW', '100 F-C · BAY AFTER 1,140', true),
+      line('OUTPUT', '50 PLATES · 20,000 L AT COMPLETION'),
+      t2 ? line('TIME', '21:22 · BATCH −10% · TIER −5%') : line('TIME', '22:30 · BATCH −10%'),
+      t2 ? line('REFUND', '5 F-C AT COMPLETION — TIER 2 REFUNDS 5%', true)
+         : line('REFUND', '0 F-C — TIER 1 REFUNDS 0% (TIER 2 WOULD RETURN 5)')
+    ];
+
+    const projTitle = t2 ? 'UPGRADE PROJECT — TO TIER 3' : 'UPGRADE PROJECT — TO TIER 2';
+    const projDefs = t2
+      ? [['CHROMITE CONDUIT', 0, 2000], ['QUANTUM MATRIX', 0, 1200]]
+      : [['FERROCITE PLATES', 1180, 2500], ['ASTRA-GLASS', 260, 800]];
+    const projBars = projDefs.map(([name, have, need]) => {
+      const pct = Math.round(have / need * 100);
+      return { name, n: have.toLocaleString('en-US') + ' / ' + need.toLocaleString('en-US'),
+        barSt: { position: 'absolute', left: 0, top: 0, bottom: 0, width: pct + '%', background: 'rgba(124,255,62,.55)' } };
+    });
+    const canContrib = !t2;
+    const contribLabel = canContrib ? 'CONTRIBUTE — 40 PLATES (ALL YOU HOLD)' : 'NO CONDUIT OR MATRIX IN YOUR BAY';
+    const contribSt = {
+      height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: '12.5px', letterSpacing: '.07em', whiteSpace: 'nowrap',
+      border: '1px solid ' + (canContrib ? G : 'rgba(124,255,62,.14)'),
+      background: canContrib ? 'rgba(124,255,62,.14)' : 'transparent',
+      color: canContrib ? HOT : '#2f4a2a' };
+    const projHist = t2
+      ? ['TIER 2 RAISED 08-21 · 6 CONTRIBUTORS — D19 HOLDS THE LEDGER', 'NO CONTRIBUTIONS YET TO TIER 3']
+      : ['YOU · +780 PLATES · TODAY', 'V. OKONKWO · +400 PLATES · 08-20', 'R. CHEN · +260 GLASS · 08-19'];
+
+    const slotsTag = t2 ? 'TIER 2 — 2 SLOTS, YOURS' : 'TIER 1 — 1 SLOT, YOURS';
+    const slotCard = (name, eta, pct, empty) => ({
+      name, eta, pct: pct || false,
+      nameSt: { color: empty ? '#3d5a37' : HOT, letterSpacing: '.05em' },
+      barSt: { position: 'absolute', left: 0, top: 0, bottom: 0, width: (pct || 0) + '%', background: 'rgba(124,255,62,.6)' },
+      st: { border: '1px solid ' + (empty ? 'rgba(124,255,62,.14)' : 'rgba(124,255,62,.35)'),
+        background: empty ? 'rgba(6,12,6,.35)' : 'rgba(124,255,62,.06)', padding: '11px 13px' }
+    });
+    const slotCards = t2
+      ? [slotCard('SLOT 1 · ASTRA-GLASS ×50', '12:14 LEFT · 14:34 LOCAL', 64), slotCard('SLOT 2 · OPEN', 'READY', 0, true)]
+      : [slotCard('SLOT 1 · ASTRA-GLASS ×50', '12:14 LEFT · 14:34 LOCAL', 64)];
+
+    const busy = mode === 'busy';
+    const queueRows = busy
+      ? [{ n: '1', name: 'PLATES ×50', note: 'NEXT' }, { n: '2', name: 'ASTRA-GLASS ×10', note: '' }, { n: '3', name: 'PLATES ×50', note: '' }, { n: '⋮', name: '+ 7 MORE', note: 'FULL' }]
+      : t2
+      ? [{ n: '1', name: 'CONDUIT ×10', note: 'NEXT' }]
+      : [{ n: '1', name: 'PLATES ×10', note: 'NEXT' }, { n: '2', name: 'ASTRA-GLASS ×10', note: '' }];
+    const queueTag = busy ? '10 / 10' : t2 ? '1 / 10' : '2 / 10';
+    const queueTagSt = { fontSize: '10px', letterSpacing: '.08em', color: busy ? AMB : '#5d7a57' };
+
+    const on = !busy;
+    const queueBtnLabel = busy ? 'REFINERY BUSY — QUEUE FULL 10 / 10' : 'QUEUE — PLATES ×50 · TAKES 100 F-C NOW';
+    const queueBtnSt = {
+      height: '54px', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center',
+      fontSize: '14px', letterSpacing: '.08em', padding: '0 12px',
+      border: '1px solid ' + (on ? G : 'rgba(255,176,0,.35)'),
+      background: on ? 'rgba(124,255,62,.16)' : 'rgba(20,14,2,.5)',
+      color: on ? HOT : AMB,
+      boxShadow: on ? '0 0 18px rgba(124,255,62,.15)' : 'none' };
+    const busyNote = busy ? 'The pre-check refuses before the wire does — the same RefineryBusy the server would return, shown as a state instead of an error. A slot frees in 12:14.' : false;
+
+    return { stateLabel, remote, tabs, tierSummary, recipeRows, batchChips, jobLines,
+      projTitle, projBars, contribLabel, contribSt, projHist,
+      slotsTag, slotCards, queueRows, queueTag, queueTagSt, queueBtnLabel, queueBtnSt, busyNote };
+  }
+}
+</script>
+</body>
+</html>

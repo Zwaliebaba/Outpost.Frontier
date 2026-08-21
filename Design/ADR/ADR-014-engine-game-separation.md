@@ -178,6 +178,39 @@ makes those libraries worth having.
      the identical assumption `CycleParameter` was named to avoid, arriving as a subscript
      instead of as a loop.
 
+   **Four more arrived with the Station Build Order's T2 (2026-08-21), and two of them are
+   about words rather than numbers.**
+
+   - `ApplySummary(payload) -> bool` and `BuildDockedBlocks([block])`. The first is
+     `ApplySnapshot` for ADR-016 §6's 1 Hz family — opaque bytes in, the game reads them,
+     no tick back because a summary describes a *state* rather than an instant and must never
+     drive the render clock. The second is `BuildRoster`'s argument made again for a second
+     panel: the engine cannot list ships that are not in the scene, and *which place*, *what to
+     call it* and *which ships count as the player's* are three design questions in a row. What
+     crosses is a name, a count and a number to echo back.
+   - `ContextActionFor(entityId, selectedIds) -> {kind, label, anchor, available}`. "Select
+     ships, act on that thing" is one gesture meaning two things, and only the game can tell
+     them apart. The engine asks about whatever is under the cursor and is told a kind to send,
+     a word to draw and an anchor to fill in; answering "nothing" is the common case and not a
+     failure. Notably the game does **not** report whether the fleet is in range: that is not a
+     condition on the action but the thing the approach chain exists to fix, and greying the
+     verb out at distance would remove the affordance exactly where it is most useful.
+   - `PollNotices([{code, title, body}])`, **and this is the one that draws the line in a new
+     place.** The toast stack is the engine's surface: its five levels, their dwell times and
+     the six-second coalescing window are all presentation, and they stay presentation. But
+     "a fleet finished docking" is a sentence only the game can write, and a client that
+     composed it would have learned that ships dock, that stations are places, and what to call
+     the moment one arrives. So **the game supplies the words and the key; the engine picks how
+     loudly and for how long.** Drained rather than read, so a notice the stack dropped does
+     not come back next frame as though it had just happened.
+
+   A fifth change is not a call at all and is the same rule in a field: **`OverlayTuning::
+   statusMarkBits` is a mask, zero by default.** §4 says the engine carries `statusBits`
+   without reading it, and the moment an overlay wanted one of those bits that promise was
+   under pressure — the honest resolution is that NeuronClient marks *any bit the mask names*
+   and still knows nothing about any of them, while the single sentence "bit zero is undock
+   protection" lives in `Outpost.exe` beside `renderClassByHull` and the wing names.
+
 3. **BounceParity survives intact.** The client still runs the *identical* validation function
    — it is reached through an interface instead of a link-time symbol. Same code, same reason
    codes, same bounce. This was the one thing worth checking before accepting the ruling, and

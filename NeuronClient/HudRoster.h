@@ -87,11 +87,53 @@ struct DockedBlock
   /// What a click hands back to the game -- the anchor the block is about. The
   /// engine echoes it and never reads it.
   std::uint16_t anchor = 0;
+
+  /*
+   * What the block's button says, or null for a block with no button.
+   *
+   * The word is the game's for the same reason every other word on this HUD is:
+   * the engine drawing "STATION" would have decided that the place is a station
+   * and that the button opens its interior, which are two facts about one game.
+   * A client whose game supplies nothing draws the block without a button, and
+   * the panel is still a name and a count.
+   */
+  const char* buttonLabel = nullptr;
 };
 
 /// How many such blocks a client will ask for. One commander's ships can be
 /// spread over several stations at once, and a fleet spread over more than this
 /// wants the hangar screen rather than a longer list.
 inline constexpr std::uint32_t MAX_DOCKED_BLOCKS = 8;
+
+/*
+ * Something the game wants said to the player (`alerts-and-toasts.png`).
+ *
+ * Three fields and no meaning attached to any of them. The engine draws the two
+ * strings, keys the coalescing on the code, and picks the level and the dwell
+ * itself -- because how loud a message is and how long it sits are properties
+ * of the surface, while what it says is a property of the game.
+ *
+ * Both pointers are the world view's storage, valid until the next poll.
+ */
+struct Notice
+{
+  /*
+   * Opaque. Two notices sharing one are the same message happening again,
+   * which is what folds a burst into one row with a count.
+   *
+   * Wide enough to hold a kind *and* a place: "docked" is one message, but
+   * docking at two stations is two things happening, and a game that could only
+   * key on the kind would have the second fold into the first.
+   */
+  std::uint32_t code = 0;
+
+  const char* title = nullptr;
+  const char* body = nullptr;
+};
+
+/// How many a client will drain in one frame. A game with more to say than this
+/// in a sixtieth of a second is talking over itself, and the stack's own
+/// backlog is where the rest waits.
+inline constexpr std::uint32_t MAX_NOTICES_PER_POLL = 8;
 
 } // namespace Neuron

@@ -26,6 +26,18 @@
 #define OVERLAY_SHIELD_BAR 4
 #define OVERLAY_STALE_MARKER 5
 
+// A game status bit, marked (ADR-014 4). Same shape as the stale marker -- a
+// screen-facing dashed ring -- because it says the same kind of thing: this
+// ship is temporarily in a state, and the state is about the ship rather than
+// about the ground it is over. What the bit *means* is the game's, and neither
+// this shader nor the pass that binds it knows.
+#define OVERLAY_STATUS_MARKER 6
+
+// A ship arriving in or leaving the world, for the second it takes (ADR-017 4).
+// The same ring undashed and fading, because an arrival is a fact rather than a
+// promise and the dash is this vocabulary's word for unresolved.
+#define OVERLAY_TRANSIT_RING 7
+
 // Per instance, from OverlayMark (OverlayMark.h). The size channel packs four
 // floats whose meaning depends on the kind: a ring is sized in plane metres
 // because it lies on the plane, a bar in pixels because it faces the screen.

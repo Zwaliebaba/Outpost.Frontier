@@ -467,6 +467,44 @@ automation would have foreclosed. The verbs are station commands
 (`TransferToBay` / `TransferToShip`), validated against the RosterView + Bay the same
 shared way `Undock` is.
 
+#### 5d. The CARGO tab, as drawn *(D-P2, 2026-08-21)*
+
+[cargo-tab.png](../ScreenPrints/cargo-tab.png) is the surface §5c names, and it made six
+calls this ADR deliberately left to a print. They are recorded here because two of them reach
+past the screen.
+
+**The vocabulary is item stacks, and ore is only the first family.** Every readout on the tab
+is an `(item, units, litres)` triple — manifest columns, Bay rows, the MOVE filter chips, the
+fill preview. That is not decoration: it is what makes ADR-008c's taxonomy, and the alloys §6
+adds at E4, grow the screen **by rows and chips rather than by redesign**, and it is why no
+label on the tab says "ore" where "item" is meant. The print pre-authorises the one layout
+change it can foresee — per-item manifest columns hold to about five item types, past which
+they collapse to stacked chips per hull — so the growth path is a decision already taken
+rather than one a future slice discovers.
+
+**Cargo is property, so it may be drawn.** ADR-017 §6's "no bars anywhere on this screen" is
+a rule about *damage state*, and a hold's fill is not that. The print's load bar is the
+amendment said out loud: units first (what the ledger counts and what recipes eat), litres
+beneath (what a hold spends), because unit volumes differ per ore (300/200/250 L) and either
+number alone lies.
+
+The other four are properly the screen's own and are summarised where the build order tracks
+the deliverable: transfers move **selections, not slots** (the only computed split is
+fill-to-capacity, by the pre-check the server validates with); **direction follows the
+selection**, both verbs always visible because they are one `MoveOre` with the sign flipped;
+the **Bay draws no meter**, for the same reason §5c gives for leaving it uncapped and P1 gives
+for having no dock-capacity meter; and **pending is a mark, not a guess** — the moved stack
+shows `◌` beside its *old* value until the next `BayStatus` confirms, because a screen that
+guesses a ledger invites the ledger to disagree with it.
+
+**Four questions are open and want owner rulings before E5 builds**, the way P1's four did
+before T3: the ore order used on a fill (index order as drawn, or value density); whether a
+one-tap "transfer all from the fleet that just docked" toast action is worth having beside the
+manual rule; where `CargoStatus` surfaces for holds still in space (the print proposes the
+tactical roster strip, never this tab); and whether pending stays a mark or becomes an
+optimistic total reconciled on `BayStatus`. They are tracked in
+[Economy-Build-Order.md](../Economy-Build-Order.md)'s deliverables section.
+
 ### 6. Refining — the station becomes industry
 
 #### 6a. The recipes, priced
@@ -570,7 +608,55 @@ long-term sink and logistics driver (a Null refinery that must be fed makes supp
 convoys a standing gameplay loop), but fuel before currency is a resource with no
 faucet: there is nothing to buy it with and nowhere to buy it. Reserved-with-a-value is
 the house pattern for exactly this (`CombatEngaged`, `resumeToken`), and it costs one
-integer field to make the market phase a data patch instead of a schema bump.
+integer field to make the market phase a data patch instead of a schema bump. **D-P3 draws no
+fuel line for the same reason** — a cost row that never charges is a screen inventing a
+mechanic — so the field is reserved in the content and absent from the surface until the day
+it is both.
+
+#### 6e. The REFINERY tab, as drawn *(D-P3, 2026-08-21)*
+
+[refinery-tab.png](../ScreenPrints/refinery-tab.png) is §6 on a screen: the recipe list above,
+the job composer and the upgrade project below it, slots and queue down the right. Five calls,
+and the first two are the ones that reach past the screen.
+
+**Locked rows are the industrial map, so they are explained and never hidden.** Every recipe
+is always listed, and a locked row states **which lock and what changes it** — two different
+sentences on purpose. A *tier* lock points at the project board directly beneath it ("TIER 2 —
+THE PROJECT BELOW"): buildable, communal, this screen's own loop. A *band cap* points out of
+the station entirely ("NEVER IN HIGH-SEC — LOW / NULL ONLY"), in amber, because it is
+**geography rather than progress**. That distinction is the whole of §6c's band-cap paragraph
+made legible: the sentence that sends industry into the dark is the endgame economy, and this
+row is where a player reads it for the first time. Hiding locked rows would hide the reason to
+fly anywhere.
+
+**Offline is the feature, so the screen says so as permanent chrome.** §6b's "jobs run while
+you are offline" is the first walk-away loop this game has, and a player who does not know it
+will sit and watch a 22-minute bar. The print makes three commitments out of that: the offline
+line is chrome and not help text, ETAs are **wall-clock rather than session-clock**, and a job
+finishing while away lands in D19's event record for the away log to report — so **this tab
+never owes a notification**, which is what keeps it honest at any staleness.
+
+The other three are properly the screen's own. **The form is arithmetic, shown before commit**:
+four lines, always the same four — inputs now *with the Bay's after-state*, output at
+completion, time with the batch and tier discounts named rather than folded, and the refund
+shown even when it is zero, because "TIER 2 WOULD RETURN 5" is §6c's upgrade pitch in one
+line. The after-state is not a nicety: §6b debits inputs at submission, so what remains is the
+number the player is actually deciding with. No probability appears anywhere on the tab, which
+is §6b's no-crit-crafts ruling made visible. **Slots are yours, not the station's** — §6c put
+contention at the field and the trade lane, so there is no station traffic to browse and no
+queue-jumping UI to design, and `RefineryBusy` is always about your own ten. **The project
+board is communal and irreversible**, which is why contribution sits behind its own confirm
+while QUEUE does not, and why the contribution preview clamps at what remains: the project
+completes exactly once, and a screen should never offer units it will not take.
+
+**Four questions are open and want owner rulings**, and one of them is needed **before E4**
+rather than E5: whether a job can be cancelled (the ADR is silent; the print proposes a queued
+job cancels whole and a running one cannot, its inputs being spent) — E4 writes that verb or
+its absence. The other three are E5's: whether a job is one batch or `(recipe, batchCount)` on
+the wire; whether contribution is whole stacks with a clamp or gains a partial picker; and
+where the away log lives (the print proposes the alerts family owns telling the player, and
+this tab only ever shows current state). They are tracked in
+[Economy-Build-Order.md](../Economy-Build-Order.md)'s deliverables section.
 
 ### 7. The configuration architecture — balance becomes data, with a hash
 
