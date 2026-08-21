@@ -434,8 +434,24 @@ public:
       bays.push_back(bay.station);
     }
 
-    const auto records =
-      static_cast<std::uint8_t>(rosters.size() + sites.size() + bays.size() + (withCargo ? 1u : 0u) + 1u);
+    // And the refineries, on the Bays' terms: this player's, in anchor order,
+    // and only where there is something to say (ADR-024 §6, E4b).
+    std::vector<Game::AnchorId> refineries;
+    for (const Game::AnchorId station : m_registry.RefineriesFor(_viewer))
+    {
+      const Game::RefineryStatusRow row = m_registry.RefineryStatusFor(_viewer, station);
+      const std::size_t bytes = Game::SUMMARY_RECORD_HEADER_BYTES + Game::RefineryStatusBytes(row.jobs.size());
+      if (bytes > budget
+          || rosters.size() + sites.size() + bays.size() + refineries.size() + 2 >= Game::MAX_SUMMARY_RECORDS)
+      {
+        break;
+      }
+      budget -= bytes;
+      refineries.push_back(station);
+    }
+
+    const auto records = static_cast<std::uint8_t>(rosters.size() + sites.size() + bays.size() + refineries.size()
+                                                   + (withCargo ? 1u : 0u) + 1u);
     if (!Game::BeginSummaryFrame(records, _writer))
     {
       return false;
@@ -469,7 +485,15 @@ public:
     {
       const Game::StationBay* bay = m_registry.Bay(_viewer, station);
       if (bay == nullptr || !Game::BeginSummaryRecord(Game::SummaryKind::BayStatus, _writer) ||
-          !Game::WriteBayStatus(station, bay->oreUnits, _writer))
+          !Game::WriteBayStatus(station, bay->oreUnits, bay->alloyUnits, _writer))
+      {
+        return false;
+      }
+    }
+    for (const Game::AnchorId station : refineries)
+    {
+      if (!Game::BeginSummaryRecord(Game::SummaryKind::RefineryStatus, _writer) ||
+          !Game::WriteRefineryStatus(m_registry.RefineryStatusFor(_viewer, station), _writer))
       {
         return false;
       }

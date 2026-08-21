@@ -8,8 +8,8 @@ all thirteen 🏁 G0 checks); **E4b is the next slice**, and the rest is not bui
 [refinery-tab.png](ScreenPrints/refinery-tab.png) (D-P3), sibling tabs of P1's hangar, with
 their sources beside them. **Every design deliverable this phase tracks is now closed**; what
 they leave behind is **eight owner rulings**, listed with each print below. Seven are owed
-before E5. **One is owed before E4b** — whether a refine job can be cancelled — because E4b is
-what writes that verb or its absence. The design this plan
+before E5. The eighth — whether a refine job can be cancelled — **was owed before E4b and was
+answered 2026-08-21**: a queued job cancels whole, a running one cannot. The design this plan
 delivers is [ADR-024](ADR/ADR-024-mining-economy.md), accepted 2026-08-20 with nine owner
 rulings, and [ADR-025](ADR/ADR-025-persistence.md) for the durable half; where this document
 and those disagree, the **ADRs win on *what*** and this one on
@@ -993,9 +993,12 @@ pocket's dampening legible as a thing happening to *you* rather than a number in
     project completes exactly once, so the screen must never offer units it will not take.
 
   **Open — four rulings owed, and one of them lands earlier than the rest:**
-  1. **Job cancel** — **needed before E4b**, not E5. The ADR is silent. The print proposes a
-     queued job cancels whole (inputs return to the Bay) and a running job cannot, its inputs
-     being spent. E4b writes that verb or its absence.
+  1. ~~**Job cancel**~~ — **answered 2026-08-21, and built with E4b.** The owner took the
+     print's proposal: a **queued** job cancels whole and its inputs return to the Bay
+     untouched; a **running** job cannot be cancelled, its inputs being spent. Two states with
+     one rule each, and nothing is created or destroyed by a cancel. Recorded in
+     [ADR-024 §6b](ADR/ADR-024-mining-economy.md), which was silent, and enforced by
+     `AQueuedJobCancelsWholeAndARunningOneCannot`. **Three rulings remain, all E5's.**
   2. **What a job is on the wire.** Drawn as one batch per job with the queue holding many; if
      E4b spells `(recipe, batchCount)`, the composer gains a count and the queue rows collapse
      — same screen, one field.
@@ -1011,9 +1014,9 @@ pocket's dampening legible as a thing happening to *you* rather than a number in
 prints, delivered today). The content deliverables D-C1–D-C3 remain, and they are art and audio
 rather than design. **What is still owed against the prints is eight owner rulings, not
 artefacts**, and they are listed with each print above: four from D-P2, all owed before E5; and
-four from D-P3, of which **job cancel is owed before E4b**. That is the one sequencing
-consequence worth carrying forward — the rest can be answered any time before the screens
-build.
+four from D-P3, of which **job cancel was owed before E4b and is answered** (2026-08-21). The
+seven that remain can be answered any time before the screens build, which is the sequencing
+consequence worth carrying forward: nothing left in this phase is gated on a ruling.
 - **D-C1 — Ore and alloy icons**, in the tactical icon system's families, plus the three
   archetype glyphs the strategic and system maps need.
 - **D-C2 — The site field's visual treatment**: the Nebula pass parameter set for pockets, and

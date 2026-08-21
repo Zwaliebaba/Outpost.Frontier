@@ -545,6 +545,12 @@ you are offline**, because the service is persistent and a refinery that stopped
 slept would just be a tax on time zones. Completion writes a D19 event-record entry: the
 away-log learns to say "1,000 Plates finished at Vesta-3."
 
+**Cancel** *(owner ruling, 2026-08-21, answering D-P3's first open question)*: a **queued**
+job cancels whole and its inputs return to the Bay untouched; a **running** job cannot be
+cancelled, its inputs being spent. Two states with one rule each, and nothing is created or
+destroyed by a cancel -- what goes back is exactly what came out. `RefineCancel` in §8's verb
+list is that ruling, and it names the job by the sequence `RefineryStatus` reports.
+
 Batching is the deterministic economy's answer to yield RNG — **no crit-crafts, no
 probabilistic bonus units; the refund is exact and the ledger always adds up:**
 

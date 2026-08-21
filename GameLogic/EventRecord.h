@@ -77,14 +77,21 @@ enum class EventKind : std::uint8_t
   SiteExhausted = 6,
 
   /*
-   * Reserved for the refining slices (ADR-024 §8, E4). Numbered now and emitted
-   * by nothing, the way `OrderReason::CombatEngaged` is: the away-log is the
-   * reconnect screen's content, so these values will cross the wire, and an
-   * enum that renumbered when refining arrived would renumber it for a feature
-   * that was always planned.
+   * Refining's two (ADR-024 §8), reserved by E3 and **emitted since E4b**.
+   *
+   * The reservation did its job: these numbers were published the moment they
+   * were written down, so refining arriving cost the enum nothing. They are
+   * also the away-log's whole reason to exist for this phase -- a refinery runs
+   * while the commander is offline (§6b), so "1,000 Plates finished at Vesta-3"
+   * is a line only the event record can carry.
+   *
+   * `count` is the alloy units delivered for a completion, and the **tier
+   * reached** for a project: the number a player would want read back to them,
+   * which for a communal build is what got built rather than how much of it
+   * they paid for.
    */
-  RefineComplete = 7,  // Reserved: E4.
-  ProjectComplete = 8, // Reserved: E4.
+  RefineComplete = 7,
+  ProjectComplete = 8,
 
   /*
    * Ore committed to a station's Bay, and ore taken back out (ADR-024 §5c, E3).

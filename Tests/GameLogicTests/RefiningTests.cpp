@@ -657,6 +657,103 @@ public:
   }
 };
 
+TEST_CLASS(RefineWireTests)
+{
+public:
+  TEST_METHOD(TheCommandCarriesItsAlloyAndItsSequence)
+  {
+    // E4b's half of the fail-closed bump: an alloy byte and a job sequence,
+    // beside E3's ore byte and unit count.
+    StationCommand sent;
+    sent.orderSeq = 77;
+    sent.verb = StationVerb::RefineStart;
+    sent.station = 40;
+    sent.alloy = AlloyId::QuantumMatrix;
+    sent.units = 50;
+    sent.sequence = 9;
+
+    std::uint8_t buffer[MAX_STATION_COMMAND_BYTES];
+    Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
+    Assert::IsTrue(WriteStationCommand(sent, writer), L"a refine command did not write");
+
+    Neuron::ByteReader reader{writer.Written()};
+    StationCommand back;
+    Assert::IsTrue(ReadStationCommand(reader, back), L"a refine command did not read back");
+    Assert::IsTrue(back.verb == StationVerb::RefineStart, L"the verb did not survive");
+    Assert::IsTrue(back.alloy == AlloyId::QuantumMatrix, L"the alloy did not survive");
+    Assert::AreEqual<std::uint32_t>(50, back.units, L"the batch did not survive");
+    Assert::AreEqual<std::uint32_t>(9, back.sequence, L"the job sequence did not survive");
+  }
+
+  TEST_METHOD(AnAlloyThisBuildDoesNotKnowIsRefusedAtTheDoor)
+  {
+    /*
+     * The ore byte's rule, applied to the alloy byte (E4b): refused rather than
+     * cast, because it indexes a recipe and a Bay before validation could have
+     * an opinion -- and there is no sentence to show somebody whose client
+     * believes in a sixth alloy.
+     */
+    std::uint8_t buffer[MAX_STATION_COMMAND_BYTES];
+    Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
+    writer.WriteUInt32(1);
+    writer.WriteUInt8(static_cast<std::uint8_t>(StationVerb::RefineStart));
+    writer.WriteUInt16(40);
+    writer.WriteUInt8(0);
+    writer.WriteUInt8(0);
+    writer.WriteUInt8(static_cast<std::uint8_t>(OreId::FerroChroma));
+    writer.WriteUInt32(10);
+    writer.WriteUInt8(ALLOY_COUNT); // One past the last alloy this build has.
+    writer.WriteUInt32(0);
+    writer.WriteUInt16(0);
+    Assert::IsTrue(writer.Ok());
+
+    Neuron::ByteReader reader{writer.Written()};
+    StationCommand back;
+    Assert::IsFalse(ReadStationCommand(reader, back), L"an alloy outside the enum was decoded");
+  }
+
+  TEST_METHOD(ARefineryStatusSurvivesTheTrip)
+  {
+    RefineryStatusRow sent;
+    sent.station = 41;
+    sent.tier = 3;
+    sent.jobs.push_back(RefineryJobRow{7, AlloyId::NovaSteel, 10, 12345});
+    sent.jobs.push_back(RefineryJobRow{8, AlloyId::AstraGlass, 50, 0}); // Queued.
+    sent.projectToTier = 4;
+    sent.projectContributedUnits[static_cast<std::uint8_t>(AlloyId::NovaSteel)] = 250;
+
+    std::vector<std::uint8_t> buffer(1024);
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteRefineryStatus(sent, writer), L"a refinery status did not write");
+
+    Neuron::ByteReader reader{writer.Written()};
+    RefineryStatusRow back;
+    Assert::IsTrue(ReadRefineryStatus(reader, back), L"a refinery status did not read back");
+    Assert::IsTrue(reader.FullyConsumed(), L"the two halves disagree about a length");
+    Assert::AreEqual<std::uint8_t>(3, back.tier, L"the tier did not survive");
+    Assert::AreEqual<std::size_t>(2, back.jobs.size(), L"a job was lost");
+    Assert::AreEqual<std::uint32_t>(12345, back.jobs[0].completeTick, L"a completion tick did not survive");
+    Assert::AreEqual<std::uint32_t>(0, back.jobs[1].completeTick, L"a queued job came back running");
+    Assert::AreEqual<std::uint8_t>(4, back.projectToTier, L"the project did not survive");
+    Assert::AreEqual<std::uint32_t>(250, back.projectContributedUnits[static_cast<std::uint8_t>(AlloyId::NovaSteel)],
+                                    L"a contribution did not survive");
+  }
+
+  TEST_METHOD(AJobCountPastTheBoundIsRefusedBeforeItSizesAnything)
+  {
+    std::vector<std::uint8_t> buffer(64);
+    Neuron::ByteWriter writer{buffer};
+    writer.WriteUInt16(41);
+    writer.WriteUInt8(2);
+    writer.WriteUInt16(static_cast<std::uint16_t>(MAX_REFINERY_JOB_ROWS + 1));
+    Assert::IsTrue(writer.Ok());
+
+    Neuron::ByteReader reader{writer.Written()};
+    RefineryStatusRow back;
+    Assert::IsFalse(ReadRefineryStatus(reader, back), L"a job count past the bound was believed");
+  }
+};
+
 TEST_CLASS(RefineDurabilityTests)
 {
 public:

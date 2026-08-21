@@ -711,14 +711,18 @@ public:
 
     {
       const std::uint32_t units[ORE_COUNT] = {1, 2, 3};
+      // And the alloys the Bay grew with E4b: one statement about one place.
+      const std::uint32_t alloys[ALLOY_COUNT] = {10, 20, 30, 40, 50};
       Neuron::ByteWriter writer{buffer};
-      Assert::IsTrue(WriteBayStatus(6, units, writer), L"bay status did not write");
+      Assert::IsTrue(WriteBayStatus(6, units, alloys, writer), L"bay status did not write");
       Neuron::ByteReader reader{writer.Written()};
       AnchorId station = INVALID_ID;
       std::uint32_t back[ORE_COUNT] = {};
-      Assert::IsTrue(ReadBayStatus(reader, station, back), L"bay status did not read back");
+      std::uint32_t backAlloys[ALLOY_COUNT] = {};
+      Assert::IsTrue(ReadBayStatus(reader, station, back, backAlloys), L"bay status did not read back");
       Assert::AreEqual<std::uint16_t>(6, station, L"station");
       Assert::AreEqual<std::uint32_t>(3, back[2], L"units");
+      Assert::AreEqual<std::uint32_t>(50, backAlloys[4], L"alloy units");
     }
   }
 

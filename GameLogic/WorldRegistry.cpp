@@ -1630,6 +1630,55 @@ UpgradeProject* WorldRegistry::ProjectFor(AnchorId _station)
   return &*m_projects.insert(at, row);
 }
 
+RefineryStatusRow WorldRegistry::RefineryStatusFor(Neuron::PlayerId _owner, AnchorId _station) const
+{
+  RefineryStatusRow row;
+  row.station = _station;
+  row.tier = TierAt(_station);
+
+  // In the vector's own order, which is `(station, owner, sequence)` -- so a
+  // commander's jobs arrive in the order the queue will drain them, without the
+  // sender having to know that is what queue order means.
+  for (const RefineJob& job : m_refineJobs)
+  {
+    if (job.owner != _owner || job.station != _station)
+    {
+      continue;
+    }
+    RefineryJobRow entry;
+    entry.sequence = job.sequence;
+    entry.alloy = job.alloy;
+    entry.batchUnits = job.batchUnits;
+    entry.completeTick = job.completeTick;
+    row.jobs.push_back(entry);
+  }
+
+  if (const UpgradeProject* project = Project(_station); project != nullptr)
+  {
+    row.projectToTier = project->toTier;
+    for (std::uint8_t alloy = 0; alloy < ALLOY_COUNT; ++alloy)
+    {
+      row.projectContributedUnits[alloy] = project->contributedUnits[alloy];
+    }
+  }
+  return row;
+}
+
+std::vector<AnchorId> WorldRegistry::RefineriesFor(Neuron::PlayerId _owner) const
+{
+  std::vector<AnchorId> stations;
+  for (const RefineJob& job : m_refineJobs)
+  {
+    if (job.owner == _owner && (stations.empty() || stations.back() != job.station))
+    {
+      // The jobs are sorted by station, so "not the last one added" is the
+      // whole of the de-duplication.
+      stations.push_back(job.station);
+    }
+  }
+  return stations;
+}
+
 std::uint32_t WorldRegistry::RefineJobCountFor(Neuron::PlayerId _owner, AnchorId _station) const noexcept
 {
   std::uint32_t count = 0;

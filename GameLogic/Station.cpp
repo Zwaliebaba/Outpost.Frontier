@@ -66,6 +66,19 @@ std::uint32_t StationBay::TotalUnits() const noexcept
   {
     total += units;
   }
+  /*
+   * And the alloys (E4b), because this answers "is there anything here" and a
+   * Bay holding nothing but Plates is not empty.
+   *
+   * It matters more than it looks: the summary sender skips a Bay whose total
+   * is zero, so an ore-only count would have stopped reporting a commander's
+   * Bay the moment they refined all of it -- their whole industrial estate
+   * would vanish from the screen at exactly the moment it became interesting.
+   */
+  for (const std::uint32_t units : alloyUnits)
+  {
+    total += units;
+  }
   return total > 0xffffffffull ? 0xffffffffu : static_cast<std::uint32_t>(total);
 }
 

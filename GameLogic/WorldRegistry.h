@@ -220,6 +220,28 @@ public:
    */
   [[nodiscard]] std::uint8_t TierAt(AnchorId _station) const noexcept;
 
+  /*
+   * One commander's refinery at one station, as the wire reports it
+   * (ADR-024 §6, E4b).
+   *
+   * Here rather than in the sender for `SiteStatusFor`'s reason exactly: it
+   * takes three things only the registry has together -- the effective tier
+   * (authored floor, raised by projects, clamped by band), this player's jobs
+   * in queue order, and the station's open project. A sender that assembled
+   * those itself would be a second place for "what is this refinery doing" to
+   * be computed, and the two would drift the first time one of them learned
+   * about a new lock.
+   *
+   * **Keyed by the viewer, not filtered for them**, on `CargoFor`'s terms: the
+   * privacy of a refinery status is a property of what this function is asked.
+   */
+  [[nodiscard]] RefineryStatusRow RefineryStatusFor(Neuron::PlayerId _owner, AnchorId _station) const;
+
+  /// The stations where this commander has a refinery worth reporting -- which
+  /// is where they have jobs. In anchor order, so two runs of one script send
+  /// the same frame.
+  [[nodiscard]] std::vector<AnchorId> RefineriesFor(Neuron::PlayerId _owner) const;
+
   /// The open project at a station, or null when nobody has contributed to one
   /// yet. Null is the *untouched* answer and not an absence, exactly as it is
   /// for a site ledger and a Bay.

@@ -14,6 +14,7 @@
 
 #include "DurableState.h"
 #include "FleetSummary.h"
+#include "Refining.h"
 #include "OrderMessages.h"
 #include "ReplicatedView.h"
 #include "SchemaHash.h"
@@ -231,6 +232,11 @@ void RunRestartLoop(Checklist& _checks, const Game::EconomyDef& _economy)
   std::uint64_t writtenHash = 0;
   std::vector<std::uint8_t> stateBytes;
 
+  /// What the running job said about itself before the shard stopped. The two
+  /// numbers 🏁 G1 is about: which job, and when it finishes.
+  std::uint32_t jobSequence = 0;
+  std::uint32_t jobCompleteTick = 0;
+
   // --- The shard, before it stops. ---
   {
     Game::WorldRegistry registry;
@@ -263,6 +269,31 @@ void RunRestartLoop(Checklist& _checks, const Game::EconomyDef& _economy)
     (void)toBay.AddShip(ship);
     const Game::OrderVerdict committed = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, toBay);
     _checks.Record("the restart scenario commits ore to a Bay", committed.accepted);
+
+    /*
+     * And a refine job on top of it -- 🏁 G1's own claim (ADR-024 §6b, E4b).
+     *
+     * The batch is deliberately the smallest the content authors, because what
+     * is under test is that a job **survives with its completion tick unmoved**
+     * rather than how long it takes: a job restored with a duration instead of
+     * a deadline would silently restart its own clock on every restart, and a
+     * shard that bounced twice an hour would then never finish anything.
+     */
+    Game::StationCommand refine;
+    refine.orderSeq = 3;
+    refine.verb = Game::StationVerb::RefineStart;
+    refine.station = station;
+    refine.alloy = Game::AlloyId::FerrocitePlates;
+    refine.units = 1;
+    const Game::OrderVerdict started = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, refine);
+    _checks.Record("the restart scenario starts a refine job", started.accepted);
+    _checks.Record("the job is running before the shard stops",
+                   registry.RefineJobs().size() == 1 && registry.RefineJobs()[0].Running());
+    if (registry.RefineJobs().size() == 1)
+    {
+      jobSequence = registry.RefineJobs()[0].sequence;
+      jobCompleteTick = registry.RefineJobs()[0].completeTick;
+    }
 
     writtenHash = Game::DurableHash(registry);
     stateBytes.resize(1u << 20);
@@ -312,7 +343,29 @@ void RunRestartLoop(Checklist& _checks, const Game::EconomyDef& _economy)
     _checks.Record("the hold survives the restart", docked.size() == 1 && docked[0].Units(Game::OreId::FerroChroma) == 20);
 
     const Game::StationBay* bay = registry.Bay(Neuron::SOLE_PLAYER_ID, station);
-    _checks.Record("the Bay survives the restart", bay != nullptr && bay->Units(Game::OreId::FerroChroma) == 40);
+    _checks.Record("the Bay survives the restart", bay != nullptr && bay->Units(Game::OreId::FerroChroma) == 38);
+
+    /*
+     * 🏁 G1: **the refinery does not stop when the shard restarts.**
+     *
+     * The completion tick unmoved is the assertion; the job still being there
+     * is only half of it. And then it is run to that tick and the alloy is in
+     * the Bay -- because a job that survives and never finishes is the same
+     * outcome as one that did not survive, arrived at more slowly.
+     */
+    const std::span<const Game::RefineJob> jobs = registry.RefineJobs();
+    _checks.Record("the refine job survives the restart", jobs.size() == 1);
+    _checks.Record("with the job it was", jobs.size() == 1 && jobs[0].sequence == jobSequence);
+    _checks.Record("and its completion tick unmoved", jobs.size() == 1 && jobs[0].completeTick == jobCompleteTick);
+
+    for (std::uint32_t tick = registry.ShardTick() + 1; tick <= jobCompleteTick; ++tick)
+    {
+      registry.Tick(tick);
+    }
+    const Game::StationBay* finished = registry.Bay(Neuron::SOLE_PLAYER_ID, station);
+    _checks.Record("the reloaded job finishes into the Bay",
+                   registry.RefineJobs().empty() && finished != nullptr
+                     && finished->Units(Game::AlloyId::FerrocitePlates) == 1);
 
     std::vector<Game::PersistenceDiagnostic> refusal;
     Game::WorldRegistry running;
