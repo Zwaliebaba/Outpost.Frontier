@@ -149,9 +149,11 @@ moves between the trees without a rename pass. Three things it changed in these 
   the only home of an owed item — anything still outstanding is rehomed to a live document
   before its plan is archived.
 - [Risk-Register.md](Risk-Register.md) — R1–R26 with designed-in mitigations + standing spikes.
-  R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised and
-  closed**, and R23 — a gating test that flakes — is the one question that did not close
-  with it. **R24 and R25 arrived with ADR-024** — the economy's two: faucet-without-sink
+  R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised twice —
+  closed 2026-08-20, reopened and root-caused 2026-08-21** when the Debug hang came back and
+  the blame collector finally named it: a lost wake-up in `TaskPool::Stop`, not the msquic
+  lifecycle the row had spent two days suspecting. R23 — a gating test that flakes — is the
+  one question that did not close with it. **R24 and R25 arrived with ADR-024** — the economy's two: faucet-without-sink
   inflation, and High-Sec site contention — and **R26 with ADR-025**, the one persistence
   brings: a torn journal or a refused load taking a shard's state with it.
 - [Archive/Scaling-Readiness-Review.md](Archive/Scaling-Readiness-Review.md) — **archived
@@ -409,7 +411,9 @@ answered the same day as [ADR-017 §6a](ADR/ADR-017-station-docking.md), so **ev
 gate in the station phase is now cleared** and what is left of it is screen work.
 
 **Three things landed on 2026-08-20, none of them a slice.** R22 closed and the Debug leg went
-back to gating, leaving R23 behind it. The build stopped relying on a hand-maintained
+back to gating, leaving R23 behind it. *(That close did not hold: the hang returned on
+2026-08-21 and was root-caused then — a second, independent deadlock, in `TaskPool` rather
+than in the transport. The register's fifth R22 entry has it.)* The build stopped relying on a hand-maintained
 deployment: `Outpost.vcxproj` gained a `CopyGameData` target, so content and `Outpost.json`
 arrive beside the executable and a fresh clone can press F5 — the build-order note that
 recorded that gap is closed. And the boot fleet was re-parked on the owner's call, closing the
