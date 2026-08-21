@@ -552,7 +552,66 @@ public:
       return Malformed();
     }
 
-    const Game::OrderVerdict decided = ServedWorld().SubmitOrder(order);
+    /*
+     * Whose ships these are, before anything is asked to move them
+     * (ADR-018 D5, U3c-b). `Validate.cpp` has carried the answer to why
+     * `NotOwned` existed and was unreachable since the MVP -- "there is one
+     * player and every ship is theirs" -- and this is the slice where that
+     * stops being true.
+     *
+     * Checked HERE rather than in the validator because a world knows only its
+     * own ships and must never learn who owns one (ADR-018 D2). The registry
+     * keeps the index, the composition root is what can see both, so the
+     * refusal is composed here and travels through the engine as a number it
+     * does not read (ADR-014 §3).
+     */
+    for (std::uint16_t index = 0; index < order.shipCount; ++index)
+    {
+      if (m_registry.OwnerOf(order.shipIds[index]) != _player)
+      {
+        OrderVerdict refused;
+        refused.accepted = false;
+        refused.reasonCode = static_cast<std::uint16_t>(Game::OrderReason::NotOwned);
+        refused.orderSeq = order.orderSeq;
+        return refused;
+      }
+    }
+
+    /*
+     * And the grid the order is FOR, which is where the ships are rather than
+     * where the shard happens to start.
+     *
+     * `ServedWorld()` is the start anchor, full stop. With one commander that
+     * was right by construction; with two it sends every order to the first
+     * commander's grid, so a second commander's fleet could not be ordered at
+     * all -- and the ownership check above would be the only thing standing
+     * between them and ordering somebody else's.
+     *
+     * The first named ship decides. Ships in the order that are somewhere else
+     * are refused `UnknownShip` by that world's own validator, which is the
+     * honest answer: they are not on the grid this order is about.
+     */
+    Game::AnchorId where = Game::INVALID_ID;
+    if (order.shipCount == 0 || !m_registry.LocationOf(order.shipIds[0], where))
+    {
+      OrderVerdict refused;
+      refused.accepted = false;
+      refused.reasonCode = static_cast<std::uint16_t>(order.shipCount == 0 ? Game::OrderReason::EmptySelection
+                                                                          : Game::OrderReason::UnknownShip);
+      refused.orderSeq = order.orderSeq;
+      return refused;
+    }
+    Game::World* world = m_registry.Borrow(where);
+    if (world == nullptr)
+    {
+      OrderVerdict refused;
+      refused.accepted = false;
+      refused.reasonCode = static_cast<std::uint16_t>(Game::OrderReason::UnknownShip);
+      refused.orderSeq = order.orderSeq;
+      return refused;
+    }
+
+    const Game::OrderVerdict decided = world->SubmitOrder(order);
 
     OrderVerdict verdict;
     verdict.accepted = decided.accepted;
@@ -682,6 +741,30 @@ public:
    * but onboarding is a design question nobody has answered, and this is the
    * one line to change when somebody does.
    */
+  /*
+   * Where this commander's session opens (ADR-018 D5, U3c-b).
+   *
+   * The grid their ships are standing on, not the shard's default. Before this
+   * every session opened on the start anchor, which was right while every
+   * session was the same commander and wrong the moment one was not: a second
+   * commander would connect, be shown a grid they have no presence on, and be
+   * refused a view of their own fleet.
+   *
+   * `Summaries` is sorted by anchor, so a commander in two places opens on the
+   * lowest -- deterministic, and a placeholder in the same sense the starting
+   * fleet is: when there is a screen to choose from, the choice is the
+   * player's.
+   */
+  [[nodiscard]] std::uint16_t HomeGrid(PlayerId _player) override
+  {
+    const std::vector<Game::FleetSummary> mine = m_registry.Summaries(_player);
+    if (!mine.empty())
+    {
+      return static_cast<std::uint16_t>(mine.front().anchor);
+    }
+    return static_cast<std::uint16_t>(m_startAnchor);
+  }
+
   void PlayerJoined(PlayerId _player) override
   {
     if (!m_registry.Summaries(_player).empty())

@@ -221,7 +221,10 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
      */
     const WorldMeta world = m_simulation->World();
 
-    const std::uint16_t grid = resumed ? lapsed.grid : world.gridAnchor;
+    // Where they were watching if they are coming back, and where their own
+    // ships are if they are not (U3c-b). `world.gridAnchor` is the shard's,
+    // which is only the right answer for a commander who has nothing.
+    const std::uint16_t grid = resumed ? lapsed.grid : m_simulation->HomeGrid(playerId);
     SessionInfo& session = m_sessions.emplace_back(m_nextClientId++, playerId, _event.connection, grid);
     session.handshakeComplete = true;
 

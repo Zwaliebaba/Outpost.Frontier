@@ -1399,6 +1399,83 @@ void RunSecondCommanderGate(Checklist& _checks, Neuron::ServerHost& _server, con
   _checks.Record("the refused viewer is still on their own grid", bob.GridAnchor() == bobGrid);
 
   /*
+   * Orders attributed correctly -- U3c's accept clause, and the one that needed
+   * a hole closing rather than a check writing.
+   *
+   * `Validate.cpp` has said since the MVP that `NotOwned` was unreachable
+   * because "there is one player and every ship is theirs". It was, and the
+   * order path proved it: every order went to the START grid whoever sent it,
+   * and named any ship standing there. With a second commander that is a
+   * commander ordering another's fleet, and nothing in the engine would have
+   * minded -- the world it went to knows only its own ships and must not learn
+   * who owns one (ADR-018 D2), so the check could only ever live where the
+   * registry and the wire are both visible.
+   *
+   * B is handed one of A's ship ids by the harness, which is the strongest
+   * form of the test: it does not rely on B being unable to LEARN the id, only
+   * on the server refusing it.
+   */
+  Game::ReplicatedView aliceView;
+  std::vector<Game::ReplicatedShip> aliceShips;
+  (void)PumpUntil(alice,
+                  [&]
+                  {
+                    for (const std::vector<std::uint8_t>& payload : alice.PendingSnapshots())
+                    {
+                      (void)aliceView.ApplySnapshot(payload);
+                    }
+                    alice.ClearPendingSnapshots();
+                    aliceShips.clear();
+                    aliceView.SampleAt(static_cast<double>(aliceView.LatestTick()), aliceShips);
+                    return !aliceShips.empty();
+                  });
+
+  Game::ShipId alicesHull = Game::INVALID_SHIP_ID;
+  for (const Game::ReplicatedShip& ship : aliceShips)
+  {
+    if (ship.classId != static_cast<std::uint8_t>(Game::HullClass::Structure))
+    {
+      alicesHull = ship.id;
+      break;
+    }
+  }
+  _checks.Record("the harness can name one of the first commander's hulls", alicesHull != Game::INVALID_SHIP_ID);
+
+  if (alicesHull != Game::INVALID_SHIP_ID)
+  {
+    Game::OrderSubmit poach;
+    poach.orderSeq = 9301;
+    (void)poach.AddShip(alicesHull);
+    poach.target.xCm = Neuron::MetresToCentimetres(500.0f);
+    poach.target.yCm = Neuron::MetresToCentimetres(500.0f);
+
+    std::array<std::uint8_t, Game::MAX_ORDER_SUBMIT_BYTES + Game::COMMAND_KIND_BYTES> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    bob.ClearPendingVerdicts();
+    const bool sent = Game::WriteCommandKind(Game::CommandKind::Order, writer) &&
+                      Game::WriteOrderSubmit(poach, writer) && bob.SendOrder(writer.Written());
+    _checks.Record("a commander may send an order naming another's ship", sent);
+
+    bool refusedNotOwned = false;
+    (void)PumpUntil(bob,
+                    [&]
+                    {
+                      for (const Neuron::OrderVerdict& verdict : bob.PendingVerdicts())
+                      {
+                        if (verdict.orderSeq == poach.orderSeq)
+                        {
+                          refusedNotOwned = !verdict.accepted &&
+                                            verdict.reasonCode ==
+                                              static_cast<std::uint16_t>(Game::OrderReason::NotOwned);
+                          return true;
+                        }
+                      }
+                      return false;
+                    });
+    _checks.Record("and the authority refuses it NotOwned", refusedNotOwned);
+  }
+
+  /*
    * Summaries. A's fleet must not appear in B's, in either direction -- the
    * symmetric assertion is worth making because a filter keyed on the wrong
    * side of the comparison would pass one and fail the other.

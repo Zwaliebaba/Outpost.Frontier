@@ -238,6 +238,24 @@ public:
    */
   virtual void PlayerJoined(PlayerId _player) { (void)_player; }
 
+  /*
+   * The grid a session opens on, for this commander (ADR-018 D5, U3c-b).
+   *
+   * Asked after `PlayerJoined`, so a brand-new commander is looking at whatever
+   * joining gave them. It defaults to the shard's own grid, which is what every
+   * session got when every session was the same commander -- and which is
+   * exactly wrong once one is not: a second commander would open on a grid they
+   * have no presence on and be refused a view of their own fleet.
+   *
+   * A game question like `PlayerJoined`, and asked rather than assumed for the
+   * same reason.
+   */
+  [[nodiscard]] virtual std::uint16_t HomeGrid(PlayerId _player)
+  {
+    (void)_player;
+    return World().gridAnchor;
+  }
+
   [[nodiscard]] virtual std::uint64_t SchemaHash() const = 0;
 
   /// The content the simulation was built from -- the universe definition and
