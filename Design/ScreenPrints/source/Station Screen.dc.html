@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0a0b09;font-family:'Share Tech Mono',ui-monospace,monospace}
+a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
+</style></helmet>
+
+<div data-screen-label="Station Screen" style="width:1440px;background:#050705;padding:44px 48px 56px;color:#7cff3e;position:relative">
+<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.03) 0 1px,transparent 1px 3px);pointer-events:none"></div>
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(124,255,62,.3);padding-bottom:16px;margin-bottom:12px">
+  <div>
+    <div style="font-size:26px;color:#c9ff9e;letter-spacing:.08em">STATION SCREEN — P1</div>
+    <div style="font-size:12.5px;color:#5d7a57;letter-spacing:.06em;margin-top:6px">ADR-017 §6 — the hangar: docked roster, fleet composition, undock · blocks T3 / milestone H1</div>
+  </div>
+  <div style="text-align:right;font-size:11.5px;color:#4e6a49;line-height:1.8">
+    <div>SOURCE · ADR-017 §1, §3–§6 · ADR-016 §7 · ADR-012 (names)</div>
+    <div>PREVIEW · {{ stateLabel }}</div>
+  </div>
+</div>
+
+<p style="font-size:13px;color:#7d8c79;line-height:1.75;max-width:1010px;margin:0 0 18px;text-wrap:pretty">
+  <span style="color:#c9ff9e">This screen is the whole answer to "compose new fleets."</span> ADR-017 made fleets and wings emergent —
+  a fleet is whatever undocks together, a wing exists iff a ship carries its id — so the hangar is not a management screen over fleet
+  objects; there are none. It is a <em style="color:#c9ff9e;font-style:normal">selection surface</em>: pick docked ships, pick a
+  formation, UNDOCK. Everything else here exists to make that selection fast at 60 ships and honest about what happens next.
+</p>
+<div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.5);padding:13px 17px;font-size:12px;color:#7d8c79;line-height:1.7;margin-bottom:34px">
+  <span style="color:#ffb000">One rule shapes the layout:</span> the roster keeps no damage state — a docked ship has no gauges, so
+  <span style="color:#c9ff9e">there are no hull bars anywhere on this screen</span>, and REPAIR is a stub reading FREE rather than a
+  system. A chip is a class glyph, a name, a wing. That is the entire vocabulary, and it is why sixty ships fit without a scrollbar.
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§1</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE SCREEN</span>
+  <span style="font-size:12px;color:#5d7a57">authored 1440×900 · TACTICAL ⇄ STATION, the map's own family</span>
+</div>
+<div data-plate="station-screen" style="position:relative;width:1344px;height:840px;overflow:hidden;border:1px solid rgba(124,255,62,.22);background:#000;margin-bottom:14px">
+<div style="width:1440px;height:900px;transform:scale(.9333);transform-origin:top left;position:relative;background:#000">
+  <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 50% 44%,#0b1210 0%,#000 74%)"></div>
+  <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.035) 0 1px,transparent 1px 3px)"></div>
+
+  <div style="position:absolute;left:0;right:0;top:0;height:46px;display:flex;align-items:center;gap:16px;padding:0 18px;border-bottom:1px solid rgba(124,255,62,.3);background:rgba(4,8,5,.88);font-size:15px;letter-spacing:.06em">
+    <span style="color:#5d7a57">◀ TACTICAL</span><span style="color:#3d5a37">|</span>
+    <span style="color:#c9ff9e">VESTA-3 ANCHORAGE · STATION</span>
+    <sc-if value="{{ remote }}" hint-placeholder-val="{{ false }}">
+      <span style="font-size:12px;color:#ffb000;border:1px solid rgba(255,176,0,.4);padding:3px 9px;letter-spacing:.08em">REMOTE — FLEET NOT ON THIS GRID</span>
+    </sc-if>
+    <span style="flex:1"></span>
+    <span style="color:#8fa08b;font-size:14px">14:22:07</span>
+    <span style="color:#5d7a57">☰</span>
+  </div>
+
+  <div style="position:absolute;left:0;right:0;top:46px;height:52px;display:flex;align-items:stretch;gap:2px;padding:0 26px;border-bottom:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86)">
+    <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+      <div style="{{ t.st }}">
+        <span style="font-size:14px;letter-spacing:.08em">{{ t.name }}</span>
+        <sc-if value="{{ t.tag }}" hint-placeholder-val="{{ false }}"><span style="{{ t.tagSt }}">{{ t.tag }}</span></sc-if>
+      </div>
+    </sc-for>
+    <span style="flex:1"></span>
+    <span style="align-self:center;font-size:12px;color:#4e6a49;letter-spacing:.06em">SERVICES ARRIVE AS TABS</span>
+  </div>
+
+  <div style="position:absolute;left:0;top:98px;bottom:0;width:1032px;padding:22px 26px;overflow:hidden">
+    <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:18px">
+      <span style="font-size:22px;color:#c9ff9e;letter-spacing:.08em">HANGAR</span>
+      <span style="font-size:14px;color:#5d7a57">{{ dockedSummary }}</span>
+      <span style="flex:1"></span>
+      <span style="font-size:13px;color:#4e6a49;letter-spacing:.06em">TAP = TOGGLE · HOLD WING HEADER = SELECT WING</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">
+      <sc-for list="{{ wings }}" as="w" hint-placeholder-count="6">
+        <div style="{{ w.blockSt }}">
+          <div style="display:flex;align-items:center;gap:9px;padding:10px 12px;border-bottom:1px solid rgba(124,255,62,.12)">
+            <span style="{{ w.nameSt }}">{{ w.name }}</span>
+            <span style="font-size:11px;color:#3d5a37">{{ w.idTag }}</span>
+            <span style="flex:1"></span>
+            <span style="{{ w.countSt }}">{{ w.count }}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:10px 12px">
+            <sc-for list="{{ w.ships }}" as="s" hint-placeholder-count="8">
+              <div style="{{ s.st }}">
+                <span style="{{ s.glyphSt }}"></span>
+                <span style="font-size:12px;letter-spacing:.04em">{{ s.name }}</span>
+                <span style="flex:1"></span>
+                <span style="font-size:10px;color:#4e6a49">{{ s.cls }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="position:absolute;right:0;top:98px;bottom:0;width:408px;border-left:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86);padding:20px 22px;display:flex;flex-direction:column;gap:14px">
+    <div style="font-size:13px;color:#4e6a49;letter-spacing:.14em">UNDOCK COMPOSER</div>
+    <div style="border:1px solid rgba(124,255,62,.18);background:rgba(6,12,6,.5);padding:13px 15px">
+      <div style="{{ selHeadSt }}">{{ selHead }}</div>
+      <sc-for list="{{ selLines }}" as="l" hint-placeholder-count="3">
+        <div style="display:flex;align-items:baseline;gap:9px;font-size:12.5px;padding:4px 0;color:#7d8c79">
+          <span style="{{ l.glyphSt }}"></span><span>{{ l.name }}</span><span style="flex:1"></span><span style="color:#7cff3e">{{ l.n }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <span style="font-size:12px;color:#5d7a57;letter-spacing:.08em">FORMATION</span>
+      <div style="flex:1;height:46px;border:1px solid rgba(124,255,62,.3);display:flex;align-items:center;justify-content:space-between;padding:0 14px;font-size:14px;color:#c9ff9e;letter-spacing:.06em">LINE <span style="color:#5d7a57">▾</span></div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="{{ undockSt }}">{{ undockLabel }}</div>
+      <sc-if value="{{ waves }}" hint-placeholder-val="{{ false }}">
+        <div style="font-size:11.5px;color:#ffb000;line-height:1.6;border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.5);padding:9px 12px">⏳ 66 &gt; 64 per order — undocks as two waves; wave 2 launches when wave 1 clears the point</div>
+      </sc-if>
+    </div>
+    <div style="border:1px solid rgba(124,255,62,.18);background:#000;position:relative;height:224px;overflow:hidden">
+      <sc-for list="{{ ringMarks }}" as="m" hint-placeholder-count="30"><div style="{{ m.st }}">{{ m.text }}</div></sc-for>
+      <div style="position:absolute;left:11px;bottom:9px;font-size:10.5px;color:#4e6a49;letter-spacing:.06em">PARKING · RINGS 2.5 / 4.0 KM · 12 BEARINGS EACH</div>
+    </div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.7">Spawns in formation at the undock point, <span style="color:#c9ff9e">protected 15 s</span>, then self-parks at the first free bearing. <span style="color:#ffb000">Your own order breaks protection early.</span></div>
+    <div style="margin-top:auto;border-top:1px solid rgba(124,255,62,.14);padding-top:13px">
+      <div style="font-size:12px;color:#5d7a57;letter-spacing:.08em;margin-bottom:9px">ASSIGN SELECTION TO WING</div>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1;height:44px;border:1px solid rgba(124,255,62,.3);display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:13px;color:#c9ff9e">TALON · 3 <span style="color:#5d7a57">▾</span></div>
+        <div style="height:44px;border:1px solid rgba(124,255,62,.3);display:flex;align-items:center;padding:0 14px;font-size:13px;color:#7cff3e;letter-spacing:.06em">＋ NEW WING</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1010px;margin:0 0 36px">
+  <span style="color:#c9ff9e">The parking diagram is on the screen because the ADR made a promise the player must be able to trust.</span>
+  Undock is never refused for clutter — the fleet self-parks at a scanned free bearing or holds at the point under protection. A player
+  who cannot see the rings will read the parking flight as their ships wandering off. The diagram shows the undock point, both rings,
+  and where the last fleet parked; it is a readout of the deterministic scan, not a control.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§2</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">DESIGN CALLS THE ADR LEAVES TO THE PRINT</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:14px;grid-auto-rows:auto">
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">TABS, NOT TILES — THE STATION GROWS SIDEWAYS</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      The station's future (repair pricing, refit, blueprint construction, market) arrives as <span style="color:#c9ff9e">sibling tabs
+      in a fixed row</span>, not panels inside the hangar — so the hangar's layout never reshuffles when a service lands, and each
+      service gets a full screen's worth of room, which is the same argument that rejected the 260&nbsp;px roster column. Built services take their place in the
+      row as they land (CARGO — D-P2, REFINERY — D-P3); unbuilt tabs are visible and disabled with their reason (REPAIR — FREE, no
+      priced work to show; REFIT / CONSTRUCT / MARKET — FUTURE), exactly as the strategic map stubs its unbuilt overlays. The undock composer belongs to the HANGAR tab alone: undocking is the hangar's verb,
+      and a global composer would let a MARKET screen launch fleets.
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">WINGS ARE COLUMNS, SELECTION IS ADDITIVE</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      The roster groups by wing because the wing is the unit a player actually undocks. Tap toggles a ship; holding a wing header takes
+      the whole wing; the composer accumulates across wings — so "Talon plus two spare Battleships from Reserve" is three gestures, not
+      a drag across sixty chips. UNASSIGNED (wing 0) is a real column, not an afterthought: newly docked strays land there, and the ADR's
+      "reorganisation room" is mostly the act of emptying it.
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">NEW WING NEVER SHOWS A NUMBER PICKER</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      A wing is a u8 the server never names; "new wing" is the client picking an unused id and asking for a name — the name goes to the
+      user settings layer, the id goes on the wire. The player experience is "name a wing"; the protocol experience is `AssignWing(7)`.
+      The id shows only as a small tag (<span style="color:#7cff3e">· 3</span>) beside the name, because two clients without shared
+      settings will see numbers, and the print should admit that rather than hide it.
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">UNDOCK IS THE ONLY PRIMARY ACTION</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      68 px, always visible, disabled with a reason rather than hidden ("SELECT SHIPS TO UNDOCK"). The &gt;64 case is declared before
+      commit as waves, not refused after — `MAX_SHIPS_PER_ORDER` is a wire constant the player should never meet as an error. The
+      pre-check runs against the same RosterView the server validates with, so a tappable UNDOCK is a promise: bounce parity, extended
+      to station commands.
+    </div>
+  </div>
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.55);padding:16px 18px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:10px">REMOTE IS A BADGE, NOT A MODE</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      Focus never gates command (ADR-016 §7), so this screen opens for any station holding your ships. The only differences remote: an
+      amber badge in the status bar, and the undock confirmation says where the fleet will spawn ("undocks at Vesta-3 — view?"). Same
+      layout, same verbs — a second layout for remote would be two screens to keep honest for one replicated roster.
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:34px 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§3</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">DELIBERATELY ABSENT · STILL OPEN</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="border:1px solid rgba(124,255,62,.3);background:rgba(6,16,6,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#7cff3e;letter-spacing:.06em;margin-bottom:12px">ABSENT BECAUSE THE ADR SAYS SO</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#c9ff9e">No hull/shield bars, no repair queue</span> — the roster holds no gauges; REPAIR stubs as FREE and is the named hook for a priced version.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No capacity meter</span> — stations dock unlimited ships; a cap is a future scarcity design, and drawing a meter now would invent one.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No DOCK verb here</span> — docking is a context action on the station structure, out in the world. This screen is only ever entered docked or remote.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No others' ships</span> — docked is absolutely private; there is no "station traffic" panel to design.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:12px">OPEN — FOR THE PRINT REVIEW</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#ffb000">Wave 2 trigger.</span> "When wave 1 clears the point" is this print's proposal; the ADR only caps the order at 64. Needs a rule — clears the point, or a flat delay?</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Does the composer persist?</span> A half-built selection surviving a screen switch is convenient and a stale-selection hazard; proposal: it clears on undock, survives navigation within a session.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Wing colour identity.</span> Chips could tint by wing for scanning speed, but wing count is unbounded (1..255) and the palette is contract-bound. Proposal: no per-wing colour; position is identity.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Sort inside a wing.</span> Class-then-name shown here; the ADR is silent.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1100},&quot;selection&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;None&quot;,&quot;Talon wing — 12&quot;,&quot;Mixed 66 — two waves&quot;],&quot;default&quot;:&quot;Talon wing — 12&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Mockup&quot;},&quot;remote&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Mockup&quot;}}">
+class Component extends DCLogic {
+  m(st, text = '') { return { st: { position: 'absolute', ...st }, text }; }
+
+  renderVals() {
+    const G = '#7cff3e', HOT = '#c9ff9e', AMB = '#ffb000', DIM = '#3d5a37';
+    const state = this.props.selection ?? 'Talon wing — 12';
+    const remote = this.props.remote ?? false;
+    const none = state.startsWith('None');
+    const waves = state.startsWith('Mixed');
+    const stateLabel = (remote ? 'REMOTE · ' : '') + state.toUpperCase();
+
+    const HEXC = 'polygon(50% 0%,100% 32%,90% 76%,66% 100%,34% 100%,10% 76%,0% 32%)';
+    const DELTA = 'polygon(50% 0%,100% 100%,50% 76%,0% 100%)';
+    const glyph = (cls, sel) => ({
+      width: '11px', height: cls === 'CAR' || cls === 'BBS' ? '13px' : '11px',
+      background: sel ? HOT : G, clipPath: cls === 'CAR' || cls === 'BBS' ? HEXC : DELTA,
+      display: 'inline-block', flex: '0 0 auto'
+    });
+
+    // wings: [name, idTag, ships:[name, cls]]
+    const wingDefs = [
+      ['TALON', '· 3', [['TAL-01','BBS'],['TAL-02','BBS'],['TAL-03','DST'],['TAL-04','DST'],['TAL-05','DST'],['TAL-06','FRG'],['TAL-07','FRG'],['TAL-08','FRG'],['TAL-09','INT'],['TAL-10','INT'],['TAL-11','INT'],['TAL-12','INT']]],
+      ['VIGIL', '· 5', [['VIG-01','CAR'],['VIG-02','DST'],['VIG-03','DST'],['VIG-04','FRG'],['VIG-05','FRG'],['VIG-06','INT']]],
+      ['RESERVE', '· 7', [['RSV-01','BBS'],['RSV-02','BBS'],['RSV-03','DST'],['RSV-04','FRG']]],
+      ['UNASSIGNED', '· 0', [['NEW-11','INT'],['NEW-12','INT'],['NEW-13','FRG']]],
+      ['HAULAGE', '· 9', [['HLG-01','IND'],['HLG-02','IND']]]
+    ];
+    const talonSel = !none;
+    const extraSel = waves; // mixed selects everything
+
+    let dockedTotal = 0;
+    const wings = wingDefs.map(([name, idTag, shipsDef], wi) => {
+      const wingSelected = (wi === 0 && talonSel) || extraSel;
+      dockedTotal += shipsDef.length;
+      return {
+        name, idTag, count: shipsDef.length + (wingSelected ? ' ✓' : ''),
+        blockSt: {
+          border: '1px solid ' + (wingSelected ? 'rgba(124,255,62,.5)' : 'rgba(124,255,62,.16)'),
+          background: wingSelected ? 'rgba(124,255,62,.06)' : 'rgba(6,12,6,.4)'
+        },
+        nameSt: { fontSize: '13px', letterSpacing: '.08em', color: name === 'UNASSIGNED' ? '#5d7a57' : HOT },
+        countSt: { fontSize: '12px', color: wingSelected ? HOT : '#5d7a57' },
+        ships: shipsDef.map(([sname, cls]) => {
+          const sel = wingSelected;
+          return {
+            name: sname, cls,
+            glyphSt: glyph(cls, sel),
+            st: {
+              display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 9px',
+              border: '1px solid ' + (sel ? G : 'rgba(124,255,62,.14)'),
+              background: sel ? 'rgba(124,255,62,.14)' : 'rgba(6,12,6,.55)',
+              color: sel ? HOT : '#7d8c79'
+            }
+          };
+        })
+      };
+    });
+    const dockedSummary = 'DOCKED ' + dockedTotal + ' SHIPS · 4 WINGS + UNASSIGNED';
+
+    const tabs = [
+      { name: 'HANGAR', active: true },
+      { name: 'CARGO' },
+      { name: 'REFINERY', tag: 'T1' },
+      { name: 'REPAIR', tag: 'FREE' },
+      { name: 'REFIT', tag: 'FUTURE' },
+      { name: 'CONSTRUCT', tag: 'FUTURE' },
+      { name: 'MARKET', tag: 'FUTURE' }
+    ].map(t => ({
+      name: t.name, tag: t.tag || false,
+      st: {
+        display: 'flex', alignItems: 'center', gap: '8px', padding: '0 16px',
+        borderBottom: '2px solid ' + (t.active ? G : 'transparent'),
+        background: t.active ? 'rgba(124,255,62,.10)' : 'transparent',
+        color: t.active ? HOT : (t.tag === 'FUTURE' ? '#3d5a37' : '#5d7a57')
+      },
+      tagSt: {
+        fontSize: '9px', letterSpacing: '.12em', padding: '1.5px 6px', flex: '0 0 auto',
+        color: t.tag === 'FUTURE' ? '#3d5a37' : G,
+        border: '1px solid ' + (t.tag === 'FUTURE' ? 'rgba(124,255,62,.14)' : 'rgba(124,255,62,.4)')
+      }
+    }));
+
+    const selCounts = none ? [] : waves
+      ? [['Battleship', 'BBS', 4], ['Destroyer / Frigate', 'DST', 12], ['Interceptor + rest', 'INT', 50]]
+      : [['Battleship', 'BBS', 2], ['Destroyer', 'DST', 3], ['Frigate / Interceptor', 'FRG', 7]];
+    const selHead = none ? 'NO SELECTION' : waves ? '66 SHIPS · ALL WINGS' : '12 SHIPS · TALON';
+    const selHeadSt = { fontSize: '15px', letterSpacing: '.06em', marginBottom: none ? 0 : '7px',
+      color: none ? '#5d7a57' : HOT };
+    const selLines = selCounts.map(([name, cls, n]) => ({ name, n, glyphSt: glyph(cls, false) }));
+
+    const undockLabel = none ? 'SELECT SHIPS TO UNDOCK' : waves ? 'UNDOCK 66 — 2 WAVES' : 'UNDOCK 12';
+    const undockSt = {
+      height: '68px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: '17px', letterSpacing: '.1em',
+      border: '1px solid ' + (none ? 'rgba(124,255,62,.14)' : G),
+      background: none ? 'transparent' : 'rgba(124,255,62,.16)',
+      color: none ? '#2f4a2a' : HOT,
+      boxShadow: none ? 'none' : '0 0 18px rgba(124,255,62,.15)'
+    };
+
+    // parking diagram: station, undock point, two rings of 12 bearings
+    const ringMarks = (() => {
+      const out = [], cx = 204, cy = 104;
+      out.push(this.m({ left: (cx - 13) + 'px', top: (cy - 13) + 'px', width: '26px', height: '26px',
+        background: '#8fa08b', clipPath: HEXC, filter: 'drop-shadow(0 0 6px rgba(143,160,139,.6))' }));
+      [52, 84].forEach(r => out.push(this.m({
+        left: (cx - r) + 'px', top: (cy - r / 2) + 'px', width: (r * 2) + 'px', height: r + 'px',
+        borderRadius: '50%', border: '1px dashed rgba(124,255,62,.28)' })));
+      // undock point at bearing 0 (up-right)
+      const upx = cx + 34, upy = cy - 20;
+      out.push(this.m({ left: (upx - 4) + 'px', top: (upy - 4) + 'px', width: '8px', height: '8px',
+        borderRadius: '50%', background: AMB, boxShadow: '0 0 10px rgba(255,176,0,.7)' }));
+      out.push(this.m({ left: (upx + 8) + 'px', top: (upy - 14) + 'px', fontSize: '10px', color: AMB, letterSpacing: '.06em' }, 'UNDOCK PT'));
+      // bearings
+      [52, 84].forEach(r => { for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2 - Math.PI / 5;
+        const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r / 2;
+        const taken = r === 52 && i === 2;
+        out.push(this.m({ left: (x - (taken ? 5 : 2)) + 'px', top: (y - (taken ? 5 : 2)) + 'px',
+          width: (taken ? 10 : 4) + 'px', height: (taken ? 10 : 4) + 'px', borderRadius: '50%',
+          background: taken ? G : 'rgba(124,255,62,.3)',
+          boxShadow: taken ? '0 0 8px rgba(124,255,62,.7)' : 'none' }));
+      } });
+      out.push(this.m({ left: (cx + 60) + 'px', top: (cy + 26) + 'px', fontSize: '10px', color: G, letterSpacing: '.06em' }, 'LAST FLEET'));
+      return out;
+    })();
+
+    return { stateLabel, remote, waves, dockedSummary, wings, tabs, selHead, selHeadSt, selLines, undockLabel, undockSt, ringMarks };
+  }
+}
+</script>
+</body>
+</html>

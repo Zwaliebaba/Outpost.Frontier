@@ -1,57 +1,118 @@
-[   0.011] info  | Outpost: Frontier starting
-[   0.012] info  | config: Outpost.json
-[   0.012] info  | user settings: C:\Users\zwali\AppData\Local\Outpost.Frontier\Settings.json
-[   0.012] info  | mode: host
-[   0.012] info  | server: port 7777, max sessions 8
-[   0.012] info  | universe: GameData/Universe/Frontier.json
-[   0.012] info  | economy: GameData/Economy/Economy.json
-[   0.012] info  | content: 10 meshes from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Meshes
-[   0.012] info  | window: 1600x900 windowed, vsync on, ui scale 1.00
-[   3.725] info  | universe: read, parsed and hashed in 3712 ms (R17's threshold is ~1000 ms)
-[   3.726] info  | universe: 'Frontier' from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Universe/Frontier.json (2500 system(s), hash ad9555dd776008a6)
-[   3.726] info  | start: system 1 'Vesta-3', grid anchored at (-734132574593023943, -731859766588080745)
-[   3.731] info  | economy: read, parsed and hashed in 4 ms from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Economy/Economy.json
-[   3.731] info  | content: universe ad9555dd776008a6, economy 0b07707ec843431d, mixed 1965b853a23a5115
-[   3.736] info  | parked fleet: 40 hulls, tightest cross-wing clearance 90.3 m (LANTERN to ECHO)
-[   3.818] info  | quic transport listening on 127.0.0.1:7777 (alpn opf/1)
-[   3.818] info  | server host started on port 7777 at 20 Hz
-[   3.849] info  | window created: 1600x900 client
-[   3.867] info  | d3d12 debug layer enabled
-[   5.773] info  | d3d12 device created on NVIDIA GeForce RTX 3070 Ti Laptop GPU (tearing supported)
-[   5.861] info  | task pool started with 12 worker(s)
-[   6.008] info  | pipelines: opaque (5792 + 5088 B), nebula (3036 + 4732 B), overlay (6456 + 5048 B), ui (5892 + 4648 B) built
-[   6.081] info  | meshes: 10 classes, 6420 triangles
-[   6.085] info  | upload ring: 256 KiB x 3 frames
-[   6.093] info  | glyph atlas: Consolas, 4 sizes, 608 glyphs, 1024x256
-[   6.149] info  | nebula: 256x256 field over 96000 m (375 m/texel), seed 1
-[   6.597] info  | audio: 2 of 2 cue(s) loaded, 8 output channel(s) at 48000 Hz, 32 3D + 16 2D voices
-[   6.602] info  | task pool stopped after 14 task(s)
-[   6.604] info  | quic transport connecting to 127.0.0.1:7777
-[   6.604] info  | client initialised (NVIDIA GeForce RTX 3070 Ti Laptop GPU, vsync on)
-[   6.604] info  | entering frame loop
-[   6.621] info  | client 1 joined as '(unnamed)'
-[   6.633] info  | joined as client 1 (server at tick 55, 20 Hz)
-[   6.633] info  | world 1 anchored at (-734132574593023943, -731859766588080745)
-[   6.673] info  | first pong: server tick 56, round trip 39.351 ms
-[   8.821] info  | net(session 1): rtt 0.32 ms, resends 0, dropped 0, dgrams 55/8, bytes 39625/116
-[  11.636] info  | net(client 1): rtt 7.50 ms, ping loss 0.0% (0/19), resends 0, dgrams 19/125, bytes 226/90820
-[  13.871] info  | net(session 1): rtt 0.35 ms, resends 0, dropped 0, dgrams 181/28, bytes 130365/316
-[  16.641] info  | net(client 1): rtt 18.84 ms, ping loss 0.0% (0/39), resends 0, dgrams 39/250, bytes 426/180665
-[  18.921] info  | net(session 1): rtt 0.48 ms, resends 0, dropped 0, dgrams 301/42, bytes 221021/456
-[  21.647] info  | net(client 1): rtt 46.99 ms, ping loss 0.0% (0/52), resends 0, dgrams 52/368, bytes 556/270412
-[  23.971] info  | net(session 1): rtt 0.41 ms, resends 0, dropped 0, dgrams 426/61, bytes 311747/646
-[  26.651] info  | net(client 1): rtt 5.67 ms, ping loss 0.0% (0/72), resends 0, dgrams 72/493, bytes 756/360257
-[  29.021] info  | net(session 1): rtt 0.36 ms, resends 0, dropped 0, dgrams 552/81, bytes 402487/846
-[  31.656] info  | net(client 1): rtt 24.09 ms, ping loss 0.0% (0/92), resends 0, dgrams 92/618, bytes 956/450102
-[  34.021] info  | net(session 1): rtt 0.41 ms, resends 0, dropped 0, dgrams 677/101, bytes 492332/1046
-[  36.662] info  | net(client 1): rtt 43.40 ms, ping loss 0.0% (0/111), resends 0, dgrams 111/742, bytes 1146/539933
-[  39.021] info  | net(session 1): rtt 0.33 ms, resends 0, dropped 0, dgrams 802/121, bytes 582177/1246
-[  41.667] info  | net(client 1): rtt 5.39 ms, ping loss 0.0% (0/131), resends 0, dgrams 131/867, bytes 1346/629778
-[  44.071] info  | net(session 1): rtt 0.32 ms, resends 0, dropped 0, dgrams 928/141, bytes 672917/1446
-[  46.673] info  | net(client 1): rtt 18.36 ms, ping loss 0.0% (0/151), resends 0, dgrams 151/993, bytes 1546/720518
-[  48.496] info  | frame loop ended after 6573 frames
-[  48.571] info  | connection 1 said goodbye
-[  48.621] info  | client 1 left (reason 1)
-[  48.686] info  | server host stopped after 897 ticks (0 overruns)
-[  48.687] info  | server ran 897 ticks (0 overruns)
-[  48.687] info  | Outpost: Frontier exiting cleanly (0)
+[   0.006] info  | Outpost: Frontier starting
+[   0.006] info  | config: Outpost.json
+[   0.006] info  | user settings: C:\Users\zwali\AppData\Local\Outpost.Frontier\Settings.json
+[   0.006] info  | mode: host (self test)
+[   0.006] info  | server: port 7777, max sessions 8
+[   0.006] info  | universe: GameData/Universe/Frontier.json
+[   0.006] info  | economy: GameData/Economy/Economy.json
+[   0.007] info  | content: 10 meshes from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Meshes
+[   0.007] info  | window: 1600x900 windowed, vsync on, ui scale 1.00
+[   4.552] info  | universe: read, parsed and hashed in 4545 ms (R17's threshold is ~1000 ms)
+[   4.553] info  | universe: 'Frontier' from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Universe/Frontier.json (2500 system(s), hash ad9555dd776008a6)
+[   4.553] info  | start: system 1 'Vesta-3', grid anchored at (-734132574593023943, -731859766588080745)
+[   4.561] info  | economy: read, parsed and hashed in 7 ms from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Economy/Economy.json
+[   4.561] info  | content: universe ad9555dd776008a6, economy 0b07707ec843431d, mixed 1965b853a23a5115
+[   4.568] info  | parked fleet: 40 hulls, tightest cross-wing clearance 90.3 m (LANTERN to ECHO)
+[   4.569] info  | self test: starting (schema, wire round-trips, replay determinism, the tick soak, then the QUIC loopback loop)
+[   4.569] info  | self test: schema hash is nonzero -- ok
+[   4.569] info  | self test: schema hash is stable -- ok
+[   4.569] info  | self test: the simulation states the game's schema -- ok
+[   4.569] info  | self test: the simulation states a content hash -- ok
+[   4.569] info  | self test: an order round-trips the wire byte-exactly -- ok
+[   4.570] info  | self test: a snapshot fits the datagram cap -- ok
+[   4.570] info  | self test: a snapshot round-trips emit -> bytes -> apply in integers -- ok
+[   4.596] info  | self test: replay determinism holds at the checkpoint -- ok
+[   4.596] info  | self test: replay determinism holds at the end -- ok
+[   4.596] info  | self test: the world hash notices a one-metre change -- ok
+[   4.596] info  | self test: replay hash 909bf3b4962d0b6a (checkpoint 24b96ed08459db12)
+[   4.598] info  | self test: the bake pairs a gate with one that leads back -- ok
+[   4.599] info  | self test: a gate grid holds its gate -- ok
+[   4.599] info  | self test: a fleet at the gate is allowed through it -- ok
+[   4.600] info  | self test: a fleet across the grid is refused NotAtGate -- ok
+[   4.607] info  | self test: the crossing lands the fleet in the system on the far side -- ok
+[   4.704] info  | self test: soak 41 ships -- 200 ticks, mean 0.471 ms, worst 0.932 ms, 0.9 % of the 50 ms tick
+[   6.286] info  | self test: soak 256 ships -- 95 ticks, mean 15.834 ms, worst 35.621 ms, 31.7 % of the 50 ms tick
+[   8.781] info  | self test: soak 512 ships -- 39 ticks, mean 39.097 ms, worst 85.051 ms, 78.2 % of the 50 ms tick
+[  18.791] info  | self test: soak 1024 ships -- 20 ticks, mean 145.191 ms, worst 193.748 ms, 290.4 % of the 50 ms tick
+[  18.791] info  | self test: soak headroom -- 0.3 capped grids fit one core at 20 Hz
+[  18.791] info  | self test: the soak reaches every population it claims to measure -- ok
+[  18.791] info  | self test: the soak's tripwire is not armed here -- ADR-018 D11 scopes tick cost to Release
+[  18.978] info  | quic transport listening on 127.0.0.1:54617 (alpn opf/1)
+[  18.979] info  | server host started on port 54617 at 20 Hz
+[  18.979] info  | self test: server starts -- ok
+[  18.979] info  | self test: server reports its bound port -- ok
+[  18.980] info  | quic transport connecting to 127.0.0.1:54617
+[  18.981] info  | self test: client opens a socket -- ok
+[  19.030] info  | client 1 joined as 'self test'
+[  19.041] info  | joined as client 1 (server at tick 0, 20 Hz)
+[  19.041] info  | world 1 anchored at (-734132574593023943, -731859766588080745)
+[  19.042] info  | self test: handshake completes -- ok
+[  19.042] info  | self test: server issues a client id -- ok
+[  19.042] info  | self test: server reports 20 Hz -- ok
+[  19.042] info  | self test: server counts the session -- ok
+[  19.088] info  | first pong: server tick 1, round trip 46.055 ms
+[  19.585] info  | self test: heartbeat crosses the loopback -- ok
+[  19.585] info  | self test: round trip is plausible -- ok
+[  19.585] info  | self test: server advances its tick -- ok
+[  19.585] info  | self test: a snapshot arrives -- ok
+[  19.585] info  | self test: the snapshot decodes to ships -- ok
+[  19.585] info  | self test: an order goes up the reliable channel -- ok
+[  19.631] info  | self test: the authority accepts it and the ack returns -- ok
+[  19.692] info  | self test: a view request for the grid we are on is answered -- ok
+[  19.693] info  | self test: and accepted, because our fleet is there -- ok
+[  19.740] info  | self test: a view request for a grid we are not on is answered -- ok
+[  19.740] info  | self test: and refused -- ok
+[  19.740] info  | self test: with a reason the game named, not the engine -- ok
+[  19.741] info  | self test: a refused view left the feed on the grid we had -- ok
+[  19.741] info  | self test: the welcome names the grid's anchor -- ok
+[  19.785] info  | self test: a dock order goes up the reliable channel -- ok
+[  19.832] info  | self test: the authority accepts the dock -- ok
+[  19.832] info  | self test: the docked ships leave the snapshot -- ok
+[  19.940] info  | self test: the roster arrives on the summary feed -- ok
+[  19.940] info  | self test: and holds every ship that docked -- ok
+[  19.940] info  | self test: an undock goes up the same acked stream as an order -- ok
+[  19.987] info  | self test: the authority accepts the undock and acks it on the order stream -- ok
+[  19.987] info  | self test: the undocked ships are back on the grid, with their own ids -- ok
+[  19.987] info  | self test: and arrive protected (statusBits bit 0) -- ok
+[  19.987] info  | self test: and the ships that did not undock are not wearing it -- ok
+[  20.936] info  | self test: the roster drops the ships that undocked -- ok
+[  20.936] info  | self test: and keeps the one that was not named -- ok
+[  20.936] info  | self test: the undocked fleet is given a parking order, in its own lane of the order records -- ok
+[  20.936] info  | self test: no datagram was dropped -- ok
+[  20.936] info  | self test: transport adds under a millisecond -- ok
+[  20.936] info  | self test: 8 pings, 8 pongs, app rtt 48.400 ms, transport rtt 1.304 ms (min 0.311 ms), 0 resends, server at tick 38
+[  20.981] info  | connection 1 said goodbye
+[  21.031] info  | client 1 left (reason 1)
+[  21.045] info  | self test: server outlives the client -- ok
+[  21.046] info  | quic transport connecting to 127.0.0.1:54617
+[  21.080] info  | client 2 joined as 'approach'
+[  21.091] info  | joined as client 2 (server at tick 41, 20 Hz)
+[  21.091] info  | world 1 anchored at (-734132574593023943, -731859766588080745)
+[  21.092] info  | self test: an approach leg goes up before the client vanishes -- ok
+[  21.138] info  | first pong: server tick 42, round trip 46.744 ms
+[  21.434] info  | connection 2 said goodbye
+[  21.480] info  | client 2 left (reason 1)
+[  21.480] info  | self test: the server outlives a client that left mid-approach -- ok
+[  21.481] info  | quic transport connecting to 127.0.0.1:54617
+[  21.530] info  | client 3 joined as 'observer'
+[  21.542] info  | joined as client 3 (server at tick 50, 20 Hz)
+[  21.542] info  | world 1 anchored at (-734132574593023943, -731859766588080745)
+[  21.542] info  | self test: a fleet whose client left mid-approach is still on the grid, not docked -- ok
+[  21.542] info  | self test: and the grid did not lose ships to the disconnect -- ok
+[  21.590] info  | first pong: server tick 51, round trip 47.720 ms
+[  23.980] info  | net(session 3): rtt 0.45 ms, resends 0, dropped 0, dgrams 62/10, bytes 45211/144
+[  24.745] info  | self test: and the interrupted approach never docks anybody -- ok
+[  24.745] info  | self test: and the fleet is still outside when the dust settles -- ok
+[  24.780] info  | connection 3 said goodbye
+[  24.830] info  | client 3 left (reason 1)
+[  27.762] info  | self test: 60 ticks in 3016 ms -- mean period 50.261 ms (want 50.0 +/- 0.5 idle), 0 overrun(s)
+[  27.762] info  | self test: the tick loop keeps its cadence -- ok
+[  27.796] info  | server host stopped after 176 ticks (0 overruns)
+[  27.797] info  | self test: server stops cleanly -- ok
+[  27.797] info  | self test: ticks did not persistently overrun -- ok
+[  27.798] info  | self test: span Poll         n=139    mean 0.161 ms  max 0.919 ms
+[  27.798] info  | self test: span Tick         n=139    mean 0.421 ms  max 2.447 ms
+[  27.798] info  | self test: count SnapshotsSent total 114 over 114
+[  27.798] info  | self test: span Snapshot     n=114    mean 0.153 ms  max 0.794 ms
+[  27.798] info  | self test: count SummariesSent total 5 over 5
+[  27.798] info  | self test: PASSED

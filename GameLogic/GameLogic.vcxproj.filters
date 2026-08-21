@@ -178,13 +178,8 @@
     <Filter Include="Economy">
       <UniqueIdentifier>{5a9c02f1-7e34-4b6d-a0c8-93f15d6e2b47}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Project Files">
-      <UniqueIdentifier>{82cd3cec-43b8-470b-bcd8-733fcb751dea}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
-    <None Include="packages.config">
-      <Filter>Project Files</Filter>
-    </None>
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>

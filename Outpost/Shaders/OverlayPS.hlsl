@@ -82,12 +82,20 @@ float4 PixelMain(VertexOutput _input) : SV_Target
     return float4(_input.colour.rgb, _input.colour.a * alpha);
   }
 
-  if (_input.kind == OVERLAY_STALE_MARKER)
+  if (_input.kind == OVERLAY_STALE_MARKER || _input.kind == OVERLAY_STATUS_MARKER ||
+      _input.kind == OVERLAY_TRANSIT_RING)
   {
     // The icon sheet's STALE state marker (S14): a dashed ring, like a pending
     // footprint, but screen-facing -- so the dash runs evenly on the *screen*,
     // which is correct here for the same reason it would be wrong on the
     // footprint: this quad is built in pixels and lies on no plane.
+    //
+    // Three kinds share it, and the branch is the reason they are three rather
+    // than one: the shape is identical and only `fill` and the colour differ,
+    // so a caller reading this file learns that a status mark and a transit
+    // ring are the same ring said twice -- while the pass, the mark list and
+    // the tests still name them separately, because they are three different
+    // things being said.
     const float distance = length(_input.local);
     float alpha = RingAlpha(distance);
     if (_input.fill > 0.5f)

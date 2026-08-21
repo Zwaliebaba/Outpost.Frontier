@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OrderGhost.h"
+#include "EntityTransits.h"
 #include "RenderWorld.h"
 
 #include <DirectXMath.h>
@@ -65,6 +66,29 @@ enum class OverlayKind : std::uint16_t
   /// behind the hull it is warning about -- and dashed, the sheet's convention
   /// for anything unresolved.
   StaleMarker = 5,
+
+  /*
+   * One of the game's status bits, marked (ADR-014 4).
+   *
+   * The same dashed screen-facing ring as the stale marker, in a different
+   * colour, and screen-facing for the same reason: it is a readout about the
+   * ship rather than about the ground under it. **The engine does not know what
+   * any bit means** -- which bits are worth a mark is `OverlayTuning`'s to say,
+   * and the composition root is what says it.
+   */
+  StatusMarker = 6,
+
+  /*
+   * A ship arriving in or leaving the world, for the second it takes
+   * (ADR-017 4).
+   *
+   * Undashed, because an arrival is a fact and the dash is this vocabulary's
+   * word for a promise. It grows and fades over `EntityTransitList`'s second,
+   * which is the whole of the animation: a ship that vanished between two
+   * frames reads as a dropped feed, and one seen to go reads as a ship that
+   * went somewhere.
+   */
+  TransitRing = 7,
 
   FIRST_SCREEN_FACING = HullBar
 };
@@ -193,6 +217,55 @@ struct OverlayTuning
   std::uint32_t ghostPendingColourRgba = 0xa03eff7cu;  // The selection phosphor, translucent: a promise.
   std::uint32_t ghostUnderWayColourRgba = 0xff3eff7cu; // The same phosphor, opaque: the world agreed.
   std::uint32_t ghostRejectedColourRgba = 0xff4a5affu; // The hostile red. Refused, and on its way back.
+
+  /*
+   * Which of the game's `SceneEntity::statusBits` get a mark, as a mask.
+   *
+   * **Zero by default, and that is the seam.** The engine carries the byte and
+   * has no opinion about any bit in it; a client whose composition root sets
+   * nothing here draws no status marks at all and is not missing anything. The
+   * one bit this game sets is undock protection (ADR-017 5), and the sentence
+   * "bit zero means protected" is written in `Outpost.exe` and nowhere in this
+   * library.
+   */
+  std::uint8_t statusMarkBits = 0;
+
+  /// The status mark's geometry. Outside the stale marker's radius so a ship
+  /// that is both frozen and flagged shows two rings rather than one thick one.
+  float statusMarkRadiusPixels = 17.0f;
+  std::uint16_t statusMarkDashCount = 12;
+
+  /*
+   * How long one pulse of the status mark takes.
+   *
+   * The shimmer is alpha, computed per frame on the CPU, rather than anything
+   * the shader knows about: it is two multiplies over a handful of marks, and
+   * putting a clock in the pass would give every kind a phase it does not use.
+   */
+  double statusMarkPulseSeconds = 1.6;
+
+  /// The status mark's colour. The caution amber by default, which is this
+  /// palette's word for a temporary condition; `ClientApp::Initialise`
+  /// overwrites it from the resolved table like every colour above.
+  std::uint32_t statusMarkColourRgba = 0xff00b0ffu;
+
+  /*
+   * The transit ring's size, as a multiple of the hull's own pick radius at the
+   * start and at the end of its second.
+   *
+   * It grows, and outward for an arrival as well as a departure -- a ring that
+   * collapsed inward on a docking ship would read as the ship being crushed
+   * rather than as it going somewhere. What separates the two is the alpha: an
+   * arrival resolves in and a departure fades out.
+   */
+  float transitRingStartScale = 1.1f;
+  float transitRingEndScale = 2.4f;
+
+  /// The floor the growth is applied to, so a fleet leaving at strategic zoom
+  /// is still a thing the player sees happen. The selection ring's clamp, and
+  /// the same argument.
+  float transitRingMinRadiusPixels = 10.0f;
+  std::uint32_t transitRingColourRgba = 0xffffe14du; // The allied cyan: something of yours moved.
 };
 
 /*
@@ -258,5 +331,36 @@ void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const s
  */
 void BuildGhostMarks(std::span<const OrderGhost> _ghosts, const OverlayTuning& _tuning, float _metresPerPixel,
                      double _nowSeconds, OverlayMarkList& _outMarks);
+
+/*
+ * Appends a mark per entity carrying a bit `_tuning.statusMarkBits` names.
+ *
+ * Screen-facing, so it goes on the end and no index has to move -- unlike the
+ * ghosts, which lie on the plane and have to be inserted among the rings.
+ *
+ * On **every** flagged ship rather than only selected ones, which is the stale
+ * marker's rule and for the stale marker's reason: a state the player has to
+ * know about is not one they should have to have clicked on first. The alpha
+ * pulses on `_nowSeconds`, which is what makes it a shimmer rather than a
+ * second ring.
+ *
+ * Call after `BuildOverlayMarks`, which clears the list. Does nothing at all
+ * when the mask is zero, which is the default and every game but this one.
+ */
+void BuildStatusMarks(std::span<const SceneEntity> _entities, const OverlayTuning& _tuning, double _nowSeconds,
+                      OverlayMarkList& _outMarks);
+
+/*
+ * Appends a ring per arrival and departure still inside its second
+ * (`EntityTransitList`).
+ *
+ * Screen-facing like the status marks, and appended for the same reason. The
+ * ring grows from `transitRingStartScale` to `transitRingEndScale` of the
+ * hull's radius; an arrival's alpha runs up and a departure's down, so the two
+ * are told apart by which way the fade goes rather than by a second colour the
+ * player would have to learn.
+ */
+void BuildTransitMarks(std::span<const EntityTransit> _transits, const OverlayTuning& _tuning, float _metresPerPixel,
+                       double _nowSeconds, OverlayMarkList& _outMarks);
 
 } // namespace Neuron

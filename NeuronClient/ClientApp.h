@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ApproachChain.h"
+#include "EntityTransits.h"
 #include "AudioDevice.h"
 #include "ClearColour.h"
 #include "ClientConfig.h"
@@ -276,6 +277,12 @@ private:
   OverlayMarkList m_overlayMarks;
   OverlayTuning m_overlayTuning;
 
+  /// Which ships arrived and which left, and when (ADR-017 4). Fed from the
+  /// scene rather than from anything the game says, because an id appearing and
+  /// disappearing is a fact about the scene and the engine is allowed to know
+  /// its own scene.
+  EntityTransitList m_transits;
+
   /*
    * The HUD (ADR-006 §10). Rebuilt every frame from replicated fields and local
    * UI state and nothing else -- which is the acceptance criterion for it, not
@@ -348,6 +355,13 @@ private:
   /// The roster's rows, asked of the game once a frame. A fixed array because
   /// the count is capped and a HUD must not allocate to describe itself.
   RosterRow m_rosterRows[MAX_ROSTER_ROWS] = {};
+
+  /// The other list: where the player's ships are when they are nowhere the
+  /// scene can show them (ADR-017 1). Refilled with the roster rows, because
+  /// the two are one answer about one fleet and a frame that rebuilt only half
+  /// of it could show a ship in both places at once.
+  DockedBlock m_dockedBlocks[MAX_DOCKED_BLOCKS] = {};
+  std::uint32_t m_dockedBlockCount = 0;
   std::uint32_t m_rosterRowCount = 0;
 
   /*

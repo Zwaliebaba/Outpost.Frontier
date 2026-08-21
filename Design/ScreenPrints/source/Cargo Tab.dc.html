@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0a0b09;font-family:'Share Tech Mono',ui-monospace,monospace}
+a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
+</style></helmet>
+
+<div data-screen-label="Cargo Tab" style="width:1440px;background:#050705;padding:44px 48px 56px;color:#7cff3e;position:relative">
+<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.03) 0 1px,transparent 1px 3px);pointer-events:none"></div>
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(124,255,62,.3);padding-bottom:16px;margin-bottom:12px">
+  <div>
+    <div style="font-size:26px;color:#c9ff9e;letter-spacing:.08em">CARGO TAB — D-P2</div>
+    <div style="font-size:12.5px;color:#5d7a57;letter-spacing:.06em;margin-top:6px">ADR-024 §5c — the hull-and-Bay transfer surface · gates E5 / milestone G2 · sibling tab of P1's hangar</div>
+  </div>
+  <div style="text-align:right;font-size:11.5px;color:#4e6a49;line-height:1.8">
+    <div>SOURCE · ADR-024 §5, §8 · E3 as built (run 161) · EconomyMessages.h · StationMessages.h · Economy.json</div>
+    <div>PREVIEW · {{ stateLabel }}</div>
+  </div>
+</div>
+
+<p style="font-size:13px;color:#7d8c79;line-height:1.75;max-width:1010px;margin:0 0 18px;text-wrap:pretty">
+  <span style="color:#c9ff9e">This tab is where ore stops being a hold and becomes property.</span> E3 built the whole loop under it —
+  manifests survive every crossing, the Bay is a per-(you, station) ledger that outlives the grid, and two verbs move stacks between
+  them. The screen's job is to make one move fast and honest: <em style="color:#c9ff9e;font-style:normal">dock, see what came home,
+  commit it</em>. It is a selection surface like the hangar, not an inventory of slots — and though ore is all a hold can carry today,
+  <span style="color:#c9ff9e">ore is only the first item family</span>: the tab's whole vocabulary is item stacks, so 08c's taxonomy
+  grows it by rows and chips, never by redesign.
+</p>
+<div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.5);padding:13px 17px;font-size:12px;color:#7d8c79;line-height:1.7;margin-bottom:34px">
+  <span style="color:#ffb000">One ruling shapes the layout:</span> transfers are <span style="color:#c9ff9e">manual, both directions</span>
+  (ADR-024 §5c) — the transfer is the risk decision and the commitment of ore to industry. Nothing auto-drains on dock, so the primary
+  verb must be one tap from arrival, and everything else on the tab exists to make that tap informed.
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§1</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE SCREEN</span>
+  <span style="font-size:12px;color:#5d7a57">authored 1440×900 · the station surface, CARGO tab active — the hangar never reshuffles</span>
+</div>
+<div data-plate="cargo-tab" style="position:relative;width:1344px;height:840px;overflow:hidden;border:1px solid rgba(124,255,62,.22);background:#000;margin-bottom:14px">
+<div style="width:1440px;height:900px;transform:scale(.9333);transform-origin:top left;position:relative;background:#000">
+  <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 50% 44%,#0b1210 0%,#000 74%)"></div>
+  <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.035) 0 1px,transparent 1px 3px)"></div>
+
+  <div style="position:absolute;left:0;right:0;top:0;height:46px;display:flex;align-items:center;gap:16px;padding:0 18px;border-bottom:1px solid rgba(124,255,62,.3);background:rgba(4,8,5,.88);font-size:15px;letter-spacing:.06em">
+    <span style="color:#5d7a57">◀ TACTICAL</span><span style="color:#3d5a37">|</span>
+    <span style="color:#c9ff9e">VESTA-3 ANCHORAGE · STATION</span>
+    <sc-if value="{{ remote }}" hint-placeholder-val="{{ false }}">
+      <span style="font-size:12px;color:#ffb000;border:1px solid rgba(255,176,0,.4);padding:3px 9px;letter-spacing:.08em">REMOTE — FLEET NOT ON THIS GRID</span>
+    </sc-if>
+    <span style="flex:1"></span>
+    <span style="color:#8fa08b;font-size:14px">14:22:07</span>
+    <span style="color:#5d7a57">☰</span>
+  </div>
+
+  <div style="position:absolute;left:0;right:0;top:46px;height:52px;display:flex;align-items:stretch;gap:2px;padding:0 26px;border-bottom:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86)">
+    <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="7">
+      <div style="{{ t.st }}">
+        <span style="font-size:14px;letter-spacing:.08em">{{ t.name }}</span>
+        <sc-if value="{{ t.tag }}" hint-placeholder-val="{{ false }}"><span style="{{ t.tagSt }}">{{ t.tag }}</span></sc-if>
+      </div>
+    </sc-for>
+    <span style="flex:1"></span>
+    <span style="align-self:center;font-size:12px;color:#4e6a49;letter-spacing:.06em">SERVICES ARRIVE AS TABS</span>
+  </div>
+
+  <div style="position:absolute;left:0;top:98px;bottom:0;width:1032px;padding:22px 26px;overflow:hidden;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:baseline;gap:16px;margin-bottom:16px">
+      <span style="font-size:22px;color:#c9ff9e;letter-spacing:.08em">CARGO</span>
+      <span style="font-size:14px;color:#5d7a57">{{ cargoSummary }}</span>
+      <span style="flex:1"></span>
+      <span style="font-size:13px;color:#4e6a49;letter-spacing:.06em">TAP = TOGGLE · TAP HEADER = ALL HOLDING</span>
+    </div>
+    <div style="display:grid;grid-template-columns:236px 200px 84px 84px 84px 1fr;gap:10px;padding:0 12px 8px;border-bottom:1px solid rgba(124,255,62,.2);font-size:10.5px;color:#4e6a49;letter-spacing:.1em">
+      <span>HULL ALONGSIDE</span><span>LOAD</span><span style="text-align:right">F-CHROMA</span><span style="text-align:right">ASTRACITE</span><span style="text-align:right">NEBULITE</span><span style="text-align:right">LITRES</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+      <sc-for list="{{ holdRows }}" as="r" hint-placeholder-count="6">
+        <div style="{{ r.st }}">
+          <div style="display:flex;align-items:center;gap:8px;min-width:0">
+            <span style="{{ r.glyphSt }}"></span>
+            <span style="font-size:12.5px;letter-spacing:.04em">{{ r.name }}</span>
+            <span style="font-size:10px;color:#4e6a49">{{ r.cls }}</span>
+            <sc-if value="{{ r.tag }}" hint-placeholder-val="{{ false }}"><span style="{{ r.tagSt }}">{{ r.tag }}</span></sc-if>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="flex:1;height:8px;border:1px solid rgba(124,255,62,.25);position:relative;background:rgba(6,12,6,.6)"><div style="{{ r.barSt }}"></div></div>
+            <span style="font-size:10.5px;color:#5d7a57;width:34px;text-align:right">{{ r.pct }}</span>
+          </div>
+          <sc-for list="{{ r.ores }}" as="o" hint-placeholder-count="3"><span style="{{ o.st }}">{{ o.v }}</span></sc-for>
+          <span style="font-size:11.5px;color:#5d7a57;text-align:right">{{ r.litres }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="margin-top:14px;display:flex;align-items:center;gap:10px;padding:0 2px;font-size:11px;color:#4e6a49;letter-spacing:.08em">
+      COMBAT HULLS ALONGSIDE · 41 · HOLDS EMPTY
+      <span style="flex:1;border-top:1px solid rgba(124,255,62,.1)"></span>
+      <span style="color:#5d7a57">HIDE ▴</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-top:9px">
+      <sc-for list="{{ combatChips }}" as="e" hint-placeholder-count="41">
+        <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid rgba(124,255,62,.1);background:rgba(6,12,6,.4);white-space:nowrap">
+          <span style="{{ e.glyphSt }}"></span>
+          <span style="font-size:10.5px;color:#4e6a49;letter-spacing:.03em">{{ e.name }}</span>
+          <span style="flex:1"></span>
+          <span style="font-size:9px;color:#2f4a2a">{{ e.cls }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="margin-top:auto;padding-top:14px;font-size:11.5px;color:#4e6a49;line-height:1.7;max-width:920px">Holds read from the docked roster — E3's 18-byte rows, refreshed about once a second. A hull in space shows nowhere on this tab: dock is the boundary, and the tactical roster strip owns holds in flight.</div>
+  </div>
+
+  <div style="position:absolute;right:0;top:98px;bottom:0;width:408px;border-left:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86);padding:20px 22px;display:flex;flex-direction:column;gap:13px">
+    <div style="display:flex;align-items:baseline;gap:10px">
+      <span style="font-size:13px;color:#4e6a49;letter-spacing:.14em">STATION BAY</span>
+      <span style="flex:1"></span>
+      <span style="font-size:10px;color:#3d5a37;letter-spacing:.08em">YOURS · PER STATION</span>
+    </div>
+    <div style="border:1px solid rgba(124,255,62,.18);background:rgba(6,12,6,.5)">
+      <div style="padding:8px 13px 0;font-size:9.5px;color:#3d5a37;letter-spacing:.14em">ORES</div>
+      <sc-for list="{{ bayRows }}" as="b" hint-placeholder-count="3">
+        <div style="{{ b.st }}">
+          <span style="font-size:12.5px;color:#c9ff9e;letter-spacing:.05em;white-space:nowrap">{{ b.name }}</span>
+          <span style="flex:1"></span>
+          <div style="text-align:right">
+            <div style="font-size:16px;color:#7cff3e">{{ b.units }}</div>
+            <div style="font-size:10px;color:#4e6a49">{{ b.litres }}</div>
+          </div>
+        </div>
+      </sc-for>
+      <div style="padding:8px 13px;border-top:1px solid rgba(124,255,62,.1);font-size:10px;color:#3d5a37;letter-spacing:.06em">NO METER — A BAY HAS NO CAP TO DRAW</div>
+    </div>
+    <div style="border:1px dashed rgba(124,255,62,.2);padding:9px 12px;font-size:10.5px;color:#4e6a49;line-height:1.6">FAMILIES STACK DOWNWARD AS THEY EXIST — ALLOYS AT E4 (D-P3), FURTHER ITEM FAMILIES PER 08c. ROWS JOIN THEIR GROUP; THE PANEL NEVER RESHUFFLES</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:11px;color:#5d7a57;letter-spacing:.08em">MOVE</span>
+      <sc-for list="{{ chips }}" as="c" hint-placeholder-count="4"><div style="{{ c.st }}">{{ c.name }}</div></sc-for>
+    </div>
+    <div style="border:1px solid rgba(124,255,62,.18);background:rgba(6,12,6,.5);padding:12px 14px">
+      <div style="{{ prevHeadSt }}">{{ prevHead }}</div>
+      <sc-for list="{{ prevLines }}" as="p" hint-placeholder-count="3">
+        <div style="display:flex;align-items:baseline;gap:8px;font-size:12px;padding:3px 0;color:#7d8c79"><span>{{ p.a }}</span><span style="flex:1"></span><span style="color:#7cff3e">{{ p.b }}</span></div>
+      </sc-for>
+      <sc-if value="{{ prevNote }}" hint-placeholder-val="{{ false }}"><div style="margin-top:7px;font-size:10.5px;color:#4e6a49;line-height:1.55">{{ prevNote }}</div></sc-if>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="{{ pBtnSt }}">{{ pBtnLabel }}</div>
+      <div style="{{ sBtnSt }}">{{ sBtnLabel }}</div>
+    </div>
+    <div style="margin-top:auto;font-size:11px;color:#7d8c79;line-height:1.65;border-top:1px solid rgba(124,255,62,.14);padding-top:11px">Both verbs ride the acked command stream and apply on the spot; the Bay's number confirms on the next <span style="color:#c9ff9e">BayStatus (~1 s)</span>. Until it does, the moved stack shows <span style="color:#ffb000">◌ pending</span> — never a guessed total.</div>
+  </div>
+</div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1010px;margin:0 0 36px">
+  <span style="color:#c9ff9e">The fill preview is on the screen because roster order is the server's rule, not the player's.</span>
+  Drain and fill happen in roster order so the outcome is a function of the world, not of the click sequence — which means the UI must
+  never promise per-slot placement. It previews the outcome of the whole move, computed by the same pure pre-check the server validates
+  with: an enabled TRANSFER is a promise, bounce parity extended to cargo.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§2</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">DESIGN CALLS THE ADR LEAVES TO THE PRINT</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:14px;grid-auto-rows:auto">
+  <div style="grid-column:1/-1;border:1px solid rgba(124,255,62,.28);background:rgba(6,16,6,.65);padding:16px 18px">
+    <div style="font-size:13px;color:#7cff3e;letter-spacing:.06em;margin-bottom:10px">THE VOCABULARY IS ITEM STACKS — ORE IS ONLY THE FIRST FAMILY</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      Every readout on the tab is an <span style="color:#c9ff9e">(item, units, litres)</span> triple: the manifest columns, the Bay's
+      rows grouped by family, the MOVE chips, the fill preview. 08c already defines the growth path (`ItemTypeId`, six container kinds),
+      so when alloys land at E4 — and whatever families follow — they join as <span style="color:#c9ff9e">rows in their group and chips
+      in the filter</span>, never as a new panel, and no label on this screen says "ore" where "item" is meant. One consequence is
+      recorded now rather than met by surprise: per-item manifest columns hold to roughly five item types; past that the columns collapse
+      to stacked chips per hull, which is a layout change this print pre-authorises.
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">UNITS ARE THE NUMBER, LITRES ARE THE COST</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      Every stack reads twice: units first (what the ledger counts, what recipes eat), litres beneath (what a hold spends). The load bar
+      is <span style="color:#c9ff9e">property, not a gauge</span> — ADR-017's no-gauges rule was about damage, and E3 amended it the same
+      way: cargo is the player's property, so drawing it breaks nothing that rule protects. Unit volumes differ per ore (300/200/250 L),
+      which is exactly why one number alone would lie.
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">TRANSFERS MOVE SELECTIONS, NOT SLOTS</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      No drag-and-drop inventory grid. The gesture is the hangar's: tap hulls (additive, across groups), pick an ore filter, one verb.
+      Stack-wise means <span style="color:#c9ff9e">per ore, whole stacks</span> — the wire's `MoveOre` takes an ore and a count, and the
+      only computed split is fill-to-capacity, done by the pre-check. A slot grid would promise placement the roster-order rule does not
+      keep.
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">DIRECTION FOLLOWS THE SELECTION</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      Loaded hulls selected → TO BAY is primary; an empty hull selected → TO SHIPS is primary, previewed as a fill. Both verbs are always
+      visible and the inactive one is <span style="color:#c9ff9e">disabled with its reason</span>, never hidden — one form, two signs,
+      because they are one `MoveOre` with the sign flipped, and the screen should say so rather than pretend they are different systems.
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">THE BAY DRAWS NO METER</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      A Bay has no capacity in the content and no epoch to go stale against — what a command put there stays until a command moves it. A
+      meter would invent a scarcity nobody designed, the same argument that kept the dock-capacity meter off P1. The Bay is three counts
+      and their litres, full stop; its one adornment is the alloy stub naming what joins it at E4.
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">EMPTY HOLDS COLLAPSE TO ONE LINE</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      Sixty ships dock; three hold ore. This tab is about property, so hulls with nothing are one summary row with a SHOW, not sixty
+      chips — the same economy that let P1 fit the hangar without a scrollbar. Industrials with empty holds stay visible individually
+      (a Hauler reading READY is information: it is the fill target), combat hulls do not.
+    </div>
+  </div>
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.55);padding:16px 18px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:10px">PENDING IS A MARK, NOT A GUESS</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">
+      The command acks immediately; the confirming numbers arrive on the next ~1 Hz BayStatus/roster. In the gap the moved stack shows a
+      ◌ beside its <em style="font-style:normal;color:#c9ff9e">old</em> value rather than an optimistic new total — a screen that guesses
+      a ledger invites the ledger to disagree with it, and this corpus refuses client-side truth about property everywhere else too.
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:34px 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§3</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">DELIBERATELY ABSENT · STILL OPEN</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="border:1px solid rgba(124,255,62,.3);background:rgba(6,16,6,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#7cff3e;letter-spacing:.06em;margin-bottom:12px">ABSENT BECAUSE THE DESIGN SAYS SO</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#c9ff9e">No other commander's Bay</span> — privacy is in the ledger's key; another player's Bay is not even addressable, so there is no shared-storage panel to design.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No transfers in space</span> — dock is the boundary. Jettison, tractor and ship-to-ship are combat-era questions, and drawing hooks for them now would invent mechanics.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No rows for items that do not exist</span> — BayStatus is three ore counts on the wire today. E4 adds alloys, 08c's taxonomy adds families beyond; each joins its group when it is real, and the stub reserves the space so nothing reshuffles.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No quantity keypad</span> — stacks move whole per ore; the only split the screen computes is fill-to-capacity, by the same pure function the server validates with.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:12px">OPEN — FOR THE PRINT REVIEW</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#ffb000">Ore order on a fill.</span> Shown as ore-index order (F-C → AST → NEB); value-density order would favour the rare ores. Needs a rule before E5 — it is player-visible arithmetic.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">A dock shortcut.</span> §5c makes the transfer manual, but "TRANSFER ALL from the fleet that just docked" as a one-tap toast action may be worth its convenience. Proposal: yes, as an explicit tap — still manual.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Where CargoStatus surfaces.</span> In-space holds (HOLD FULL) belong to the tactical roster strip, never this tab. Proposal recorded here so E5 does not double-home it.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Pending treatment.</span> Shown as ◌ beside the old value (no optimistic totals). The alternative — apply optimistically, reconcile on BayStatus — reads faster and lies occasionally. Needs agreement before E5.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1200},&quot;selection&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;None&quot;,&quot;Miner wing loaded — 3&quot;,&quot;Fill Hauler from Bay&quot;],&quot;default&quot;:&quot;Miner wing loaded — 3&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Mockup&quot;},&quot;remote&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Mockup&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const G = '#7cff3e', HOT = '#c9ff9e', AMB = '#ffb000';
+    const fmt = n => n.toLocaleString('en-US');
+    const state = this.props.selection ?? 'Miner wing loaded — 3';
+    const remote = this.props.remote ?? false;
+    const mode = state.startsWith('None') ? 'none' : state.startsWith('Miner') ? 'load' : 'fill';
+    const stateLabel = (remote ? 'REMOTE · ' : '') + state.toUpperCase();
+
+    const DIA = 'polygon(50% 0%,100% 50%,50% 100%,0% 50%)';
+    const glyph = sel => ({ width: '11px', height: '11px', background: sel ? HOT : G, clipPath: DIA, display: 'inline-block', flex: '0 0 auto' });
+
+    const tabs = [
+      { name: 'HANGAR' },
+      { name: 'CARGO', active: true },
+      { name: 'REFINERY', tag: 'T1' },
+      { name: 'REPAIR', tag: 'FREE' },
+      { name: 'REFIT', tag: 'FUTURE' },
+      { name: 'CONSTRUCT', tag: 'FUTURE' },
+      { name: 'MARKET', tag: 'FUTURE' }
+    ].map(t => ({
+      name: t.name, tag: t.tag || false,
+      st: {
+        display: 'flex', alignItems: 'center', gap: '8px', padding: '0 16px',
+        borderBottom: '2px solid ' + (t.active ? G : 'transparent'),
+        background: t.active ? 'rgba(124,255,62,.10)' : 'transparent',
+        color: t.active ? HOT : (t.tag === 'FUTURE' ? '#3d5a37' : '#5d7a57')
+      },
+      tagSt: {
+        fontSize: '9px', letterSpacing: '.12em', padding: '1.5px 6px', flex: '0 0 auto',
+        color: t.tag === 'FUTURE' ? '#3d5a37' : G,
+        border: '1px solid ' + (t.tag === 'FUTURE' ? 'rgba(124,255,62,.14)' : 'rgba(124,255,62,.4)')
+      }
+    }));
+
+    // [name, cls, fc, as, nb, capLitres, restTag]
+    const shipDefs = [
+      ['MIN-01', 'MIN', 400, 0, 0, 120000, ''],
+      ['MIN-02', 'MIN', 322, 0, 0, 120000, ''],
+      ['MIN-03', 'MIN', 0, 96, 120, 120000, ''],
+      ['HLG-02', 'HLR', 300, 0, 0, 400000, ''],
+      ['HLG-01', 'HLR', 0, 0, 0, 400000, 'READY'],
+      ['MIN-04', 'MIN', 0, 0, 0, 120000, '']
+    ];
+    const VOL = [300, 200, 250];
+    const rowGrid = { display: 'grid', gridTemplateColumns: '236px 200px 84px 84px 84px 1fr', gap: '10px', alignItems: 'center', padding: '8px 12px' };
+
+    const holdRows = shipDefs.map(([name, cls, fc, as_, nb, cap, restTag], i) => {
+      const litres = fc * VOL[0] + as_ * VOL[1] + nb * VOL[2];
+      const drainSel = mode === 'load' && i < 3;
+      const recvSel = mode === 'fill' && name === 'HLG-01';
+      const sel = drainSel || recvSel;
+      const pct = Math.round(litres / cap * 100);
+      const edge = recvSel ? AMB : G;
+      const tag = recvSel ? 'RECEIVING ◌' : restTag;
+      return {
+        name, cls,
+        litres: fmt(litres) + ' / ' + fmt(cap),
+        pct: pct + '%',
+        tag: tag || false,
+        tagSt: { fontSize: '9px', letterSpacing: '.1em', padding: '1.5px 6px', flex: '0 0 auto',
+          color: recvSel ? AMB : '#5d7a57',
+          border: '1px solid ' + (recvSel ? 'rgba(255,176,0,.5)' : 'rgba(124,255,62,.25)') },
+        glyphSt: glyph(sel),
+        barSt: { position: 'absolute', left: 0, top: 0, bottom: 0, width: pct + '%', background: sel ? HOT : 'rgba(124,255,62,.55)' },
+        ores: [fc, as_, nb].map(v => ({ v: v > 0 ? fmt(v) : '—',
+          st: { fontSize: '12.5px', textAlign: 'right', color: v > 0 ? '#8fa08b' : '#2f4a2a' } })),
+        st: { ...rowGrid,
+          border: '1px solid ' + (sel ? (recvSel ? 'rgba(255,176,0,.6)' : G) : 'rgba(124,255,62,.14)'),
+          background: sel ? (recvSel ? 'rgba(255,176,0,.08)' : 'rgba(124,255,62,.12)') : 'rgba(6,12,6,.55)',
+          color: sel ? HOT : '#7d8c79' }
+      };
+    });
+    const cargoSummary = 'ALONGSIDE 47 HULLS · 4 HOLDING ORE · 1,238 UNITS ABOARD';
+
+    const bay = [['FERRO-CHROMA', 1240], ['ASTRACITE', 310], ['NEBULITE', 85]];
+    const bayRows = bay.map(([name, units], i) => ({
+      name, units: fmt(units),
+      litres: fmt(units * VOL[i]) + ' L',
+      st: { display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 13px',
+        borderBottom: i < 2 ? '1px solid rgba(124,255,62,.1)' : 'none' }
+    }));
+
+    const chips = ['ALL ITEMS', 'F-CHROMA', 'ASTRACITE', 'NEBULITE'].map((name, i) => ({
+      name,
+      st: { padding: '5px 10px', fontSize: '10.5px', letterSpacing: '.06em', flex: '0 0 auto', whiteSpace: 'nowrap',
+        border: '1px solid ' + (i === 0 ? 'rgba(124,255,62,.5)' : 'rgba(124,255,62,.18)'),
+        background: i === 0 ? 'rgba(124,255,62,.12)' : 'transparent',
+        color: i === 0 ? HOT : '#5d7a57' }
+    }));
+
+    let prevHead, prevLines, prevNote = false;
+    if (mode === 'none') { prevHead = 'NO MOVE COMPOSED'; prevLines = []; }
+    else if (mode === 'load') {
+      prevHead = '938 UNITS → BAY · 3 HULLS';
+      prevLines = [['Ferro-Chroma', '722'], ['Astracite', '96'], ['Nebulite', '120']];
+      prevNote = 'Drains in roster order — MIN-01, MIN-02, MIN-03. Selected holds read zero after; the Bay confirms on the next BayStatus.';
+    } else {
+      prevHead = 'BAY → HLG-01 · FILLS TO CAPACITY';
+      prevLines = [['Ferro-Chroma — all of it', '1,240'], ['Astracite — 140 of 310', '140'], ['Nebulite — no room', '0']];
+      prevNote = 'Ore-index order, F-C → AST → NEB. 400,000 L exactly — the pre-check computed the split the server will make.';
+    }
+    prevLines = prevLines.map(([a, b]) => ({ a, b }));
+    const prevHeadSt = { fontSize: '14px', letterSpacing: '.05em', marginBottom: prevLines.length ? '7px' : 0,
+      color: mode === 'none' ? '#5d7a57' : HOT };
+
+    const btn = (label, on) => ({ label, st: {
+      height: '54px', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center',
+      fontSize: '14px', letterSpacing: '.08em', padding: '0 12px',
+      border: '1px solid ' + (on ? G : 'rgba(124,255,62,.14)'),
+      background: on ? 'rgba(124,255,62,.16)' : 'transparent',
+      color: on ? HOT : '#2f4a2a',
+      boxShadow: on ? '0 0 18px rgba(124,255,62,.15)' : 'none' } });
+    let p, s;
+    if (mode === 'none') { p = btn('SELECT HULLS TO TRANSFER', false); s = btn('TRANSFER TO SHIPS — SELECT A HULL', false); }
+    else if (mode === 'load') { p = btn('TRANSFER TO BAY — 938 UNITS', true); s = btn('TRANSFER TO SHIPS — SELECTION IS DRAINING', false); }
+    else { p = btn('TRANSFER TO SHIPS — FILL 1,380 UNITS', true); s = btn('TRANSFER TO BAY — SELECTED HOLD IS EMPTY', false); }
+
+    const HEXC = 'polygon(50% 0%,100% 32%,90% 76%,66% 100%,34% 100%,10% 76%,0% 32%)';
+    const DELTA = 'polygon(50% 0%,100% 100%,50% 76%,0% 100%)';
+    const combatDefs = [
+      ['TAL', ['BBS','BBS','DST','DST','DST','FRG','FRG','FRG','INT','INT','INT','INT'], 1],
+      ['VIG', ['CAR','DST','DST','FRG','FRG','INT'], 1],
+      ['RSV', ['BBS','BBS','DST','FRG'], 1],
+      ['NEW', ['INT','INT','FRG'], 11],
+      ['ESC', ['FRG','FRG','FRG','FRG','INT','INT','INT','INT'], 1],
+      ['PKT', ['INT','INT','INT','INT','INT','INT','INT','INT'], 1]
+    ];
+    const combatChips = [];
+    combatDefs.forEach(([pre, list, start]) => list.forEach((cls, i) => {
+      const big = cls === 'BBS' || cls === 'CAR';
+      combatChips.push({
+        name: pre + '-' + String(start + i).padStart(2, '0'), cls,
+        glyphSt: { width: '8px', height: big ? '10px' : '8px', background: '#2f4a2a',
+          clipPath: big ? HEXC : DELTA, display: 'inline-block', flex: '0 0 auto' }
+      });
+    }));
+
+    return { stateLabel, remote, tabs, cargoSummary, holdRows, bayRows, chips, combatChips,
+      prevHead, prevHeadSt, prevLines, prevNote,
+      pBtnLabel: p.label, pBtnSt: p.st, sBtnLabel: s.label, sBtnSt: s.st };
+  }
+}
+</script>
+</body>
+</html>

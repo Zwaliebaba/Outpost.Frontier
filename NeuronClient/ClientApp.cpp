@@ -108,6 +108,18 @@ bool ClientApp::Initialise(const ClientConfig& _config, const PipelineShaders& _
   m_overlayTuning.ghostUnderWayColourRgba = m_palette.phosphor;
   m_overlayTuning.ghostRejectedColourRgba = m_palette.hostile;
 
+  // The caution amber, this palette's word for a temporary condition -- which
+  // is what a status bit is, whatever this game means by one. **Which** bits
+  // get a mark is the composition root's answer and arrives in the config; the
+  // colour is the palette's, so a colour-vision swap recolours it with
+  // everything else.
+  m_overlayTuning.statusMarkColourRgba = m_palette.caution;
+  m_overlayTuning.statusMarkBits = _config.statusMarkBits;
+
+  // Something of the player's arriving or leaving: the allied cyan, the same
+  // hue the shield fill uses, because both are statements about your own.
+  m_overlayTuning.transitRingColourRgba = m_palette.allied;
+
   // What the puck's orders are, from the side that knows. Once, at boot: there
   // is one command until the wheel exists, and asking every frame would be
   // asking a question whose answer is compiled in.
@@ -387,6 +399,31 @@ void ClientApp::PollNetwork()
   }
   m_connection.ClearPendingSnapshots();
 
+  /*
+   * The 1 Hz family, across the same seam and with the same ignorance
+   * (ADR-016 6). No clock comes back: a summary describes a state rather than
+   * an instant, so nothing here drives the render tick.
+   *
+   * Dropped while the feed is frozen for the reason the snapshots are -- F10
+   * reproduces a sender that stopped, and a hangar panel that kept updating
+   * behind a frozen fleet would be the one surface still telling the truth in a
+   * mode whose whole purpose is that none of them can.
+   */
+  if (!m_feedFrozen)
+  {
+    for (const std::vector<std::uint8_t>& payload : m_connection.PendingSummaries())
+    {
+      if (!m_worldView->ApplySummary(payload))
+      {
+        // Counted by the game and logged at debug here: a summary that failed
+        // to parse is a stale panel, which is a diagnostic rather than an
+        // event the player is owed.
+        NEURON_LOG_DEBUG("net: a summary payload was refused by the game");
+      }
+    }
+  }
+  m_connection.ClearPendingSummaries();
+
   // Once a second, and only while joined: enough to see the link is alive in a
   // log, not enough to bury anything else in it.
   const std::int64_t now = Clock::Counter();
@@ -634,16 +671,47 @@ void ClientApp::UpdateOrders()
       // the other two are: a local refusal and a remote one must be
       // indistinguishable to the player (ADR-005 §4).
       m_audio.PlayCue(ORDER_REJECTED_SOUND_ID);
+      // If that was an approach's first half, there is no fleet on its way and
+      // the chip is promising an arrival that cannot happen.
+      m_approach.NoteOrderRefused(verdict.orderSeq);
       NEURON_LOG_INFO("order %u refused by the server: %s", verdict.orderSeq, reason);
     }
   }
   m_connection.ClearPendingVerdicts();
+
+  /*
+   * Whatever the game has to say, into the stack (`alerts-and-toasts.png`).
+   *
+   * `Routine`, and one level for all of them: what a notice *is* is the game's
+   * to write and how loudly it is said is the surface's, and everything that
+   * arrives here is something that finished rather than something that went
+   * wrong -- the loud levels are the refusals, which come down their own path
+   * with a reason string attached.
+   */
+  std::array<Notice, MAX_NOTICES_PER_POLL> notices{};
+  const std::uint32_t noticeCount = m_worldView->PollNotices(notices);
+  for (std::uint32_t index = 0; index < noticeCount; ++index)
+  {
+    const Notice& notice = notices[index];
+    (void)m_toasts.Raise(ToastPriority::Routine, notice.code, notice.title != nullptr ? notice.title : "",
+                         notice.body != nullptr ? notice.body : "", nowSeconds);
+  }
 
   // What the newest snapshot says is still running. This is what promotes a
   // ghost when the ack was lost, and what retires one whose order has finished.
   m_worldView->PollOrderFeedback(m_orderFeedback);
   m_ghosts.OnFeedback(m_orderFeedback, nowSeconds);
   m_ghosts.Advance(nowSeconds);
+
+  /*
+   * The chained verb, before the gesture and before every early return below.
+   *
+   * A fleet keeps flying while the window is unfocused and while the menu is
+   * open, and the authority would take the dock in either -- so an approach
+   * that only advanced while the player was looking at it would be a promise
+   * kept or broken depending on where the mouse was.
+   */
+  AdvanceApproach(nowSeconds);
 
   if (m_connection.State() != ClientLinkState::Joined && !m_ghosts.Empty())
   {
@@ -654,6 +722,14 @@ void ClientApp::UpdateOrders()
     // fleet is the same mistake.
     m_ghosts.Clear();
     m_toasts.Clear();
+    // The approach's own reason: its sequence numbers restart on a reconnect,
+    // so a chain held across one would send its verb against a stranger's.
+    m_approach.Cancel();
+    // And the transit history, for the same reason in the other direction: the
+    // fleet on screen would all read as departures the frame the scene emptied,
+    // and the next session's fleet as arrivals. A link dropping is not a fleet
+    // going anywhere.
+    m_transits.Clear();
   }
 
   if (!m_input.windowFocused)
@@ -720,6 +796,10 @@ void ClientApp::UpdateOrders()
     return;
   }
 
+  // An order the player gave themselves is the plan now. Leaving the chain
+  // running would fire a verb at a station the fleet was told to fly away from,
+  // which is the HUD acting on an intent the player has visibly replaced.
+  m_approach.Cancel();
   CommitOrder(sample, nowSeconds);
 }
 
@@ -929,6 +1009,19 @@ void ClientApp::ExtractScene()
   // this frame -- a promise that appeared one frame late would be a promise
   // made after the player had already looked.
   BuildGhostMarks(m_ghosts.Ghosts(), m_overlayTuning, m_camera.MetresPerPixel(), Clock::SecondsSinceStart(), m_overlayMarks);
+
+  /*
+   * Then the two screen-facing families, which append and move no index.
+   *
+   * The transits are noted here rather than in `UpdateOrders` because this is
+   * where the scene is: what left the world is exactly the difference between
+   * the list `BuildScene` just filled and the one it filled last frame, and any
+   * other place to ask would be asking about a scene a frame out of date.
+   */
+  const double nowSeconds = Clock::SecondsSinceStart();
+  m_transits.Note(m_scene.entities, nowSeconds);
+  BuildStatusMarks(m_scene.entities, m_overlayTuning, nowSeconds, m_overlayMarks);
+  BuildTransitMarks(m_transits.Transits(), m_overlayTuning, m_camera.MetresPerPixel(), nowSeconds, m_overlayMarks);
 }
 
 void ClientApp::AudioUpdate()
@@ -1125,6 +1218,7 @@ void ClientApp::BuildHud()
   // so would be deciding that groups are named and how their health combines
   // (ADR-014 §2c).
   m_rosterRowCount = m_worldView->BuildRoster(m_selection.Ids(), m_rosterRows);
+  m_dockedBlockCount = m_worldView->BuildDockedBlocks(m_dockedBlocks);
 
   /*
    * --- the top status row -------------------------------------------------
@@ -1365,6 +1459,67 @@ void ClientApp::BuildHud()
   }
 
   /*
+   * --- the docked blocks --------------------------------------------------
+   *
+   * The same column, under the wings, because they are the same question: where
+   * are my ships. A docked one is absent from the scene entirely -- it is a row
+   * in a roster the authority keeps, with no position to draw -- so the panel
+   * that lists wings has nothing to list it as, and this is the other list.
+   *
+   * Hidden at zero rather than drawn empty, unlike a wing with no ships: an
+   * empty wing is a thing that exists and has lost its members, while "no ships
+   * anywhere but here" is not a place at all.
+   *
+   * The button is drawn dead. It is the word the game supplied over a frame
+   * that reads as reserved, which is the ability rack's arrangement and for the
+   * same reason: a button that looked live and did nothing would be the HUD
+   * promising a surface that does not exist yet.
+   */
+  const float blockHeight = chipHeight + 22.0f * layout.scale;
+  if (m_dockedBlockCount > 0 && rowY + blockHeight < layout.roster.Bottom())
+  {
+    rowY += chipGap;
+    m_ui.AddText(layout.roster.x + pad, rowY, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, "DOCKED");
+    rowY += 18.0f * layout.scale;
+
+    for (std::uint32_t index = 0; index < m_dockedBlockCount; ++index)
+    {
+      const DockedBlock& block = m_dockedBlocks[index];
+      const UiRect blockRect{layout.roster.x + pad * 0.5f, rowY, layout.roster.width - pad, blockHeight};
+      if (blockRect.Bottom() > layout.roster.Bottom())
+      {
+        break; // Same clamp the wing rows take, and the same answer: scrolling
+               // is a surface rather than a smaller number.
+      }
+
+      m_ui.AddQuad(blockRect, m_palette.chipBg);
+      m_ui.AddBorder(blockRect, 1.0f * layout.scale, m_palette.border);
+
+      UpperCaseInto(block.name != nullptr ? block.name : "?", upper);
+      m_ui.AddText(blockRect.x + pad * 0.5f, blockRect.y + pad * 0.5f, m_uiTuning.smallSizeIndex, m_palette.phosphor,
+                   upper);
+
+      std::snprintf(buffer, sizeof(buffer), "%u", block.shipCount);
+      const auto dockedCountWidth = static_cast<float>(TextCellCount(buffer)) * cell;
+      m_ui.AddText(blockRect.Right() - pad * 0.5f - dockedCountWidth, blockRect.y + pad * 0.5f,
+                   m_uiTuning.smallSizeIndex, m_palette.phosphor, buffer);
+
+      if (block.buttonLabel != nullptr)
+      {
+        const UiRect button{blockRect.x + pad * 0.5f, blockRect.Bottom() - pad * 0.5f - 16.0f * layout.scale,
+                            blockRect.width - pad, 16.0f * layout.scale};
+        m_ui.AddBorder(button, 1.0f * layout.scale, AtHalfAlpha(m_palette.border));
+        UpperCaseInto(block.buttonLabel, upper);
+        const float labelWidth = static_cast<float>(TextCellCount(upper)) * cell;
+        m_ui.AddText(button.x + (button.width - labelWidth) * 0.5f, button.y + 2.0f * layout.scale,
+                     m_uiTuning.smallSizeIndex, m_palette.phosphorDead, upper);
+      }
+
+      rowY += blockHeight + chipGap;
+    }
+  }
+
+  /*
    * --- the ability rack ---------------------------------------------------
    *
    * The S11 stub: the zone, its frame, and four dead slots. Everything in it
@@ -1505,12 +1660,36 @@ void ClientApp::BuildHud()
    * and not yet answered -- the caution amber, because a promise the
    * authority has not confirmed is exactly what that colour means here.
    */
+  float chipRight = layout.contextBar.Right() - pad;
   if (const std::size_t pendingOrders = m_ghosts.PendingCount(); pendingOrders > 0)
   {
     std::snprintf(buffer, sizeof(buffer), "\xE2\x8F\xB3 %zu ORDER%s PENDING", pendingOrders,
                   pendingOrders == 1 ? "" : "S");
-    const float chipLeft = layout.contextBar.Right() - pad - static_cast<float>(TextCellCount(buffer)) * cell;
-    m_ui.AddText(chipLeft, contextY, m_uiTuning.bodySizeIndex, m_palette.caution, buffer);
+    chipRight -= static_cast<float>(TextCellCount(buffer)) * cell;
+    m_ui.AddText(chipRight, contextY, m_uiTuning.bodySizeIndex, m_palette.caution, buffer);
+    chipRight -= 2.0f * cell;
+  }
+
+  /*
+   * The approach chip: the verb that is going to happen when the fleet gets
+   * there (ADR-017 2).
+   *
+   * Beside the pending-orders chip and in the same amber, because it is the
+   * same kind of statement -- something the client has promised and the
+   * authority has not confirmed. The word is the game's, taken from the context
+   * action the player invoked; the long arrow and the ellipsis are the engine's
+   * way of saying "on its way" without knowing what is on its way.
+   *
+   * Visible for exactly as long as the chain is, which is what makes it
+   * trustworthy: every path that cancels an approach clears the chip in the
+   * same frame, so it can never promise an arrival that stopped being coming.
+   */
+  if (const char* approachLabel = m_approach.Label(); approachLabel != nullptr)
+  {
+    std::snprintf(buffer, sizeof(buffer), "\xE2\x9F\xA1 %s\xE2\x80\xA6", approachLabel);
+    UpperCaseInto(buffer, upper);
+    chipRight -= static_cast<float>(TextCellCount(upper)) * cell;
+    m_ui.AddText(chipRight, contextY, m_uiTuning.bodySizeIndex, m_palette.caution, upper);
   }
 
   // --- the command row ----------------------------------------------------

@@ -3,7 +3,11 @@
 #include "ReplicatedView.h"
 #include "WorldView.h"
 
+#include "FleetSummary.h"
+#include "Station.h"
+
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -35,6 +39,13 @@ namespace Outpost
 class ReplicatedWorldView final : public Neuron::WorldView
 {
 public:
+  /// One station's display name, by the anchor it stands on.
+  struct StationName
+  {
+    Game::AnchorId anchor = Game::INVALID_ID;
+    std::string name;
+  };
+
   struct Desc
   {
     /*
@@ -77,6 +88,21 @@ public:
      * is the game's.
      */
     Game::AnchorId gridAnchor = Game::INVALID_ID;
+
+    /*
+     * What each station is called, for the panel that lists the ones this
+     * commander has ships in (ADR-017 1).
+     *
+     * A pair list rather than a table indexed by anchor: anchor ids are unique
+     * across the whole universe and nothing makes them dense, so an array would
+     * be one string slot per anchor in a galaxy to name the handful that are
+     * stations.
+     *
+     * Here rather than in GameLogic for the same reason `wingNames` is: the
+     * name lives in the parsed universe, and the composition root is the one
+     * project holding both that and the client's vocabulary.
+     */
+    std::vector<StationName> stationNames;
   };
 
   static constexpr std::uint16_t INVALID_RENDER_CLASS = 0xffffu;
@@ -96,6 +122,9 @@ public:
                                           std::span<Neuron::RosterRow> _outRows) const override;
   [[nodiscard]] bool ContextActionFor(std::uint16_t _entityId, std::span<const std::uint16_t> _selectedIds,
                                       Neuron::ContextAction& _outAction) const override;
+  [[nodiscard]] bool ApplySummary(std::span<const std::uint8_t> _payload) override;
+  [[nodiscard]] std::uint32_t BuildDockedBlocks(std::span<Neuron::DockedBlock> _outBlocks) const override;
+  [[nodiscard]] std::uint32_t PollNotices(std::span<Neuron::Notice> _outNotices) override;
   void PollOrderFeedback(Neuron::OrderFeedback& _outFeedback) override;
   [[nodiscard]] const char* ReasonText(std::uint16_t _reasonCode) const override;
 
@@ -106,8 +135,49 @@ public:
   [[nodiscard]] std::uint16_t ShipCount() const noexcept { return m_view.LatestShipCount(); }
   [[nodiscard]] std::uint32_t LatestTick() const noexcept { return m_view.LatestTick(); }
   [[nodiscard]] std::uint64_t RejectedSnapshotCount() const noexcept { return m_rejectedSnapshots; }
+  [[nodiscard]] std::uint64_t RejectedSummaryCount() const noexcept { return m_rejectedSummaries; }
+
+  /// What the summary family last said is docked where, for a test to assert
+  /// against without going through the HUD's span.
+  [[nodiscard]] std::uint16_t DockedCountAt(Game::AnchorId _anchor) const noexcept;
 
 private:
+  /*
+   * What the summary family last said is docked, one entry per station.
+   *
+   * Replaced wholesale on each arrival rather than merged: a frame is a
+   * complete statement about where this commander's ships are, and a merge
+   * would keep a station the authority has stopped listing -- which on this
+   * panel is a hangar that never empties.
+   *
+   * Sorted by anchor so the panel's order is the universe's rather than
+   * arrival's: a list that reshuffles because a datagram came in a different
+   * sequence is a list the player cannot point at.
+   */
+  struct DockedStation
+  {
+    Game::AnchorId anchor = Game::INVALID_ID;
+
+    /// From the *fleet summary* row rather than from `docked.size()`, and the
+    /// difference matters: the summaries are always written while a roster is
+    /// dropped first when the frame runs out of room, so this is the count that
+    /// survives a truncated frame and the list behind it is what may not.
+    std::uint16_t shipCount = 0;
+
+    /// The ships themselves, for the hangar screen T3 builds. Empty for a
+    /// station whose roster did not fit.
+    std::vector<Game::RosterEntry> docked;
+  };
+
+  /// Raises the dock/undock toasts for the difference between what is held and
+  /// what just arrived. Called *before* the new list replaces the old one,
+  /// because the comparison is the whole content of the message.
+  void NoteRosterChanges(const std::vector<DockedStation>& _next);
+
+  /// What the universe calls the station on this anchor, or null for one the
+  /// content does not name.
+  [[nodiscard]] const char* StationNameFor(Game::AnchorId _anchor) const;
+
   Desc m_desc;
   Game::ReplicatedView m_view;
 
@@ -145,7 +215,45 @@ private:
    */
   std::vector<Game::ShipId> m_validationIds;
 
+  std::vector<DockedStation> m_dockedStations;
+
+  /*
+   * Whether a summary has ever arrived.
+   *
+   * The toasts are the reason it exists: a count that goes from nothing to
+   * three because the *first* frame landed is not three ships docking, and
+   * without this the panel would announce the state of the world as though it
+   * had just happened while the player watched.
+   */
+  bool m_haveSummary = false;
+
+  /// Scratch for one decode, kept rather than made per arrival: this runs at
+  /// the summary cadence, but the vector would otherwise be a fresh allocation
+  /// every second for the life of the session.
+  std::vector<Game::RosterEntry> m_decodedRoster;
+  std::vector<Game::FleetSummary> m_decodedSummaries;
+
+  /*
+   * What the game has to say, waiting to be drained (`PollNotices`).
+   *
+   * The bodies are owned here because the seam hands over pointers: a station
+   * name lives in `Desc` and outlives everything, but "3 SHIPS" is composed per
+   * notice and has to live somewhere until the client has copied it.
+   */
+  struct PendingNotice
+  {
+    std::uint16_t code = 0;
+    const char* title = nullptr;
+    std::string body;
+  };
+  std::vector<PendingNotice> m_notices;
+
+  /// Handed across the seam by the last poll, and kept alive until the next one
+  /// because that is exactly what the seam promises.
+  std::vector<PendingNotice> m_noticesHandedOver;
+
   std::uint64_t m_rejectedSnapshots = 0;
+  std::uint64_t m_rejectedSummaries = 0;
 };
 
 } // namespace Outpost

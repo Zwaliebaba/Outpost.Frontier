@@ -3,8 +3,14 @@
 Output of the architecture & design session of 2026-08-17. The eight open questions from the
 session brief are settled, in order, one ADR each; the four session deliverables sit beside
 them. ADRs 009–014 record owner directives and rulings that arrived after the session and,
-where they overturn an earlier decision, say so in their header. `ScreenPrints/` is the pre-existing
-reference corpus these documents align with.
+where they overturn an earlier decision, say so in their header. `ScreenPrints/` is the
+reference corpus these documents align with — originally pre-existing, and since 2026-08-19
+grown by three prints drawn *for* this corpus: `station-screen.png` (P1, the hangar),
+`cargo-tab.png` (D-P2) and `refinery-tab.png` (D-P3), which together are the station surface's
+tab family. Those three carry their **source beside them** in `ScreenPrints/source/`, so a
+print is an editable artefact rather than a flat image somebody has to redraw from scratch to
+correct a word. **With D-P3 in on 2026-08-21, no phase in this corpus is waiting on a screen
+print except the universe phase's D1, the system view.**
 
 **Supersessions to be aware of when reading older ADRs:** ADR-012 replaces ADR-008's command
 line (there is no argv) and ADR-009's line-oriented universe format (it is JSON); ADR-010
@@ -116,9 +122,9 @@ moves between the trees without a rename pass. Three things it changed in these 
   delivering ADR-017 (roster + transfer bus in the sim, the wire and tactical surfaces,
   the hangar screen), interleaved **after U2, before U3a**; milestones **H0 (the headless
   loop) — met 2026-08-20, every named criterion covered** / H1 (the hangar loop); deliverables P1 (station-screen print, **delivered** — its
-  open questions answered as ADR-017 §6a) and P2 (dock/undock audio, gated on S15). **T1 is
-  built in all three halves, and T2 has its identity cluster on the wire and its per-client
-  sender**; T2's client half is not built, and T3 has no design gate left.
+  open questions answered as ADR-017 §6a) and P2 (dock/undock audio, **no longer gated** —
+  S15 shipped the sound bank). **T1 and T2 are built in full (2026-08-21)**; what is left of
+  the phase is T3, the hangar screen, which has no design gate left.
 - [Economy-Build-Order.md](Economy-Build-Order.md) — the mining and refining phase: E1a–E5
   slices delivering ADR-024 (the economy content layer, sites in the bake and the epoch that
   moves them, the Mine order and the site ledger, cargo and the Bay and the wire cluster,
@@ -126,8 +132,12 @@ moves between the trees without a rename pass. Three things it changed in these 
   loop) / G1 (the first alloy) / G2 (the loop on screen); deliverables **D-P1, the persistence
   ADR — it blocks E2** and is where ADR-024 §7a's journal gets its format — plus the CARGO and
   REFINERY prints (block E5), icons, the site field's visual treatment, and audio last.
-  **Nothing is built yet.** It splits the E1 the ADR sketched and moves the screens out of E4,
-  both recorded in its sequencing rationale.
+  **E1a and E1b are built, and every design deliverable is closed** — D-P1 accepted
+  2026-08-20, D-P2 ([cargo-tab.png](ScreenPrints/cargo-tab.png)) and D-P3
+  ([refinery-tab.png](ScreenPrints/refinery-tab.png)) both delivered 2026-08-21. What the two
+  prints leave behind is **eight owner rulings, not artefacts**: seven owed before E5, and one
+  — whether a refine job can be cancelled — owed before **E4**. The plan splits the E1 the ADR
+  sketched and moves the screens out of E4, both recorded in its sequencing rationale.
 - [Archive/](Archive/) — corpus documents that are **finished rather than wrong**. A plan moves
   here when every slice in it is built and every open item it tracked is closed; it stays
   readable and linked because it is the record of what was built and why, and it leaves
@@ -303,10 +313,15 @@ are both in the tree, so what is left there is the second commander's *identity*
 (`ServerHost` mints `SOLE_PLAYER_ID`; summaries and rosters answer for everyone) rather than
 the machinery to serve one. The system-view print remains the one missing design artifact.
 
-**Every open design decision in both post-MVP phases is now answered (2026-08-20).** The two
-prints that carried an OPEN list have been ruled on: `station-screen.png` §3's four questions
-as [ADR-017 §6a](ADR/ADR-017-station-docking.md), and `strategic-map.png` §4's as
-[ADR-016 §9a](ADR/ADR-016-procedural-universe-and-warp.md). Route execution needed no new
+**Every open design decision in the universe and station phases is answered (2026-08-20).**
+The two prints that carried an OPEN list have been ruled on: `station-screen.png` §3's four
+questions as [ADR-017 §6a](ADR/ADR-017-station-docking.md), and `strategic-map.png` §4's as
+[ADR-016 §9a](ADR/ADR-016-procedural-universe-and-warp.md). *(The economy phase reopened the
+category on 2026-08-21 rather than contradicting it, and that is what a delivered print is
+supposed to do: D-P2 and D-P3 both arrived with their own OPEN lists — **eight questions
+between them**, tracked in [Economy-Build-Order.md](Economy-Build-Order.md). Seven are owed
+before E5; job cancel is owed before **E4**, because E4 writes that verb or its absence. The
+prints themselves are closed — what is open is a ruling, which is the cheap kind of open.)* Route execution needed no new
 ruling — ADR-016 §8 decided it when the phase was designed and it stands — but its accepted
 cost now has somewhere to be *reported*, because D19's event record landed after the print was
 drawn and the reconnect away-log is one of its consumers. Of the other three: the history
@@ -327,12 +342,14 @@ screen where emergent fleets and wings are recombined.
 [Station-Build-Order.md](Station-Build-Order.md) is the delivery plan, interleaved after U2
 and before U3a — it introduces the transfer bus warp inherited.
 
-**Built so far: all three halves of T1, and T2's wire half in full.** Docking, the
+**Built so far: T1 and T2 in full.** Docking, the
 transfer bus, undocking with its fifteen seconds, the parking ring and the event record are
 in the sim; `PlayerId` and the reserved resume token are on `Hello`/`Welcome`, and the schema
 text grew the verdict-affecting constants and the check-order sequence (ADR-018 D9/A21).
-**T2's client half is not built** — the DOCK context action, the approach chain, the fades,
-the shimmer and the DOCKED roster blocks are all screen work. Its per-client `SnapshotSender`,
+**T2's client half landed 2026-08-21** — the DOCK context action, the approach chain and its
+chip, the DOCKED blocks, the dock/undock toasts, the protection shimmer and the ~1 s transit
+fades — with a visual checkpoint recorded as owed, because none of the four new marks has been
+on a screen (R1). Its per-client `SnapshotSender`,
 the piece U3c waited on, landed with A13. T3, the hangar screen, **has no design gate left**: the
 four questions [P1](ScreenPrints/station-screen.png) marked open for review were answered on
 2026-08-20 as [ADR-017 §6a](ADR/ADR-017-station-docking.md) — the wave-2 trigger (the point

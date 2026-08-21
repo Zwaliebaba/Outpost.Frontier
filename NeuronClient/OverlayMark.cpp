@@ -5,6 +5,7 @@
 #include "HudPalette.h" // The gauge band thresholds the roster strips use.
 
 #include <algorithm>
+#include <cmath>
 
 using namespace DirectX;
 
@@ -211,6 +212,89 @@ void BuildGhostMarks(std::span<const OrderGhost> _ghosts, const OverlayTuning& _
 
   _outMarks.marks.insert(_outMarks.marks.begin() + _outMarks.ringCount, planeMarks.begin(), planeMarks.end());
   _outMarks.ringCount += static_cast<std::uint32_t>(planeMarks.size());
+}
+
+void BuildStatusMarks(std::span<const SceneEntity> _entities, const OverlayTuning& _tuning, double _nowSeconds,
+                      OverlayMarkList& _outMarks)
+{
+  if (_tuning.statusMarkBits == 0)
+  {
+    return; // No bit is worth a mark to this game. The common case.
+  }
+
+  /*
+   * The shimmer: alpha over a sine, never all the way down.
+   *
+   * The floor matters more than the swing does. A mark that reached zero would
+   * be invisible for part of every cycle, and a player glancing at the plane at
+   * the wrong instant would see a protected ship as an unprotected one -- which
+   * is worse than no mark, because it is a wrong answer rather than no answer.
+   */
+  const auto phase = static_cast<float>(_nowSeconds / _tuning.statusMarkPulseSeconds);
+  const float pulse = 0.6f + 0.4f * (0.5f + 0.5f * std::sin(phase * 6.2831853f));
+
+  for (const SceneEntity& entity : _entities)
+  {
+    if ((entity.statusBits & _tuning.statusMarkBits) == 0)
+    {
+      continue;
+    }
+
+    const auto baseAlpha = static_cast<float>(_tuning.statusMarkColourRgba >> 24);
+    OverlayMark mark;
+    mark.anchorPlane = entity.planeMetres;
+    mark.halfWidthPixels = _tuning.statusMarkRadiusPixels;
+    mark.halfHeightPixels = _tuning.statusMarkRadiusPixels;
+    mark.colourRgba = WithAlpha(_tuning.statusMarkColourRgba, static_cast<std::uint8_t>(baseAlpha * pulse));
+    mark.kind = static_cast<std::uint16_t>(OverlayKind::StatusMarker);
+    mark.fill = _tuning.statusMarkDashCount;
+    _outMarks.marks.push_back(mark);
+  }
+}
+
+void BuildTransitMarks(std::span<const EntityTransit> _transits, const OverlayTuning& _tuning, float _metresPerPixel,
+                       double _nowSeconds, OverlayMarkList& _outMarks)
+{
+  const float metresPerPixel = _metresPerPixel > 0.0f ? _metresPerPixel : 1.0f;
+
+  for (const EntityTransit& transit : _transits)
+  {
+    const auto elapsed = static_cast<float>(_nowSeconds - transit.startSeconds);
+    const auto span = static_cast<float>(EntityTransitList::FADE_SECONDS);
+    if (elapsed < 0.0f || elapsed >= span)
+    {
+      // Finished, or a clock that went backwards. The list retires its own on
+      // the next `Note`; this is only about not drawing one meanwhile.
+      continue;
+    }
+    const float through = elapsed / span;
+
+    /*
+     * The hull's own extent, in pixels, because this ring is screen-facing and
+     * lives in the same space the bars do -- and floored the way the selection
+     * ring is floored, so a fleet leaving at strategic zoom is still something
+     * the player can see happen rather than a sub-pixel flicker.
+     *
+     * Growing outward in both directions. What separates an arrival from a
+     * departure is the alpha -- in for one, out for the other -- because a ring
+     * that collapsed inward on a docking ship would read as the ship being
+     * crushed rather than as it going somewhere.
+     */
+    const float scale = _tuning.transitRingStartScale + (_tuning.transitRingEndScale - _tuning.transitRingStartScale) * through;
+    const float fade = transit.arriving ? through : 1.0f - through;
+    const float radiusPixels =
+        std::max(transit.radiusMetres / metresPerPixel, _tuning.transitRingMinRadiusPixels) * scale;
+
+    const auto baseAlpha = static_cast<float>(_tuning.transitRingColourRgba >> 24);
+    OverlayMark mark;
+    mark.anchorPlane = transit.planeMetres;
+    mark.halfWidthPixels = radiusPixels;
+    mark.halfHeightPixels = radiusPixels;
+    mark.colourRgba = WithAlpha(_tuning.transitRingColourRgba, static_cast<std::uint8_t>(baseAlpha * fade));
+    mark.kind = static_cast<std::uint16_t>(OverlayKind::TransitRing);
+    mark.fill = 0; // Undashed: a departure is a fact, not a promise.
+    _outMarks.marks.push_back(mark);
+  }
 }
 
 } // namespace Neuron

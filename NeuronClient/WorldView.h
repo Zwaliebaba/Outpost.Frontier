@@ -63,6 +63,31 @@ public:
   [[nodiscard]] virtual std::uint32_t ApplySnapshot(std::span<const std::uint8_t> _payload) = 0;
 
   /*
+   * Hands the game one summary payload, the same way and with the same
+   * ignorance (ADR-016 6).
+   *
+   * The summary family answers questions a snapshot deliberately does not --
+   * where a commander's ships are when they are nowhere on this grid, and what
+   * is sitting in a hangar. The engine frames those bytes, orders them and does
+   * not read them; which member of the family arrived is a byte inside, and a
+   * connection that looked would have learned what a station is.
+   *
+   * No tick comes back, unlike `ApplySnapshot`, because there is nothing to
+   * time: a summary describes a state rather than an instant and never drives
+   * the render clock. True when the payload was understood, false when it was
+   * refused -- which the caller uses for a diagnostic and nothing else, because
+   * a dropped summary is a stale panel rather than a broken world.
+   *
+   * Defaulted rather than pure: a game with no summary family is a real thing,
+   * and every client before this one was one.
+   */
+  [[nodiscard]] virtual bool ApplySummary(std::span<const std::uint8_t> _payload)
+  {
+    (void)_payload;
+    return false;
+  }
+
+  /*
    * Fills the scene for a presentation instant.
    *
    * `_renderTick` is fractional on purpose: the client draws between snapshots
@@ -220,6 +245,32 @@ public:
    * the client chose.
    */
   virtual void PollOrderFeedback(OrderFeedback& _outFeedback) = 0;
+
+  /*
+   * Things the game wants said, since the last time it was asked (ADR-011 12).
+   *
+   * The toast stack is the engine's surface and its levels, its dwell times and
+   * its coalescing are presentation -- but the *words* are not. "A fleet
+   * finished docking" is a sentence only the game can write, and a client that
+   * composed it would have learned that ships dock, that stations are places
+   * and what to call the moment one arrives (ADR-014 2b). So the game hands
+   * over a title, a body and a key, and the engine decides how loudly to say
+   * it and for how long.
+   *
+   * Polled and **drained**: what is returned has been handed over, and asking
+   * again returns what has happened since. That is deliberate -- a notice the
+   * client dropped because its stack was full must not come back next frame as
+   * though it had just happened.
+   *
+   * The strings point at storage the world view owns and are valid until the
+   * next call, which is long enough: the caller copies them into the stack.
+   * Returns how many were written, never more than the span holds.
+   */
+  [[nodiscard]] virtual std::uint32_t PollNotices(std::span<Notice> _outNotices)
+  {
+    (void)_outNotices;
+    return 0;
+  }
 
   /*
    * The diagnostic text for a reason code.

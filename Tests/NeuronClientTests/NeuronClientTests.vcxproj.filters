@@ -42,6 +42,9 @@
     <ClCompile Include="PickingTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DockingTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="OverlayTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
