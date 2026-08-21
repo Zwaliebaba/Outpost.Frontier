@@ -1056,8 +1056,10 @@ pocket's dampening legible as a thing happening to *you* rather than a number in
 
   - **The vocabulary is item stacks; ore is only the first family.** Every readout on the tab
     is an `(item, units, litres)` triple — the manifest columns, the Bay's rows, the MOVE
-    chips, the fill preview — so ADR-008c's taxonomy grows the screen **by rows and chips,
-    never by redesign**, and no label says "ore" where "item" is meant. One consequence is
+    chips, the fill preview — so a wider item taxonomy grows the screen **by rows and chips,
+    never by redesign**, and no label says "ore" where "item" is meant. *(That taxonomy is
+    named by the print and has no ADR in this corpus — see ADR-024 §5d's caveat. It blocks
+    nothing here, since ore is the only family E1–E5 ships.)* One consequence is
     pre-authorised rather than met by surprise: per-item manifest columns hold to about five
     item types, past which they collapse to stacked chips per hull.
   - **Units are the number, litres are the cost**, and every stack reads twice — unit volumes

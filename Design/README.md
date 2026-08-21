@@ -9,8 +9,19 @@ grown by three prints drawn *for* this corpus: `station-screen.png` (P1, the han
 `cargo-tab.png` (D-P2) and `refinery-tab.png` (D-P3), which together are the station surface's
 tab family. Those three carry their **source beside them** in `ScreenPrints/source/`, so a
 print is an editable artefact rather than a flat image somebody has to redraw from scratch to
-correct a word. **With D-P3 in on 2026-08-21, no phase in this corpus is waiting on a screen
-print except the universe phase's D1, the system view.**
+correct a word.
+
+**The plate is the screen; the argument is in the source.** As of 2026-08-21 those three
+`.png` files are the authored screen at 1440×900 and nothing else — the §1/§2/§3 annotations
+that used to ride along in the image live in the `.dc.html` beside them. So a plate is what
+you check a build against, and the reasoning is what you read; do not go looking in the PNG
+for the design calls, and do not treat a plate's silence as the design being silent. The calls
+themselves are lifted into the ADRs, which is where a decision is supposed to end up
+(ADR-017 §6a, ADR-024 §5d and §6e).
+
+**With D-P3 in on 2026-08-21, no phase in this corpus is waiting on a screen print except the
+universe phase's D1, the system view** — but several *surfaces* have no print at all yet, and
+they are inventoried below so that "not blocking anything" never quietly becomes "forgotten".
 
 **Supersessions to be aware of when reading older ADRs:** ADR-012 replaces ADR-008's command
 line (there is no argv) and ADR-009's line-oriented universe format (it is JSON); ADR-010
@@ -142,12 +153,71 @@ moves between the trees without a rename pass. Three things it changed in these 
   **E1a through E4b are built; E5, the two screens, is what is left.** The plan splits the E1
   the ADR sketched, moves the screens out of E4, and **splits E4 itself** into the durable store
   (E4a) and the refining runtime (E4b) — all three recorded in its sequencing rationale.
+- [Archive/consistency-report-2026-08-21.md](Archive/consistency-report-2026-08-21.md) —
+  **archived 2026-08-21, the day it was written**, because an audit is finished when its
+  findings are acted on and these were. A cross-screen audit
+  of all twelve design documents against each other and against the tree, triggered by D-P2 and
+  D-P3 landing after eight screens were already drawn and the tactical HUD already built. Four
+  inconsistencies found and fixed in the prints (P1's pre-economy tab row; the wheel's silence
+  about MINE; an away-digest row naming a system that does not exist; the alert taxonomy
+  predating mining), and — more usefully — the honest inventory of surfaces that have no print
+  at all. Its findings are folded into the ADRs and into this file — the tab-row verdict into
+  ADR-017 §6, the wheel ruling into ADR-024 §4a, the inventory into the section below — and the
+  report stays as the evidence, the way the scaling review does. It also turned up one thing
+  that outlived its own fix list: the **item taxonomy** its source document cites has no ADR
+  here, which is recorded with the inventory.
+- [prompt-hud-economy.md](prompt-hud-economy.md) — a **build-scoping document, not a design
+  one**: the four tactical-HUD additions the built economy is owed (the MINE context verb with
+  reason parity, the MINING chip off the existing `LegEtaSeconds` seam, HOLD FULL on the roster
+  strip from `CargoStatus`, minimal `SiteStatus` cluster bars), with their accept criteria.
+  Station tabs are explicitly out of its scope — those are E5's, to the D-P2/D-P3 prints. It
+  exists because the tactical HUD is live C++ that shows *nothing* of a mining loop that is
+  built and green, which is the kind of gap a corpus notices only when somebody looks.
 - [Archive/](Archive/) — corpus documents that are **finished rather than wrong**. A plan moves
   here when every slice in it is built and every open item it tracked is closed; it stays
   readable and linked because it is the record of what was built and why, and it leaves
   `Design/` so that the build orders still at the top level are the live ones. Nothing here is
   the only home of an owed item — anything still outstanding is rehomed to a live document
   before its plan is archived.
+### Surfaces with no print yet *(inventory, 2026-08-21)*
+
+Kept here rather than in a build order because none of them blocks a slice — which is exactly
+why they need a home. The corpus's deliverables sections exist so nothing is quietly dropped,
+and a surface that blocks nothing is the easiest thing in the world to drop. In the audit's
+suggested order:
+
+1. **Market** — unblocked by the item taxonomy; the browser's own taxonomy is still an open
+   UI question. The largest and least specified of these, and the one the economy's value
+   premia (ADR-024 §6a) are quietly waiting on.
+2. **Fleet management** — fleet template rows, ≤16 squadrons, all-or-nothing deploy. P1 handles
+   *composition at a station*; this is the doctrine layer above it.
+3. **A container surface** — and this one has no row in any inventory yet, which is the point
+   of listing it. D-P2 answers hull ⇄ Bay and nothing else; wreck loot (ADR-024 §5b), escrow,
+   deploying and the taxonomy's other container kinds each have a data model and no UI.
+4. **D-C1, the ore and alloy icons** — the tactical icon system's families plus the three
+   archetype glyphs. It feeds both economy tabs and both maps, so it is the cheapest item here
+   with the widest reach.
+5. **The site layer on the strategic and system maps** — sites are baked anchors and the epoch
+   placement is client-callable, so a map could draw today's fields already. `strategic-map.png`
+   predates sites entirely, so this is a *change to a drawn screen* rather than a new one, and
+   it wants its own pass.
+6. **Character and skills** — no data model exists, so it is correctly not designable yet.
+   Listed so that "we have not designed it" stays a decision rather than an oversight.
+
+Not screens, and tracked with the economy phase instead: **D-C2** (the site field's visual
+treatment) and **D-C3** (mining and refining audio).
+
+**One design, not a screen, also has no home here — and it was found by writing this list.**
+The audit's source document cites an **item taxonomy** (`ItemTypeId`, six container kinds) and
+a **fleet-template design** (≤16 squadrons, all-or-nothing deploy) by numbers from a design
+project *upstream of this corpus*; neither has an ADR in `ADR/`, and the numbering scheme is
+not this one's. D-P2's central claim — that ore is the first item family of many — rests on
+the first of them, so the claim is currently uncitable here. Nothing is blocked: ore is the
+only family E1–E5 ships, and P1 is the only fleet surface this corpus needs. But items 1, 2
+and 3 above cannot be *designed* until that taxonomy either lands as an ADR here or is
+explicitly declared out of scope, and a reference that cannot be followed is the failure mode
+this file's supersession list exists to prevent.
+
 - [Risk-Register.md](Risk-Register.md) — R1–R26 with designed-in mitigations + standing spikes.
   R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised twice —
   closed 2026-08-20, reopened and root-caused 2026-08-21** when the Debug hang came back and
