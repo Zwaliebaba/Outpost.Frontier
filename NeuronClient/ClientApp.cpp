@@ -46,6 +46,16 @@ constexpr float BASE_FONT_SIZES_PIXELS[] = {13.0f, 15.0f, 22.0f, 11.0f};
 constexpr const char* MENU_CHIP_LABEL = "\xE2\x96\xA5 MENU";
 
 /*
+ * The way off a full-screen surface (`◀`, U+25C0).
+ *
+ * A surface *name* rather than game vocabulary, which is what makes it the
+ * engine's to write: `SurfaceId` already enumerates the screens this client
+ * has, so naming one is not the leak that naming a station's tabs would be
+ * (ADR-020 §6).
+ */
+constexpr const char* BACK_CHIP_LABEL = "\xE2\x97\x80 TACTICAL";
+
+/*
  * Emissive strength per canonical material (ADR-006 §6).
  *
  * Not content: the .mtl files carry albedo, and which of the five materials
@@ -346,8 +356,24 @@ int ClientApp::Run()
       UpdateOrders();
     }
     {
+      /*
+       * Extract runs only when the world half will be recorded (ADR-020 §1).
+       *
+       * The *network* half runs on every surface -- snapshots keep arriving and
+       * keep the interpolation buffer full while a screen is up, so coming back
+       * to tactical costs no refill and owes no settle: a surface switch is not
+       * a view switch. What there is no point doing is building a scene nothing
+       * will draw.
+       *
+       * The span is recorded either way, at zero, because a budget row that
+       * disappeared would read as a stage that broke rather than one that had
+       * nothing to do.
+       */
       NEURON_SPAN("Extract");
-      ExtractScene();
+      if (SurfaceRecordsWorld(m_surfaces.Active()))
+      {
+        ExtractScene();
+      }
     }
     {
       // The fifth budget row (ADR-011 §9), immediately after Extract because
@@ -512,10 +538,67 @@ void ClientApp::UpdateHud()
 {
   m_uiLayout = ResolveUiLayout(m_input.viewportWidth, m_input.viewportHeight, m_config.uiScale, m_uiTuning);
 
+  /*
+   * This frame's input, latched, with the focus owner's word for what the
+   * keyboard looks like (ADR-020 §2). Everything below asks the router rather
+   * than the frame, and the order it asks in *is* the stage order: focused
+   * widget, then the active surface, then the cross-surface layers, then the
+   * world -- which is `UpdateSelection` and `UpdateOrders`, further down the
+   * frame.
+   */
+  m_router.Begin(m_input, m_focus);
+  if (m_router.WindowDeactivated())
+  {
+    // One of focus's three clearing rules, and the only one the router can
+    // notice on its own. The other two -- a surface exiting, a pointer claim
+    // landing outside -- are raised where they happen.
+    m_focus.Clear();
+  }
+
+  /*
+   * What the game says about the fleet, asked before anything is laid out
+   * because the column's geometry depends on how many rows there are, and the
+   * column has a live control on it now.
+   *
+   * It moved here from `BuildHud` for that reason alone. The selection it is
+   * asked with is the one `UpdateSelection` left last frame, which is the same
+   * relationship the command row's `hasSelection` has always had -- one frame,
+   * at display rate, on a highlight.
+   */
+  m_rosterRowCount = m_worldView->BuildRoster(m_selection.Ids(), m_rosterRows);
+  m_locationBlockCount = m_worldView->BuildLocationBlocks(m_locationBlocks);
+
+  // Straight after the blocks, because they are what it reads. A frame late
+  // would be a frame of empty grid the player had to look at.
+  AdvanceAutoFollow();
+
+  // The ELSEWHERE column, laid out where it is pressed and handed to the draw
+  // (ADR-020 §5.1).
+  m_locationLayoutCount = BuildLocationBlockColumn(
+      std::span<const LocationBlock>{m_locationBlocks, m_locationBlockCount}, m_uiLayout.roster,
+      RosterBlocksTop(m_uiLayout.roster, m_rosterRowCount, m_uiLayout.scale, m_rosterTuning), m_uiLayout.scale,
+      m_rosterTuning, m_locationLayouts);
+
+  /*
+   * The way back off a full-screen surface, laid out here and drawn from the
+   * same rect (ADR-020 §5.1).
+   *
+   * `◀ TACTICAL` and `◀ BACK` are one control because they are one mechanism --
+   * `SurfaceStack::Back` -- so there is one chip rather than one per screen.
+   */
+  {
+    const float scale = m_uiLayout.scale;
+    const float cell = 8.0f * scale;
+    const float pad = m_uiTuning.padding * scale;
+    const float chipWidth = static_cast<float>(TextCellCount(BACK_CHIP_LABEL)) * cell + 2.0f * cell;
+    m_backChipRect = UiRect{m_uiLayout.viewport.x + pad, m_uiLayout.viewport.y + pad, chipWidth,
+                            m_uiTuning.topBarHeight * scale - pad};
+  }
+
   // The diagnostics toggle, before anything can consume the frame's edges. A
   // level edge rather than a chord: the strip is a setting with a shortcut,
   // not a gesture (debug-hud.png §6).
-  if (m_input.Pressed(InputAction::ToggleDiagnostics))
+  if (m_router.Pressed(InputAction::ToggleDiagnostics))
   {
     m_diagnosticsVisible = !m_diagnosticsVisible;
   }
@@ -523,10 +606,33 @@ void ClientApp::UpdateHud()
   // The induced stall, beside the strip's toggle because it is the instrument
   // the strip is read with. Logged rather than drawn: the screen is what is
   // being judged while this is on, so the record of it belongs in the file.
-  if (m_input.Pressed(InputAction::ToggleFeedFreeze))
+  if (m_router.Pressed(InputAction::ToggleFeedFreeze))
   {
     m_feedFrozen = !m_feedFrozen;
     NEURON_LOG_INFO("feed %s (F10)", m_feedFrozen ? "cut -- the world will go stale" : "restored");
+  }
+
+  /*
+   * Escape, in ADR-020 §2's order: the focused field first to cancel an edit,
+   * then the active surface to go back, then nothing.
+   *
+   * No field can hold focus yet -- the first one is the hangar's wing rename --
+   * so the first clause is written as the router's `Characters`/`ClaimKeyboard`
+   * pair rather than as a special case, and the surface's clause is the one
+   * that does work today. The open menu counts as something to leave: a player
+   * pressing Escape with a list up means the list.
+   */
+  if (m_router.Pressed(InputAction::Back))
+  {
+    (void)m_router.ClaimKeyboard();
+    if (m_menuOpen)
+    {
+      m_menuOpen = false;
+    }
+    else
+    {
+      OnSurfaceChanged(m_surfaces.Back());
+    }
   }
 
   const std::uint32_t selectedSlot = KindSlot(m_selectedKind);
@@ -570,25 +676,54 @@ void ClientApp::UpdateHud()
     }
   }
 
-  m_uiConsumedPress = false;
-  if (!m_input.windowFocused || !m_input.Pressed(InputButton::Left))
+  /*
+   * A full-screen surface is the active surface, and it owns the pointer --
+   * every button of it, every frame it is up.
+   *
+   * Ahead of the left-press gate below for exactly that reason. Gating on a
+   * left press first would leave the *right* button unclaimed, and the order
+   * puck lives on the right button: a right-drag across the hangar would have
+   * sent a fleet somewhere on a grid the player cannot see.
+   *
+   * Its own control goes first, and whatever else the press landed on is the
+   * surface's own air rather than the tactical HUD's -- the chrome underneath
+   * is not showing, so a press reaching the command row would be a button
+   * nobody could see being pressed.
+   */
+  if (!SurfaceRecordsWorld(m_surfaces.Active()))
+  {
+    if (m_router.ClaimPointerIn(m_backChipRect))
+    {
+      OnSurfaceChanged(m_surfaces.Back());
+    }
+    else
+    {
+      (void)m_router.ClaimPointer();
+    }
+    return;
+  }
+
+  if (!m_router.Pressed(InputButton::Left))
   {
     return;
   }
 
-  const auto cursorX = static_cast<float>(m_input.cursorX);
-  const auto cursorY = static_cast<float>(m_input.cursorY);
+  const float cursorX = m_router.CursorX();
+  const float cursorY = m_router.CursorY();
 
   /*
-   * The menu takes the press before the command row and, through
-   * `m_uiConsumedPress`, before the world: while the list is open every left
-   * press belongs to it -- an item acts, anywhere else closes -- because a
-   * press that both closed the menu and box-selected the fleet under it would
-   * be two answers to one gesture.
+   * The menu takes the press before everything under it: while the list is open
+   * every left press belongs to it -- an item acts, anywhere else closes --
+   * because a press that both closed the menu and box-selected the fleet under
+   * it would be two answers to one gesture.
+   *
+   * It claims the pointer rather than setting a flag the world remembers to
+   * check, which is the same guarantee `m_uiConsumedPress` gave and the general
+   * form of it (ADR-020 §2).
    */
   if (m_menuOpen)
   {
-    m_uiConsumedPress = true;
+    (void)m_router.ClaimPointer();
     m_menuOpen = false; // Whatever was pressed, the list has had its answer.
     if (m_menuItemRects[MENU_SETTINGS].Contains(cursorX, cursorY))
     {
@@ -602,10 +737,29 @@ void ClientApp::UpdateHud()
     }
     return; // RESUME, the chip, or anywhere else: closed, and nothing more.
   }
-  if (m_menuButtonRect.Contains(cursorX, cursorY))
+  if (m_router.ClaimPointerIn(m_menuButtonRect))
   {
     m_menuOpen = true;
-    m_uiConsumedPress = true;
+    return;
+  }
+
+  /*
+   * The way into the hangar (ADR-017 §6, T3).
+   *
+   * A docked block's button is the roster's own route to the station screen,
+   * and it opens the screen for **any** station holding the player's ships,
+   * viewed or not -- focus never gates command, so a remote hangar is the same
+   * press as the one you are looking at. The anchor rides along because the
+   * screen has to know which hangar it is; the engine echoes it and never reads
+   * it.
+   */
+  if (const LocationBlockLayout* block =
+          HitLocationBlockButton(std::span<const LocationBlockLayout>{m_locationLayouts, m_locationLayoutCount},
+                                 cursorX, cursorY);
+      block != nullptr && m_router.ClaimPointerIn(block->button))
+  {
+    m_stationAnchor = block->anchor;
+    OnSurfaceChanged(m_surfaces.Push(SurfaceId::Station));
     return;
   }
 
@@ -615,6 +769,7 @@ void ClientApp::UpdateHud()
   {
     return;
   }
+  (void)m_router.ClaimPointer();
 
   switch (pressed->action)
   {
@@ -660,14 +815,14 @@ void ClientApp::UpdateSelection()
    * wherever the cursor goes, and a selection that cancelled when it touched
    * the ability rack would be worse than the bug.
    */
-  if (m_input.Pressed(InputButton::Left))
+  if (m_router.Pressed(InputButton::Left))
   {
     // The menu's presses never reach the world: the open list floats over the
     // world zone, so without this a press on RESUME would also start a box
     // selection across the fleet underneath it.
-    if (m_uiLayout.world.Contains(cursorX, cursorY) && !m_menuOpen && !m_uiConsumedPress)
+    if (m_uiLayout.world.Contains(cursorX, cursorY) && !m_menuOpen)
     {
-      m_selection.BeginDrag(cursorX, cursorY, m_input.Down(InputAction::SelectAdd));
+      m_selection.BeginDrag(cursorX, cursorY, m_router.Down(InputAction::SelectAdd));
     }
   }
   else if (m_selection.Dragging())
@@ -675,7 +830,7 @@ void ClientApp::UpdateSelection()
     m_selection.UpdateDrag(cursorX, cursorY);
   }
 
-  if (m_input.Released(InputButton::Left) && m_selection.Dragging())
+  if (m_router.Released(InputButton::Left) && m_selection.Dragging())
   {
     m_selection.EndDrag(m_scene.entities, m_camera.PlaneMappingForNdc(), m_input.viewportWidth, m_input.viewportHeight,
                         m_camera.ScreenFloorMetres(Selection::PICK_FLOOR_PIXELS));
@@ -787,7 +942,7 @@ void ClientApp::UpdateOrders()
   }
 
   const std::uint32_t selectedSlot = KindSlot(m_selectedKind);
-  if (m_input.Pressed(InputAction::CycleParameter) && selectedSlot < m_orderKindCount &&
+  if (m_router.Pressed(InputAction::CycleParameter) && selectedSlot < m_orderKindCount &&
       m_kindOptionCounts[selectedSlot] > 0)
   {
     // Stepped between gestures, not during one: the puck sampled its queue
@@ -801,16 +956,16 @@ void ClientApp::UpdateOrders()
   const auto cursorX = static_cast<float>(m_input.cursorX);
   const auto cursorY = static_cast<float>(m_input.cursorY);
 
-  if (m_input.Pressed(InputButton::Right))
+  if (m_router.Pressed(InputButton::Right))
   {
-    m_puck.Begin(cursorX, cursorY, m_input.Down(InputAction::QueueOrder));
+    m_puck.Begin(cursorX, cursorY, m_router.Down(InputAction::QueueOrder));
   }
   else if (m_puck.Active())
   {
     m_puck.Update(cursorX, cursorY);
   }
 
-  if (!m_puck.Active() || !m_input.Released(InputButton::Right))
+  if (!m_puck.Active() || !m_router.Released(InputButton::Right))
   {
     return;
   }
@@ -936,6 +1091,36 @@ void ClientApp::AdvanceAutoFollow()
     m_followRequested = best;
     NEURON_LOG_INFO("auto-follow: nothing of ours on grid %u, asking for %u", here, best);
   }
+}
+
+void ClientApp::OnSurfaceChanged(const SurfaceChange& _change)
+{
+  if (!_change.changed)
+  {
+    // Pressing the button for the screen you are already looking at, or ◀ BACK
+    // at the base. Running entry work anyway would reconcile a composer against
+    // a roster on every press of a control that did nothing (ADR-017 §6a.2).
+    return;
+  }
+
+  /*
+   * Exit first, then entry, and neither destroys retained state (ADR-020 §1).
+   *
+   * Exit clears the leaving surface's focus and cancels an in-flight drag: a
+   * box half-drawn across the tactical view must not finish itself against the
+   * hangar, and a rename box on a screen nobody is looking at must not still
+   * own the keyboard.
+   *
+   * Entry is where staleness dies -- a surface validates what it kept against
+   * the data it holds *now*, because it could not know, as it left, which of
+   * the things it named would still exist when it returned. Nothing retains
+   * anything yet; the hangar's composer is the first that will.
+   */
+  m_focus.ClearIfOn(_change.exited);
+  m_selection.CancelDrag();
+  m_puck.Cancel();
+
+  NEURON_LOG_INFO("surface: %u -> %u", static_cast<unsigned>(_change.exited), static_cast<unsigned>(_change.entered));
 }
 
 void ClientApp::OnViewChanged(std::uint16_t _gridAnchor, double _nowSeconds)
@@ -1341,17 +1526,12 @@ void ClientApp::BuildHud()
     m_ui.AddBorder(box, 1.0f, m_overlayTuning.ringColourRgba);
   }
 
-  // The roster's rows come first because the top bar's ship count is their
-  // sum. The rows are the game's answer, not a grouping this file performs: it
-  // has `EntityRecord::groupId` and could aggregate in four lines, and doing
-  // so would be deciding that groups are named and how their health combines
-  // (ADR-014 §2c).
-  m_rosterRowCount = m_worldView->BuildRoster(m_selection.Ids(), m_rosterRows);
-  m_locationBlockCount = m_worldView->BuildLocationBlocks(m_locationBlocks);
-
-  // Straight after the blocks, because they are what it reads. A frame late
-  // would be a frame of empty grid the player had to look at.
-  AdvanceAutoFollow();
+  // The roster's rows and the location blocks were asked for in `UpdateHud`,
+  // because the column's geometry depends on how many there are and the column
+  // carries a live control now. The rows are the game's answer, not a grouping
+  // this file performs: it has `EntityRecord::groupId` and could aggregate in
+  // four lines, and doing so would be deciding that groups are named and how
+  // their health combines (ADR-014 §2c).
 
   /*
    * Which verbs the row may offer *this* frame.
@@ -1522,19 +1702,21 @@ void ClientApp::BuildHud()
    * The gauge strips draw only when a gauge says something: a full pair on
    * every chip was ink repeating "nothing is wrong" eight times.
    */
-  const float chipHeight = 34.0f * layout.scale;
-  const float chipGap = 6.0f * layout.scale;
   const float barHeight = 3.0f * layout.scale;
-  float rowY = layout.roster.y + pad + 18.0f * layout.scale;
 
   for (std::uint32_t index = 0; index < m_rosterRowCount; ++index)
   {
     const RosterRow& row = m_rosterRows[index];
-    const UiRect chip{layout.roster.x + pad * 0.5f, rowY, layout.roster.width - pad, chipHeight};
+    // From the same function `UpdateHud` measured the column with, rather than
+    // from a running total kept here: the blocks under these chips carry a
+    // button now, and a column whose draw and whose hit test each did their own
+    // arithmetic is the HUD bug where the two disagree (ADR-020 §5.1).
+    const UiRect chip = RosterChipRect(layout.roster, layout.scale, m_rosterTuning, index);
     if (chip.Bottom() > layout.roster.Bottom())
     {
       break; // The panel is full. The print's "8/8" footer is where scrolling
-             // would go, and scrolling is a surface rather than a clamp.
+             // would go, and the scrolling primitive it wants now exists
+             // (`UiScrollState`) -- wiring it in is the hangar's slice.
     }
 
     const bool selected = row.selectedCount > 0;
@@ -1600,7 +1782,6 @@ void ClientApp::BuildHud()
                    m_palette.allied);
     }
 
-    rowY += chipHeight + chipGap;
   }
 
   /*
@@ -1611,61 +1792,29 @@ void ClientApp::BuildHud()
    * in a roster the authority keeps, with no position to draw -- so the panel
    * that lists wings has nothing to list it as, and this is the other list.
    *
+   * **Laid out in `UpdateHud`, drawn here.** The button was paint until T3 and
+   * the layout could live in the draw; it opens the hangar now, so the rect the
+   * press is tested against has to be the rect the quad is drawn from
+   * (ADR-020 §5.1). Which blocks were skipped, which fitted, and where each one
+   * sits are all decided there -- this loop draws what it was handed.
+   *
    * Hidden at zero rather than drawn empty, unlike a wing with no ships: an
    * empty wing is a thing that exists and has lost its members, while "no ships
-   * anywhere but here" is not a place at all.
-   *
-   * The button is drawn dead. It is the word the game supplied over a frame
-   * that reads as reserved, which is the ability rack's arrangement and for the
-   * same reason: a button that looked live and did nothing would be the HUD
-   * promising a surface that does not exist yet.
+   * anywhere but here" is not a place at all. The heading follows the same
+   * rule, which is why it is inside this branch.
    */
-  const float blockHeight = chipHeight + 36.0f * layout.scale;
-
-  /*
-   * How many blocks will actually be drawn, counted before the heading is.
-   *
-   * `m_locationBlockCount` is not that number: the game reports every place the
-   * player has ships, including the grid on screen, and the loop below skips
-   * that one because those ships are already drawn as hulls. In the ordinary
-   * case -- one fleet, standing where you are looking -- every block is skipped,
-   * and a heading drawn on the strength of the raw count sits over nothing.
-   *
-   * Which is what it did, and what a frame caught in a second: the rule was
-   * already written three lines down ("no ships anywhere but here is not a
-   * place at all") and the filter moving to the draw site quietly stopped
-   * honouring it.
-   */
-  std::uint32_t drawableBlocks = 0;
-  for (std::uint32_t index = 0; index < m_locationBlockCount; ++index)
+  if (m_locationLayoutCount > 0)
   {
-    drawableBlocks += m_locationBlocks[index].inScene ? 0u : 1u;
-  }
+    const float headingTop =
+        RosterBlocksTop(layout.roster, m_rosterRowCount, layout.scale, m_rosterTuning) -
+        m_rosterTuning.headingHeight * layout.scale;
+    m_ui.AddText(layout.roster.x + pad, headingTop, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, "ELSEWHERE");
 
-  if (drawableBlocks > 0 && rowY + blockHeight < layout.roster.Bottom())
-  {
-    rowY += chipGap;
-    m_ui.AddText(layout.roster.x + pad, rowY, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, "ELSEWHERE");
-    rowY += 18.0f * layout.scale;
-
-    for (std::uint32_t index = 0; index < m_locationBlockCount; ++index)
+    for (std::uint32_t index = 0; index < m_locationLayoutCount; ++index)
     {
-      const LocationBlock& block = m_locationBlocks[index];
-
-      // Already on screen as hulls, so drawing it here would be one fleet
-      // counted twice with no way to tell which count is the lie. The game said
-      // so; this file did not work it out.
-      if (block.inScene)
-      {
-        continue;
-      }
-
-      const UiRect blockRect{layout.roster.x + pad * 0.5f, rowY, layout.roster.width - pad, blockHeight};
-      if (blockRect.Bottom() > layout.roster.Bottom())
-      {
-        break; // Same clamp the wing rows take, and the same answer: scrolling
-               // is a surface rather than a smaller number.
-      }
+      const LocationBlockLayout& placed = m_locationLayouts[index];
+      const LocationBlock& block = m_locationBlocks[placed.block];
+      const UiRect& blockRect = placed.panel;
 
       m_ui.AddQuad(blockRect, m_palette.chipBg);
       m_ui.AddBorder(blockRect, 1.0f * layout.scale, m_palette.border);
@@ -1710,18 +1859,22 @@ void ClientApp::BuildHud()
                      m_uiTuning.smallSizeIndex, m_palette.caution, buffer);
       }
 
-      if (block.buttonLabel != nullptr)
+      /*
+       * The button, and it is live now.
+       *
+       * It was drawn `phosphorDead` while there was no surface behind it -- the
+       * ability rack's arrangement, and the right one for a HUD that must not
+       * promise a screen that does not exist. The screen exists, so the word
+       * reads at full strength and the frame is a real border.
+       */
+      if (placed.hasButton)
       {
-        const UiRect button{blockRect.x + pad * 0.5f, blockRect.Bottom() - pad * 0.5f - 16.0f * layout.scale,
-                            blockRect.width - pad, 16.0f * layout.scale};
-        m_ui.AddBorder(button, 1.0f * layout.scale, AtHalfAlpha(m_palette.border));
+        m_ui.AddBorder(placed.button, 1.0f * layout.scale, m_palette.border);
         UpperCaseInto(block.buttonLabel, upper);
         const float labelWidth = static_cast<float>(TextCellCount(upper)) * cell;
-        m_ui.AddText(button.x + (button.width - labelWidth) * 0.5f, button.y + 2.0f * layout.scale,
-                     m_uiTuning.smallSizeIndex, m_palette.phosphorDead, upper);
+        m_ui.AddText(placed.button.x + (placed.button.width - labelWidth) * 0.5f,
+                     placed.button.y + 2.0f * layout.scale, m_uiTuning.smallSizeIndex, m_palette.phosphor, upper);
       }
-
-      rowY += blockHeight + chipGap;
     }
   }
 
@@ -2042,6 +2195,25 @@ void ClientApp::BuildHud()
     }
   }
 
+  /*
+   * --- a full-screen surface ------------------------------------------------
+   *
+   * Drawn last of the surface content and opaque across the viewport, so it
+   * covers rather than composes: screens are mutually exclusive, and the debug
+   * strip is the only layer allowed to compose over one (ADR-020 §1).
+   *
+   * **Owed:** the tactical chrome above is still *built* underneath this, and
+   * its quads are then covered. It costs a `UiDrawList` fill on a screen that
+   * does not show it, which is a slice of waste rather than a defect -- the fix
+   * is an early return once the tactical half is a function of its own, and
+   * that extraction belongs with the hangar's own content rather than with the
+   * navigation that reaches it.
+   */
+  if (!SurfaceRecordsWorld(m_surfaces.Active()))
+  {
+    BuildStationSurface();
+  }
+
   // --- the toast stack ----------------------------------------------------
   //
   // Criticals lead the visible list and go centre-top on their own surface;
@@ -2156,6 +2328,69 @@ void ClientApp::BuildHud()
   }
 }
 
+void ClientApp::BuildStationSurface()
+{
+  const UiLayout& layout = m_uiLayout;
+  const float pad = m_uiTuning.padding * layout.scale;
+  const float cell = 8.0f * layout.scale;
+  const float bodyPx = BASE_FONT_SIZES_PIXELS[m_uiTuning.bodySizeIndex] * layout.scale;
+
+  /*
+   * The ground, at full alpha across the whole viewport.
+   *
+   * `HudPalette::panel` is translucent by design -- 12% reads through, because
+   * a HUD is a border around a world. A surface is not: there is no world
+   * behind it this frame (`SurfaceRecordsWorld` said so, and the frame skipped
+   * the world half), so anything showing through would be the last thing the
+   * back buffer happened to hold.
+   */
+  m_ui.AddQuad(layout.viewport, WithAlpha(m_palette.panel, 0xFF));
+
+  m_ui.AddBorder(m_backChipRect, 1.0f * layout.scale, m_palette.border);
+  const float backWidth = static_cast<float>(TextCellCount(BACK_CHIP_LABEL)) * cell;
+  m_ui.AddText(m_backChipRect.x + (m_backChipRect.width - backWidth) * 0.5f,
+               m_backChipRect.y + (m_backChipRect.height - bodyPx) * 0.5f, m_uiTuning.bodySizeIndex, m_palette.phosphor,
+               BACK_CHIP_LABEL);
+
+  /*
+   * Which place this is, from the block that opened it.
+   *
+   * The name and the count are the game's answer and are drawn rather than
+   * interpreted -- and they are found by the anchor rather than remembered,
+   * because the roster arrives at about 1 Hz and the fleet may have moved since
+   * the press. A hangar whose ships all undocked from another surface has a
+   * block that no longer exists, and the honest screen for that is one that
+   * says so rather than one still showing the count it opened with.
+   */
+  const LocationBlock* here = nullptr;
+  for (std::uint32_t index = 0; index < m_locationBlockCount; ++index)
+  {
+    if (m_locationBlocks[index].anchor == m_stationAnchor)
+    {
+      here = &m_locationBlocks[index];
+      break;
+    }
+  }
+
+  const float titleY = m_backChipRect.Bottom() + pad * 2.0f;
+  char buffer[64] = {};
+  char upper[64] = {};
+
+  if (here != nullptr)
+  {
+    UpperCaseInto(here->name != nullptr ? here->name : "?", upper);
+    m_ui.AddText(layout.viewport.x + pad * 2.0f, titleY, m_uiTuning.headSizeIndex, m_palette.phosphor, upper);
+
+    std::snprintf(buffer, sizeof(buffer), "%u SHIP%s", here->shipCount, here->shipCount == 1 ? "" : "S");
+    m_ui.AddText(layout.viewport.x + pad * 2.0f, titleY + 28.0f * layout.scale, m_uiTuning.smallSizeIndex,
+                 m_palette.phosphorLabel, buffer);
+  }
+  else
+  {
+    m_ui.AddText(layout.viewport.x + pad * 2.0f, titleY, m_uiTuning.headSizeIndex, m_palette.phosphorDim, "NO SHIPS");
+  }
+}
+
 void ClientApp::CollectDiagnostics(double _nowSeconds)
 {
   // The collector's drain (ADR-007 §8): every lane, once a frame, on the game
@@ -2229,7 +2464,19 @@ void ClientApp::RenderFrame()
   check_hresult(m_commandList->Reset(allocator, nullptr));
 
   ID3D12Resource* backBuffer = m_swapChain.CurrentBackBuffer();
-  const bool msaa = m_swapChain.SampleCount() > 1;
+
+  /*
+   * Whether this frame draws a world at all (ADR-020 §1).
+   *
+   * **No pass is added, removed, reordered or branched by this**: the loop
+   * already records the list in two halves, and this chooses between two calls
+   * it already makes. A full-screen surface clears the back buffer directly,
+   * skips Opaque, Nebula and OverlayWorld and the resolve between them, and
+   * records `Ui` -- which is where the headroom a 2,500-node map will want
+   * comes from (A20).
+   */
+  const bool recordsWorld = SurfaceRecordsWorld(m_surfaces.Active());
+  const bool msaa = m_swapChain.SampleCount() > 1 && recordsWorld;
 
   // With MSAA the back buffer's first job this frame is to receive the
   // resolve, not to be drawn on -- the world renders into the offscreen
@@ -2301,7 +2548,37 @@ void ClientApp::RenderFrame()
     context.scene = nullptr; // Clear and present; the ring already logged why.
   }
 
-  m_passes.RecordWorld(context);
+  if (recordsWorld)
+  {
+    m_passes.RecordWorld(context);
+  }
+  else
+  {
+    /*
+     * The whole viewport, cleared straight onto the back buffer.
+     *
+     * Written here rather than reached through `ClearPass` because that pass
+     * binds the depth buffer and narrows the scissor to the world's band, and
+     * this frame has no depth and no band -- the surface *is* the viewport. The
+     * viewport and scissor `RecordUi` relies on are set here for the same
+     * reason they are set there: it inherits them rather than declaring its own.
+     */
+    D3D12_VIEWPORT viewport{};
+    viewport.Width = static_cast<float>(context.viewportWidth);
+    viewport.Height = static_cast<float>(context.viewportHeight);
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+
+    D3D12_RECT scissor{};
+    scissor.right = static_cast<LONG>(context.viewportWidth);
+    scissor.bottom = static_cast<LONG>(context.viewportHeight);
+
+    const D3D12_CPU_DESCRIPTOR_HANDLE backBufferView = m_swapChain.CurrentRenderTargetView();
+    m_commandList->RSSetViewports(1, &viewport);
+    m_commandList->RSSetScissorRects(1, &scissor);
+    m_commandList->OMSetRenderTargets(1, &backBufferView, FALSE, nullptr);
+    m_commandList->ClearRenderTargetView(backBufferView, context.clearColour, 0, nullptr);
+  }
 
   if (msaa)
   {

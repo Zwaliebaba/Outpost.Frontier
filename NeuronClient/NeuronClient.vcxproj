@@ -38,6 +38,7 @@
     <ClCompile Include="GpuPasses.cpp" />
     <ClCompile Include="GpuPipelines.cpp" />
     <ClCompile Include="GpuUploadRing.cpp" />
+    <ClCompile Include="HudRoster.cpp" />
     <ClCompile Include="InputMap.cpp" />
     <ClCompile Include="InputRouter.cpp" />
     <ClCompile Include="IsoCamera.cpp" />

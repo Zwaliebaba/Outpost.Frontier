@@ -22,17 +22,22 @@
 #include "HudPalette.h"
 #include "HudRoster.h"
 #include "InputMap.h"
+#include "InputRouter.h"
 #include "IsoCamera.h"
 #include "OrderGhost.h"
 #include "OrderPuck.h"
 #include "OverlayMark.h"
 #include "RenderWorld.h"
 #include "Selection.h"
+#include "SurfaceStack.h"
 #include "SnapshotBuffer.h"
+#include "TextEditState.h"
+#include "UiFocus.h"
 #include "ToastStack.h"
 #include "TaskPool.h"
 #include "UiDrawList.h"
 #include "UiLayout.h"
+#include "UiScrollState.h"
 #include "Window.h"
 #include "WorldView.h"
 
@@ -133,6 +138,15 @@ private:
   void OnViewChanged(std::uint16_t _gridAnchor, double _nowSeconds);
 
   /*
+   * Runs one navigation's exit and entry (ADR-020 §1).
+   *
+   * Takes the change rather than the two ids because a navigation that went
+   * nowhere -- pressing STATION with the hangar already up -- must run neither,
+   * and a caller that had to check `changed` itself would eventually not.
+   */
+  void OnSurfaceChanged(const SurfaceChange& _change);
+
+  /*
    * Follows the fleet when the grid being watched stops holding any of it
    * (ADR-016 §9's auto-follow).
    *
@@ -164,6 +178,17 @@ private:
   void AudioUpdate();
 
   void BuildHud();
+
+  /*
+   * A full-screen surface's own content (ADR-020 §1).
+   *
+   * The hangar's, for now, and deliberately thin: the ground, the way back, and
+   * which place this is. Its tab row and the roster behind it are the hangar's
+   * own slice, and they need a seam call before they can exist at all -- the
+   * engine may not learn that a tab is called REFIT (ADR-020 §6), so the words
+   * have to arrive as data.
+   */
+  void BuildStationSurface();
 
   /*
    * The Tier-1 strip's collection and build (S14). Runs inside `BuildHud`'s
@@ -399,9 +424,36 @@ private:
   UiRect m_menuItemRects[MENU_ITEM_COUNT] = {};
   bool m_menuOpen = false;
 
-  /// This frame's left press landed on chrome above the world -- the menu chip
-  /// or the open list -- so selection and the puck must not also act on it.
-  bool m_uiConsumedPress = false;
+  /// The `◀ TACTICAL` chip on a full-screen surface, resolved in `UpdateHud`
+  /// and drawn from the same rect -- one control, because ◀ TACTICAL and ◀ BACK
+  /// are one mechanism (ADR-020 §1).
+  UiRect m_backChipRect;
+
+  /*
+   * Which screen is live, who owns the keyboard, and who got this frame's
+   * input (ADR-020 §1-§3).
+   *
+   * The router replaces `m_uiConsumedPress`, which said the one thing a client
+   * with a single surface needed to say -- "this press landed on chrome above
+   * the world" -- and had no way to say the other two: that a wheel notch was
+   * spoken for while the click was not, and that a key belongs to a field
+   * rather than to the camera.
+   */
+  SurfaceStack m_surfaces{SurfaceId::Tactical};
+  UiFocus m_focus;
+  InputRouter m_router;
+
+  /*
+   * Which station the hangar was opened for.
+   *
+   * The game's anchor, echoed from the block that was pressed and never read
+   * here. It is client state rather than a request: the roster for every place
+   * holding this commander's ships is already replicated (ADR-017 §8), so
+   * opening a remote hangar asks the authority for nothing -- which is what
+   * makes "the screen opens for any station holding your ships, viewed or not"
+   * true without a round trip.
+   */
+  std::uint16_t m_stationAnchor = 0;
 
   /// The game's commands, asked once at startup: this list does not change
   /// while a session runs, and asking every frame would imply it could.
@@ -418,6 +470,20 @@ private:
   /// The roster's rows, asked of the game once a frame. A fixed array because
   /// the count is capped and a HUD must not allocate to describe itself.
   RosterRow m_rosterRows[MAX_ROSTER_ROWS] = {};
+
+  /// The column's own sizes, and the one table both halves of it read.
+  RosterColumnTuning m_rosterTuning;
+
+  /*
+   * Where the ELSEWHERE blocks landed this frame.
+   *
+   * Resolved in `UpdateHud` and read by both the press and the draw, which is
+   * the same single-answer rule `m_uiLayout` and the menu rects exist for --
+   * and it stopped being optional when the button on these blocks became the
+   * way into the hangar (ADR-020 §5.1).
+   */
+  LocationBlockLayout m_locationLayouts[MAX_LOCATION_BLOCKS] = {};
+  std::uint32_t m_locationLayoutCount = 0;
 
   /// The other list: where the player's ships are when they are nowhere the
   /// scene can show them -- docked, on another grid, or mid-warp (ADR-017 1,

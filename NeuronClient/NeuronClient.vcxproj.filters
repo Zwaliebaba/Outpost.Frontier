@@ -242,6 +242,9 @@
     <ClInclude Include="HudRoster.h">
       <Filter>Hud</Filter>
     </ClInclude>
+    <ClCompile Include="HudRoster.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
     <ClInclude Include="ToastStack.h">
       <Filter>Hud</Filter>
     </ClInclude>
