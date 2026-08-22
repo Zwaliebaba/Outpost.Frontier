@@ -39,6 +39,34 @@ grammar plus an ad-hoc content format.
    **only** file the game writes. It carries exactly the keys the settings screen owns
    (display, audio volumes, accessibility, input); anything else there is ignored with a
    warning. Base config stays read-only shipped content.
+
+   > **Ruling, 2026-08-22 — per-player state is device-local, and the account service is the
+   > named reopen trigger.** Three surfaces asked one question and it is answered once:
+   > `settings.png` §3 (*"do settings live on the device, or on the account so a player's palette
+   > follows them to a second tablet?"*), D-P5 (where a fleet template is stored) and the
+   > strategic map's site layer (where the scouting journal persists). **All three are this
+   > file.**
+   >
+   > It is the only answer this corpus can currently honour: [ADR-023](ADR-023-remote-play.md)
+   > states outright that it *"does not design the account service"* and names it an external
+   > dependency of the first remote milestone. Answering account-side would pull that whole phase
+   > forward to settle a preferences question.
+   >
+   > **The reopen trigger is named rather than left to someone noticing**: the day an account
+   > service exists, each family here is re-examined for whether it should follow the player, and
+   > the honest expectation is that templates and the journal will and display preferences will
+   > not. Recording it as a trigger is what stops "device-local" hardening into a rule nobody
+   > chose.
+   >
+   > **The touch decision already shrank this.** Under
+   > [ADR-020](ADR-020-ui-architecture.md)'s 2026-08-22 amendment **wings are the control
+   > groups**, and a wing lives on the shard — so the grouping case, which looked like this
+   > file's fourth family, never reaches it at all.
+   >
+   > **The families this file therefore owns:** display, audio volumes, accessibility, input
+   > bindings, wing *names* (ADR-017 §6a.4 — client-side because the shard has no name for a
+   > wing), fleet templates, and the scouting journal.
+
 4. **Failure posture:** base config missing or unparseable ⇒ **fatal**, with file, line, column
    and message in the log and a `MessageBoxW` in windowed mode. Unknown keys ⇒ warning
    (forward-compatibility with newer configs). **Type mismatches ⇒ fatal** — silent coercion

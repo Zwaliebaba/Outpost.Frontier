@@ -1,5 +1,11 @@
 # Station Build Order — the Docking Phase
 
+**This document does not sequence** *(2026-08-22)*. It says what each T-slice contains, what its
+accept is, and — in the **Built** lines, which are most of its length — what landed and what that
+cost. **When a slice is built is [Plan-of-Record.md](Plan-of-Record.md)'s**, which sequences
+across all three phases and the work that belongs to none of them. T3's remaining half needs the user
+layer, which the plan schedules as N2.
+
 **Status:** Session output 2026-08-19 · **T1 and T2 built in full** (2026-08-21) —
 **🏁 H0 is met: every named criterion is covered.** Docking, the transfer bus, undocking and its fifteen seconds,
 the parking ring and the event record are in the sim; the identity cluster, the per-client

@@ -1,5 +1,12 @@
 # Economy Build Order — the Mining and Refining Phase
 
+**This document does not sequence** *(2026-08-22)*. It says what each E-slice contains, what its
+accept is, and — in the **Built** lines, which are most of its length — what landed and what that
+cost. **When a slice is built is [Plan-of-Record.md](Plan-of-Record.md)'s**, which sequences
+across all three phases and the work that belongs to none of them. E5 also sits behind the input model as of
+2026-08-22, for the reason the plan gives: a screen built against the mouse adaptation would be
+retrofitted for touch afterwards.
+
 **Status:** Session output 2026-08-20 · **E1a, E1b, E2, E3, E4a and E4b are built**, all six
 green in CI (run 176, commit `c44724d`, 2026-08-21 — 795 tests, `self test: PASSED` with all
 thirteen 🏁 G0 checks and 🏁 G1's mid-job restart); **E5, the two screens, is the last slice of
@@ -1023,6 +1030,34 @@ Nebula pass parameter set for pockets, rock impostors for fields, clusters visib
 `SiteStatus` reports them — plus the MINE context action and its MINING chip, HOLD FULL on the
 roster strip, and the ore/alloy icons.
 
+**Two of those four have landed, and E5's scope did not say so** *(recorded 2026-08-22)*. **MINE
+on the context bar is built** (2026-08-21): `OrderKinds` takes the selection and is asked every
+frame rather than once at boot, `OrderKindOption` carries a `reasonCode` so a greyed verb draws
+the game's own words, and `RunMineAvailabilityGate` proves it through a real snapshot — which
+found `oreUnitLitres` unfilled, so `HoldFull` could never fire. **The MINING chip is built**
+(2026-08-22), and it took a word rather than a byte: `OrderWorkingName` answers `Mining` and null
+for every other kind, rides in `OrderPreview::workingLabel`, and `OrderGhost::Working()` is the
+predicate both draw passes share — so a working order draws no lane, no footprint and no station
+ticks, because all three promise an arrival that already happened. No wire change.
+
+**What is left of the tactical half, in the detail the annex carried:**
+
+- **HOLD FULL on the roster strip.** Per-ship litres from `CargoStatus` (owner-only, ~1 Hz,
+  capped at `MAX_CARGO_STATUS_ROWS`) as Σ `oreUnits[i] × unitVolumeLitres[i]` — from the parsed
+  `EconomyDef`, never re-authored constants — against the hull's `oreHoldLitres`. The tag appears
+  at 100 %. Fill shows only for hulls that mine; no cargo bar on a combat hull.
+- **Site fullness, minimal.** `SiteStatus`'s per-cluster `clusterFullPct` as thin bars in the
+  context zone when a site grid is focused (0–100, saturating — the wire guarantees no wrap), and
+  `epoch` checked against the client's own `SiteEpochIndex` so a stale status is tagged
+  `LAST EPOCH` rather than drawing yesterday's rocks. The field's *visual treatment* is D-C2.
+- **Rails that stay:** atlas quads only (R9), palette through `HudPalette` and no new constants,
+  the 48 px verb floor, zone metrics from `UiTuning`, and economy data from the summaries only —
+  never `EntityRecord`, which ADR-024 §4d refused and a test asserts.
+
+*The record of the four pieces above — including the two decoder and validation-view defects
+found ahead of them — is [Archive/prompt-hud-economy.md](Archive/prompt-hud-economy.md), closed
+and archived 2026-08-22 when its remaining scope moved here.*
+
 **Accept 🏁 G2:** the owner's loop in one sitting — pick a field off the system view, mine it
 until a hold fills, watch the cluster hollow, haul home, dock, move ore into the Bay, queue a
 batch of Plates, and come back to it finished; visual checkpoint against both prints; a Null
@@ -1089,8 +1124,14 @@ pocket's dampening legible as a thing happening to *you* rather than a number in
 
   **Open — four rulings owed before E5 builds** (the P1 pattern; unanswered questions in a
   print are how a screen gets built twice):
-  1. **Ore order on a fill.** Drawn as ore-index order (F-C → AST → NEB); value-density
-     order would favour the rare ores. It is player-visible arithmetic, so it wants a rule.
+  1. ~~**Ore order on a fill.**~~ **Answered 2026-08-22: content-declared order** —
+     F-C → AST → NEB, exactly as drawn, and each later family's own declared order after it.
+     Recorded at [ADR-024 §5d](ADR/ADR-024-mining-economy.md) with the general form at
+     [ADR-027 §2](ADR/ADR-027-item-taxonomy.md). **One ruling closed three**: this, D-P6's
+     partial-scoop order and §5d's own statement of it. Value density was declined because it
+     needs a price table that does not exist — a rule computed from prices would re-order itself
+     the day the market phase tunes one, and a player who learned it would find it changed with
+     no patch note.
   2. **A dock shortcut.** §5c makes the transfer manual; "TRANSFER ALL from the fleet that
      just docked" as a one-tap toast action may still earn its convenience. The print proposes
      yes, as an explicit tap — still manual.
@@ -1162,6 +1203,12 @@ artefacts**, and they are listed with each print above: four from D-P2, all owed
 four from D-P3, of which **job cancel was owed before E4b and is answered** (2026-08-21). The
 seven that remain can be answered any time before the screens build, which is the sequencing
 consequence worth carrying forward: nothing left in this phase is gated on a ruling.
+**Six now** *(2026-08-22)*: D-P2's ore-order-on-a-fill was answered as content-declared order,
+which closed the same question in two other places at once. **And the phase gained an ADR it did
+not have** — [ADR-027](ADR/ADR-027-item-taxonomy.md), the item taxonomy — so D-P2's "ore is the
+first item family of many" now rests on a document in this repository instead of an upstream
+citation. E5 builds against its §1 and §2, which is a change in the reading rather than in the
+building: the CARGO tab's vocabulary was already the `(item, units, litres)` triple.
 - ~~**D-C1 — Ore and alloy icons**~~, in the tactical icon system's families, plus the three
   archetype glyphs the strategic and system maps need. **Delivered 2026-08-22:**
   [item-icon-system.png](ScreenPrints/item-icon-system.png), with its source beside it — three
