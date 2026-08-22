@@ -1182,7 +1182,42 @@ void RunDockingLoop(Checklist& _checks, Neuron::ClientConnection& _client)
    * from the hangar still wearing the wing they went in with, and every check
    * either side of this one still passes.
    */
-  constexpr Game::WingId FRESH_WING = 9;
+  const auto wingOf = [](const std::vector<Game::RosterEntry>& _rows, Game::ShipId _id) -> Game::WingId
+  {
+    for (const Game::RosterEntry& row : _rows)
+    {
+      if (row.shipId == _id)
+      {
+        return row.wing;
+      }
+    }
+    return Game::INVALID_WING_ID;
+  };
+
+  /*
+   * **First, what the dock itself did to them** (ADR-017 §3).
+   *
+   * The three ships were taken off the parked starting fleet, which is eight
+   * wings of five, so they arrive here out of more than one wing and none of
+   * those wings docked whole. The rule says they are a group now -- and this is
+   * the check the player's report is really about, because until it existed the
+   * four ships they composed flew together and still read as two wings.
+   */
+  const bool splitOff = wingOf(docked, docking[0]) != Game::INVALID_WING_ID && wingOf(docked, docking[0]) == wingOf(docked, docking[1]) &&
+                        wingOf(docked, docking[1]) == wingOf(docked, docking[2]);
+  _checks.Record("ships that dock together out of different wings arrive as one wing", splitOff);
+  _checks.Record("and it is a wing the starting fleet was not using", splitOff && wingOf(docked, docking[0]) > 8);
+
+  /*
+   * And then the hangar's own verb on top of it, which is the other half: the
+   * dock groups what arrived together, and `AssignWing` is how the player
+   * changes their mind afterwards.
+   *
+   * Twelve rather than nine, and the number matters. Nine is what the dock just
+   * picked -- the lowest the starting fleet leaves free -- so assigning to it
+   * would be a command that changed nothing and a check that proved nothing.
+   */
+  constexpr Game::WingId FRESH_WING = 12;
 
   Game::StationCommand assign;
   assign.orderSeq = 5003;
@@ -1216,18 +1251,6 @@ void RunDockingLoop(Checklist& _checks, Neuron::ClientConnection& _client)
 
   // The roster is the authority's own statement about the hangar, so this is
   // where the rewrite becomes visible before anything undocks.
-  const auto wingOf = [](const std::vector<Game::RosterEntry>& _rows, Game::ShipId _id) -> Game::WingId
-  {
-    for (const Game::RosterEntry& row : _rows)
-    {
-      if (row.shipId == _id)
-      {
-        return row.wing;
-      }
-    }
-    return Game::INVALID_WING_ID;
-  };
-
   const bool rosterRewritten =
     PumpUntil(_client,
               [&]
@@ -1237,8 +1260,8 @@ void RunDockingLoop(Checklist& _checks, Neuron::ClientConnection& _client)
               });
   _checks.Record("the docked roster shows the two ships in their new wing",
                  rosterRewritten && wingOf(docked, docking[1]) == FRESH_WING);
-  _checks.Record("and leaves the ship that was not named in the wing it was in",
-                 wingOf(docked, docking[2]) != FRESH_WING);
+  _checks.Record("and leaves the ship the command did not name where the dock put it",
+                 wingOf(docked, docking[2]) != FRESH_WING && wingOf(docked, docking[2]) != Game::INVALID_WING_ID);
 
   /*
    * Undock a subset -- two of the three -- as a station command on the same

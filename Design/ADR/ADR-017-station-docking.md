@@ -175,6 +175,36 @@ from a new door).
 Because a fleet is emergent, this section is also the whole answer to "create new
 combinations of ships": the undock selection *is* the composition. Nothing else ships.
 
+> **Note, 2026-08-22 — a Dock now decides what wing its ships are in, and this is the
+> amendment §3's own sentence was missing.**
+> §3 says the undock selection *is* the composition and that "nothing else ships". That is
+> true of a **fleet**, which is emergent from location — and it was quietly false of a
+> **wing**, which is a number riding on the ship and is the thing the roster actually groups
+> by. So four ships composed out of two wings undocked together, flew together, and still
+> read on the HUD as the two wings they came from. The player who reported it was right, and
+> the ADR had described their expectation in as many words two sections earlier.
+>
+> **The rule: the ships one Dock names become one wing, unless that Dock names a whole wing
+> and nothing else.** Docking part of a wing, or parts of several, forms a group; docking all
+> of TALON leaves TALON alone. The exception is not tidiness — without it a refuel round trip
+> renames the fleet that took it, and a commander is out of call signs in eight docks.
+>
+> **At the dock rather than at the undock**, so the regrouping is true the moment the ships
+> are inside: the hangar opens on one column rather than on the columns they arrived from, and
+> the undock needs no rule of its own because the ships already carry the right number.
+>
+> **The number is the lowest the commander is not using anywhere** — grid, roster and the
+> transfer bus, which is the one that is easy to forget, since a ship mid-crossing is in
+> neither of the first two. Lowest-unused rather than next-highest is what keeps this bounded:
+> a wing that empties is a number that comes back, so the roster does not grow a row per dock
+> and the call signs are not spent one per errand. The visible cost is that a released name
+> reappears on different ships later, which is what a name that is presentation rather than
+> identity is allowed to do (§6a.4).
+>
+> `AssignWing` is unchanged and is now the *recovery*: the dock groups what arrived together,
+> and the hangar's own verb is how the player changes their mind — including putting a split
+> back where it came from.
+
 ### 4. The parking ring — free space, deterministically
 
 The moment undocked ships exist, the world files a **system-issued move order** for them —

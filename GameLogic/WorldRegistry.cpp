@@ -13,8 +13,6 @@
 #include "Hash.h"
 
 #include <algorithm>
-#include <cmath>
-#include <cstdint>
 #include <iterator>
 #include <string>
 #include <utility>
@@ -931,6 +929,143 @@ std::vector<CargoStatusRow> WorldRegistry::CargoFor(Neuron::PlayerId _owner) con
   return rows;
 }
 
+/*
+ * --- what docking does to a wing (ADR-017 §3, §6) --------------------------
+ *
+ * Three functions, and the shard-wide scan in the first two is the price of the
+ * one question that matters: *is this the whole wing, or part of it?* A count
+ * kept per wing would be faster and would be a second copy of a fact that is
+ * already written on every ship, so it would drift the first time a hull died
+ * somewhere nobody remembered to decrement. The population is small -- tens of
+ * ships -- and this runs once per dock rather than once per tick.
+ *
+ * All three walk the same three places, and the third one is the one that is
+ * easy to forget: a ship mid-crossing is on no grid and no roster, and a scan
+ * that missed the bus would call a wing empty while its members were in the air.
+ */
+
+std::uint32_t WorldRegistry::WingPopulation(Neuron::PlayerId _owner, WingId _wing) const noexcept
+{
+  if (_wing == INVALID_WING_ID)
+  {
+    return 0; // Wing zero is "no wing", and counting it would count strays.
+  }
+
+  std::uint32_t found = 0;
+
+  for (const LiveWorld& live : m_live)
+  {
+    if (live.world == nullptr)
+    {
+      continue;
+    }
+    const std::span<const ShipId> ids = live.world->Ids();
+    const std::span<const WingId> wings = live.world->Wings();
+    for (std::size_t slot = 0; slot < ids.size() && slot < wings.size(); ++slot)
+    {
+      if (wings[slot] == _wing && OwnerOf(ids[slot]) == _owner)
+      {
+        ++found;
+      }
+    }
+  }
+
+  for (const StationRoster& roster : m_rosters)
+  {
+    for (const RosterEntry& row : roster.docked)
+    {
+      if (row.wing == _wing && row.owner == _owner)
+      {
+        ++found;
+      }
+    }
+  }
+
+  for (const TransferRecord& record : m_bus)
+  {
+    for (std::uint16_t index = 0; index < record.what.memberCount; ++index)
+    {
+      const TransferMember& member = record.what.members[index];
+      if (member.wing == _wing && member.owner == _owner)
+      {
+        ++found;
+      }
+    }
+  }
+
+  return found;
+}
+
+WingId WorldRegistry::UnusedWingFor(Neuron::PlayerId _owner) const noexcept
+{
+  /*
+   * The lowest free number, which is the one a player would guess at and the
+   * only choice that is stable across a replay: "lowest unused" depends on the
+   * *set* of wings in play and not on the order anything was walked in, so two
+   * runs of the same script pick the same number (ADR-005's determinism rule).
+   */
+  for (std::uint32_t candidate = 1; candidate <= std::numeric_limits<WingId>::max(); ++candidate)
+  {
+    if (WingPopulation(_owner, static_cast<WingId>(candidate)) == 0)
+    {
+      return static_cast<WingId>(candidate);
+    }
+  }
+  return INVALID_WING_ID;
+}
+
+WingId WorldRegistry::WingForDockedGroup(const TransferRequest& _what) const noexcept
+{
+  if (_what.memberCount == 0)
+  {
+    return INVALID_WING_ID;
+  }
+
+  /*
+   * One wing among the members, or more than one.
+   *
+   * More than one is decided here and needs no count: ships from two wings have
+   * visibly stopped flying with somebody, so they are a group whatever else is
+   * true. Wing zero among them counts as a difference rather than as a wildcard
+   * -- a stray joining a wing's dock is still a change of composition.
+   */
+  const WingId first = _what.members[0].wing;
+  bool uniform = true;
+  for (std::uint16_t index = 1; index < _what.memberCount; ++index)
+  {
+    uniform = uniform && _what.members[index].wing == first;
+  }
+
+  if (uniform && first != INVALID_WING_ID)
+  {
+    /*
+     * All of one wing. Now the only question left: **all of it?**
+     *
+     * The members are still on the bus at this point -- a dock despawns at
+     * filing and lands here -- so they are inside `WingPopulation`'s count, and
+     * equality is exactly "nobody was left behind". That is the case the owner
+     * chose to protect: docking a whole wing and undocking it must give the
+     * fleet back with the name it had, or every routine round trip would spend
+     * a call sign.
+     */
+    if (WingPopulation(_what.members[0].owner, first) == _what.memberCount)
+    {
+      return INVALID_WING_ID; // No change.
+    }
+  }
+
+  /*
+   * Otherwise they are a new group, and it gets the lowest free number.
+   *
+   * `INVALID_WING_ID` back from here means all 255 are in use, and it flows
+   * through as "leave them alone" -- which is the caller's sentinel and the
+   * right answer: not the regrouping the player asked for, but far better than
+   * emptying the ships into wing zero, where the roster draws no row and they
+   * would vanish off the HUD.
+   */
+  return UnusedWingFor(_what.members[0].owner);
+}
+
 std::span<const RosterEntry> WorldRegistry::Roster(AnchorId _anchor) const noexcept
 {
   const auto at = std::lower_bound(m_rosters.begin(), m_rosters.end(), _anchor,
@@ -969,6 +1104,19 @@ void WorldRegistry::ApplyDueTransfers()
 
     if (record.what.kind == TransferKind::Dock)
     {
+      /*
+       * What wing these ships are in once they are inside (ADR-017 §3).
+       *
+       * Asked **once for the record and before the first row is filed**, and
+       * both halves of that matter. Once, because the ships that dock together
+       * are one group and asking per ship would give the first one a number and
+       * then measure the rest against a wing that had just changed size. Before
+       * filing, because the answer counts the wing's members and the members of
+       * this dock are still on the bus -- start writing rows and the count
+       * shifts under the question.
+       */
+      const WingId formed = WingForDockedGroup(record.what);
+
       StationRoster& roster = RosterFor(record.what.anchor);
       for (std::uint16_t index = 0; index < record.what.memberCount; ++index)
       {
@@ -981,7 +1129,10 @@ void WorldRegistry::ApplyDueTransfers()
         RosterEntry row;
         row.shipId = member.shipId;
         row.hullClass = member.hullClass;
-        row.wing = member.wing;
+        // The group's wing, or the one it arrived with when the dock changed
+        // nothing -- `INVALID_WING_ID` is the "leave it" sentinel rather than a
+        // wing to put anybody in. See `WingForDockedGroup`.
+        row.wing = formed == INVALID_WING_ID ? member.wing : formed;
         for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
         {
           row.oreUnits[ore] = member.oreUnits[ore];

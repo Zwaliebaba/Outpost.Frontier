@@ -87,14 +87,44 @@ namespace
 /// Puts a ship on a grid, so the world is not merely its authored occupants.
 /// Through the registry rather than into a borrowed world, because that is the
 /// path that also tells the index where the ship went.
-ShipId AddShip(WorldRegistry& _registry, AnchorId _anchor, float _x, float _y)
+ShipId AddShip(WorldRegistry& _registry, AnchorId _anchor, float _x, float _y, WingId _wing = 1)
 {
   ShipSpawn spawn;
   spawn.hullClass = HullClass::Interceptor;
-  spawn.wing = 1;
+  spawn.wing = _wing;
   spawn.xMetres = _x;
   spawn.yMetres = _y;
   return _registry.Spawn(_anchor, spawn, Neuron::SOLE_PLAYER_ID);
+}
+
+/// What wing a docked ship is in, by id rather than by row order -- the roster
+/// is the authority's list and nothing promises where a given ship sits in it.
+[[nodiscard]] WingId WingOf(const WorldRegistry& _registry, AnchorId _station, ShipId _ship)
+{
+  for (const RosterEntry& row : _registry.Roster(_station))
+  {
+    if (row.shipId == _ship)
+    {
+      return row.wing;
+    }
+  }
+  Assert::Fail(L"that ship is not on this station's roster");
+  return INVALID_WING_ID;
+}
+
+/// And the same question of a ship that is flying.
+[[nodiscard]] WingId WingOnGrid(const World* _world, ShipId _ship)
+{
+  Assert::IsNotNull(_world);
+  for (std::size_t slot = 0; slot < _world->Ids().size(); ++slot)
+  {
+    if (_world->Ids()[slot] == _ship)
+    {
+      return _world->Wings()[slot];
+    }
+  }
+  Assert::Fail(L"that ship is not on this grid");
+  return INVALID_WING_ID;
 }
 
 /// Submits a dock for every ship named, from the grid they are on.
@@ -382,6 +412,130 @@ public:
     const OrderVerdict again = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet));
     Assert::IsFalse(again.accepted);
     Assert::IsTrue(again.reason == OrderReason::NotDocked);
+  }
+
+  /*
+   * --- what docking does to a wing (ADR-017 §3, §6) ------------------------
+   *
+   * Four tests over one rule, and the rule exists because of a play report the
+   * whole stack was individually correct about. Two ships out of one wing and
+   * two out of another docked, were composed into one selection, undocked on
+   * one command and flew as one fleet -- and still read on the roster as the
+   * two wings they came from, because a wing is a number on a ship and nothing
+   * on that path had touched it.
+   *
+   * The rule: **the ships one Dock names become one wing, unless that Dock
+   * names a whole wing and nothing else.** The exception is not a special case
+   * for tidiness -- without it a refuel round trip renames the fleet that took
+   * it, and a commander runs out of call signs in eight docks.
+   */
+
+  TEST_METHOD(DockingPartOfAWingSplitsThoseShipsOffIt)
+  {
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, nullptr, Config());
+    std::uint32_t tick = 0;
+    const ShipId first = AddShip(registry, station, 200.0f, 0.0f, 1);
+    const ShipId second = AddShip(registry, station, 240.0f, 0.0f, 1);
+    const ShipId stayed = AddShip(registry, station, 280.0f, 0.0f, 1);
+
+    const ShipId docking[] = {first, second};
+    DockAndLand(registry, station, docking, tick);
+
+    // Two of the three left, so the two that left are not that wing any more.
+    const WingId moved = WingOf(registry, station, first);
+    Assert::AreEqual<std::uint32_t>(2, moved, L"the lowest number nobody was using");
+    Assert::AreEqual<std::uint32_t>(moved, WingOf(registry, station, second), L"and both of them in it");
+
+    // And the one that did not dock is untouched: a split takes the ships that
+    // left, not the ones that stayed.
+    const World* world = registry.Peek(station);
+    Assert::AreEqual<std::uint32_t>(1, WingOnGrid(world, stayed), L"the ship left behind keeps the wing");
+  }
+
+  TEST_METHOD(ShipsFromTwoWingsThatDockTogetherBecomeOne)
+  {
+    /*
+     * The player's report, as a test. Nothing here is a *part* of a wing --
+     * both wings dock entirely -- and they still form a group, because ships
+     * from two wings arriving on one command have visibly stopped flying with
+     * whoever they used to. Uniformity is the question, not completeness.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, nullptr, Config());
+    std::uint32_t tick = 0;
+    const ShipId kilnA = AddShip(registry, station, 200.0f, 0.0f, 1);
+    const ShipId kilnB = AddShip(registry, station, 240.0f, 0.0f, 1);
+    const ShipId marrowA = AddShip(registry, station, 280.0f, 0.0f, 2);
+    const ShipId marrowB = AddShip(registry, station, 320.0f, 0.0f, 2);
+
+    const ShipId docking[] = {kilnA, kilnB, marrowA, marrowB};
+    DockAndLand(registry, station, docking, tick);
+
+    const WingId formed = WingOf(registry, station, kilnA);
+    Assert::AreEqual<std::uint32_t>(3, formed, L"the lowest number neither wing was using");
+    Assert::AreEqual<std::uint32_t>(formed, WingOf(registry, station, kilnB));
+    Assert::AreEqual<std::uint32_t>(formed, WingOf(registry, station, marrowA));
+    Assert::AreEqual<std::uint32_t>(formed, WingOf(registry, station, marrowB));
+  }
+
+  TEST_METHOD(DockingAWholeWingLeavesItsNumberAlone)
+  {
+    /*
+     * The exception, and the reason it is worth the shard-wide count: a wing
+     * that docks intact is the same fleet doing an errand, and renaming it
+     * would spend a call sign every time somebody refuelled.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, nullptr, Config());
+    std::uint32_t tick = 0;
+    const ShipId talonA = AddShip(registry, station, 200.0f, 0.0f, 4);
+    const ShipId talonB = AddShip(registry, station, 240.0f, 0.0f, 4);
+    (void)AddShip(registry, station, 280.0f, 0.0f, 1); // another wing, not docking
+
+    const ShipId docking[] = {talonA, talonB};
+    DockAndLand(registry, station, docking, tick);
+
+    Assert::AreEqual<std::uint32_t>(4, WingOf(registry, station, talonA), L"all of it docked, so it is still itself");
+    Assert::AreEqual<std::uint32_t>(4, WingOf(registry, station, talonB));
+  }
+
+  TEST_METHOD(TheWingTheDockFormedIsTheWingTheyUndockInto)
+  {
+    /*
+     * The last link, and the one the report was actually about: a split that
+     * the roster records and the respawn then loses looks exactly like a split
+     * that never happened.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, nullptr, Config());
+    std::uint32_t tick = 0;
+    const ShipId first = AddShip(registry, station, 200.0f, 0.0f, 1);
+    const ShipId second = AddShip(registry, station, 240.0f, 0.0f, 1);
+    (void)AddShip(registry, station, 280.0f, 0.0f, 1);
+
+    const ShipId docking[] = {first, second};
+    DockAndLand(registry, station, docking, tick);
+    const WingId formed = WingOf(registry, station, first);
+
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, docking)).accepted);
+    registry.Tick(++tick);
+
+    const World* world = registry.Peek(station);
+    Assert::AreEqual<std::uint32_t>(formed, WingOnGrid(world, first), L"back on the grid in the wing the hangar made");
+    Assert::AreEqual<std::uint32_t>(formed, WingOnGrid(world, second));
   }
 
   TEST_METHOD(AssignWingRewritesTheRowAndNothingCrosses)

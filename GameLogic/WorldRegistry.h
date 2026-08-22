@@ -596,6 +596,49 @@ private:
   /// the source can cover it; this is the arithmetic.
   std::uint32_t MoveOre(StationRoster& _roster, StationBay& _bay, const StationCommand& _command, bool _toBay);
 
+  /*
+   * --- what docking does to a wing (ADR-017 §3, §6) ------------------------
+   *
+   * A wing is a number a ship carries and nothing else, so "which fleet is this
+   * ship in" is answered by that number and by nothing else -- which is what
+   * made the pre-2026-08-22 behaviour wrong in a way no test could see. Two
+   * ships out of one wing and two out of another would dock, sit in one hangar,
+   * be composed into one selection, undock on one command, fly as one fleet,
+   * and *still* read on the roster as members of the two wings they came from,
+   * because nothing on the path had touched the number.
+   *
+   * The rule that fixes it lives at the dock rather than at the undock, so the
+   * regrouping is true the moment the ships are inside: **the ships one Dock
+   * names become one wing, unless that Dock names a whole wing and nothing
+   * else.** Docking all of TALON leaves TALON alone -- a refuel round trip must
+   * not rename a fleet, and there are only so many call signs. Docking part of
+   * it, or parts of several, forms a group, because those ships have visibly
+   * stopped flying with the ones they left behind.
+   */
+
+  /// How many of this commander's ships carry this wing, anywhere in the shard
+  /// -- on a grid, on a roster, or mid-crossing on the bus. Per commander,
+  /// because wing numbers are theirs and two players both using 1 is not a
+  /// collision.
+  [[nodiscard]] std::uint32_t WingPopulation(Neuron::PlayerId _owner, WingId _wing) const noexcept;
+
+  /// The lowest wing number this commander is not using anywhere, or
+  /// `INVALID_WING_ID` when all 255 are spoken for.
+  [[nodiscard]] WingId UnusedWingFor(Neuron::PlayerId _owner) const noexcept;
+
+  /*
+   * The wing a docking group should end up in, or `INVALID_WING_ID` for "leave
+   * every one of them as it is".
+   *
+   * The sentinel means *no change* rather than *wing zero*, and it has to: wing
+   * zero is where strays live and the roster draws no row for it, so a dock
+   * that quietly emptied ships into it would take them off the player's HUD
+   * altogether. It is also what this returns when the commander has somehow
+   * used all 255 numbers -- keeping the old wings is a worse answer than the
+   * player wanted and a much better one than losing the ships.
+   */
+  [[nodiscard]] WingId WingForDockedGroup(const TransferRequest& _what) const noexcept;
+
   [[nodiscard]] LiveWorld* Find(AnchorId _anchor) noexcept;
   [[nodiscard]] const LiveWorld* Find(AnchorId _anchor) const noexcept;
   [[nodiscard]] LiveWorld& SpinUp(const Anchor& _anchor);

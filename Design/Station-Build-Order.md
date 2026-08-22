@@ -555,6 +555,20 @@ settings layer) is given a dull generated one when its ships arrive, because a f
 player cannot see is worse than a fleet called `WING 9`. Gated in `RunWingAssignmentGate`,
 for the reason every other client-side gate lives there.
 
+**And then the rule underneath it, the same day**, because the button was not what the report
+was about. Wing assignment made regrouping *possible*; what the player expected was that
+docking part of a fleet already *did* it. ADR-017 §3 had promised as much — "the undock
+selection is the composition" — and that promise was only ever true of a fleet, which is
+emergent from location, never of a wing, which is the number the roster groups by. So a Dock
+now forms one wing out of the ships it names, unless it names a whole wing and nothing else;
+the number is the lowest the commander is not using on any grid, roster or crossing. See the
+note in ADR-017 §3.
+
+Gated four ways in `RegistryTests` (part of a wing splits; two wings merge; a whole wing keeps
+its number; the wing the dock formed is the wing they undock into) and end to end through a
+real client and server in `RunDockingLoop`, which is where the last link lives — a split the
+roster records and the respawn then loses looks exactly like a split that never happened.
+
 **Still owed by T3:** wing *renames*, which do need the user settings layer; assigning to
 wing 0 to disband, which needs the print's stray column first, or the button would make ships
 vanish off the HUD; persistence of a created wing's name across sessions (ADR-012). And the
