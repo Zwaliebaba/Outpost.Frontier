@@ -15,7 +15,10 @@ bool SnapshotSender::Send(Simulation& _simulation, Transport& _transport, std::u
   ByteWriter writer{m_buffer};
   WriteWireType(writer, WireType::Snapshot);
 
-  if (!_simulation.WriteSnapshot(m_viewer, m_grid, _tick, writer) || !writer.Ok())
+  // The session's facts travel in; nothing about this viewer is stored on a
+  // world (ADR-022 §1).
+  const SnapshotRequest request{m_viewer, m_grid, _tick, m_lastOrderSeqProcessed};
+  if (!_simulation.WriteSnapshot(request, writer) || !writer.Ok())
   {
     ++m_overCap;
     NEURON_COUNTER("SnapshotDropped", 1);

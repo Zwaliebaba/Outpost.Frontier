@@ -26,6 +26,9 @@
     <ClCompile Include="Refining.cpp">
       <Filter>Economy</Filter>
     </ClCompile>
+    <ClCompile Include="Relevance.cpp">
+      <Filter>Wire</Filter>
+    </ClCompile>
     <ClCompile Include="SiteEpoch.cpp">
       <Filter>Economy</Filter>
     </ClCompile>
@@ -118,6 +121,9 @@
     </ClInclude>
     <ClInclude Include="Refining.h">
       <Filter>Economy</Filter>
+    </ClInclude>
+    <ClInclude Include="Relevance.h">
+      <Filter>Wire</Filter>
     </ClInclude>
     <ClInclude Include="SiteEpoch.h">
       <Filter>Economy</Filter>

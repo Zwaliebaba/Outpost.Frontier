@@ -745,10 +745,6 @@ public:
   /// the order-state records that promote a client's ghost (ADR-004 §6).
   [[nodiscard]] std::span<const OrderGroup> Groups() const noexcept { return m_groups; }
 
-  /// The highest client sequence this world has ingested, for the snapshot
-  /// header. Closes the feedback loop when an `OrderAck` is lost.
-  [[nodiscard]] std::uint32_t LastOrderSeqProcessed() const noexcept { return m_lastOrderSeqProcessed; }
-
   /*
    * Seconds until this group finishes the leg it is on, or a negative number
    * when it cannot say (S12).
@@ -945,8 +941,19 @@ private:
   /// same terms: derived on demand, borrowed by the view, hashed by nothing.
   std::vector<std::uint32_t> m_validationOreRoom;
 
-  std::uint32_t m_nextOrderId = 1; // Zero means "no order" in the verdict.
-  std::uint32_t m_lastOrderSeqProcessed = 0;
+  /*
+   * Zero means "no order" in the verdict.
+   *
+   * `m_lastOrderSeqProcessed` used to sit beside this and **left with U3d-a**
+   * (ADR-022 §7). It was per-session state living in shared state: world-global,
+   * written as a max across every submitter and folded into `WorldHash`. With
+   * one commander that was invisible; with two it is wrong twice over -- one
+   * player's order sequence perturbs the other's feedback loop, and a replay's
+   * hash depends on which client happened to submit. It is the session's now
+   * (`SnapshotSender`), the wire field did not move, and `WriteSnapshot` takes
+   * the number rather than reading it off a world that has no viewers.
+   */
+  std::uint32_t m_nextOrderId = 1;
 
   /// In world state, not a global, because a replay has to reproduce it
   /// (ADR-005 §5). Unused by S6's movement -- steering is deterministic and

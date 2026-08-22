@@ -99,6 +99,7 @@
     <ClCompile Include="DurableStateTests.cpp" />
     <ClCompile Include="RefiningTests.cpp" />
     <ClCompile Include="OwnershipTests.cpp" />
+    <ClCompile Include="RelevanceTests.cpp" />
     <ClCompile Include="EconomyParseTests.cpp" />
     <ClCompile Include="CargoTests.cpp" />
     <ClCompile Include="MiningTests.cpp" />

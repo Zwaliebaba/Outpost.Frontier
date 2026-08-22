@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <vector>
 
 /*
  * The engine/game seam (ADR-014 §2).
@@ -73,6 +74,78 @@ struct WorldMeta
   std::string worldBadge;  // The right cluster's badge, drawn verbatim.
 };
 
+/*
+ * What the session knows about one viewer's feed, handed to the simulation so
+ * it can serialise for that viewer (ADR-022 §1, U3d-a).
+ *
+ * A struct rather than four parameters, and the reason is the shape of what is
+ * coming rather than tidiness: ADR-022's wire cluster adds the acked baseline,
+ * the tick's byte budget and the ranked id list to exactly this argument, and a
+ * parameter list that grows once per sub-slice grows at every call site each
+ * time. The struct grows in one place and the call sites do not move.
+ *
+ * **Everything in it is session state, and that is the point** (§1). The sim
+ * tier has no viewers; the session host is the only tier that knows which grid
+ * a commander is watching, what their link is doing and what they last acked.
+ * So the facts travel *in*, and nothing about a camera or a socket is stored
+ * on a world.
+ */
+struct SnapshotRequest
+{
+  /// The durable player, never the connection (ADR-018 D5): a snapshot is owed
+  /// to whoever is commanding, across the disconnect D5's grace window survives.
+  PlayerId viewer = INVALID_PLAYER_ID;
+
+  /// Which grid this viewer is watching. Already gated through `MayView`.
+  std::uint16_t grid = 0;
+
+  std::uint32_t tick = 0;
+
+  /*
+   * The highest order sequence this **viewer** has had accepted (ADR-022 §7).
+   *
+   * It was world-global state folded into the world hash, which with one
+   * commander was invisible and with two is wrong twice over: one player's
+   * order sequence perturbed the other's feedback loop, and a replay's hash
+   * depended on which client happened to submit. It is session state and it
+   * always read as per-viewer, so it lives here and travels in.
+   *
+   * The wire field did not move -- the game's snapshot header still carries it
+   * (ADR-022 §7) -- and this is where the number it carries now comes from.
+   */
+  std::uint32_t lastOrderSeqProcessed = 0;
+};
+
+/*
+ * One viewer's camera, for the relevance hook (ADR-022 §4, U3d-a).
+ *
+ * Named in engine terms like everything else on this seam: a viewer, a world, a
+ * set of entity ids and a focus on a plane. That some games call the entities
+ * ships and the world a grid is the game's business (ADR-014).
+ *
+ * Separate from `SnapshotRequest` because the two answer different questions
+ * and one of them is asked speculatively: the engine may rank without sending,
+ * and it certainly ranks before it knows how much of the answer it can afford.
+ */
+struct InterestQuery
+{
+  PlayerId viewer = INVALID_PLAYER_ID;
+  std::uint16_t grid = 0;
+
+  /// What the viewer has selected, as replicated ids (`EntityRecord::id`). A
+  /// span, because the selection already exists in the session and this seam
+  /// should not decide where.
+  std::span<const std::uint16_t> selection;
+
+  float focusXMetres = 0.0f;
+  float focusYMetres = 0.0f;
+
+  /// What the zoom actually shows, as a half-extent in plane units.
+  float viewHalfExtentMetres = 0.0f;
+
+  std::uint32_t tick = 0;
+};
+
 class Simulation
 {
 public:
@@ -93,10 +166,6 @@ public:
    * they last acked. A signature without a viewer is a signature that has to
    * change at every call site on the day two clients see different worlds.
    *
-   * `PlayerId` and not `clientId`: the durable player, never the connection
-   * (ADR-018 D5). A snapshot is owed to whoever is commanding, across the
-   * disconnect that D5's grace window is designed to survive.
-   *
    * Returns false if it could not -- which at MVP scale means the fleet
    * outgrew one datagram, the point at which ADR-004 §6's growth path stops
    * being optional. A bool rather than a silent short write, because a
@@ -106,7 +175,31 @@ public:
    * refusal with priority truncation; until that slice lands it stays exactly
    * as loud as it is.
    */
-  [[nodiscard]] virtual bool WriteSnapshot(PlayerId _viewer, std::uint16_t _grid, std::uint32_t _tick, ByteWriter& _writer) = 0;
+  [[nodiscard]] virtual bool WriteSnapshot(const SnapshotRequest& _request, ByteWriter& _writer) = 0;
+
+  /*
+   * Ranks one viewer's grid, most relevant first (ADR-022 §4).
+   *
+   * **It never truncates**, and that is the whole seam: the caller knows the
+   * budget and the callee knows the game. The engine takes as much of this list
+   * as this tick's bytes afford; the simulation says what order to spend them
+   * in. A game rule change -- a new hostility tier, a new "always show" case --
+   * is then a GameLogic edit that touches no engine code, and a budget change
+   * is an engine edit that touches no game rule.
+   *
+   * `_outRanked` is cleared and refilled. The caller owns the vector so the
+   * per-tick, per-viewer ranking costs no allocation once it is warm.
+   *
+   * Defaulted to "rank nothing" rather than pure, for `World()`'s reason: a
+   * simulation with nothing to rank is a real thing and `NullSimulation` is
+   * one. An empty ranking is read by the engine as an empty grid, which is
+   * exactly what such a simulation has.
+   */
+  virtual void RankRelevance(const InterestQuery& _query, std::vector<std::uint16_t>& _outRanked)
+  {
+    (void)_query;
+    _outRanked.clear();
+  }
 
   /*
    * May this viewer watch that grid? (ADR-016 §7 — U3b.)
@@ -283,7 +376,7 @@ class NullSimulation final : public Simulation
 {
 public:
   void AdvanceTick(std::uint32_t _tick) override { m_lastTick = _tick; }
-  [[nodiscard]] bool WriteSnapshot(PlayerId, std::uint16_t, std::uint32_t, ByteWriter&) override { return false; }
+  [[nodiscard]] bool WriteSnapshot(const SnapshotRequest&, ByteWriter&) override { return false; }
 
   [[nodiscard]] OrderVerdict ApplyOrderBytes(PlayerId, std::uint32_t, std::span<const std::uint8_t>) override
   {

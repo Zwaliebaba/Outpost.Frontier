@@ -357,7 +357,7 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
      * word, and what they mean is GameLogic's schema under GameLogic's hash --
      * the same arrangement `Snapshot` has in the other direction (ADR-014 §5).
      */
-    const SessionInfo* session = FindSession(_event.connection);
+    SessionInfo* session = FindSession(_event.connection);
     if (session == nullptr || !session->handshakeComplete)
     {
       // Before the handshake there is no client id to attribute an order to,
@@ -387,6 +387,14 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     if (!verdict.accepted)
     {
       m_ordersRefused.fetch_add(1, std::memory_order_relaxed);
+    }
+    else
+    {
+      // The feedback loop's backstop, kept per viewer (ADR-022 §7). The ack
+      // above is the primary path and this is what still promotes the ghost
+      // when the ack is lost -- so it advances on acceptance and never on a
+      // refusal, which would promote a ghost the authority turned down.
+      session->sender.NoteOrderAccepted(verdict.orderSeq);
     }
     return;
   }

@@ -16,6 +16,7 @@
 #include "FleetSummary.h"
 #include "OrderMessages.h"
 #include "Orders.h"
+#include "Relevance.h"
 #include "SchemaHash.h"
 #include "ShipClass.h"
 #include "Snapshot.h"
@@ -227,7 +228,7 @@ public:
    * starts answering "which grid is this player watching", the call site above
    * it does not change.
    */
-  [[nodiscard]] bool WriteSnapshot(PlayerId, std::uint16_t _grid, std::uint32_t, ByteWriter& _writer) override
+  [[nodiscard]] bool WriteSnapshot(const SnapshotRequest& _request, ByteWriter& _writer) override
   {
     /*
      * The grid the *viewer* asked for, not the one the session started on
@@ -241,8 +242,46 @@ public:
      * sender counts it, and the presence-edge rules that decide where the
      * viewer lands instead are A16's, not this function's.
      */
-    Game::World* world = m_registry.Borrow(static_cast<Game::AnchorId>(_grid));
-    return world != nullptr && Game::WriteSnapshot(*world, _writer);
+    Game::World* world = m_registry.Borrow(static_cast<Game::AnchorId>(_request.grid));
+    // The order sequence comes in with the request rather than off the world
+    // (ADR-022 §7): it is the session's count of what *this* commander has had
+    // accepted, and a world has no viewers to count for.
+    return world != nullptr && Game::WriteSnapshot(*world, _writer, _request.lastOrderSeqProcessed);
+  }
+
+  /*
+   * The relevance hook (ADR-022 §4), forwarded and not implemented here.
+   *
+   * The ranking is game semantics -- who owns what, what is a landmark, how
+   * near the camera something is -- so it lives in GameLogic beside the tables
+   * it reads (`Game::RankRelevance`). What this method is, like everything else
+   * in this class, is a line of wiring: translate the engine's neutral query
+   * into the game's, borrow the grid, and hand back the order.
+   *
+   * A grid that is not live ranks as empty rather than refusing. The engine
+   * reads an empty ranking as an empty grid, which is the truth about an anchor
+   * nobody is standing on, and the presence-edge rules that decide where the
+   * viewer lands instead are A16's rather than this function's.
+   */
+  void RankRelevance(const InterestQuery& _query, std::vector<std::uint16_t>& _outRanked) override
+  {
+    _outRanked.clear();
+    const Game::World* world = m_registry.Borrow(static_cast<Game::AnchorId>(_query.grid));
+    if (world == nullptr)
+    {
+      return;
+    }
+
+    Game::RelevanceQuery query;
+    query.viewer = _query.viewer;
+    query.grid = static_cast<Game::AnchorId>(_query.grid);
+    query.selection = _query.selection;
+    query.focusXMetres = _query.focusXMetres;
+    query.focusYMetres = _query.focusYMetres;
+    query.viewHalfExtentMetres = _query.viewHalfExtentMetres;
+    query.tick = _query.tick;
+
+    Game::RankRelevance(m_registry, *world, query, _outRanked);
   }
 
   /*

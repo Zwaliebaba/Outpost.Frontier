@@ -61,7 +61,7 @@ Neuron::EntityRecord MakeShipRecord(const World& _world, std::uint32_t _slot) no
   return record;
 }
 
-bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer)
+bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer, std::uint32_t _lastOrderSeqProcessed)
 {
   const std::uint32_t shipCount = _world.ShipCount();
   if (shipCount > MAX_SHIPS_PER_SNAPSHOT)
@@ -113,7 +113,7 @@ bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer)
   _writer.WriteUInt16(_world.Anchor());
   _writer.WriteUInt16(static_cast<std::uint16_t>(shipCount));
   _writer.WriteUInt16(orderCount);
-  _writer.WriteUInt32(_world.LastOrderSeqProcessed());
+  _writer.WriteUInt32(_lastOrderSeqProcessed);
 
   // Dense-array order, which is the world's only iteration order and therefore
   // the one a replay reproduces.

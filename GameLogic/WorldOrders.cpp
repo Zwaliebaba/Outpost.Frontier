@@ -506,7 +506,6 @@ void World::IngestOrders()
   for (PendingOrder& pending : m_pending)
   {
     OrderGroup& submitted = pending.group;
-    m_lastOrderSeqProcessed = std::max(m_lastOrderSeqProcessed, submitted.clientOrderSeq);
 
     /*
      * A dock never enters the group table (ADR-017 §2). It is not a movement

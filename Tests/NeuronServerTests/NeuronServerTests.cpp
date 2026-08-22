@@ -10,6 +10,7 @@
 #include "QuicTransport.h"
 #include "Wire.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -53,12 +54,20 @@ public:
    * lets a test prove the *sender* knew which client it was serialising for
    * (ADR-018 A13), which is a claim no amount of identical bytes can make.
    *
+   * **The sequence written is the request's and not this class's** (ADR-022
+   * §7, U3d-a). It used to be `m_lastAcceptedSeq` -- simulation state, global
+   * across every submitter, which is exactly the shape §7 moved out of the
+   * world. Reading it off the `SnapshotRequest` is what makes the order-loop
+   * test below a claim about the *session's* per-viewer high-water mark rather
+   * than about a counter the simulation happened to keep.
+   *
    * `RefuseSnapshots` makes every write fail the way a grid past the datagram
    * cap does -- the loud refusal ADR-022 §6 keeps until the delta slice.
    */
-  [[nodiscard]] bool WriteSnapshot(PlayerId _viewer, std::uint16_t _grid, std::uint32_t _tick, ByteWriter& _writer) override
+  [[nodiscard]] bool WriteSnapshot(const SnapshotRequest& _request, ByteWriter& _writer) override
   {
-    m_lastViewer.store(_viewer, std::memory_order_relaxed);
+    const PlayerId viewer = _request.viewer;
+    m_lastViewer.store(viewer, std::memory_order_relaxed);
 
     /*
      * And EVERY viewer, not just the newest (U3c-b).
@@ -74,20 +83,20 @@ public:
      * back on themselves; no test here mints anywhere near that many, and a
      * mask that silently aliased would be worse than one that cannot.
      */
-    if (_viewer < 64)
+    if (viewer < 64)
     {
-      m_viewersSeen.fetch_or(std::uint64_t{1} << _viewer, std::memory_order_relaxed);
+      m_viewersSeen.fetch_or(std::uint64_t{1} << viewer, std::memory_order_relaxed);
     }
-    m_lastGrid.store(_grid, std::memory_order_relaxed);
+    m_lastGrid.store(_request.grid, std::memory_order_relaxed);
     if (m_refuseSnapshots.load(std::memory_order_relaxed))
     {
       return false;
     }
-    _writer.WriteUInt32(_tick);
+    _writer.WriteUInt32(_request.tick);
     _writer.WriteUInt32(SNAPSHOT_MARKER);
-    _writer.WriteUInt32(m_lastAcceptedSeq.load(std::memory_order_relaxed));
-    _writer.WriteUInt32(_viewer);
-    _writer.WriteUInt32(_grid);
+    _writer.WriteUInt32(_request.lastOrderSeqProcessed);
+    _writer.WriteUInt32(viewer);
+    _writer.WriteUInt32(_request.grid);
     ++m_snapshotsWritten;
     return _writer.Ok();
   }
@@ -179,6 +188,11 @@ public:
     m_lastAcceptedSeq.store(sequence, std::memory_order_relaxed);
     return verdict;
   }
+
+  /// What the *simulation* last accepted, as distinct from what the session
+  /// reports to a viewer. The two agree with one commander and are different
+  /// facts (ADR-022 §7), which is why both are kept.
+  [[nodiscard]] std::uint32_t LastAcceptedSeq() const noexcept { return m_lastAcceptedSeq.load(std::memory_order_relaxed); }
 
   [[nodiscard]] std::uint32_t OrdersSeen() const noexcept { return m_ordersSeen.load(std::memory_order_relaxed); }
   [[nodiscard]] std::uint32_t LastOrderClientId() const noexcept { return m_lastOrderClientId.load(std::memory_order_relaxed); }
@@ -1095,6 +1109,167 @@ public:
     Assert::AreEqual<std::uint32_t>(1, simulation.OrdersSeen());
     Assert::IsTrue(simulation.LastOrderClientId() != 0, L"the order was attributed to the session that sent it");
     Assert::AreEqual<std::uint32_t>(0, host.RefusedOrderCount());
+
+    host.Stop();
+    host.Join();
+  }
+
+  /*
+   * The half of ADR-022 §7 that landed on this side of the seam (U3d-a).
+   *
+   * `lastOrderSeqProcessed` was world-global state folded into the world hash;
+   * it is session state now, and `SnapshotSender` is the object there is one of
+   * per viewer. The two rules it has to obey are cheap to state and were both
+   * true of the world's version, so losing either in the move would be silent.
+   */
+  TEST_METHOD(TheSessionsOrderSequenceIsAHighWaterMark)
+  {
+    SnapshotSender sender{SOLE_PLAYER_ID, INVALID_CONNECTION, 0};
+    Assert::AreEqual<std::uint32_t>(0, sender.LastOrderSeqProcessed(), L"a fresh session has acknowledged nothing");
+
+    sender.NoteOrderAccepted(42);
+    Assert::AreEqual<std::uint32_t>(42, sender.LastOrderSeqProcessed());
+
+    // An older sequence arriving late must not wind it back: the client reads
+    // this to decide what is still outstanding, so a rewind would un-promote a
+    // ghost that had already been promoted.
+    sender.NoteOrderAccepted(7);
+    Assert::AreEqual<std::uint32_t>(42, sender.LastOrderSeqProcessed(), L"a late order rewound the high-water mark");
+
+    sender.NoteOrderAccepted(43);
+    Assert::AreEqual<std::uint32_t>(43, sender.LastOrderSeqProcessed());
+  }
+
+  TEST_METHOD(TwoViewersKeepTheirOwnOrderSequences)
+  {
+    /*
+     * The whole reason §7 moved the field. World-global, one commander's
+     * counter set the number every *other* commander's ghosts were promoted
+     * against -- so a busy player could promote a quiet player's ghosts for
+     * orders that had never been given, and a replay's hash depended on which
+     * client happened to submit first.
+     *
+     * Two senders, two numbers, no shared state. This is the assertion the
+     * world-owned version could not have passed.
+     */
+    SnapshotSender busy{1, INVALID_CONNECTION, 0};
+    SnapshotSender quiet{2, INVALID_CONNECTION, 0};
+
+    busy.NoteOrderAccepted(900000);
+    quiet.NoteOrderAccepted(3);
+
+    Assert::AreEqual<std::uint32_t>(900000, busy.LastOrderSeqProcessed());
+    Assert::AreEqual<std::uint32_t>(3, quiet.LastOrderSeqProcessed(), L"one commander's counter reached another's feed");
+  }
+
+  TEST_METHOD(ARefusedOrderDoesNotAdvanceTheSequenceTheSnapshotReports)
+  {
+    /*
+     * Accepted only, over the real loopback (ADR-022 §7).
+     *
+     * The field is what still promotes a client's ghost when the `OrderAck` is
+     * lost, so advancing it on a *refusal* would promote a ghost the authority
+     * turned down -- the exact opposite of what it is for. The world's version
+     * had this property for free, because only accepted orders ever reached
+     * `IngestOrders`; the session's version has to be told, and this is what
+     * says it was.
+     */
+    CountingSimulation simulation;
+    ServerHost host;
+    ServerConfig config;
+    config.port = 0;
+    Assert::IsTrue(host.Start(config, simulation));
+
+    QuicTransport client;
+    const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
+    Assert::IsTrue(link != INVALID_CONNECTION);
+
+    std::array<std::uint8_t, 256> buffer{};
+    ByteWriter hello{buffer};
+    WriteWireType(hello, WireType::Hello);
+    Write(hello, Hello{PROTOCOL_VERSION, simulation.SchemaHash(), simulation.ContentHash(), "harness"});
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, hello.Written()));
+
+    bool joined = false;
+    Assert::IsTrue(WaitUntil(client,
+                             [&]
+                             {
+                               TransportEvent event;
+                               while (client.NextEvent(event))
+                               {
+                                 if (event.type != TransportEvent::Type::Message)
+                                 {
+                                   continue;
+                                 }
+                                 ByteReader reader{event.payload};
+                                 Welcome welcome;
+                                 if (ReadWireType(reader) == WireType::Welcome && Read(reader, welcome))
+                                 {
+                                   joined = true;
+                                 }
+                               }
+                               return joined;
+                             }),
+                   L"the server never sent Welcome");
+
+    constexpr std::uint32_t GOOD_SEQ = 100;
+    constexpr std::uint32_t REFUSED_SEQ = 900000; // Far higher, so a leak is loud.
+
+    ByteWriter accepted{buffer};
+    WriteWireType(accepted, WireType::OrderSubmit);
+    accepted.WriteUInt32(CountingSimulation::ORDER_MARKER);
+    accepted.WriteUInt32(GOOD_SEQ);
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, accepted.Written()));
+
+    // A payload this simulation does not recognise, which is how a refusal is
+    // produced here without the engine knowing what makes one.
+    ByteWriter rejected{buffer};
+    WriteWireType(rejected, WireType::OrderSubmit);
+    rejected.WriteUInt32(CountingSimulation::ORDER_MARKER + 1);
+    rejected.WriteUInt32(REFUSED_SEQ);
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, rejected.Written()));
+
+    int acks = 0;
+    std::uint32_t highest = 0;
+    bool sawTheAcceptedOne = false;
+    const bool settled = WaitUntil(client,
+                                   [&]
+                                   {
+                                     TransportEvent event;
+                                     while (client.NextEvent(event))
+                                     {
+                                       if (event.type != TransportEvent::Type::Message)
+                                       {
+                                         continue;
+                                       }
+                                       ByteReader reader{event.payload};
+                                       const WireType type = ReadWireType(reader);
+                                       OrderAck ack;
+                                       if (type == WireType::OrderAck && Read(reader, ack))
+                                       {
+                                         ++acks;
+                                       }
+                                       else if (type == WireType::Snapshot)
+                                       {
+                                         const std::uint32_t tick = reader.ReadUInt32();
+                                         const std::uint32_t marker = reader.ReadUInt32();
+                                         const std::uint32_t sequence = reader.ReadUInt32();
+                                         if (reader.Ok() && marker == CountingSimulation::SNAPSHOT_MARKER && tick > 0)
+                                         {
+                                           highest = std::max(highest, sequence);
+                                           sawTheAcceptedOne = sawTheAcceptedOne || sequence == GOOD_SEQ;
+                                         }
+                                       }
+                                     }
+                                     // Both acks and a snapshot made after them,
+                                     // or the refusal might simply not have been
+                                     // processed yet.
+                                     return acks >= 2 && sawTheAcceptedOne;
+                                   });
+
+    Assert::IsTrue(settled, L"the two orders were never both answered");
+    Assert::AreEqual<std::uint32_t>(GOOD_SEQ, highest, L"a refused order advanced the viewer's high-water mark");
+    Assert::AreEqual<std::uint32_t>(1, host.RefusedOrderCount());
 
     host.Stop();
     host.Join();

@@ -1422,7 +1422,9 @@ public:
 
     std::array<std::uint8_t, 2048> buffer{};
     Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
+    // The session's high-water mark travels in (ADR-022 §7); what this test is
+    // about is the *record*, which is the half the world still owns.
+    Assert::IsTrue(WriteSnapshot(world, writer, 701));
 
     Neuron::ByteReader reader{writer.Written()};
     SnapshotHeader header;
@@ -1430,11 +1432,11 @@ public:
     std::vector<OrderStateRecord> orders;
     Assert::IsTrue(ReadSnapshot(reader, header, ships, orders));
 
+    Assert::AreEqual<std::uint32_t>(701, header.lastOrderSeqProcessed, L"the session's number, echoed");
     Assert::AreEqual<std::size_t>(1, orders.size());
     Assert::AreEqual<std::uint32_t>(701, orders[0].clientOrderSeq, L"the ghost the player is watching");
     Assert::AreEqual<std::uint32_t>(1, orders[0].serverOrderId);
     Assert::AreEqual<std::uint8_t>(2, orders[0].legCount);
-    Assert::AreEqual<std::uint32_t>(701, header.lastOrderSeqProcessed);
   }
 
   TEST_METHOD(TheFifthLegBouncesFromTheAuthorityWithQueueFull)
@@ -1550,27 +1552,98 @@ public:
     Assert::IsTrue(arrived > 0, L"the fleet never reached the second waypoint");
   }
 
-  TEST_METHOD(TheHighestSequenceIngestedIsReported)
+  TEST_METHOD(TheSessionsSequenceIsWhatTheHeaderReports)
   {
+    /*
+     * **This used to assert `world.LastOrderSeqProcessed()`, and that accessor
+     * is gone** (ADR-022 §7, U3d-a). The high-water mark was world-global state
+     * folded into the world hash: with one commander invisible, with two wrong
+     * twice over -- one player's order sequence perturbed the other's ghost
+     * promotion, and a replay's hash depended on which client happened to
+     * submit. It moved to the session, which is the tier that has a viewer.
+     *
+     * What is left here is the half GameLogic still owns: the header field did
+     * not move, did not change width, and reports exactly the number the
+     * session hands in. The *high-water* half -- highest wins, a refusal never
+     * advances it -- is `SnapshotSender`'s and is tested in NeuronServerTests.
+     */
     World world;
     world.Reset(3);
     const ShipId ship = SpawnAt(world, HullClass::Interceptor);
-
-    Assert::AreEqual<std::uint32_t>(0, world.LastOrderSeqProcessed());
 
     OrderSubmit order = Order({ship}, 1000.0f, 0.0f);
     order.orderSeq = 42;
     (void)world.SubmitOrder(order);
     world.Tick(1);
-    Assert::AreEqual<std::uint32_t>(42, world.LastOrderSeqProcessed());
 
-    // An older sequence arriving late must not wind it back: it is a high-water
-    // mark, and the client uses it to decide what is still outstanding.
-    OrderSubmit late = Order({ship}, 1200.0f, 0.0f);
-    late.orderSeq = 7;
-    (void)world.SubmitOrder(late);
-    world.Tick(2);
-    Assert::AreEqual<std::uint32_t>(42, world.LastOrderSeqProcessed());
+    std::array<std::uint8_t, 2048> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteSnapshot(world, writer, 42));
+
+    Neuron::ByteReader reader{writer.Written()};
+    SnapshotHeader header;
+    std::vector<Neuron::EntityRecord> ships;
+    Assert::IsTrue(ReadSnapshot(reader, header, ships));
+    Assert::AreEqual<std::uint32_t>(42, header.lastOrderSeqProcessed, L"the session's number must reach the wire");
+
+    // And the default is honest rather than a stub: a caller asking about a
+    // world rather than serving a commander is told that nothing has been
+    // acknowledged to anybody.
+    Neuron::ByteWriter unserved{buffer};
+    Assert::IsTrue(WriteSnapshot(world, unserved));
+    Neuron::ByteReader unservedReader{unserved.Written()};
+    SnapshotHeader unservedHeader;
+    ships.clear();
+    Assert::IsTrue(ReadSnapshot(unservedReader, unservedHeader, ships));
+    Assert::AreEqual<std::uint32_t>(0, unservedHeader.lastOrderSeqProcessed);
+  }
+
+  TEST_METHOD(ARetiredOrdersSequenceLeavesNoTraceInTheReplayDomain)
+  {
+    /*
+     * The one replay-contract edit in the whole of ADR-022 (§7), asserted so it
+     * cannot be undone by accident.
+     *
+     * **The order has to be retired for this to be about the right field.** A
+     * *live* group carries `clientOrderSeq` in the group table and always did,
+     * and that is world state the hash should cover -- it is what promotes the
+     * player's ghost. What left the hash is `lastOrderSeqProcessed`, the
+     * world-global high-water mark, and the state in which it was the *only*
+     * carrier of a sequence is exactly this one: the group flown, finished, and
+     * erased after its linger.
+     *
+     * Before U3d-a these two worlds diverged for the rest of the session over a
+     * number the *client* chose. With two commanders that is wrong twice over:
+     * one player's counter perturbs the other's feedback loop, and a replay's
+     * hash depends on which client happened to submit.
+     */
+    World low;
+    World high;
+    low.Reset(31);
+    high.Reset(31);
+    const ShipId inLow = SpawnAt(low, HullClass::Interceptor);
+    const ShipId inHigh = SpawnAt(high, HullClass::Interceptor);
+    Assert::AreEqual<ShipId>(inLow, inHigh);
+
+    OrderSubmit quiet = Order({inLow}, 1500.0f, 0.0f);
+    quiet.orderSeq = 1;
+    Assert::IsTrue(low.SubmitOrder(quiet).accepted);
+
+    OrderSubmit chatty = Order({inHigh}, 1500.0f, 0.0f);
+    chatty.orderSeq = 900000;
+    Assert::IsTrue(high.SubmitOrder(chatty).accepted);
+
+    // Long enough to fly 1,500 m, finish, and serve out `ORDER_DONE_LINGER_TICKS`.
+    for (std::uint32_t tick = 1; tick <= 600; ++tick)
+    {
+      low.Tick(tick);
+      high.Tick(tick);
+    }
+    Assert::IsTrue(low.Groups().empty(), L"the fixture never retired its order, so this proves nothing");
+    Assert::IsTrue(high.Groups().empty());
+
+    Assert::AreEqual(ComputeWorldHash(low), ComputeWorldHash(high),
+                     L"a client's own counter still reaches the replay domain");
   }
 
   TEST_METHOD(ThePlanIsPartOfTheStateTheHashCovers)
@@ -1619,9 +1692,9 @@ public:
      *
      * Here both worlds are flying the same first leg to the same point, with
      * identical positions, velocities, headings and guidance. One of them has a
-     * second leg queued behind it. The only state that differs is the plan, and
-     * the same client sequence is used for both submissions so the high-water
-     * mark cannot carry the difference either.
+     * second leg queued behind it. The only state that differs is the plan --
+     * and as of U3d-a the client's own sequence is not world state at all
+     * (ADR-022 §7), so it could not carry the difference even if it differed.
      */
     World withOneLeg;
     World withTwoLegs;
@@ -1637,7 +1710,7 @@ public:
     Assert::AreEqual(ComputeWorldHash(withOneLeg), ComputeWorldHash(withTwoLegs), L"identical so far");
 
     OrderSubmit queued = Order({second}, 3000.0f, 3000.0f);
-    queued.orderSeq = 1; // The same sequence, so the high-water mark matches.
+    queued.orderSeq = 1;
     queued.queueMode = QueueMode::Append;
     Assert::IsTrue(withTwoLegs.SubmitOrder(queued).accepted);
     withOneLeg.Tick(2);
@@ -1646,7 +1719,6 @@ public:
     // Same ship, same place, same destination for this leg.
     Assert::AreEqual(withOneLeg.Positions()[0].x, withTwoLegs.Positions()[0].x, 1e-6f);
     Assert::AreEqual(withOneLeg.Guidances()[0].targetXMetres, withTwoLegs.Guidances()[0].targetXMetres, 1e-6f);
-    Assert::AreEqual(withOneLeg.LastOrderSeqProcessed(), withTwoLegs.LastOrderSeqProcessed());
     Assert::AreEqual<std::uint32_t>(0, withOneLeg.PendingOrderCount());
     Assert::AreEqual<std::uint32_t>(0, withTwoLegs.PendingOrderCount());
 
@@ -1810,7 +1882,9 @@ public:
 
     std::array<std::uint8_t, 2048> buffer{};
     Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
+    // 99 is the session's number now rather than the world's (ADR-022 §7); the
+    // group record beside it is still the world's, which is what this checks.
+    Assert::IsTrue(WriteSnapshot(world, writer, 99));
 
     Neuron::ByteReader reader{writer.Written()};
     SnapshotHeader header;

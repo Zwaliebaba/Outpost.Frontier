@@ -197,7 +197,21 @@ std::uint64_t ComputeWorldHash(const World& _world) noexcept
   {
     hash = foldGroup(group, hash);
   }
-  hash = Neuron::HashValue(_world.LastOrderSeqProcessed(), hash);
+  /*
+   * `LastOrderSeqProcessed` was folded here and **is not any more** (ADR-022
+   * §7, U3d-a) -- the one replay-contract edit in the whole of that ADR, and
+   * the reason every recorded golden re-baselines with this slice.
+   *
+   * It was per-session state in shared state: world-global, written as a max
+   * across every submitter. Two commanders on one grid made it wrong twice
+   * over -- one player's order sequence perturbed the other's ghost promotion,
+   * and a replay's hash depended on which client happened to submit first. It
+   * moved to the session, where it always belonged.
+   *
+   * The pending count stays, and stays for its own reason: an order submitted
+   * before a tick and one submitted after are different worlds, and the count
+   * is what says so.
+   */
   hash = Neuron::HashValue(_world.PendingOrderCount(), hash);
 
   // The RNG last. Nothing in the movement model draws from it, so a divergence

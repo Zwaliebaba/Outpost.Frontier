@@ -734,6 +734,63 @@ outranks a neutral one under the cursor; a selected foreign ship is tier 0; roun
 because ranking is a read. The replay hash moves once, to a stated number, and Spike 2 confirms
 Debug and Release agree on it.
 
+**Built (2026-08-22).** The ranking is `GameLogic/Relevance.h` — `RankRelevance` over the grid's
+dense arrays, `Relationship`/`RelationshipOf` beside it — and the seam is `Simulation::RankRelevance`
+taking a neutral `InterestQuery`. `UniverseSimulation` forwards; the composition root is a line of
+wiring, as ADR-014 §2a asks. **The hook never truncates**, which is the clause the whole split
+rests on, and the suite asserts the ranking is a permutation of the grid before it asserts
+anything about tiers.
+
+**Two readings had to be taken rather than found, and both are recorded in `Relevance.h`
+itself rather than only here.**
+
+- **`Allied` and `Hostile` have no producer.** The relationship enum is four-valued from its
+  first line, because it is `tactical-icon-system.png` §3's colour channel and U3d-b's two status
+  bits; but nothing in this corpus decides whether a foreign commander is one or the other. That
+  is the combat phase's, and the Plan of Record names that phase as having no ADR and no build
+  order. Today every ship that is not the viewer's own is `Neutral`, which is the honest answer
+  and not a placeholder: with no diplomacy and no PVP flag, nobody is allied and nobody is at war.
+- **Tier 1 reads as "inside the camera's extent"** rather than ADR-022 §4's literal *"a visible
+  relationship **and** inside the extent"*. Taken literally the first conjunct is empty by
+  construction while the point above holds, so the tier would be dead code and untestable. What
+  the tier is *for* is stated in the same table — the ships the player is looking at get a steady
+  cadence and the rest get a rotated one — and the extent is the whole of what expresses that
+  today. When a hostility model exists the conjunct is added; the tier does not have to be
+  invented then. **This is a reading of the ADR, not an amendment to it**, and it is flagged here
+  so the next person finds it as a decision rather than as a discrepancy.
+
+The extent is a **box** rather than a radius, because a half-extent describes what a screen shows
+and a radius would rank the corners of the player's own screen below empty space beside it.
+
+**Tier 2's round-robin is a rotation by `tick % count`**, not a stride. A stride only visits
+everything when it is coprime with the count, and the count changes whenever a ship spawns — a
+bound that depends on an arithmetic coincidence is not a bound. The rotation gives the accept's
+clause directly: every tier 2 ship leads its tier once per `count` ticks. It is scoped to tier 2
+and the suite asserts an owned ship holds the lead across forty ticks, because the guarantee
+(§5a) is not a cadence.
+
+**`lastOrderSeqProcessed` left the world hash, and left `World` altogether.** `World::m_lastOrderSeqProcessed`
+and its accessor are gone; `SnapshotSender` keeps it per viewer, advanced from `ServerHost` **only on
+an accepted verdict** — a refusal carries a sequence too, and advancing on one would promote a ghost the
+authority turned down. `Game::WriteSnapshot` takes the number as a defaulted argument, so the wire field
+did not move, did not change width, and the callers asking about a *world* rather than serving a
+commander (the self test's determinism harness, most of the suite) read an honest zero rather than a stub.
+
+**The replay re-baseline was a non-event, and that is worth writing down.** No golden hash is stored
+anywhere in this tree — the suites and the self test run a scenario twice and compare — so "every
+recorded golden re-baselines" cost nothing to collect. What *did* need a test is that the number is
+gone: `ARetiredOrdersSequenceLeavesNoTraceInTheReplayDomain` flies two worlds through the same order
+under sequences 1 and 900,000 and waits for the group to finish its linger and be erased, because a
+*live* group carries `clientOrderSeq` in the group table and always did. Retired is the only state in
+which the high-water mark was the sole carrier, and it is the state in which the two worlds used to
+diverge for the rest of the session.
+
+**Verified:** Debug x64 builds clean. `GameLogicTests` 401/401 (13 new in `RelevanceTests.cpp`),
+`NeuronServerTests` 43/43 (3 new: the high-water mark, two viewers keeping their own, and a refused
+order over the real loopback failing to advance it), `NeuronCoreTests` and `NeuronClientTests`
+unchanged and green. The headless self test passes end to end, including the two-commander privacy
+run and the tick-cadence check.
+
 #### U3d-b — The wire cluster, and the baseline that is a view rather than a world
 
 **One fail-closed schema bump** carrying all of it, as ADR-018's Consequences require:

@@ -3,6 +3,7 @@
 #include "Transport.h"
 #include "Wire.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 
@@ -80,6 +81,34 @@ public:
   }
 
   /*
+   * One of this viewer's orders was accepted by the authority (ADR-022 §7).
+   *
+   * The session's half of the order feedback loop, and it lives here because
+   * ADR-022 §7 moved it out of the world: `lastOrderSeqProcessed` was
+   * world-global, written as a max across *every* submitter and folded into the
+   * world hash, so one commander's order sequence perturbed the other's ghost
+   * promotion and a replay's hash depended on which client happened to submit.
+   * Per viewer is what it always read as, and this is the object that is one
+   * per viewer.
+   *
+   * **Accepted only.** A refusal carries a sequence too, and advancing on one
+   * would promote a ghost for an order the authority turned down -- the exact
+   * opposite of what the field is for. Highest wins, so an ack arriving out of
+   * order cannot walk the number backwards.
+   */
+  void NoteOrderAccepted(std::uint32_t _orderSeq) noexcept
+  {
+    m_lastOrderSeqProcessed = std::max(m_lastOrderSeqProcessed, _orderSeq);
+  }
+
+  /// The highest sequence this viewer has had accepted. On the wire in the
+  /// game's own snapshot header, which is where it always was (ADR-022 §7).
+  [[nodiscard]] std::uint32_t LastOrderSeqProcessed() const noexcept
+  {
+    return m_lastOrderSeqProcessed;
+  }
+
+  /*
    * Points this feed at another grid, if the game allows it (ADR-016 §7).
    *
    * The verdict comes from the simulation and the enforcement stays here, which
@@ -148,6 +177,12 @@ private:
   std::uint32_t m_sent = 0;
   std::uint32_t m_summariesSent = 0;
   std::uint32_t m_overCap = 0;
+
+  /// Session state, not world state (ADR-022 §7). It survives a view switch --
+  /// a fleet ordered on one grid is still ordered when the camera moves -- and
+  /// it does not survive the player, which is why it is keyed here on the
+  /// viewer rather than anywhere the connection can reach.
+  std::uint32_t m_lastOrderSeqProcessed = 0;
 
   /// Logged once per client rather than once per process: with two viewers,
   /// "a snapshot did not fit" that names neither is a line that sends the next

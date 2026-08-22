@@ -76,8 +76,15 @@ struct SnapshotHeader
   /// Always zero until S9 gives the client something to have ordered.
   std::uint16_t orderCount = 0;
 
-  /// Closes the order feedback loop even when an `OrderAck` is delayed or lost.
-  /// Zero until S9.
+  /*
+   * Closes the order feedback loop even when an `OrderAck` is delayed or lost.
+   *
+   * **Per viewer as of U3d-a** (ADR-022 §7). The field did not move -- it is
+   * still the game's header, still in this position, still the same width --
+   * but what fills it did: it was world-global state folded into the world
+   * hash, and it is now the session's own count of what *this* commander has
+   * had accepted. The wire always read as per-viewer; now it is.
+   */
   std::uint32_t lastOrderSeqProcessed = 0;
 };
 
@@ -220,8 +227,17 @@ static_assert(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT + 1u, MAX_ORDERS_PER_SNAPSHOT
  * a truncated snapshot is worse than no snapshot, because the client would
  * treat the missing ships as despawned and then resurrect them next tick. The
  * caller's job is to say so loudly; the growth path is deltas, not silence.
+ *
+ * `_lastOrderSeqProcessed` is the **session's** number and travels in
+ * (ADR-022 §7): the world stopped owning it with U3d-a, because a world has no
+ * viewers and that field only ever meant something about one. It defaults to
+ * zero for the callers that are asking about a world rather than serving a
+ * commander -- the self test's determinism harness and most of this suite --
+ * where "no orders have been acknowledged to anybody" is the honest answer
+ * rather than a stub.
  */
-[[nodiscard]] bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer);
+[[nodiscard]] bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer,
+                                 std::uint32_t _lastOrderSeqProcessed = 0);
 
 /// Reads one back. Returns false on a truncated or implausible payload, leaving
 /// the outputs untouched -- a half-applied snapshot is a corrupt view.

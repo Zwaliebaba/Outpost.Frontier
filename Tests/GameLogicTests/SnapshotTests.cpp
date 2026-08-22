@@ -705,7 +705,9 @@ public:
     ReplicatedView view;
     std::array<std::uint8_t, 512> buffer{};
     Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
+    // The high-water mark is the session's as of U3d-a (ADR-022 §7), so a test
+    // about what the *client* reads has to supply what a session would.
+    Assert::IsTrue(WriteSnapshot(world, writer, 1));
     Assert::IsTrue(view.ApplySnapshot(writer.Written()));
 
     Assert::AreEqual<std::size_t>(1, view.LatestOrders().size(), L"the move BuildFlyingWorld gave is still running");
@@ -728,7 +730,8 @@ public:
 
     std::array<std::uint8_t, 512> older{};
     Neuron::ByteWriter olderWriter{older};
-    Assert::IsTrue(WriteSnapshot(world, olderWriter));
+    // What the session had acknowledged when this snapshot was made: one order.
+    Assert::IsTrue(WriteSnapshot(world, olderWriter, 1));
 
     OrderSubmit second;
     second.orderSeq = 2;
@@ -743,7 +746,8 @@ public:
 
     std::array<std::uint8_t, 512> newer{};
     Neuron::ByteWriter newerWriter{newer};
-    Assert::IsTrue(WriteSnapshot(world, newerWriter));
+    // And two by the time this one was.
+    Assert::IsTrue(WriteSnapshot(world, newerWriter, 2));
 
     ReplicatedView view;
     Assert::IsTrue(view.ApplySnapshot(newerWriter.Written()));

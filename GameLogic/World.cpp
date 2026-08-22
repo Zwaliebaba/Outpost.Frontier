@@ -496,7 +496,6 @@ void World::Reset(std::uint64_t _seed) noexcept
   m_groups.clear();
   m_pending.clear();
   m_nextOrderId = 1;
-  m_lastOrderSeqProcessed = 0;
 
   m_random.Seed(_seed);
 }
