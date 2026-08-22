@@ -95,7 +95,17 @@ std::uint32_t BuildCommandRow(std::span<const OrderKindOption> _kinds, std::uint
     button = CommandButton{};
     button.rect = UiRect{pen, top, width, height};
     button.label = kind.name;
-    button.action = CommandAction::SelectKind;
+    /*
+     * Arm, or act.
+     *
+     * The one bit the game sent, doing the only thing this pass can do with it.
+     * A verb that still needs a place to go makes the press *arm the puck*; a
+     * verb the game could already judge from the selection makes the press
+     * *issue it*, because there is nothing a second gesture would add and a lit
+     * button that then waited would be asking for something the player has
+     * nothing left to say.
+     */
+    button.action = kind.namesDestination ? CommandAction::SelectKind : CommandAction::IssueNow;
     button.payload = kind.kind;
     // The one predicate, for every verb: the game says it has content, and the
     // player has given it something to act on.

@@ -147,6 +147,25 @@ public:
                                       Neuron::ContextAction& _outAction) const override;
   [[nodiscard]] bool ApplySummary(std::span<const std::uint8_t> _payload) override;
   [[nodiscard]] std::uint32_t BuildLocationBlocks(std::span<Neuron::LocationBlock> _outBlocks) const override;
+
+  /*
+   * --- the station surface (ADR-017 §6, ADR-020 §6) ------------------------
+   */
+  [[nodiscard]] std::uint32_t BuildStationTabs(std::uint16_t _anchor,
+                                               std::span<Neuron::StationTab> _outTabs) const override;
+  [[nodiscard]] Neuron::StationRosterCounts BuildStationRoster(std::uint16_t _anchor,
+                                                               std::span<const std::uint32_t> _selectedIds,
+                                                               std::span<Neuron::StationGroup> _outGroups,
+                                                               std::span<Neuron::StationChip> _outChips) const override;
+  [[nodiscard]] std::uint32_t BuildGroupMembers(std::uint16_t _groupId,
+                                                std::span<std::uint16_t> _outIds) const override;
+  [[nodiscard]] std::uint32_t BuildStationActions(std::uint16_t _anchor,
+                                                  std::span<Neuron::StationAction> _outActions) const override;
+  [[nodiscard]] std::uint32_t StationActionOptions(std::uint16_t _verb,
+                                                   std::span<Neuron::OrderOption> _outOptions) const override;
+  [[nodiscard]] Neuron::OrderVerdict PreCheckStation(const Neuron::StationIntent& _intent) override;
+  [[nodiscard]] bool EncodeStationCommand(const Neuron::StationIntent& _intent, Neuron::ByteWriter& _writer) override;
+  [[nodiscard]] std::uint32_t ShipsPerStationCommand() const override;
   [[nodiscard]] std::uint32_t PollNotices(std::span<Neuron::Notice> _outNotices) override;
   void PollOrderFeedback(Neuron::OrderFeedback& _outFeedback) override;
   [[nodiscard]] const char* ReasonText(std::uint16_t _reasonCode) const override;
@@ -163,6 +182,22 @@ public:
   /// What the summary family last said is docked where, for a test to assert
   /// against without going through the HUD's span.
   [[nodiscard]] std::uint16_t DockedCountAt(Game::AnchorId _anchor) const noexcept;
+
+  /*
+   * A `StationIntent` as the game's own command, or false.
+   *
+   * One place rather than two, because `PreCheckStation` and
+   * `EncodeStationCommand` must judge and send the *same* command -- a screen
+   * whose pre-check said yes to something slightly different from what went on
+   * the wire would have BounceParity in name only.
+   *
+   * False when the intent names more ships than one command holds. A refusal
+   * rather than a truncation: sending the first 64 of 66 would undock most of a
+   * fleet and report success, and splitting into waves is the screen's job to
+   * have done already.
+   */
+  [[nodiscard]] bool MakeStationCommand(const Neuron::StationIntent& _intent,
+                                        Game::StationCommand& _outCommand) const noexcept;
 
   /// What the economy summaries last said, for a test or a diagnostic to assert
   /// against without going through a HUD span.
@@ -224,6 +259,11 @@ private:
    * leaves empty, and the validator's optional-field rules turn that into "the
    * authority decides" rather than into a wrong answer.
    */
+  /// This grid's station, or `INVALID_ID` before one has been drawn. One
+  /// function because the validation view, the submit and the command row's
+  /// availability must all mean the same station or none.
+  [[nodiscard]] Game::AnchorId StationAnchor() const noexcept;
+
   [[nodiscard]] Game::ValidationView MakeValidationView() const noexcept;
 
   /*
@@ -254,6 +294,17 @@ private:
   /// What the universe calls this anchor, or null for one the content does not
   /// name.
   [[nodiscard]] const char* AnchorNameFor(Game::AnchorId _anchor) const;
+
+  /*
+   * The docked place for this anchor, or null. Both station calls start here,
+   * and neither should walk `m_places` on its own terms.
+   *
+   * Declared here rather than beside the other station calls because it names
+   * `FleetPlace`, which is private and defined below them: a member function's
+   * return type is looked up where the declaration is written, so this one has
+   * to come after the type it returns.
+   */
+  [[nodiscard]] const FleetPlace* DockedAt(Game::AnchorId _anchor) const noexcept;
 
   Desc m_desc;
   Game::ReplicatedView m_view;
@@ -365,6 +416,11 @@ private:
   /// the summary cadence, but the vector would otherwise be a fresh allocation
   /// every second for the life of the session.
   std::vector<Game::RosterEntry> m_decodedRoster;
+
+  /// Scratch for the hangar's sort (ADR-017 §6a.4), kept rather than made per
+  /// call: the screen asks once a frame and `m_places` must not be reordered by
+  /// a draw.
+  mutable std::vector<Game::RosterEntry> m_rosterSort;
   std::vector<Game::FleetSummary> m_decodedSummaries;
   std::vector<Game::CargoStatusRow> m_decodedCargo;
 

@@ -581,10 +581,55 @@ public:
     RosterRow rows[MAX_ROSTER_ROWS] = {};
     Assert::AreEqual<std::uint32_t>(0, view.BuildRoster(std::span<const std::uint16_t>{}, rows),
                                     L"a world with no fleet has no roster");
+    std::uint16_t members[8] = {};
+    Assert::AreEqual<std::uint32_t>(0, view.BuildGroupMembers(1, members),
+                                    L"and no group in it to press, so no ships behind one");
     Assert::IsNotNull(view.ReasonText(0), L"and still never a null string to draw");
 
     Assert::AreEqual<std::uint64_t>(0, view.SchemaHash());
     Assert::AreEqual<std::uint64_t>(0, view.ContentHash());
+  }
+
+  TEST_METHOD(AViewWithNoGameOffersNoStationAndSendsNothingToIt)
+  {
+    /*
+     * The station half of the same posture, and every clause of it is load
+     * bearing on a real screen.
+     *
+     * No tabs and no roster means the hangar draws as empty rather than as a
+     * row of words the engine invented. No action means UNDOCK has no verb, so
+     * there is nothing to press. `PreCheckStation` refusing is the important
+     * one -- a view that cannot judge must not wave a command through, which
+     * is `ValidationView`'s optional-field posture applied to a whole seam.
+     *
+     * And a cap of **zero** rather than "no limit": read the other way, a
+     * client with no game would build one command naming a whole hangar, which
+     * is the payload `MAX_SHIPS_PER_ORDER` exists to prevent.
+     */
+    NullWorldView view;
+
+    StationTab tabs[MAX_STATION_TABS] = {};
+    Assert::AreEqual<std::uint32_t>(0, view.BuildStationTabs(1, tabs), L"no station has any services");
+
+    StationGroup groups[MAX_STATION_GROUPS] = {};
+    StationChip chips[MAX_STATION_CHIPS] = {};
+    const StationRosterCounts counts =
+        view.BuildStationRoster(1, std::span<const std::uint32_t>{}, groups, chips);
+    Assert::AreEqual<std::uint32_t>(0, counts.groups);
+    Assert::AreEqual<std::uint32_t>(0, counts.chips);
+
+    StationAction actions[MAX_STATION_ACTIONS] = {};
+    Assert::AreEqual<std::uint32_t>(0, view.BuildStationActions(1, actions), L"and no action to take there");
+    OrderOption formations[MAX_ORDER_OPTIONS] = {};
+    Assert::AreEqual<std::uint32_t>(0, view.StationActionOptions(0, formations), L"nor values for its parameter");
+
+    Assert::IsFalse(view.PreCheckStation(StationIntent{}).accepted, L"and nothing is waved through");
+
+    std::array<std::uint8_t, 16> buffer{};
+    ByteWriter writer{buffer};
+    Assert::IsFalse(view.EncodeStationCommand(StationIntent{}, writer));
+
+    Assert::AreEqual<std::uint32_t>(0, view.ShipsPerStationCommand(), L"zero means none, never means unlimited");
   }
 
   TEST_METHOD(ItRecordsTheSizeButClaimsNoTick)

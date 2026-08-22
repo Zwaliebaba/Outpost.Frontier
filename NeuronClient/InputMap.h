@@ -72,7 +72,7 @@ enum class InputAction : std::uint8_t
   ToggleDiagnostics, // F1: shows/hides the Tier-1 counters strip (S14). The
                      // print's rule: no new gesture -- the toggle is a setting,
                      // plus an F-key where a keyboard exists (debug-hud.png §6).
-  ToggleFeedFreeze   // F10: the induced stall S7 owed and S14 needs. Cuts the
+  ToggleFeedFreeze,  // F10: the induced stall S7 owed and S14 needs. Cuts the
                      // snapshot feed where it stands, so the staleness path --
                      // the STALE marker, the top bar's chip, the strip's SNAP
                      // row -- can be seen at all. A healthy loopback session
@@ -80,15 +80,36 @@ enum class InputAction : std::uint8_t
                      // those unjudgeable. Deliberately absent from the HUD: an
                      // on-screen "feed cut" badge would alter the very picture
                      // this exists to let someone look at.
+
+  Back               // Escape: leave whatever is in front of you (ADR-020 §2).
+                     // An *action* rather than a key the surfaces each test for
+                     // themselves, because it is the one input with a routing
+                     // order written into the design -- focused field first to
+                     // cancel an edit, then the active surface to go back, then
+                     // nothing -- and an order can only be honoured where the
+                     // routing is. Arrives with T3, the first slice where there
+                     // is anywhere to go back *to*.
 };
 
-inline constexpr std::uint32_t INPUT_ACTION_COUNT = 15;
+inline constexpr std::uint32_t INPUT_ACTION_COUNT = 16;
 
 /// `InputFrame`'s action arrays are sized by the count above, so an action
 /// added without touching it writes past their end rather than failing to
 /// build. This is that build failure.
-static_assert(static_cast<std::uint32_t>(InputAction::ToggleFeedFreeze) + 1u == INPUT_ACTION_COUNT,
+static_assert(static_cast<std::uint32_t>(InputAction::Back) + 1u == INPUT_ACTION_COUNT,
               "INPUT_ACTION_COUNT must count every InputAction");
+
+/*
+ * How many characters one frame may carry (ADR-020 §3).
+ *
+ * `WM_CHAR` arrivals between two `ConsumeInput` calls, already assembled from
+ * UTF-16 into codepoints. Sixteen is far past what a hand can produce in a
+ * frame -- a fast typist at ten characters a second fills one slot every six
+ * frames -- so the bound is against a stuck key or a paste-like burst rather
+ * than against typing. Overflow drops the excess and keeps the earliest, which
+ * is the order they were typed in.
+ */
+inline constexpr std::uint32_t MAX_FRAME_CHARACTERS = 16;
 
 /// One frame of input, already reduced to logical state. Edges (`pressed`,
 /// `released`) are separate from levels (`down`) because a detent nudge must
@@ -111,6 +132,23 @@ struct InputFrame
 
   bool actionDown[INPUT_ACTION_COUNT] = {};
   bool actionPressed[INPUT_ACTION_COUNT] = {};
+
+  /*
+   * What was typed this frame, as codepoints rather than as key edges
+   * (ADR-020 §3).
+   *
+   * Separate from the action arrays because it is a different question: an
+   * action asks "was this button pressed", and text asks "what did the player
+   * mean to write" -- which is the layout's answer and not the key's, and which
+   * a dead key or a composition path can produce with no key edge of its own.
+   *
+   * **Codepoints, assembled in `Window`.** `WM_CHAR` delivers UTF-16 code
+   * units, so an astral character arrives as two messages; pairing them where
+   * the messages are is the only place the pairing is unambiguous, and it keeps
+   * every reader of this struct free of a half-character case to handle.
+   */
+  char32_t characters[MAX_FRAME_CHARACTERS] = {};
+  std::uint32_t characterCount = 0;
 
   std::uint32_t viewportWidth = 0;
   std::uint32_t viewportHeight = 0;

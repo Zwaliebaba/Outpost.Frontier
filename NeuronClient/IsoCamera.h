@@ -3,6 +3,7 @@
 #include <DirectXMath.h>
 
 #include <cstdint>
+#include <span>
 
 /*
  * The tactical camera (ADR-006 §3-§4).
@@ -103,6 +104,42 @@ public:
   /// more plane distance than screen-horizontal -- by 1/sin(elevation), which is
   /// the same factor that makes ground circles 2:1 ellipses.
   void PanPixels(float _rightPixels, float _upPixels) noexcept;
+
+  /*
+   * How close an *automatic* framing is allowed to get.
+   *
+   * A floor on what this control does, not on the camera: the wheel still
+   * reaches `MIN_ZOOM_METRES`. Without it a one-ship wing would slam the view
+   * from a 16 km field to half a kilometre, and pressing two rows in turn would
+   * swing the zoom between them -- which is a control fighting the player for
+   * the framing rather than helping them find something.
+   */
+  static constexpr float MIN_FIT_ZOOM_METRES = 1500.0f;
+
+  /*
+   * Points the camera at a set of places on the plane, and zooms so they all
+   * fit.
+   *
+   * **Measured along the screen axes rather than along the world's**, which is
+   * the whole of the arithmetic that matters here: the view is orbited and
+   * foreshortened, so a fleet strung out east-to-west and the same fleet strung
+   * out north-to-south need different zooms, and which is which changes as the
+   * player orbits. Screen-up costs `1 / sin(elevation)` of plane distance --
+   * the same 2x at 30 degrees that makes a ground circle a 2:1 ellipse and that
+   * `PanPixels` undoes going the other way.
+   *
+   * The focus lands on the centre of that screen-space box rather than on the
+   * centroid of the points. A centroid is where the *mass* is; a box centre is
+   * what has to be in the middle for everything to fit, and one straggler is
+   * the case where they differ and the straggler is the one that would fall off
+   * the edge.
+   *
+   * `_marginFraction` is air around the box, as a fraction of its size -- the
+   * caller's, because what has to be cleared is chrome the camera cannot see.
+   * Empty input does nothing: a control that is asked to frame nothing should
+   * leave the view where the player put it.
+   */
+  void FocusOn(std::span<const DirectX::XMFLOAT2> _pointsMetres, float _marginFraction) noexcept;
 
   [[nodiscard]] const DirectX::XMFLOAT2& Focus() const noexcept { return m_focusMetres; }
   [[nodiscard]] float YawRadians() const noexcept { return m_yawRadians; }

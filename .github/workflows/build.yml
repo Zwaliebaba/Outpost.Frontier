@@ -748,7 +748,8 @@ jobs:
       - name: Build tests
         shell: pwsh
         run: |
-          foreach ($t in 'NeuronCoreTests', 'GameLogicTests', 'NeuronServerTests', 'NeuronClientTests')
+          foreach ($t in 'NeuronCoreTests', 'GameLogicTests', 'NeuronServerTests', 'NeuronClientTests',
+                        'OutpostTests')
           {
             msbuild "Tests\$t\$t.vcxproj" `
               /p:Configuration=${{ matrix.configuration }} /p:Platform=x64 /p:SolutionDir=$PWD\ `

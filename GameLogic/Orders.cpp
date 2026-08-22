@@ -73,6 +73,23 @@ bool OrderKindHasContent(OrderKind _kind) noexcept
          _kind == OrderKind::Mine;
 }
 
+bool OrderKindNamesDestination(OrderKind _kind) noexcept
+{
+  /*
+   * Written as the exceptions rather than as the rule, so a kind added without
+   * an answer defaults to needing a gesture -- the conservative direction. A
+   * new verb wrongly listed here would fire on a press with no target; one
+   * wrongly left out only costs a gesture that adds nothing.
+   *
+   * `Dock` is the correction. It reads like a targeted verb because a player
+   * points at a station to issue one, but the *validator* never consults where
+   * they pointed: `ValidateOrder` asks whether the named anchor is this grid's,
+   * and the grid has exactly one. What the gesture supplied was the anchor,
+   * which the grid already knows.
+   */
+  return _kind != OrderKind::Mine && _kind != OrderKind::Dock;
+}
+
 const char* OrderKindParameterName(OrderKind _kind) noexcept
 {
   switch (_kind)

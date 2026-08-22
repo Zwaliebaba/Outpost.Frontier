@@ -43,7 +43,8 @@ namespace
  * *different valid* value. Both reuse `ValidateOrder`'s own reason codes, so a
  * client refusal here and a server refusal there still say the same thing.
  */
-[[nodiscard]] bool MakeSubmit(const OrderIntent& _intent, Game::OrderSubmit& _outOrder, Game::OrderReason& _outReason) noexcept
+[[nodiscard]] bool MakeSubmit(const OrderIntent& _intent, Game::AnchorId _stationAnchor,
+                              Game::OrderSubmit& _outOrder, Game::OrderReason& _outReason) noexcept
 {
   if (_intent.entityCount > Game::MAX_SHIPS_PER_ORDER)
   {
@@ -99,6 +100,25 @@ namespace
   // translation is explicit here rather than a shared constant that would tie
   // the two vocabularies together (ADR-014).
   _outOrder.anchor = _intent.anchor == Neuron::INVALID_ANCHOR ? Game::INVALID_ID : static_cast<Game::AnchorId>(_intent.anchor);
+
+  /*
+   * A Dock that names no anchor means **this grid's station**, and filling it
+   * here is what lets the command row issue one without a gesture.
+   *
+   * Not a guess and not a convenience: `ValidationView::stationAnchor` is
+   * singular because "a grid is anchored on one thing, so there is at most one
+   * station to dock at". Pointing at it was never how the player chose *which*
+   * station -- there is no which -- it was only how the anchor reached the
+   * order. So the grid supplies it, and a gesture that named the same station
+   * still works unchanged.
+   *
+   * Left `INVALID_ID` on a grid with no station, which `ValidateOrder` refuses
+   * `UnknownStation` -- the same answer the pre-check greys the button with.
+   */
+  if (_outOrder.kind == Game::OrderKind::Dock && _outOrder.anchor == Game::INVALID_ID)
+  {
+    _outOrder.anchor = _stationAnchor;
+  }
 
   // Quantised once, here, and never again. Everything downstream -- the bounds
   // check, the wire, the server's own validation -- sees these integers.
@@ -290,18 +310,25 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
  * into a refusal the client invents. `stationAnchor` was that field, and it
  * refused every Dock this side ever pre-checked.
  */
+Game::AnchorId ReplicatedWorldView::StationAnchor() const noexcept
+{
+  // Only nameable once a station has actually been drawn -- a `Welcome` naming
+  // an anchor whose structure has not arrived in a snapshot yet is a station
+  // with no position to measure against. One function because the validation
+  // view, the submit and the row's availability must all mean the same station
+  // or none.
+  return m_stationEntityId != Game::INVALID_SHIP_ID ? m_desc.gridAnchor : Game::INVALID_ID;
+}
+
 Game::ValidationView ReplicatedWorldView::MakeValidationView() const noexcept
 {
   Game::ValidationView view;
   view.shipIds = m_validationIds;
   view.shipMarks = m_validationMarks;
 
-  // The station is this grid's, and it is only nameable once one has actually
-  // been drawn -- a `Welcome` naming an anchor whose structure has not arrived
-  // in a snapshot yet is a station with no position to measure against.
-  if (m_stationEntityId != Game::INVALID_SHIP_ID)
+  if (StationAnchor() != Game::INVALID_ID)
   {
-    view.stationAnchor = m_desc.gridAnchor;
+    view.stationAnchor = StationAnchor();
     view.stationXCm = m_stationXCm;
     view.stationYCm = m_stationYCm;
   }
@@ -398,6 +425,16 @@ Game::OrderVerdict ReplicatedWorldView::SelectionOnlyVerdict(Game::OrderKind _ki
   }
 
   const Game::ValidationView view = MakeValidationView();
+
+  // The same defaulting `MakeSubmit` does, for the same reason: the row is
+  // asking "would this be taken *right now*", and an answer computed against a
+  // command missing the anchor the send will carry is an answer about a
+  // different command. Without it a Dock greys `UnknownStation` from anywhere.
+  if (_kind == Game::OrderKind::Dock)
+  {
+    order.anchor = view.stationAnchor;
+  }
+
   return Game::ValidateOrder(view, order);
 }
 
@@ -405,7 +442,7 @@ OrderVerdict ReplicatedWorldView::PreCheck(const OrderIntent& _intent)
 {
   Game::OrderSubmit order;
   Game::OrderReason reason = Game::OrderReason::Accepted;
-  if (!MakeSubmit(_intent, order, reason))
+  if (!MakeSubmit(_intent, StationAnchor(), order, reason))
   {
     return ToSeam(Game::OrderVerdict{false, reason}, _intent.orderSeq);
   }
@@ -456,7 +493,7 @@ void ReplicatedWorldView::SolvePreview(const OrderIntent& _intent, OrderPreview&
 
   Game::OrderSubmit order;
   Game::OrderReason reason = Game::OrderReason::Accepted;
-  if (!MakeSubmit(_intent, order, reason) || order.shipCount == 0)
+  if (!MakeSubmit(_intent, StationAnchor(), order, reason) || order.shipCount == 0)
   {
     return;
   }
@@ -547,7 +584,7 @@ bool ReplicatedWorldView::EncodeOrder(const OrderIntent& _intent, ByteWriter& _w
 {
   Game::OrderSubmit order;
   Game::OrderReason reason = Game::OrderReason::Accepted;
-  if (!MakeSubmit(_intent, order, reason))
+  if (!MakeSubmit(_intent, StationAnchor(), order, reason))
   {
     return false; // Not sent, rather than sent malformed.
   }
@@ -660,24 +697,30 @@ std::uint32_t ReplicatedWorldView::OrderKinds(std::span<const std::uint16_t> _se
     _outKinds[count].name = Game::OrderKindName(kind);
     _outKinds[count].parameterName = Game::OrderKindParameterName(kind);
     _outKinds[count].available = Game::OrderKindHasContent(kind);
+    _outKinds[count].namesDestination = Game::OrderKindNamesDestination(kind);
     _outKinds[count].reasonCode = 0;
 
     /*
      * And then the part that is about *now* rather than about this build.
      *
-     * Asked only of the kinds that name no destination, which today is Mine
-     * alone: everything that decides a Mine is already on screen -- the field
-     * the grid stands on, and what is in the selection -- so the row can say
-     * before the gesture what the authority would say after it. A Move or a
-     * Dock is judged partly on where it points, and pre-judging one without a
-     * point would grey a verb the authority would have taken.
+     * Asked of every kind that names no destination, because everything that
+     * decides one is already on screen -- so the row can say before the gesture
+     * what the authority would say after it. A Move or a Warp is judged partly
+     * on where it points, and pre-judging one without a point would grey a verb
+     * the authority would have taken.
+     *
+     * **Dock belongs here and did not used to.** It reads like a targeted verb
+     * because a player points at a station to issue one, but the validator
+     * never consults where they pointed: it asks whether the named anchor is
+     * this grid's, and a grid is anchored on one thing. The gesture was
+     * supplying the anchor, which `MakeSubmit` now takes from the grid.
      *
      * The answer comes from `ValidateOrder` rather than from three checks
      * written here, which is the whole of the parity claim: the button greys
      * for the reason the bounce would have carried, in the same words, because
      * it is the same function (ADR-014 3).
      */
-    if (_outKinds[count].available && kind == Game::OrderKind::Mine)
+    if (_outKinds[count].available && !_outKinds[count].namesDestination)
     {
       if (_selectedIds.empty())
       {
@@ -1198,6 +1241,376 @@ std::uint32_t ReplicatedWorldView::BuildLocationBlocks(std::span<LocationBlock> 
     ++written;
   }
   return written;
+}
+
+/*
+ * One intent, one command, and both callers read it from here.
+ *
+ * `verb` and `parameter` are the game's numbers coming back through the seam
+ * unread, which is the contract `OrderIntent::kind` has: the client offered a
+ * verb the game listed and hands the same number back, so nothing in
+ * `NeuronClient` ever had to know what it meant.
+ *
+ * The parameter is a formation for one verb and a wing for another, and the
+ * switch below is the only place that distinction exists on this side.
+ */
+bool ReplicatedWorldView::MakeStationCommand(const Neuron::StationIntent& _intent,
+                                             Game::StationCommand& _outCommand) const noexcept
+{
+  _outCommand = Game::StationCommand{};
+  _outCommand.orderSeq = _intent.orderSeq;
+  _outCommand.verb = static_cast<Game::StationVerb>(_intent.verb);
+  _outCommand.station = static_cast<Game::AnchorId>(_intent.anchor);
+
+  switch (_outCommand.verb)
+  {
+  case Game::StationVerb::Undock:
+    _outCommand.formation = static_cast<Game::FormationId>(_intent.parameter);
+    break;
+  case Game::StationVerb::AssignWing:
+    _outCommand.wing = static_cast<Game::WingId>(_intent.parameter);
+    break;
+  default:
+    // The economy's transfer verbs carry an ore and a count rather than one
+    // number, so they are not expressible as a `StationIntent` and E5's screens
+    // will need their own shape. Refusing here is better than sending a command
+    // with a default ore in it.
+    return false;
+  }
+
+  for (std::uint32_t index = 0; index < _intent.shipCount; ++index)
+  {
+    if (!_outCommand.AddShip(static_cast<Game::ShipId>(_intent.shipIds[index])))
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+/*
+ * The station's tab row (`station-screen.png` §2, ADR-020 §6).
+ *
+ * The words are spelled here because this is the composition root, which is the
+ * one project entitled to know both vocabularies (ADR-014 §2a) -- the same
+ * licence `ReasonText` uses. `NeuronClient` gets a name, a reason and a number,
+ * and never learns that one of them opens a hangar.
+ *
+ * **A tab with no service behind it is drawn and disabled with its reason**,
+ * rather than hidden, exactly as the strategic map stubs its unbuilt overlays.
+ * Which is why REPAIR reads FREE and not FUTURE: repair is not missing, it is
+ * free, because the roster holds no damage and undocking repairs by
+ * construction (ADR-017 §1). The tag says which kind of absence this is.
+ *
+ * CARGO and REFINERY are E5's and are stubbed here until it lands; the print
+ * already reserves their place in the row, which is the point of a fixed row.
+ */
+std::uint32_t ReplicatedWorldView::BuildStationTabs(std::uint16_t _anchor, std::span<Neuron::StationTab> _outTabs) const
+{
+  // Nothing of this commander's is docked there, so there is no screen to tab
+  // across. Refusing here rather than drawing an empty row is the same rule the
+  // location blocks take: a place holding nothing of yours is not a place.
+  if (DockedAt(static_cast<Game::AnchorId>(_anchor)) == nullptr)
+  {
+    return 0;
+  }
+
+  struct Entry
+  {
+    const char* name;
+    const char* tag;
+    bool enabled;
+  };
+
+  // The seven the print draws, in the print's order.
+  static constexpr Entry ROW[] = {
+      {"HANGAR", nullptr, true},   {"CARGO", "SOON", false},   {"REFINERY", "SOON", false},
+      {"REPAIR", "FREE", false},   {"REFIT", "FUTURE", false}, {"CONSTRUCT", "FUTURE", false},
+      {"MARKET", "FUTURE", false},
+  };
+
+  std::uint32_t written = 0;
+  for (std::uint32_t index = 0; index < std::size(ROW) && written < _outTabs.size(); ++index)
+  {
+    Neuron::StationTab& tab = _outTabs[written];
+    tab = Neuron::StationTab{};
+    tab.name = ROW[index].name;
+    tab.tag = ROW[index].tag;
+    tab.id = static_cast<std::uint16_t>(index);
+    tab.enabled = ROW[index].enabled;
+    ++written;
+  }
+  return written;
+}
+
+/*
+ * The docked roster, grouped by wing (ADR-017 §6, ADR-020 §6).
+ *
+ * One walk that fills both spans, because a chip's group is an index into the
+ * groups this same call wrote and two walks would be two chances to disagree
+ * about it.
+ *
+ * **The sort is ADR-017 §6a.4's and it is a decision rather than a
+ * convenience:** class descending, then **ship id** -- not name. Names live in
+ * the user settings layer, so sorting by them would give two clients two
+ * different readings of one hangar, and the id is the part they agree on.
+ *
+ * `StationChip::name` is left null, and that is honest rather than unfinished:
+ * **nothing in this game names an individual ship.** The print draws a name
+ * beside the class, and what would fill it -- a call sign scheme, or authored
+ * names in the fleet file -- is a content decision nobody has taken. A null
+ * name is the arrangement `LocationBlock::buttonLabel` already uses for "the
+ * game supplied nothing", and the screen draws what it does have.
+ */
+Neuron::StationRosterCounts ReplicatedWorldView::BuildStationRoster(std::uint16_t _anchor,
+                                                                    std::span<const std::uint32_t> _selectedIds,
+                                                                    std::span<Neuron::StationGroup> _outGroups,
+                                                                    std::span<Neuron::StationChip> _outChips) const
+{
+  Neuron::StationRosterCounts counts;
+
+  const FleetPlace* place = DockedAt(static_cast<Game::AnchorId>(_anchor));
+  if (place == nullptr)
+  {
+    return counts;
+  }
+
+  // Sorted into a scratch list rather than in place: `m_places` is what the
+  // wire wrote and a draw call must not reorder it.
+  m_rosterSort.assign(place->docked.begin(), place->docked.end());
+  std::sort(m_rosterSort.begin(), m_rosterSort.end(), [](const Game::RosterEntry& _a, const Game::RosterEntry& _b) {
+    if (_a.hullClass != _b.hullClass)
+    {
+      return static_cast<int>(_a.hullClass) > static_cast<int>(_b.hullClass);
+    }
+    return _a.shipId < _b.shipId;
+  });
+
+  const auto isSelected = [_selectedIds](Game::ShipId _shipId) {
+    return std::find(_selectedIds.begin(), _selectedIds.end(), static_cast<std::uint32_t>(_shipId)) !=
+           _selectedIds.end();
+  };
+
+  for (const Game::RosterEntry& entry : m_rosterSort)
+  {
+    // Which column this ship's wing is, adding one if it has not been seen.
+    std::uint32_t group = 0;
+    for (; group < counts.groups; ++group)
+    {
+      if (_outGroups[group].idTag == entry.wing)
+      {
+        break;
+      }
+    }
+    if (group == counts.groups)
+    {
+      if (counts.groups == _outGroups.size())
+      {
+        // More wings than the caller has columns for. The ships in them are
+        // dropped rather than folded into another column, because a chip in the
+        // wrong wing is worse than a chip that is not drawn.
+        continue;
+      }
+      Neuron::StationGroup& fresh = _outGroups[counts.groups];
+      fresh = Neuron::StationGroup{};
+      fresh.idTag = entry.wing;
+      fresh.name = entry.wing < m_desc.wingNames.size() ? m_desc.wingNames[entry.wing].c_str() : nullptr;
+      ++counts.groups;
+    }
+
+    Neuron::StationGroup& column = _outGroups[group];
+    ++column.chipCount;
+
+    const bool selected = isSelected(entry.shipId);
+    if (selected)
+    {
+      ++column.selectedCount;
+    }
+
+    if (counts.chips == _outChips.size())
+    {
+      // Counted in its column and not drawn: the column's total stays true even
+      // when the caller's chip array runs out, which is what lets the screen say
+      // "12" over eight chips rather than lying about both.
+      continue;
+    }
+
+    Neuron::StationChip& chip = _outChips[counts.chips];
+    chip = Neuron::StationChip{};
+    chip.shipId = static_cast<std::uint32_t>(entry.shipId);
+    chip.className = Game::HullClassName(entry.hullClass).data();
+    chip.group = static_cast<std::uint16_t>(group);
+    chip.selected = selected;
+    ++counts.chips;
+  }
+
+  return counts;
+}
+
+/*
+ * Would this command be taken? (ADR-014 §3, extended to station commands.)
+ *
+ * The same `ValidateStationCommand` over the same `RosterView` the authority
+ * judges with -- which is what the print means by "a tappable UNDOCK is a
+ * promise". The roster this side is the replicated one, arriving at about 1 Hz,
+ * so the two views can differ by a second; that is the ordinary staleness every
+ * pre-check on this seam has, and the ack is still what decides.
+ */
+/*
+ * Who is in a roster group (ADR-020 §6, `tactical-hud.png` §1).
+ *
+ * `BuildRoster`'s other half: that one counts the sampled fleet per wing and
+ * hands back a row with an opaque `groupId`, and this turns the number back
+ * into the ships it stood for.
+ *
+ * **The same population, walked the same way.** `m_sampled` rather than the
+ * newest snapshot's records, exactly as `BuildRoster` does and for the same
+ * reason -- these are the ships the frame drew, including the exclusions
+ * `BuildScene` makes. Answering from anywhere else would let a press select a
+ * ship the player cannot see, or miss one they can.
+ *
+ * Wing zero is `INVALID_WING_ID` and never a row, so it can never be asked for
+ * here either; a group id no wing carries answers zero, which the caller reads
+ * as "nothing to select".
+ */
+std::uint32_t ReplicatedWorldView::BuildGroupMembers(std::uint16_t _groupId, std::span<std::uint16_t> _outIds) const
+{
+  if (_groupId == Game::INVALID_WING_ID)
+  {
+    return 0;
+  }
+
+  std::uint32_t count = 0;
+  for (const Game::ReplicatedShip& ship : m_sampled)
+  {
+    if (count >= _outIds.size())
+    {
+      break;
+    }
+    if (ship.wing == _groupId)
+    {
+      _outIds[count] = ship.id;
+      ++count;
+    }
+  }
+  return count;
+}
+
+/*
+ * The composer's primary action (`station-screen.png` §2, ADR-020 §6).
+ *
+ * One verb today, and the word for it lives here rather than in the client for
+ * the reason the tab row's words do: `NeuronClient` may send `Undock` and must
+ * not be able to spell it.
+ *
+ * Refused for a station this commander has nothing docked at, which is the
+ * same gate `BuildStationTabs` opens with. An action against an empty hangar
+ * would be a live button whose every press bounced.
+ */
+std::uint32_t ReplicatedWorldView::BuildStationActions(std::uint16_t _anchor,
+                                                       std::span<Neuron::StationAction> _outActions) const
+{
+  if (_outActions.empty() || DockedAt(static_cast<Game::AnchorId>(_anchor)) == nullptr)
+  {
+    return 0;
+  }
+
+  _outActions[0] = Neuron::StationAction{};
+  _outActions[0].name = "UNDOCK";
+  _outActions[0].parameterName = "FORMATION";
+  _outActions[0].verb = static_cast<std::uint16_t>(Game::StationVerb::Undock);
+  return 1;
+}
+
+/*
+ * And what its parameter may be.
+ *
+ * `OrderOptions`' body for `OrderKind::Move`, over the same `FORMATION_IDS` and
+ * naming them with the same function -- a fleet leaving a hangar forms up the
+ * way a fleet crossing a grid does, and two lists of formations that could
+ * drift apart would be two.
+ *
+ * Every other verb answers zero. `AssignWing`'s parameter is a wing number
+ * rather than a value out of a table, and the economy's four are ores, alloys
+ * and quantities: none of them is a short fixed list, so none of them is a
+ * cycling chip, and a screen for them is E5's rather than a longer table here.
+ */
+std::uint32_t ReplicatedWorldView::StationActionOptions(std::uint16_t _verb,
+                                                        std::span<Neuron::OrderOption> _outOptions) const
+{
+  if (_verb != static_cast<std::uint16_t>(Game::StationVerb::Undock))
+  {
+    return 0;
+  }
+
+  std::uint32_t count = 0;
+  for (const Game::FormationId formation : Game::FORMATION_IDS)
+  {
+    if (count >= _outOptions.size())
+    {
+      break;
+    }
+    _outOptions[count].parameter = static_cast<std::uint16_t>(formation);
+    _outOptions[count].name = Game::FormationName(formation);
+    ++count;
+  }
+  return count;
+}
+
+Neuron::OrderVerdict ReplicatedWorldView::PreCheckStation(const Neuron::StationIntent& _intent)
+{
+  Game::StationCommand command;
+  if (!MakeStationCommand(_intent, command))
+  {
+    // More ships than one command can name. The screen is supposed to have
+    // split them into waves before reaching here, so this is a refusal rather
+    // than a truncation -- sending 64 of 66 would undock most of a fleet and
+    // report success.
+    return Neuron::OrderVerdict{};
+  }
+
+  const FleetPlace* place = DockedAt(command.station);
+  Game::RosterView view;
+  view.station = command.station;
+  if (place != nullptr)
+  {
+    view.docked = place->docked;
+  }
+
+  const Game::OrderVerdict decided = Game::ValidateStationCommand(view, command);
+  return ToSeam(decided, _intent.orderSeq);
+}
+
+/*
+ * The bytes, and the reason this function is the one T3b could not start
+ * without.
+ *
+ * `StationCommand` has had a format, a validator, a server path and a
+ * `selfTest` since T2 -- and no line in the client that could produce one, so
+ * UNDOCK was a verb the authority knew and nobody could speak. `EncodeOrder`
+ * writes `CommandKind::Order`; this writes the other one.
+ */
+bool ReplicatedWorldView::EncodeStationCommand(const Neuron::StationIntent& _intent, Neuron::ByteWriter& _writer)
+{
+  Game::StationCommand command;
+  if (!MakeStationCommand(_intent, command))
+  {
+    return false;
+  }
+  return Game::WriteCommandKind(Game::CommandKind::Station, _writer) && Game::WriteStationCommand(command, _writer);
+}
+
+std::uint32_t ReplicatedWorldView::ShipsPerStationCommand() const
+{
+  return Game::MAX_SHIPS_PER_ORDER;
+}
+
+const ReplicatedWorldView::FleetPlace* ReplicatedWorldView::DockedAt(Game::AnchorId _anchor) const noexcept
+{
+  const auto found = std::find_if(m_places.begin(), m_places.end(), [&](const FleetPlace& _entry) {
+    return _entry.anchor == _anchor && _entry.state == Game::FleetState::Docked;
+  });
+  return found == m_places.end() ? nullptr : &*found;
 }
 
 std::uint16_t ReplicatedWorldView::DockedCountAt(Game::AnchorId _anchor) const noexcept

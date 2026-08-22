@@ -1,6 +1,9 @@
 #pragma once
 
+#include "UiDrawList.h"
+
 #include <cstdint>
+#include <span>
 
 /*
  * The fleet roster, as the game hands it over (`tactical-hud.png`, ADR-014).
@@ -142,6 +145,131 @@ struct LocationBlock
 /// spread over several places at once, and a fleet spread over more than this
 /// wants the hangar screen rather than a longer list.
 inline constexpr std::uint32_t MAX_LOCATION_BLOCKS = 8;
+
+/*
+ * Sizes for the roster column, at scale 1.0 and read off `tactical-hud.png`.
+ *
+ * One tuning for both of the column's lists, because they are one column: the
+ * wing chips and the ELSEWHERE blocks under them share a left edge, a padding
+ * and a bottom, and two tables that agreed by hand would be two tables that
+ * eventually did not.
+ */
+struct RosterColumnTuning
+{
+  /// One wing per chip: a name, a count and the gauge strips.
+  float chipHeight = 34.0f;
+  float chipGap = 6.0f;
+
+  /// The `FLEET ROSTER` and `ELSEWHERE` labels, each one line of small text.
+  float headingHeight = 18.0f;
+
+  /// A block: one line of name and count, one of state and ETA, and the
+  /// button's strip beneath them. Read off what the draw used to compute in
+  /// place (`chipHeight + 36`), so moving the layout out moved nothing on
+  /// screen.
+  float blockHeight = 70.0f;
+  float blockGap = 6.0f;
+
+  /// The button along the bottom of a block. `station-screen.png` is what it
+  /// opens; the word on it is the game's.
+  float buttonHeight = 16.0f;
+
+  float padding = 8.0f;
+};
+
+/*
+ * Where the `_row`-th wing chip goes.
+ *
+ * A function of the index rather than a running total, so the column's vertical
+ * arithmetic exists once. It used to be accumulated inside the draw, which was
+ * fine while nothing in the column was pressable -- and stopped being fine the
+ * moment T3 made the block button below it the way into the hangar
+ * (ADR-020 §5.1).
+ *
+ * The caller still decides whether the chip *fits*: a rect past the column's
+ * bottom is returned rather than clamped, because clamping would stack every
+ * overflowing row on the last visible one.
+ */
+[[nodiscard]] UiRect RosterChipRect(const UiRect& _column, float _scale, const RosterColumnTuning& _tuning,
+                                    std::uint32_t _row) noexcept;
+
+/// How many of `_rowCount` chips fit in the column. `Tactical`'s overflow rule
+/// is drop (ADR-020 §7), and this is where the dropping is counted.
+[[nodiscard]] std::uint32_t RosterChipsThatFit(const UiRect& _column, std::uint32_t _rowCount, float _scale,
+                                               const RosterColumnTuning& _tuning) noexcept;
+
+/*
+ * Where the ELSEWHERE blocks begin, under `_rowCount` wing chips.
+ *
+ * The heading sits one `headingHeight` above the value returned, and is drawn
+ * only when a block actually fitted -- "no ships anywhere but here" is not a
+ * place at all, and a heading over nothing says it is.
+ */
+/*
+ * Which roster chip a press landed on, or `_rowCount` when none.
+ *
+ * The same rect the draw takes from `RosterChipRect`, and bounded by the same
+ * `RosterChipsThatFit` -- a press must not land on a row the column had no room
+ * to draw, which is the one way a list that clips can lie about what is under a
+ * finger (ADR-020 §5.1).
+ */
+[[nodiscard]] std::uint32_t HitRosterChip(const UiRect& _column, std::uint32_t _rowCount, float _scale,
+                                          const RosterColumnTuning& _tuning, float _x, float _y) noexcept;
+
+[[nodiscard]] float RosterBlocksTop(const UiRect& _column, std::uint32_t _rowCount, float _scale,
+                                    const RosterColumnTuning& _tuning) noexcept;
+
+/*
+ * One laid-out block: where it goes, and where its button is.
+ *
+ * `block` indexes back into the caller's own array rather than copying the
+ * block, because the strings in one are the world view's storage and a layout
+ * that held them would be a second lifetime to reason about.
+ */
+struct LocationBlockLayout
+{
+  UiRect panel;
+
+  /// The button's rect, meaningful only when `hasButton`. A block whose game
+  /// supplied no word gets no button, and the panel is still a name and a
+  /// count.
+  UiRect button;
+  bool hasButton = false;
+
+  /// Which entry of the caller's span this is.
+  std::uint32_t block = 0;
+
+  /// The place this block is about, echoed back to the game and never read
+  /// here -- `LocationBlock::anchor`, carried so a press has an answer without
+  /// a second lookup.
+  std::uint16_t anchor = 0;
+};
+
+/*
+ * Lays the blocks out, top-down from `_top` inside `_column`.
+ *
+ * **Blocks already on screen as hulls are skipped**, which is why this returns
+ * a count rather than filling one slot per input: the game reports every place
+ * the player has ships, including the grid being watched, and listing that one
+ * would be one fleet counted twice on one HUD with nothing to say which count
+ * is the lie.
+ *
+ * A block that would run past the column's bottom is dropped rather than shrunk
+ * -- `Tactical`'s declared overflow rule (ADR-020 §7) -- so the count returned
+ * is what fitted.
+ */
+[[nodiscard]] std::uint32_t BuildLocationBlockColumn(std::span<const LocationBlock> _blocks, const UiRect& _column,
+                                                     float _top, float _scale, const RosterColumnTuning& _tuning,
+                                                     std::span<LocationBlockLayout> _outLayouts);
+
+/*
+ * Which block's button a press at these pixels landed on, or null.
+ *
+ * Only the button, not the panel: the whole block is not a target, because a
+ * player reading the count is not asking to be taken somewhere.
+ */
+[[nodiscard]] const LocationBlockLayout* HitLocationBlockButton(std::span<const LocationBlockLayout> _layouts, float _x,
+                                                                float _y) noexcept;
 
 /*
  * Something the game wants said to the player (`alerts-and-toasts.png`).

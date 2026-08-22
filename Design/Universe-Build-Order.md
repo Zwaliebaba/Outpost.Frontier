@@ -372,7 +372,7 @@ records three defects escaping through.
 `AppConfig` grew a `scenario` block of **knobs rather than named presets**: a preset list is a
 vocabulary that drifts from what it sets up, while each knob is one fact about the world and
 they compose. The first is `secondFleetWings` — a second fleet for the same commander, on the
-next anchor in bake order nobody is standing on, off the scripted patrol. The anchor is
+next anchor in bake order nobody is standing on. The anchor is
 deliberately *not* configurable: `HomeAnchorFor` already answers that question deterministically
 for a second commander, so the config says *how much, elsewhere* and never carries an id a
 re-bake could move.

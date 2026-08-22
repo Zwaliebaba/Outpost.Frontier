@@ -90,6 +90,10 @@ private:
   void SetButton(InputButton _button, bool _down) noexcept;
   void SetKey(WPARAM _virtualKey, bool _down) noexcept;
 
+  /// One `WM_CHAR` code unit, assembled and filtered onto this frame's
+  /// character buffer (ADR-020 §3).
+  void AppendCharacter(WPARAM _codeUnit) noexcept;
+
   HWND m_handle = nullptr;
   HINSTANCE m_instance = nullptr;
   std::uint32_t m_width = 0;
@@ -101,6 +105,13 @@ private:
   bool m_haveCursor = false;   // False until the first move, so the first frame
                                // reports no delta rather than a jump from 0,0.
   std::uint32_t m_captureCount = 0;
+
+  /// The lead half of a UTF-16 surrogate pair, waiting for its trail half.
+  /// Zero when none is pending -- see `AppendCharacter`. It deliberately
+  /// survives `ConsumeInput`: the two messages may straddle a frame boundary,
+  /// and a pair broken by the frame clock would be a character the player typed
+  /// and never saw.
+  std::uint32_t m_pendingHighSurrogate = 0;
 
   bool m_closeRequested = false;
   bool m_resized = false;

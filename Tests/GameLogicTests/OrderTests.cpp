@@ -2546,6 +2546,70 @@ public:
     Assert::IsFalse(OrderKindHasContent(OrderKind::Abilities));
   }
 
+  TEST_METHOD(AKindNamesADestinationOnlyWhenThePlayerHasSomethingToPointAt)
+  {
+    /*
+     * The property a command surface uses twice: a kind that names no
+     * destination can be **pre-judged** before any gesture, and its button can
+     * **issue it on the press**.
+     *
+     * `Dock` is the one worth spelling out, because it reads the other way. A
+     * player points at a station to dock, so it looks targeted -- but nothing
+     * about where they pointed reaches the decision. `ValidateOrder` asks
+     * whether the named anchor is this grid's, and `ValidationView` is explicit
+     * that "a grid is anchored on one thing, so there is at most one station to
+     * dock at". The gesture was supplying the anchor, not choosing it.
+     */
+    Assert::IsTrue(OrderKindNamesDestination(OrderKind::Move), L"a Move goes where the player says");
+    Assert::IsTrue(OrderKindNamesDestination(OrderKind::Warp),
+                   L"and a Warp names one reachable anchor out of several");
+
+    Assert::IsFalse(OrderKindNamesDestination(OrderKind::Mine), L"a Mine works the field it is standing on");
+    Assert::IsFalse(OrderKindNamesDestination(OrderKind::Dock), L"and a grid has one station");
+
+    // The reserved three answer *true*, which is the conservative direction: a
+    // verb whose rules nobody has written must not fire on a press.
+    Assert::IsTrue(OrderKindNamesDestination(OrderKind::Attack));
+    Assert::IsTrue(OrderKindNamesDestination(OrderKind::Stance));
+    Assert::IsTrue(OrderKindNamesDestination(OrderKind::Abilities));
+  }
+
+  TEST_METHOD(ADockIsDecidedWithoutEverReadingWhereThePlayerPointed)
+  {
+    /*
+     * The claim `OrderKindNamesDestination(Dock) == false` rests on, asserted
+     * against the validator rather than against a comment: the same Dock, at
+     * two wildly different targets, gets the same verdict.
+     *
+     * If this ever fails, the predicate above is wrong and the command row must
+     * go back to arming the puck for a Dock -- which is why it is here and not
+     * in a client test.
+     */
+    World world;
+    world.Reset(4);
+    const ShipId station = SpawnAt(world, HullClass::Structure, 0.0f, 0.0f);
+    const ShipId ship = SpawnAt(world, HullClass::Corvette, 100.0f, 0.0f);
+    world.SetAnchor(31, station, {});
+
+    OrderSubmit atTheStation = DockOrder({ship}, 31);
+    OrderSubmit milesAway = atTheStation;
+    milesAway.target.xCm = 900000;
+    milesAway.target.yCm = -700000;
+
+    const OrderVerdict pointedHere = ValidateOrder(world.Validation(), atTheStation);
+    const OrderVerdict pointedThere = ValidateOrder(world.Validation(), milesAway);
+
+    Assert::IsTrue(pointedHere.accepted, L"the fleet is at the station, so the Dock is taken");
+    Assert::IsTrue(pointedThere.accepted, L"and pointing nine kilometres away changes nothing");
+    Assert::IsTrue(pointedHere.reason == pointedThere.reason, L"nor the reason");
+
+    // And the half that decides it *does* move the answer, so the test above is
+    // not passing because nothing is being checked at all.
+    const ShipId stranded = SpawnAt(world, HullClass::Interceptor, 40000.0f, 0.0f);
+    Assert::IsFalse(ValidateOrder(world.Validation(), DockOrder({stranded}, 31)).accepted,
+                    L"where the *ships* are is what a Dock is judged on");
+  }
+
   TEST_METHOD(AReservedKindIsRefusedRatherThanSimulated)
   {
     /*
