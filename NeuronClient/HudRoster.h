@@ -49,6 +49,32 @@ struct RosterRow
   /// 255 and nothing has to remember a divide by a hundred.
   std::uint8_t hullGauge = 0;
   std::uint8_t shieldGauge = 0;
+
+  /*
+   * How full this group's carrying capacity is, on the same 0-255 scale
+   * (ADR-024 §5c).
+   *
+   * **The game sums it, and that is not a convenience.** The engine has no way
+   * to: what a unit of each ore displaces and how much a hull can hold are
+   * authored content, so a client that added them up would be a second copy of
+   * the balance file drifting from the first. It also would not know which
+   * hulls carry anything at all.
+   *
+   * Meaningless unless `carriesCargo`. Zero on a group whose holds are empty is
+   * a real answer; zero on a group that cannot carry is not an answer at all,
+   * which is why the two are separate fields rather than one sentinel.
+   */
+  std::uint8_t cargoGauge = 0;
+
+  /*
+   * Whether this group has anything that carries.
+   *
+   * A wing of interceptors has no hold, so a cargo readout on its row would be
+   * a gauge for a thing that cannot happen -- the same reason the roster's
+   * health strips draw only when a gauge is below full. Combat wings get no
+   * cargo ink at all.
+   */
+  bool carriesCargo = false;
 };
 
 /*
@@ -142,6 +168,36 @@ struct LocationBlock
 /// spread over several places at once, and a fleet spread over more than this
 /// wants the hangar screen rather than a longer list.
 inline constexpr std::uint32_t MAX_LOCATION_BLOCKS = 8;
+
+/// How many bars the field readout can hold. The game's cluster cap; a number
+/// the engine is given rather than one it decides, like every other bound here.
+inline constexpr std::uint32_t MAX_FIELD_BARS = 12;
+
+/*
+ * How much is left of the place the fleet is standing in (ADR-024 §3d).
+ *
+ * A row of thin bars and, sometimes, a word. The engine draws a percentage per
+ * bar and never learns that the place is a mining field, that the bars are
+ * rocks, or that they empty as ships work them -- a game on these libraries
+ * could mean a salvage wreck, a quarry or a well with the same shape.
+ *
+ * **The staleness is the game's to decide, and the word is the game's to
+ * write.** Whether a status describes the *current* state of the place depends
+ * on a schedule that lives in authored content; a client comparing timestamps
+ * would be a client that had learned the schedule. So it is handed a label or
+ * nothing, and draws what it is handed.
+ */
+struct FieldReadout
+{
+  /// 0-100 per bar, saturating rather than wrapping: a bar reading 3% for an
+  /// untouched cluster is worse than one reading 100%.
+  std::uint8_t fullPct[MAX_FIELD_BARS] = {};
+  std::uint32_t barCount = 0;
+
+  /// The game's word for "this describes a state that has since been replaced",
+  /// or null when the readout is current.
+  const char* staleLabel = nullptr;
+};
 
 /*
  * Something the game wants said to the player (`alerts-and-toasts.png`).

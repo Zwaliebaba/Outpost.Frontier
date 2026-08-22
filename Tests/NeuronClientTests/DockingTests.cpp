@@ -3,6 +3,8 @@
 
 #include "ApproachChain.h"
 #include "AutoFollow.h"
+#include "HudPalette.h"
+#include "ToastStack.h"
 #include "EntityTransits.h"
 #include "OverlayMark.h"
 #include "RenderWorld.h"
@@ -10,6 +12,7 @@
 #include <DirectXMath.h>
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -391,6 +394,165 @@ public:
   {
     const std::vector<LocationBlock> blocks = {Block(20, 0, false)};
     Assert::AreEqual<std::uint16_t>(NO_FOLLOW_TARGET, FollowTarget(blocks, 10));
+  }
+};
+
+TEST_CLASS(ToastActionTests)
+{
+public:
+  TEST_METHOD(ACriticalWithoutAnActionBehavesExactlyAsBefore)
+  {
+    ToastStack stack;
+    Assert::IsTrue(stack.Raise(ToastPriority::Critical, 1, "HULL CRITICAL", "MARROW", 100.0));
+    Assert::AreEqual<std::size_t>(1, stack.Visible().size());
+    Assert::IsFalse(stack.Visible()[0].HasAction());
+    Assert::IsTrue(stack.Visible()[0].WaitsForAction());
+
+    // Waits for ever, which is what "until acted" means.
+    stack.Advance(100.0 + 10000.0);
+    Assert::AreEqual<std::size_t>(1, stack.Visible().size());
+  }
+
+  TEST_METHOD(AnActionIsCarriedAndHandedBackUntouched)
+  {
+    ToastStack stack;
+    Assert::IsTrue(stack.RaiseWithAction(ToastPriority::Critical, 1, "FLEET UNDER FIRE", "KESSLER", "JUMP TO", 4242, 100.0));
+    Assert::IsTrue(stack.Visible()[0].HasAction());
+    Assert::AreEqual(std::string("JUMP TO"), std::string(stack.Visible()[0].actionLabel));
+
+    std::uint32_t key = 0;
+    Assert::IsTrue(stack.Act(0, key, 105.0));
+    Assert::AreEqual<std::uint32_t>(4242, key, L"the raiser's own number, not the engine's index");
+  }
+
+  TEST_METHOD(AnActedCriticalCollapsesAfterThirtySecondsAndNotBefore)
+  {
+    ToastStack stack;
+    Assert::IsTrue(stack.RaiseWithAction(ToastPriority::Critical, 1, "HEAD", "DETAIL", "VIEW", 7, 100.0));
+
+    // Untouched, it waits: a critical is the level that does not time out.
+    stack.Advance(100.0 + 120.0);
+    Assert::AreEqual<std::size_t>(1, stack.Visible().size());
+
+    std::uint32_t key = 0;
+    Assert::IsTrue(stack.Act(0, key, 200.0));
+    Assert::IsTrue(stack.Visible()[0].Acted());
+    Assert::IsFalse(stack.Visible()[0].WaitsForAction(), L"acting is what gives a waiting row an expiry");
+
+    stack.Advance(200.0 + TOAST_ACTED_COLLAPSE_SECONDS - 1.0);
+    Assert::AreEqual<std::size_t>(1, stack.Visible().size(), L"gone too early would take the confirmation with it");
+
+    stack.Advance(200.0 + TOAST_ACTED_COLLAPSE_SECONDS);
+    Assert::AreEqual<std::size_t>(0, stack.Visible().size());
+  }
+
+  TEST_METHOD(ActingTwiceOrOnANonActionRowIsRefused)
+  {
+    ToastStack stack;
+    Assert::IsTrue(stack.Raise(ToastPriority::Critical, 1, "NO CHIP", "", 100.0));
+    std::uint32_t key = 99;
+    Assert::IsFalse(stack.Act(0, key, 101.0), L"a row with no action has no key to give");
+    Assert::AreEqual<std::uint32_t>(99, key, L"and must not have written one");
+    Assert::IsFalse(stack.Act(7, key, 101.0), L"nor may an index past the end");
+
+    ToastStack acted;
+    Assert::IsTrue(acted.RaiseWithAction(ToastPriority::Critical, 1, "H", "D", "GO", 5, 100.0));
+    Assert::IsTrue(acted.Act(0, key, 101.0));
+    Assert::IsFalse(acted.Act(0, key, 102.0), L"a second press must not restart the collapse");
+  }
+
+  TEST_METHOD(CoalescingKeepsTheFirstRowsAction)
+  {
+    // The chip may already be under a finger, and a button that changes what it
+    // does between the reach and the press is the worst surprise a HUD can
+    // spring.
+    ToastStack stack;
+    Assert::IsTrue(stack.RaiseWithAction(ToastPriority::Critical, 1, "HEAD", "FIRST", "JUMP TO", 11, 100.0));
+    Assert::IsFalse(stack.RaiseWithAction(ToastPriority::Critical, 1, "HEAD", "SECOND", "VIEW", 22, 101.0));
+
+    Assert::AreEqual<std::uint32_t>(2, stack.Visible()[0].count);
+    Assert::AreEqual(std::string("JUMP TO"), std::string(stack.Visible()[0].actionLabel));
+    std::uint32_t key = 0;
+    Assert::IsTrue(stack.Act(0, key, 102.0));
+    Assert::AreEqual<std::uint32_t>(11, key);
+  }
+
+  TEST_METHOD(AnActedRowThatCoalescesDoesNotReturnToWaiting)
+  {
+    /*
+     * The trap the dwell guard exists for. Critical has no dwell, so the
+     * coalesce path's "restart the dwell" would have set `now + -1` -- an expiry
+     * in the past, erasing the row on the next sweep. No critical could reach
+     * that branch before acts existed, because one always waited.
+     */
+    ToastStack stack;
+    Assert::IsTrue(stack.RaiseWithAction(ToastPriority::Critical, 1, "HEAD", "D", "GO", 5, 100.0));
+    std::uint32_t key = 0;
+    Assert::IsTrue(stack.Act(0, key, 100.0));
+
+    Assert::IsFalse(stack.Raise(ToastPriority::Critical, 1, "HEAD", "AGAIN", 101.0));
+    stack.Advance(102.0);
+    Assert::AreEqual<std::size_t>(1, stack.Visible().size(), L"the row must not vanish the frame after it coalesced");
+  }
+};
+
+TEST_CLASS(HudPaletteTests)
+{
+public:
+  TEST_METHOD(AnUnknownNameFallsBackToTheDefault)
+  {
+    const HudPalette fallback = ResolveHudPalette("chartreuse");
+    const HudPalette base = ResolveHudPalette("default");
+    Assert::AreEqual(base.phosphor, fallback.phosphor);
+    Assert::AreEqual(base.hostile, fallback.hostile);
+  }
+
+  TEST_METHOD(DeuteranopiaMovesTheOwnColourAndTritanopiaDoesNot)
+  {
+    const HudPalette base = ResolveHudPalette("default");
+    const HudPalette deut = ResolveHudPalette("deuteranopia");
+    const HudPalette trit = ResolveHudPalette("tritanopia");
+
+    // Own-fleet green and hostile red are the pair that collapses for
+    // deuteranopia, so the whole chrome ramp is re-anchored; tritanopia
+    // separates green and red fine and keeps it.
+    Assert::AreNotEqual(base.phosphor, deut.phosphor);
+    Assert::AreEqual(base.phosphor, trit.phosphor);
+    Assert::AreNotEqual(base.hostile, deut.hostile);
+    Assert::AreNotEqual(base.hostile, trit.hostile);
+  }
+
+  TEST_METHOD(EveryTableDerivesItsLinesFromItsOwnColour)
+  {
+    // The one rule that keeps a palette a table rather than forty independent
+    // decisions: a table cannot end up with borders from one hue and text from
+    // another.
+    for (const std::string_view name : {"default", "deuteranopia", "tritanopia"})
+    {
+      const HudPalette table = ResolveHudPalette(name);
+      Assert::AreEqual(WithAlpha(table.phosphor, 0x4Du), table.borderStrong);
+      Assert::AreEqual(WithAlpha(table.phosphor, 0x38u), table.border);
+      Assert::AreEqual(WithAlpha(table.phosphor, 0x24u), table.rule);
+    }
+  }
+
+  TEST_METHOD(EverySemanticIsDistinctWithinATable)
+  {
+    // The property a colour-vision table exists for. Two semantics that packed
+    // to the same value would be a palette that had lost the distinction it was
+    // authored to keep.
+    for (const std::string_view name : {"default", "deuteranopia", "tritanopia"})
+    {
+      const HudPalette t = ResolveHudPalette(name);
+      const std::uint32_t semantics[] = {t.hostile, t.critical, t.caution, t.allied, t.neutral};
+      for (std::size_t a = 0; a < std::size(semantics); ++a)
+      {
+        for (std::size_t b = a + 1; b < std::size(semantics); ++b)
+        {
+          Assert::AreNotEqual(semantics[a], semantics[b]);
+        }
+      }
+    }
   }
 };
 

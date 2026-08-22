@@ -34,6 +34,13 @@ bool ToastSurvivesCombat(ToastPriority _priority) noexcept
 bool ToastStack::Raise(ToastPriority _priority, std::uint32_t _sourceKey, std::string _head, std::string _detail,
                        double _nowSeconds)
 {
+  return RaiseWithAction(_priority, _sourceKey, std::move(_head), std::move(_detail), nullptr, 0, _nowSeconds);
+}
+
+bool ToastStack::RaiseWithAction(ToastPriority _priority, std::uint32_t _sourceKey, std::string _head,
+                                 std::string _detail, const char* _actionLabel, std::uint32_t _actionKey,
+                                 double _nowSeconds)
+{
   /*
    * Coalescing first, and against the visible rows only.
    *
@@ -50,13 +57,29 @@ bool ToastStack::Raise(ToastPriority _priority, std::uint32_t _sourceKey, std::s
       ++toast.count;
       toast.detail = std::move(_detail);
 
-      // The dwell restarts, because the row is now reporting something that
-      // just happened. A fill that kept its original expiry would vanish while
-      // its own count was still climbing.
-      if (!toast.WaitsForAction())
+      /*
+       * The row's action is **not** replaced, and that is a rule about fingers
+       * rather than about data: the chip may already be under one, and a button
+       * that changes what it does between the reach and the press is the worst
+       * kind of surprise a HUD can spring. The first event's action stands for
+       * every event that folds into it.
+       */
+
+      /*
+       * The dwell restarts, because the row is now reporting something that
+       * just happened. A fill that kept its original expiry would vanish while
+       * its own count was still climbing.
+       *
+       * Guarded on the dwell being real. A level with no dwell (Critical, and
+       * anything else that waits) would otherwise get `now + -1` here -- an
+       * expiry in the past, which erases the row on the next sweep. Before
+       * actions existed no critical ever reached this branch, because one
+       * always waited; an acted critical does.
+       */
+      if (const double dwell = ToastDwellSeconds(_priority); !toast.WaitsForAction() && dwell >= 0.0)
       {
         toast.shownSeconds = _nowSeconds;
-        toast.expiresSeconds = _nowSeconds + ToastDwellSeconds(_priority);
+        toast.expiresSeconds = _nowSeconds + dwell;
       }
       return false;
     }
@@ -67,6 +90,10 @@ bool ToastStack::Raise(ToastPriority _priority, std::uint32_t _sourceKey, std::s
   toast.sourceKey = _sourceKey;
   toast.head = std::move(_head);
   toast.detail = std::move(_detail);
+  // Borrowed, not copied: the word is the game's and a copy here would be the
+  // engine holding a piece of another project's vocabulary.
+  toast.actionLabel = _actionLabel;
+  toast.actionKey = _actionKey;
 
   if (m_inCombat && !ToastSurvivesCombat(_priority))
   {
@@ -126,6 +153,30 @@ void ToastStack::SortAndCap()
     m_visible.pop_back();
     ++m_dropped;
   }
+}
+
+bool ToastStack::Act(std::size_t _index, std::uint32_t& _outActionKey, double _nowSeconds)
+{
+  if (_index >= m_visible.size() || !m_visible[_index].HasAction() || m_visible[_index].Acted())
+  {
+    return false;
+  }
+
+  Toast& toast = m_visible[_index];
+  toast.actedSeconds = _nowSeconds;
+
+  /*
+   * Acting is what gives a waiting row an expiry.
+   *
+   * Written here rather than left to the sweep so that every path which asks
+   * "is this row waiting" gets the right answer immediately -- including the
+   * coalescing above, which would otherwise fold a new event into an acted row
+   * and restore it to waiting.
+   */
+  toast.expiresSeconds = _nowSeconds + TOAST_ACTED_COLLAPSE_SECONDS;
+
+  _outActionKey = toast.actionKey;
+  return true;
 }
 
 void ToastStack::Advance(double _nowSeconds)

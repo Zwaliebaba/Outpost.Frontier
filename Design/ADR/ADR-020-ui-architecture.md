@@ -174,6 +174,26 @@ through §2's chain and nothing bespoke.
 2. **Build order is draw order is z.** The Ui pass has one pipeline and no sort (ADR-006
    §8c), so this is not a convention to maintain — it is what the pass does, and naming it is
    what stops someone adding a z field.
+2a. **A slot's position is a property of the layout, never of the state in it** *(added
+   2026-08-21, from a defect)*. `puck-and-wheel.png` §3 keeps the wheel's sectors in fixed
+   positions "so the ring stays learnable as a shape rather than a lookup", and `CommandRow`'s
+   own header repeats it for the row — but the parameter chip was placed *relative to the
+   selected command*, held until "the next command with a parameter of its own". That
+   reproduced the print only because Move was once the only early verb with a parameter; when
+   Warp and Dock also came to vary by formation (ADR-018 §D7 makes Dock's radius a function of
+   the solved one), the chip began landing after whichever of the three was armed and **every
+   button to its right moved when the player clicked**.
+
+   The rule that replaces it: the chip's slot is computed from the *kind list* alone — the door
+   of the picker cluster — and is **always occupied**, so a command that varies by nothing gets
+   a dash and nothing to press rather than an absent chip and a shifted row. What a slot
+   *says* may follow the selection; where it sits may not. Two consequences worth stating: a
+   test asserting "no parameter, no button" was deliberately reversed, and the dash is this
+   HUD's existing word for an absent value (the roster draws one for an empty wing), so nothing
+   new was invented to say it.
+
+   It was found by looking at two screenshots side by side, which is the argument for the
+   visual checkpoint in one line: every value involved was correct, and the row was still wrong.
 3. **Device-free.** A widget is arithmetic over structs plus text runs; the atlas is reached
    only inside the pass (ADR-006 §10a). That is what lets the client suite cover a screen it
    cannot render, and it is not negotiable for anything built after this ADR.

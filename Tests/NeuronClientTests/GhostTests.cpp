@@ -448,6 +448,36 @@ public:
     Assert::AreEqual<std::size_t>(0, marks.marks.size(), L"nothing promised, nothing drawn");
   }
 
+  TEST_METHOD(AnOrderWithNoPlaceOnThisGridDrawsNothingOnIt)
+  {
+    /*
+     * A warp's destination is an anchor, not a point (ADR-016 §3), so there is
+     * nowhere on this plane to ring, tick or run a lane to.
+     *
+     * Left to itself the ghost drew its footprint at whatever the preview
+     * carried -- in practice wherever the gesture landed -- and promised the
+     * fleet would assemble there while it was in fact leaving the system. The
+     * more carefully the formation was solved, the more convincing the wrong
+     * answer looked, which is why this is asserted rather than trusted to the
+     * solve returning nothing.
+     */
+    OrderGhostList ghosts;
+    OrderPreview elsewhere = Preview(4);
+    elsewhere.onThisGrid = false;
+    Assert::IsTrue(ghosts.Add(Intent(1), elsewhere, XMFLOAT2{0.0f, 0.0f}, 10.0));
+
+    OverlayMarkList marks;
+    const OverlayTuning tuning;
+    BuildGhostMarks(ghosts.Ghosts(), tuning, 1.0f, 10.0, marks);
+    Assert::AreEqual<std::size_t>(0, marks.marks.size(), L"no footprint, no ticks, nowhere to put them");
+
+    // And the ghost is still a ghost: it exists, it is pending, and the chrome
+    // is what carries it. Dropping the promise would be worse than drawing it
+    // in the wrong place.
+    Assert::AreEqual<std::size_t>(1, ghosts.Ghosts().size());
+    Assert::AreEqual<std::size_t>(1, ghosts.PendingCount());
+  }
+
   TEST_METHOD(AGhostIsAFootprintAndOneTickPerShip)
   {
     // ADR-005 §3's rule made visible: one station tick per ship, never

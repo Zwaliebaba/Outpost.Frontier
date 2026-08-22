@@ -260,6 +260,21 @@ public:
   }
 
   /*
+   * How much is left of the place the fleet is standing in (ADR-024 §3d).
+   *
+   * False when the grid is not that kind of place, which is the common case and
+   * not a failure -- most grids are not fields, and a client that treated
+   * absence as an error would have to know which grids are special.
+   *
+   * Defaulted, like every call added after the first client shipped.
+   */
+  [[nodiscard]] virtual bool BuildFieldReadout(FieldReadout& _outReadout) const
+  {
+    (void)_outReadout;
+    return false;
+  }
+
+  /*
    * What the authority has decided about orders already sent.
    *
    * Read out of the newest snapshot, which is the game's to parse. The client

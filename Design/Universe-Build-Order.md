@@ -155,9 +155,13 @@ One thing the id-space arithmetic caught before it shipped: giving every anchor 
 put the highest authored id at 1.19M, far past the u16 window D6 keeps. Blocks now go only to
 anchors that author something (3,356 of 18,618) and are 8 wide, so the highest authored id is
 26,848 against a dynamic base of 32,768.
-**Still owed:** the viewer hold exists and is exercised by the tests, but nothing calls
-`AddViewer`/`RemoveViewer` for a *player's* view until U3b; `HostForAnchor` returns 0 and
-`TransferId` has no bus behind it until T1.
+**Still owed:** the viewer hold exists and is exercised by the tests, but **nothing calls
+`AddViewer`/`RemoveViewer` for a player's view** — and the "until U3b" this line used to carry
+has expired: U3b's wire half landed, and the only callers are still the composition root's own
+`m_startAnchor` and the scenario lever's second grid. Presence gating has hidden it so far,
+because a grid a player may watch is one their ships are standing on and therefore one somebody
+already holds; the hold starts mattering the moment a view outlives the ships that justified it.
+`HostForAnchor` returning 0 and `TransferId` having no bus behind it were both closed by T1.
 
 ### U3a — In-system warp (sim)
 `OrderKind::Warp` (appended; schema bump) with an anchor-reference payload; validation shared
@@ -284,8 +288,7 @@ half a naive implementation gets wrong by switching first and validating after. 
 is its own reason rather than a reused one, because the refusal is a sentence the player
 reads and `NotAtStation` would name a different problem with a different action.
 
-**Still owed by U3b:** warp ghosts, plus A15's RTT-parameterised acceptance and A16's presence
-edges.
+**Still owed by U3b:** A15's RTT-parameterised acceptance and A16's presence edges.
 
 **The location blocks landed 2026-08-21**, and they landed as a *generalisation* rather than as
 a new panel. T2 built `DockedBlock` for the hangar's roster; U3b's second and third cases were
@@ -391,6 +394,32 @@ the game's raw count, not the number that survives the panel's own skip, so in t
 block that ever named a grid which was not a station's drew **`?`**: the name table held stations
 only, a hangar-shaped assumption from T2 that a location block quietly outgrew. Neither is a
 number any test could have been wrong about; both are a frame.
+
+**Warp ghosts landed 2026-08-21, and what they needed was a way to say "not here".**
+
+Every other order draws its promise where it will happen: a footprint ring, one tick per ship,
+a lane from the fleet to it. A warp's destination is an **anchor, not a point** (ADR-016 §3),
+so there is nothing on this plane to ring — and the nearest candidate is wherever the gesture
+landed. Left alone the ghost solved a real formation at that point and promised the fleet would
+assemble there while it was in fact leaving the system, and *the more carefully the footprint
+was solved, the more convincing the wrong answer looked*.
+
+So `OrderPreview` gained **`onThisGrid`**, which the game answers and the client obeys: the
+overlay and the lane skip a ghost that has no place, and the promise moves into the chrome as a
+warp chip beside the other things the world cannot show — amber while the authority has not
+answered, own-fleet phosphor once it has, which is the same two-colour promise the plane draws
+for a Move, said in text because text is what fits. A refused warp needs nothing there: the
+bounce toast already carries the reason, and a chip that lingered to say "that did not work"
+would be the same sentence twice.
+
+**And the verb was found to be unreachable.** Nothing in the tactical HUD sets
+`OrderIntent::anchor` — only the approach chain does, for Dock — so every warp the command row
+could compose carried no destination and came back `UnknownAnchor`. WARP was a live-looking
+button that could only ever bounce, which is the defect MINE had before its gate. It is now
+greyed carrying that same reason, so the row says immediately what the authority would have said
+a round trip later. **The gate is a statement about the surfaces this build has, not about the
+game**, and it lifts by deletion the day the strategic map or the system view can name an
+anchor — which is U5's and U6's work, exactly where ADR-016 §9 puts it.
 
 **What is still not proved is an accepted switch end to end.** Auto-follow is what will make
 one happen for real, and the harness still cannot set the scenario up: it needs a single
@@ -696,8 +725,11 @@ graph, one order per completed hop — the pure half of it, search and route-sol
 `UniverseRoute` and already built), route progress on the HUD, the STATIC-family tactical icon
 and map glyph, and the halt in the event record, which is a *client* fact today — the server
 sees a fleet arrive at a gate and cannot know a route existed. The client's pre-check cannot
-judge a jump either, but that is not new: `ReplicatedWorldView::PreCheck` builds a view with
-ids alone, so no `Dock` or `Warp` has been pre-checkable since either landed, and the fields
+judge a jump either — though **half of that sentence stopped being true on 2026-08-21**: the
+client's view was built from ids alone, so no `Dock` or `Warp` had ever been pre-checkable, and
+`MakeValidationView` now fills the marks, the station, the site and the hold room. Dock
+pre-checks properly (which is what made T2's approach chain fire at all); `Warp` still cannot,
+because `reachableAnchors` and `jumpAnchor` are the two fields nothing on this side fills, and the fields
 those need arrive together with the surfaces that raise them.
 
 **Not driven over the wire, on purpose.** A jump is 400 ticks by design, so a loopback

@@ -148,10 +148,33 @@ struct OrderPreview
    */
   float extentMetres = 0.0f;
 
+  /*
+   * Whether this order happens somewhere the client is drawing.
+   *
+   * **Most orders do, and one kind does not.** A Move, a Dock or a Mine ends at
+   * a place on the grid in view, so the promise can be drawn there -- a
+   * footprint, one tick per ship, a lane from the fleet to it. An order whose
+   * destination is *another grid* has no such place: there is no point on this
+   * plane that means "the far side of a gate", and the nearest thing to one is
+   * wherever the player's cursor happened to be, which is not the same thing at
+   * all.
+   *
+   * So the game says which it is, and the client draws a mark on the plane or a
+   * chip in the chrome. Without this the ghost drew a formation where the
+   * gesture landed and promised the fleet would assemble there, while the fleet
+   * was in fact leaving the system -- a promise about the wrong world.
+   *
+   * True by default, because every order that existed before this field did was
+   * one that happens here, and a default that changed their behaviour would be
+   * the field rewriting history to introduce itself.
+   */
+  bool onThisGrid = true;
+
   void Clear() noexcept
   {
     markCount = 0;
     extentMetres = 0.0f;
+    onThisGrid = true;
     etaSeconds = -1.0f;
     label[0] = '\0';
   }

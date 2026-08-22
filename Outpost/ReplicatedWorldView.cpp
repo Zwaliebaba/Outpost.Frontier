@@ -7,6 +7,7 @@
 #include "FleetSummary.h"
 #include "OrderMessages.h"
 #include "SchemaHash.h"
+#include "SiteEpoch.h"
 #include "ShipClass.h"
 #include "StationMessages.h"
 #include "SummaryMessages.h"
@@ -153,6 +154,32 @@ void UpperCaseInto(const char* _text, char* _out, std::size_t _capacity) noexcep
   verdict.serverOrderId = _verdict.serverOrderId;
   verdict.orderSeq = _orderSeq;
   return verdict;
+}
+
+/*
+ * The order label, lifted out because two callers want it now: a placed order
+ * fills it after solving a footprint, and a warp fills it *instead* of solving
+ * one.
+ */
+void FillPreviewLabel(const Game::OrderSubmit& _order, OrderPreview& _outPreview)
+{
+  /*
+   * `MOVE ▸ CLAW` -- uppercase, token-separated, the print's own spelling
+   * (`tactical-hud.png`'s order label). Uppercased here rather than by the
+   * drawing pass because the label is the game's sentence: the engine copies
+   * the bytes and must not re-spell words it is not allowed to know.
+   */
+  char kindUpper[16] = {};
+  char parameterUpper[16] = {};
+  UpperCaseInto(Game::OrderKindName(_order.kind), kindUpper, sizeof(kindUpper));
+  // The second token is whatever the kind *varies by*, not always a formation
+  // -- `MINE - NEBULITE` is the sentence a mining ghost has to read, and a
+  // label that said `MINE - LINE` would be naming the wrong choice back at the
+  // player who just made one.
+  UpperCaseInto(_order.kind == Game::OrderKind::Mine ? Game::OreFilterName(_order.oreFilter)
+                                                    : Game::FormationName(_order.formation),
+                parameterUpper, sizeof(parameterUpper));
+  std::snprintf(_outPreview.label, sizeof(_outPreview.label), "%s \xE2\x96\xB8 %s", kindUpper, parameterUpper);
 }
 
 } // namespace
@@ -461,6 +488,26 @@ void ReplicatedWorldView::SolvePreview(const OrderIntent& _intent, OrderPreview&
     return;
   }
 
+  /*
+   * A warp is not a place on this grid, and this is where that is said.
+   *
+   * Ships warp to **anchors, never to coordinates** (ADR-016 3), so the target
+   * a warp carries is a destination id and the point beside it means nothing
+   * here. Solving a formation at it would draw the fleet assembling wherever
+   * the gesture landed while it was actually leaving the system -- and the more
+   * carefully the footprint was solved, the more convincing the wrong answer
+   * would look.
+   *
+   * The label still crosses (`WARP > LINE`) because the chrome draws it, and so
+   * does the ETA: what the player loses is a ring, not the promise.
+   */
+  if (order.kind == Game::OrderKind::Warp)
+  {
+    _outPreview.onThisGrid = false;
+    FillPreviewLabel(order, _outPreview);
+    return;
+  }
+
   // The real solve, one station per ship, from the same quantised leg the
   // order will carry -- not the raw click. The corpus is explicit that the
   // footprint must be the formation solve and never a decorative ellipse: a
@@ -524,23 +571,7 @@ void ReplicatedWorldView::SolvePreview(const OrderIntent& _intent, OrderPreview&
   }
   _outPreview.etaSeconds = Game::GroupTravelSeconds(std::span<const Game::TravelLeg>{legs, legCount});
 
-  /*
-   * `MOVE ▸ CLAW` -- uppercase, token-separated, the print's own spelling
-   * (`tactical-hud.png`'s order label). Uppercased here rather than by the
-   * drawing pass because the label is the game's sentence: the engine copies
-   * the bytes and must not re-spell words it is not allowed to know.
-   */
-  char kindUpper[16] = {};
-  char parameterUpper[16] = {};
-  UpperCaseInto(Game::OrderKindName(order.kind), kindUpper, sizeof(kindUpper));
-  // The second token is whatever the kind *varies by*, not always a formation
-  // -- `MINE - NEBULITE` is the sentence a mining ghost has to read, and a
-  // label that said `MINE - LINE` would be naming the wrong choice back at the
-  // player who just made one.
-  UpperCaseInto(order.kind == Game::OrderKind::Mine ? Game::OreFilterName(order.oreFilter)
-                                                    : Game::FormationName(order.formation),
-                parameterUpper, sizeof(parameterUpper));
-  std::snprintf(_outPreview.label, sizeof(_outPreview.label), "%s \xE2\x96\xB8 %s", kindUpper, parameterUpper);
+  FillPreviewLabel(order, _outPreview);
 }
 
 bool ReplicatedWorldView::EncodeOrder(const OrderIntent& _intent, ByteWriter& _writer)
@@ -677,6 +708,28 @@ std::uint32_t ReplicatedWorldView::OrderKinds(std::span<const std::uint16_t> _se
      * for the reason the bounce would have carried, in the same words, because
      * it is the same function (ADR-014 3).
      */
+    /*
+     * Warp is real, simulated and reachable -- **from a surface this build does
+     * not have**.
+     *
+     * A warp names an anchor (ADR-016 3), and the two screens that let a player
+     * pick one are the strategic map and the system view, neither of which is
+     * built. Nothing in the tactical HUD can supply the field, so every warp it
+     * could compose carries no destination and comes back `UnknownAnchor` --
+     * which made the verb a live-looking button that could only ever bounce.
+     *
+     * Greyed with that same reason, so the row says now what the authority
+     * would have said a round trip later. This is a statement about the
+     * *surfaces this build has* rather than about the game, which is why it
+     * lives in the composition root: it is the one place that knows both, and
+     * the gate lifts by deletion the day a destination picker exists.
+     */
+    if (_outKinds[count].available && kind == Game::OrderKind::Warp)
+    {
+      _outKinds[count].available = false;
+      _outKinds[count].reasonCode = static_cast<std::uint16_t>(Game::OrderReason::UnknownAnchor);
+    }
+
     if (_outKinds[count].available && kind == Game::OrderKind::Mine)
     {
       if (_selectedIds.empty())
@@ -715,6 +768,18 @@ std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const std::uint16_t> _s
     std::uint16_t selected = 0;
     std::uint32_t hullTotal = 0;
     std::uint32_t shieldTotal = 0;
+
+    /*
+     * Litres, summed across the wing's carrying hulls only.
+     *
+     * A ratio of totals rather than a mean of per-ship ratios, and the
+     * difference shows on a mixed wing: three empty Miners beside one full
+     * Hauler is a wing that is nearly full *by volume*, which is what the
+     * player is deciding with, and about a fifth full by ship. The gauge is
+     * about the cargo, so the cargo is what it counts.
+     */
+    std::uint64_t holdLitres = 0;
+    std::uint64_t usedLitres = 0;
   };
   /*
    * Indexed by `WingId` directly, so the table is every wing that can exist
@@ -741,6 +806,34 @@ std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const std::uint16_t> _s
     ++wing.ships;
     wing.hullTotal += ship.hullGauge;
     wing.shieldTotal += ship.shieldGauge;
+
+    /*
+     * And what it is carrying, from the authored numbers and the summary.
+     *
+     * Both halves are content: how much a hull holds and what a unit of each
+     * ore displaces are in `EconomyDef`, which is why this sum happens on this
+     * side of the seam at all (ADR-024 §5c). A hull with no ore hold adds
+     * nothing to either total and so cannot make a combat wing look like a
+     * freight one.
+     */
+    if (m_desc.economy != nullptr && ship.classId < Game::HULL_CLASS_COUNT)
+    {
+      const std::uint32_t capacity = m_desc.economy->Cargo(static_cast<Game::HullClass>(ship.classId)).oreHoldLitres;
+      if (capacity > 0)
+      {
+        wing.holdLitres += capacity;
+        const auto row = std::find_if(m_cargo.begin(), m_cargo.end(),
+                                      [&](const Game::CargoStatusRow& _row) { return _row.shipId == ship.id; });
+        if (row != m_cargo.end())
+        {
+          for (std::uint8_t ore = 0; ore < Game::ORE_COUNT; ++ore)
+          {
+            wing.usedLitres +=
+              static_cast<std::uint64_t>(row->oreUnits[ore]) * m_desc.economy->Ore(static_cast<Game::OreId>(ore)).unitVolumeLitres;
+          }
+        }
+      }
+    }
 
     if (std::find(_selectedIds.begin(), _selectedIds.end(), ship.id) != _selectedIds.end())
     {
@@ -786,6 +879,12 @@ std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const std::uint16_t> _s
     // reason, and the roster is a summary.
     row.hullGauge = wing.ships == 0 ? 0 : static_cast<std::uint8_t>(wing.hullTotal / wing.ships);
     row.shieldGauge = wing.ships == 0 ? 0 : static_cast<std::uint8_t>(wing.shieldTotal / wing.ships);
+
+    // Capacity, not ships: a wing carries if anything in it has a hold.
+    row.carriesCargo = wing.holdLitres > 0;
+    row.cargoGauge = row.carriesCargo
+                       ? static_cast<std::uint8_t>(std::min<std::uint64_t>(255u, wing.usedLitres * 255u / wing.holdLitres))
+                       : 0u;
     ++rows;
   }
   return rows;
@@ -1206,6 +1305,65 @@ std::uint16_t ReplicatedWorldView::DockedCountAt(Game::AnchorId _anchor) const n
     return _entry.anchor == _anchor && _entry.state == Game::FleetState::Docked;
   });
   return found == m_places.end() ? std::uint16_t{0} : found->shipCount;
+}
+
+/*
+ * How eaten the field under the fleet is (ADR-024 §3d, ADR-016 §6).
+ *
+ * The public member of the summary family: how much of a field is left is what
+ * anybody standing at it can see, so this needs no ownership check and answers
+ * for whichever grid the client is watching.
+ *
+ * **The staleness check is the client doing arithmetic rather than trusting a
+ * flag, and that is the point of it.** A site re-forms on a schedule
+ * (`regenSeconds`, staggered per anchor), and `SiteEpochIndex` is a pure
+ * function of the tick and the anchor -- so this side can work out which epoch
+ * it is in *right now* and compare it against the epoch the status describes.
+ * A status from before the field re-formed is not merely old, it describes rock
+ * that is not there any more, and drawing it would be drawing yesterday's
+ * field with today's confidence.
+ */
+bool ReplicatedWorldView::BuildFieldReadout(Neuron::FieldReadout& _outReadout) const
+{
+  _outReadout = Neuron::FieldReadout{};
+  if (m_siteStatus.empty() || m_desc.economy == nullptr)
+  {
+    return false;
+  }
+
+  // The grid being watched, if the summaries mentioned it. A field elsewhere is
+  // real and is not what this readout is about.
+  const Game::AnchorId viewing = m_view.Grid();
+  const auto row = std::find_if(m_siteStatus.begin(), m_siteStatus.end(),
+                                [&](const Game::SiteStatusRow& _row) { return _row.anchor == viewing; });
+  if (row == m_siteStatus.end())
+  {
+    return false;
+  }
+
+  const std::uint32_t bars = std::min<std::uint32_t>(row->clusterCount, Neuron::MAX_FIELD_BARS);
+  for (std::uint32_t index = 0; index < bars; ++index)
+  {
+    _outReadout.fullPct[index] = row->clusterFullPct[index];
+  }
+  _outReadout.barCount = bars;
+
+  /*
+   * Ticks rather than seconds, because the epoch is defined in ticks and the
+   * conversion is where a flat number stops being flat -- the same reason
+   * `GATE_JUMP_TICKS` is a tick count (ADR-016 §10).
+   */
+  const std::uint32_t epochTicks =
+    static_cast<std::uint32_t>(m_desc.economy->sites.regenSeconds) * Game::TICKS_PER_SECOND;
+  if (epochTicks > 0)
+  {
+    const std::uint32_t nowEpoch = Game::SiteEpochIndex(m_view.LatestTick(), viewing, epochTicks);
+    if (nowEpoch != row->epoch)
+    {
+      _outReadout.staleLabel = "LAST EPOCH";
+    }
+  }
+  return true;
 }
 
 std::uint32_t ReplicatedWorldView::PollNotices(std::span<Notice> _outNotices)

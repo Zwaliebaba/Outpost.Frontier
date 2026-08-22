@@ -417,6 +417,17 @@ private:
 
   /// The roster's rows, asked of the game once a frame. A fixed array because
   /// the count is capped and a HUD must not allocate to describe itself.
+  /*
+   * Where each visible toast's action chip was drawn, so a click can find it.
+   *
+   * Laid out in the build and hit-tested from the same rects, which is
+   * `CommandRow`'s rule generalised (ADR-020 5.1): laying out in one place and
+   * hit-testing in another is untestable by construction, because the two
+   * halves never meet.
+   */
+  UiRect m_toastActionRects[ToastStack::MAX_VISIBLE + 1] = {};
+  std::size_t m_toastActionCount = 0;
+
   RosterRow m_rosterRows[MAX_ROSTER_ROWS] = {};
 
   /// The other list: where the player's ships are when they are nowhere the

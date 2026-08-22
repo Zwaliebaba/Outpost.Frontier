@@ -202,6 +202,20 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
 
   for (const OrderGhost& ghost : _ghosts)
   {
+    /*
+     * An order with no place on this grid draws no place on this grid.
+     *
+     * A warp's destination is an anchor, not a point (ADR-016 3), so there is
+     * nothing here to ring, tick or run a lane to -- and the nearest candidate
+     * is wherever the gesture landed, which would promise a formation on the
+     * grid the fleet is leaving. The chrome carries the promise instead; see
+     * the warp chip in `BuildHud`.
+     */
+    if (!ghost.preview.onThisGrid)
+    {
+      continue;
+    }
+
     const float bounce = OrderGhostList::BounceFraction(ghost, _nowSeconds);
     const bool underWay = ghost.state == GhostState::UnderWay;
 

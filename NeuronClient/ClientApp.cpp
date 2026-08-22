@@ -609,6 +609,36 @@ void ClientApp::UpdateHud()
     return;
   }
 
+  /*
+   * A toast's action chip, before the command row.
+   *
+   * Before, because a critical is centre-top and the stack is bottom-right --
+   * neither overlaps the row -- but the ordering is stated rather than left to
+   * geometry: a chip the player is reaching for must win against anything that
+   * happens to be behind it, and "whichever rect the loop reached first" is not
+   * a rule anybody can rely on.
+   *
+   * The stack marks the row acted and hands back the key; **this file does not
+   * know what the key means** and does not try to. Today nothing consumes it
+   * beyond the log line -- the actions the sheet names (JUMP TO, VIEW) need
+   * surfaces that do not exist yet -- so the honest thing is to complete the
+   * mechanism and say so, rather than invent a destination for the number.
+   */
+  for (std::size_t index = 0; index < m_toastActionCount; ++index)
+  {
+    if (m_toastActionRects[index].width <= 0.0f || !m_toastActionRects[index].Contains(cursorX, cursorY))
+    {
+      continue;
+    }
+    std::uint32_t actionKey = 0;
+    if (m_toasts.Act(index, actionKey, Clock::SecondsSinceStart()))
+    {
+      m_uiConsumedPress = true;
+      NEURON_LOG_INFO("toast action %u taken", actionKey);
+    }
+    return;
+  }
+
   const CommandButton* pressed =
       HitCommandRow(std::span<const CommandButton>{m_commandButtons, m_commandButtonCount}, cursorX, cursorY);
   if (pressed == nullptr)
@@ -1412,15 +1442,39 @@ void ClientApp::BuildHud()
     pen += static_cast<float>(TextCellCount("NO SESSION")) * cell + cell;
   }
 
-  // The alerts chip, still left-cluster: caution amber, U+26A0, and only when
-  // undismissed alerts exist -- an alert counter that read `0 ALERTS` all
-  // session would train the eye to skip the slot that matters.
-  const std::size_t alertCount = m_toasts.Visible().size();
+  /*
+   * The alerts chip, still left-cluster: caution amber, U+26A0, and only when
+   * undismissed alerts exist -- an alert counter that read `0 ALERTS` all
+   * session would train the eye to skip the slot that matters.
+   *
+   * **It counts what is queued as well as what is shown.** A fight holds
+   * everything but Critical and Urgent back (`ToastStack::SetCombat`), so a
+   * count of the visible rows alone would *fall* exactly when the most is
+   * happening -- the number the eye checks would go quiet during the only event
+   * that fills the backlog. Visible plus suppressed is the honest total, and it
+   * is what makes the sheet's SUPPRESSED row a thing the player can already see
+   * coming.
+   *
+   * **And it pulses**, because a static count is a readout and this is a
+   * summons. The alpha swings between full and half on a 1.8 s period taken
+   * from the frame clock -- no timer, no state, nothing to reset: the phase is
+   * a function of the time, so two clients showing the same alert pulse in step
+   * and a paused one does not drift.
+   */
+  const std::size_t alertCount = m_toasts.Visible().size() + m_toasts.SuppressedCount();
   if (alertCount > 0)
   {
     std::snprintf(buffer, sizeof(buffer), "\xE2\x9A\xA0 %zu ALERT%s", alertCount, alertCount == 1 ? "" : "S");
     pen += cell;
-    m_ui.AddText(pen, chipY, m_uiTuning.smallSizeIndex, m_palette.caution, buffer);
+
+    constexpr double ALERT_PULSE_SECONDS = 1.8;
+    const auto phase = static_cast<float>(nowSeconds / ALERT_PULSE_SECONDS);
+    const float swing = 0.5f + 0.5f * std::sin(phase * 6.2831853f);
+    const auto full = static_cast<float>(m_palette.caution >> 24);
+    const auto half = static_cast<float>(AtHalfAlpha(m_palette.caution) >> 24);
+    const std::uint32_t pulsed =
+        WithAlpha(m_palette.caution, static_cast<std::uint8_t>(half + (full - half) * swing));
+    m_ui.AddText(pen, chipY, m_uiTuning.smallSizeIndex, pulsed, buffer);
   }
 
   /*
@@ -1446,20 +1500,28 @@ void ClientApp::BuildHud()
   };
 
   /*
-   * NET as three signal bars bucketed from the round trip -- under 60 ms all
-   * three, under 120 two, else one -- drawn as 3/5/7 px quads sharing a
-   * baseline. The raw millisecond figure is debug telemetry and lives on the
-   * strip's LINK row; the top bar answers "is the link good", not "how good".
+   * NET as four signal bars bucketed from the round trip -- under 40 ms all
+   * four, under 80 three, under 140 two, else one -- drawn as 3/5/7/9 px quads
+   * sharing a baseline. The raw millisecond figure is debug telemetry and lives
+   * on the strip's LINK row; the top bar answers "is the link good", not "how
+   * good".
+   *
+   * Four rather than three because three buckets cannot say "good": the old
+   * top bucket opened at 60 ms, which is a link a player would notice, so a
+   * perfectly healthy loopback and a merely tolerable connection drew the same
+   * meter. The extra bar buys a band that means nothing is wrong.
    */
   rightSeparator();
   {
+    constexpr int NET_BARS = 4;
     const float barWidth = 3.0f * layout.scale;
     const float barGap = 2.0f * layout.scale;
     const float baseline = textY + bodyPx;
-    const int lit = !joined ? 0 : (m_connection.RoundTripMs() < 60.0 ? 3 : (m_connection.RoundTripMs() < 120.0 ? 2 : 1));
+    const double rtt = m_connection.RoundTripMs();
+    const int lit = !joined ? 0 : (rtt < 40.0 ? 4 : (rtt < 80.0 ? 3 : (rtt < 140.0 ? 2 : 1)));
 
-    right -= 3.0f * barWidth + 2.0f * barGap;
-    for (int bar = 0; bar < 3; ++bar)
+    right -= static_cast<float>(NET_BARS) * barWidth + static_cast<float>(NET_BARS - 1) * barGap;
+    for (int bar = 0; bar < NET_BARS; ++bar)
     {
       const float barHeight = (3.0f + 2.0f * static_cast<float>(bar)) * layout.scale;
       const float barX = right + static_cast<float>(bar) * (barWidth + barGap);
@@ -1527,15 +1589,20 @@ void ClientApp::BuildHud()
   const float barHeight = 3.0f * layout.scale;
   float rowY = layout.roster.y + pad + 18.0f * layout.scale;
 
+  // What the panel managed to draw, against what it was given. The print's
+  // `8/11` footer is the difference, and a readout rather than a control:
+  // scrolling is a future surface, and until it exists the honest thing is to
+  // say how much is not being shown rather than to pretend the list ends here.
+  std::uint32_t rosterShown = 0;
   for (std::uint32_t index = 0; index < m_rosterRowCount; ++index)
   {
     const RosterRow& row = m_rosterRows[index];
     const UiRect chip{layout.roster.x + pad * 0.5f, rowY, layout.roster.width - pad, chipHeight};
     if (chip.Bottom() > layout.roster.Bottom())
     {
-      break; // The panel is full. The print's "8/8" footer is where scrolling
-             // would go, and scrolling is a surface rather than a clamp.
+      break; // The panel is full; the footer below says by how much.
     }
+    ++rosterShown;
 
     const bool selected = row.selectedCount > 0;
     const bool empty = row.shipCount == 0;
@@ -1577,6 +1644,32 @@ void ClientApp::BuildHud()
                  buffer);
 
     /*
+     * `HOLD FULL`, beside the count, when the wing cannot take another unit
+     * (ADR-024 §5c).
+     *
+     * Only the full state gets a word. A partial hold is a number the player
+     * does not have to act on, and a tag on every mining wing all session is
+     * the ink that trains an eye to skip the slot -- the same argument the
+     * alerts chip makes for hiding at zero. Full is different: it is the moment
+     * a Miner stops earning and starts waiting, and it is the one the player
+     * has to notice without looking for it.
+     *
+     * Caution amber, which on this HUD means "not settled" rather than "wrong":
+     * a full hold is a thing to deal with, not a failure.
+     *
+     * `carriesCargo` and not `cargoGauge > 0`, because a combat wing has no
+     * hold to be full of -- the game says which wings carry, and this file
+     * never works it out from a hull class it is not allowed to know.
+     */
+    if (row.carriesCargo && row.cargoGauge == 255)
+    {
+      const char* holdText = "HOLD FULL";
+      const auto holdWidth = static_cast<float>(TextCellCount(holdText)) * cell;
+      m_ui.AddText(chip.Right() - pad * 0.5f - countWidth - cell - holdWidth, chip.y + pad * 0.5f,
+                   m_uiTuning.smallSizeIndex, m_palette.caution, holdText);
+    }
+
+    /*
      * Two strips, hull over shield, from `RosterRow`'s own 0-255 gauges --
      * and only when either is below full. The hull's fill moves through the
      * palette's three bands as it falls; the shield is always the allied
@@ -1598,6 +1691,26 @@ void ClientApp::BuildHud()
       m_ui.AddQuad(UiRect{barX, shieldY, barWidth, barHeight}, m_palette.trackShield);
       m_ui.AddQuad(UiRect{barX, shieldY, barWidth * (static_cast<float>(row.shieldGauge) / 255.0f), barHeight},
                    m_palette.allied);
+    }
+
+    /*
+     * And the cargo strip, on the same terms as the health pair: drawn only
+     * when it has something to say.
+     *
+     * "Something to say" is the opposite condition here, and that is not an
+     * inconsistency. A health strip matters when it is *below* full -- damage
+     * is the news -- and a cargo strip matters as it *fills*, because an empty
+     * hold is the ordinary state of a fleet that has not been mining. So an
+     * untouched hold draws nothing and a working one fills up.
+     */
+    if (row.carriesCargo && row.cargoGauge > 0)
+    {
+      const float barWidth = chip.width - pad;
+      const float barX = chip.x + pad * 0.5f;
+      const float cargoY = chip.Bottom() - pad * 0.5f - barHeight;
+      m_ui.AddQuad(UiRect{barX, cargoY, barWidth, barHeight}, m_palette.trackHull);
+      m_ui.AddQuad(UiRect{barX, cargoY, barWidth * (static_cast<float>(row.cargoGauge) / 255.0f), barHeight},
+                   row.cargoGauge == 255 ? m_palette.caution : m_palette.phosphorDim);
     }
 
     rowY += chipHeight + chipGap;
@@ -1642,6 +1755,7 @@ void ClientApp::BuildHud()
     drawableBlocks += m_locationBlocks[index].inScene ? 0u : 1u;
   }
 
+  std::uint32_t blocksShown = 0;
   if (drawableBlocks > 0 && rowY + blockHeight < layout.roster.Bottom())
   {
     rowY += chipGap;
@@ -1721,7 +1835,30 @@ void ClientApp::BuildHud()
                      m_uiTuning.smallSizeIndex, m_palette.phosphorDead, upper);
       }
 
+      ++blocksShown;
       rowY += blockHeight + chipGap;
+    }
+  }
+
+  /*
+   * `8/11` at the panel's foot, and only when something did not fit.
+   *
+   * One count over both lists, because the panel is one column to the player:
+   * a footer that said 8/8 wings while three location blocks were clipped off
+   * the bottom would be technically true and useless. Hidden when everything
+   * fits -- a footer reading `11/11` all session is ink that never says
+   * anything, which is the same argument the alerts chip makes for hiding at
+   * zero.
+   */
+  {
+    const std::uint32_t shownTotal = rosterShown + blocksShown;
+    const std::uint32_t listTotal = m_rosterRowCount + drawableBlocks;
+    if (shownTotal < listTotal)
+    {
+      std::snprintf(buffer, sizeof(buffer), "%u/%u", shownTotal, listTotal);
+      const auto footerWidth = static_cast<float>(TextCellCount(buffer)) * cell;
+      m_ui.AddText(layout.roster.Right() - pad - footerWidth, layout.roster.Bottom() - pad - smallPx,
+                   m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, buffer);
     }
   }
 
@@ -1917,12 +2054,96 @@ void ClientApp::BuildHud()
     }
   }
 
+  /*
+   * The warp chips: promises the plane cannot carry (ADR-016 9).
+   *
+   * Every other order draws its promise where it will happen -- a footprint, a
+   * lane, one tick per ship. A warp happens on a grid this client is not
+   * looking at, so there is no such place, and the ghost would otherwise be a
+   * promise with nowhere to be. It comes here instead, into the chrome, beside
+   * the other chips that report things the world cannot show.
+   *
+   * The word is the game's (`WARP ▸ LINE`, from the preview it solved) and
+   * the state is the ghost's: amber while the authority has not answered, the
+   * own-fleet phosphor once it has. That is the same two-colour promise the
+   * plane draws for a Move, said in text because text is what fits.
+   *
+   * A refused warp needs nothing here: the bounce toast already carries the
+   * reason, on the path every refusal takes, and a chip that lingered to say
+   * "that did not work" would be the same sentence twice.
+   */
+  for (const OrderGhost& ghost : m_ghosts.Ghosts())
+  {
+    if (ghost.preview.onThisGrid || ghost.state == GhostState::Rejected || ghost.preview.label[0] == 0)
+    {
+      continue;
+    }
+
+    const bool underWay = ghost.state == GhostState::UnderWay;
+    std::snprintf(buffer, sizeof(buffer), "â¡ %s", ghost.preview.label);
+    UpperCaseInto(buffer, upper);
+    chipRight -= static_cast<float>(TextCellCount(upper)) * cell;
+    m_ui.AddText(chipRight, contextY, m_uiTuning.bodySizeIndex,
+                 underWay ? m_palette.phosphor : m_palette.caution, upper);
+    chipRight -= 2.0f * cell;
+  }
+
   if (const char* approachLabel = m_approach.Label(); approachLabel != nullptr)
   {
     std::snprintf(buffer, sizeof(buffer), "\xE2\x9F\xA1 %s\xE2\x80\xA6", approachLabel);
     UpperCaseInto(buffer, upper);
     chipRight -= static_cast<float>(TextCellCount(upper)) * cell;
     m_ui.AddText(chipRight, contextY, m_uiTuning.bodySizeIndex, m_palette.caution, upper);
+  }
+
+  /*
+   * How eaten the field under the fleet is (ADR-024 §3d), in the context zone.
+   *
+   * One thin bar per cluster, left of the chips, drawn only on a grid that is
+   * that kind of place. The engine asks the game and draws a percentage; it
+   * does not learn that the place is a mining field or that the bars are rocks.
+   *
+   * **The stale word is the game's answer, not a colour this file picks.** A
+   * status describing a field that has since re-formed is not merely old --
+   * it describes rock that is not there -- so the readout says so in the game's
+   * own word and the bars go dead rather than dim. Drawing yesterday's field in
+   * today's colour is the failure worth spending a branch on.
+   */
+  if (Neuron::FieldReadout field; m_worldView->BuildFieldReadout(field) && field.barCount > 0)
+  {
+    const bool stale = field.staleLabel != nullptr;
+    const float barWidth = 3.0f * layout.scale;
+    const float barGap = 2.0f * layout.scale;
+    const float barMaxHeight = 12.0f * layout.scale;
+    const float baseline = layout.contextBar.y + layout.contextBar.height - pad * 0.5f;
+
+    // Right-aligned with the chips rather than trailing the selection summary:
+    // that summary's width is a function of the fleet's name, so a readout
+    // starting where it ended would move whenever the player selected a
+    // different wing.
+    const float fieldWidth = static_cast<float>(field.barCount) * (barWidth + barGap);
+    chipRight -= fieldWidth + 2.0f * cell;
+    float fieldPen = chipRight;
+    for (std::uint32_t bar = 0; bar < field.barCount; ++bar)
+    {
+      // Saturating at 100 is the wire's guarantee; the clamp is here because a
+      // bar taller than its zone would draw over the row above it whatever the
+      // wire promised.
+      const float share = std::min(static_cast<float>(field.fullPct[bar]), 100.0f) / 100.0f;
+      const float height = std::max(1.0f * layout.scale, barMaxHeight * share);
+      m_ui.AddQuad(UiRect{fieldPen, baseline - barMaxHeight, barWidth, barMaxHeight}, m_palette.trackHull);
+      m_ui.AddQuad(UiRect{fieldPen, baseline - height, barWidth, height},
+                   stale ? m_palette.phosphorDead : m_palette.phosphor);
+      fieldPen += barWidth + barGap;
+    }
+
+    if (stale)
+    {
+      UpperCaseInto(field.staleLabel, upper);
+      const auto staleWidth = static_cast<float>(TextCellCount(upper)) * cell;
+      chipRight -= staleWidth + cell;
+      m_ui.AddText(chipRight, contextY, m_uiTuning.smallSizeIndex, m_palette.neutral, upper);
+    }
   }
 
   // --- the command row ----------------------------------------------------
@@ -2048,6 +2269,11 @@ void ClientApp::BuildHud()
   // the rest stack bottom-right, clear of the context bar (§2).
   const std::span<const Toast> toasts = m_toasts.Visible();
   const std::size_t criticals = m_toasts.CriticalCount();
+  m_toastActionCount = 0;
+  for (UiRect& rect : m_toastActionRects)
+  {
+    rect = UiRect{};
+  }
 
   for (std::size_t index = 0; index < toasts.size(); ++index)
   {
@@ -2095,6 +2321,39 @@ void ClientApp::BuildHud()
     m_ui.AddText(rect.x + pad, rect.y + pad * 0.5f, m_uiTuning.bodySizeIndex, accent, buffer);
     m_ui.AddText(rect.x + pad, rect.y + pad * 0.5f + bodyPx + 2.0f * layout.scale, m_uiTuning.smallSizeIndex,
                  m_palette.phosphorBody, toast.detail);
+
+    /*
+     * The action chip, on the row's right (`alerts-and-toasts.png` 2).
+     *
+     * A critical is the one level that waits for the player, so it is the one
+     * level with somewhere for the player to press. The word is the game's --
+     * this file draws it and never compares it -- and the key it hands back is
+     * the game's too.
+     *
+     * **48 px square at 1.0x**, the same U2 touch floor the command verbs clamp
+     * to. An action nobody can hit on a tablet is an action that does not
+     * exist, and a critical is exactly the row where that matters.
+     *
+     * An acted chip stays drawn and goes dead. Removing it would take the
+     * confirmation away at the instant the player looked for it; leaving it
+     * live would invite a second press that does nothing.
+     */
+    if (toast.HasAction())
+    {
+      const float chipHeightPx = std::max(m_commandTuning.buttonHeight * layout.scale, 48.0f * layout.scale);
+      UpperCaseInto(toast.actionLabel, upper);
+      const float labelWidth = static_cast<float>(TextCellCount(upper)) * cell;
+      const float chipWidth = labelWidth + 2.0f * pad;
+      const UiRect chip{rect.Right() - pad - chipWidth, rect.y + (rect.height - chipHeightPx) * 0.5f, chipWidth,
+                        chipHeightPx};
+
+      const bool live = !toast.Acted();
+      m_ui.AddBorder(chip, 1.0f * layout.scale, live ? accent : AtHalfAlpha(m_palette.border));
+      m_ui.AddText(chip.x + (chip.width - labelWidth) * 0.5f, chip.y + (chip.height - bodyPx) * 0.5f,
+                   m_uiTuning.bodySizeIndex, live ? accent : m_palette.phosphorDead, upper);
+      m_toastActionRects[index] = chip;
+      m_toastActionCount = index + 1;
+    }
   }
 
   /*

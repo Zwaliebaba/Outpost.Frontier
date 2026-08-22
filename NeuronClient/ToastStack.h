@@ -107,8 +107,52 @@ struct Toast
   /// When it goes, or negative for "until acted".
   double expiresSeconds = -1.0;
 
+  /*
+   * The one thing a critical can offer the player besides being read
+   * (`alerts-and-toasts.png` 2).
+   *
+   * `actionLabel` is the game's word -- JUMP TO, VIEW, UNDOCK -- drawn and never
+   * read; `actionKey` is the raiser's own number, handed back untouched when the
+   * chip is pressed. The engine learns neither what the word means nor what the
+   * number identifies, which is the same arrangement `OrderKindOption::name` and
+   * `payload` already have (ADR-014 2b).
+   *
+   * Null label means no chip, which is a critical that is purely information
+   * and behaves exactly as one always has.
+   */
+  const char* actionLabel = nullptr;
+  std::uint32_t actionKey = 0;
+
+  /*
+   * When the player acted, or negative for not yet.
+   *
+   * A critical waits for the player and then **leaves on its own**: an acted row
+   * that stayed until dismissed a second time would make the act feel like it
+   * did nothing, and one that vanished instantly would take the confirmation
+   * with it. Thirty seconds is long enough to read what happened and short
+   * enough that a row nobody looked at again is gone.
+   */
+  double actedSeconds = -1.0;
+
+  [[nodiscard]] bool HasAction() const noexcept { return actionLabel != nullptr; }
+  [[nodiscard]] bool Acted() const noexcept { return actedSeconds >= 0.0; }
+
+  /*
+   * Whether this row is waiting for the player rather than for the clock.
+   *
+   * Still just "has no expiry", and deliberately unchanged: acting on a row
+   * *gives* it one (the collapse below), so an acted critical stops waiting
+   * without this predicate having to know that acts exist. Teaching it about
+   * `actedSeconds` instead would have left the row with no expiry and the
+   * sweep's `now >= expiresSeconds` comparing against -1, which erases it the
+   * instant it is acted on.
+   */
   [[nodiscard]] bool WaitsForAction() const noexcept { return expiresSeconds < 0.0; }
 };
+
+/// How long an acted critical stays before it collapses on its own
+/// (`alerts-and-toasts.png` 2).
+inline constexpr double TOAST_ACTED_COLLAPSE_SECONDS = 30.0;
 
 class ToastStack
 {
@@ -142,6 +186,33 @@ public:
    * -- the audio cue (S15) wants exactly that distinction.
    */
   bool Raise(ToastPriority _priority, std::uint32_t _sourceKey, std::string _head, std::string _detail, double _nowSeconds);
+
+  /*
+   * The same, with a chip on it.
+   *
+   * `_actionLabel` must outlive the row -- a literal, or a string the game owns,
+   * exactly as `RosterRow::name` is. It is not copied because it is not the
+   * engine's to hold: a label the stack owned would be a word the engine had
+   * taken a copy of, and copies are how vocabulary leaks across a seam.
+   *
+   * Coalescing is unchanged: a second event from the same source folds into the
+   * row and the *first* row's action stands, because the chip the player is
+   * already reaching for must not change what it does under their finger.
+   */
+  bool RaiseWithAction(ToastPriority _priority, std::uint32_t _sourceKey, std::string _head, std::string _detail,
+                       const char* _actionLabel, std::uint32_t _actionKey, double _nowSeconds);
+
+  /*
+   * Records that the player pressed a row's chip, and returns its key.
+   *
+   * The stack does not act -- it has no idea what the key means. It marks the
+   * row acted, starts its thirty seconds, and hands the number back to the
+   * caller, who is the one that knows.
+   *
+   * Returns false for an index with no action, so a caller cannot mistake "0"
+   * for a key it was never given.
+   */
+  [[nodiscard]] bool Act(std::size_t _index, std::uint32_t& _outActionKey, double _nowSeconds);
 
   /// Expires dwelt rows and admits queued ones. Once a frame.
   void Advance(double _nowSeconds);

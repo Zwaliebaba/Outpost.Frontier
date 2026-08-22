@@ -6,6 +6,7 @@
 #include "UiLayout.h"
 
 #include <cstring>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,19 @@ const OrderKindOption KINDS[] = {
     OrderKindOption{1, "Attack", nullptr, false},
     OrderKindOption{2, "Stance", "Stance", false},
     OrderKindOption{3, "Abilities", "Ability", false},
+};
+
+/*
+ * The shipped list as of E2, and the shape that produced the shifting row: Move,
+ * Warp and Dock all vary by formation (ADR-018 D7 makes Dock's radius a function
+ * of the solved one), so "the next command with a parameter of its own" moved
+ * with the selection.
+ */
+const OrderKindOption LIVE_KINDS[] = {
+    OrderKindOption{0, "Move", "Formation", true},   OrderKindOption{1, "Attack", nullptr, false},
+    OrderKindOption{2, "Stance", "Stance", false},   OrderKindOption{3, "Abilities", "Ability", false},
+    OrderKindOption{4, "Warp", "Formation", true},   OrderKindOption{5, "Dock", "Formation", true},
+    OrderKindOption{6, "Mine", "Ore", false},
 };
 
 const OrderOption FORMATIONS[] = {
@@ -258,18 +272,38 @@ public:
                    L"Move's parameter must not still be in the row");
   }
 
-  TEST_METHOD(ACommandWithNoParameterGetsNoParameterButton)
+  TEST_METHOD(ACommandWithNoParameterGetsAnEmptyParameterButton)
   {
-    // Attack takes a target, not a parameter. A button labelled with nothing is
-    // still a button, so there must not be one.
+    /*
+     * **This reverses an earlier rule, on purpose.** It used to assert that a
+     * command with no parameter got no chip at all -- "a button labelled with
+     * nothing is still a button" -- which was right about the label and wrong
+     * about the consequence: an absent chip moves every button to its right the
+     * moment such a command is armed, and a row that rearranges under the player
+     * is the failure this component's header forbids in as many words.
+     *
+     * So the slot is always filled, and a command that varies by nothing gets a
+     * dash and nothing to press. The dash is this HUD's existing word for an
+     * absent value (the roster draws one for a wing with no ships), so no new
+     * vocabulary was invented to say it.
+     */
     CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
     const std::uint32_t count =
         BuildCommandRow(KINDS, 1, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
-    Assert::AreEqual<std::uint32_t>(4, count, L"four commands and no parameter button");
+    Assert::AreEqual<std::uint32_t>(5, count, L"four commands and the chip's slot, held open");
+
+    const CommandButton* chip = nullptr;
     for (std::uint32_t index = 0; index < count; ++index)
     {
-      Assert::IsTrue(buttons[index].action == CommandAction::SelectKind);
+      if (buttons[index].action == CommandAction::CycleParameter)
+      {
+        chip = &buttons[index];
+      }
     }
+    Assert::IsNotNull(chip, L"the slot is held even when there is nothing to vary");
+    Assert::AreEqual(std::string("-"), std::string(chip->label));
+    Assert::IsFalse(chip->enabled, L"nothing to cycle to, so nothing to press");
+    Assert::IsFalse(chip->opensPicker, L"and no caret promising a picker that is not there");
   }
 
   TEST_METHOD(ANarrowRowDropsWhatDoesNotFitRatherThanReflowing)
@@ -425,6 +459,68 @@ public:
       // the world zone" enough to stop a button press selecting ships.
       Assert::IsFalse(layout.world.Contains(rect.x + 1.0f, rect.y + 1.0f));
     }
+  }
+
+  TEST_METHOD(TheRowDoesNotMoveWhenTheSelectionChanges)
+  {
+    /*
+     * A row whose buttons move under the player is the failure this component's
+     * header forbids: the sectors keep fixed positions "so the ring stays
+     * learnable as a shape rather than a lookup", and a player reaching for DOCK
+     * must not find MINE there because their last click rearranged the row.
+     *
+     * It happened. The parameter chip was held until "the next command with a
+     * parameter of its own", which was Move alone when the rule was written;
+     * once Warp and Dock also carried Formation, the chip landed after whichever
+     * of the three was selected and shifted everything to its right.
+     *
+     * So this asserts the invariant rather than the layout: every *command*
+     * button sits at the same x for every selection. The chip's contents may
+     * change; its slot may not, and neither may anybody else's.
+     */
+    std::array<CommandButton, 16> first{};
+    const std::uint32_t firstCount =
+        BuildCommandRow(LIVE_KINDS, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, first);
+    Assert::IsTrue(firstCount > 0);
+
+    for (const OrderKindOption& kind : LIVE_KINDS)
+    {
+      std::array<CommandButton, 16> row{};
+      const std::uint32_t count =
+          BuildCommandRow(LIVE_KINDS, kind.kind, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, row);
+      Assert::AreEqual(firstCount, count, L"the row must hold the same number of buttons for every selection");
+
+      for (std::uint32_t index = 0; index < count; ++index)
+      {
+        // Every slot keeps its x and its purpose. The chip's *label* is allowed
+        // to differ -- it names the armed command's parameter, which is the
+        // point of it -- so only the command buttons are compared by name.
+        Assert::AreEqual(first[index].rect.x, row[index].rect.x, 0.01f, L"a button moved along the row");
+        Assert::IsTrue(first[index].action == row[index].action, L"a slot changed what it is for");
+        if (row[index].action == CommandAction::SelectKind)
+        {
+          Assert::AreEqual(std::string(first[index].label), std::string(row[index].label),
+                           L"a command changed place when the selection moved");
+        }
+      }
+    }
+  }
+
+  TEST_METHOD(TheParameterChipStillFollowsTheSelection)
+  {
+    // Fixing the slot must not freeze the contents: the chip is the *selected*
+    // command's parameter, wherever that command sits.
+    std::array<CommandButton, 16> row{};
+    const std::uint32_t count =
+        BuildCommandRow(LIVE_KINDS, 6, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, row);
+
+    bool sawOre = false;
+    for (std::uint32_t index = 0; index < count; ++index)
+    {
+      sawOre = sawOre || (row[index].action == CommandAction::CycleParameter && row[index].label != nullptr &&
+                          std::string(row[index].label) == "Ore");
+    }
+    Assert::IsTrue(sawOre, L"selecting Mine must put Mine's parameter in the chip");
   }
 };
 

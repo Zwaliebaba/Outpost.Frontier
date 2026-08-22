@@ -29,31 +29,77 @@ std::uint32_t BuildCommandRow(std::span<const OrderKindOption> _kinds, std::uint
   std::uint32_t count = 0;
 
   /*
-   * The selected command's parameter button, once the row reaches the picker
-   * cluster. Only the selected command gets one, because the parameter *values*
-   * come from `OrderOptions(kind)` and the caller has asked for exactly one
-   * kind's -- five dropdowns would need five asks a frame. It is *deferred*
-   * rather than emitted beside its command: the print keeps the immediate
-   * verbs contiguous (`MOVE ATTACK`) and opens the picker cluster with the
-   * parameter chip (`FORMATION STANCE ABILITIES`), so the chip is held until
-   * the next command that has a parameter name of its own, or the end of the
-   * row.
+   * The selected command's parameter button. Only the selected command gets
+   * one, because the parameter *values* come from `OrderOptions(kind)` and the
+   * caller has asked for exactly one kind's -- five dropdowns would need five
+   * asks a frame.
+   *
+   * **Its slot is fixed, and that took a bug to get right.** The chip used to
+   * be held until "the next command with a parameter of its own", which
+   * reproduced the print (`MOVE ATTACK FORMATION STANCE ABILITIES`) only
+   * because Move was once the only early verb that had one. Warp and Dock now
+   * vary by formation too (ADR-018 D7 makes Dock's radius a function of the
+   * solved formation), so the chip started landing after *whichever of the
+   * three was selected* -- and clicking WARP or DOCK shifted every button to
+   * its right.
+   *
+   * That is precisely the failure this row's own header forbids: the sectors
+   * keep fixed positions "so the ring stays learnable as a shape rather than a
+   * lookup", and a row whose buttons move under the player is the same mistake
+   * in a line. A player reaching for DOCK must not find MINE there because
+   * their last click changed what the row looks like.
+   *
+   * So the slot is a property of the **kind list** and of nothing else: the
+   * chip goes at the door of the picker cluster, which is the first command
+   * after the leading one that carries a parameter name. What the chip *says*
+   * still follows the selection; where it sits does not.
    */
+  std::size_t chipSlot = _kinds.size();
+  {
+    std::size_t index = 0;
+    for (const OrderKindOption& kind : _kinds)
+    {
+      if (kind.name == nullptr)
+      {
+        break;
+      }
+      if (index > 0 && kind.parameterName != nullptr)
+      {
+        chipSlot = index;
+        break;
+      }
+      ++index;
+    }
+  }
+
   const OrderKindOption* pendingParameter = nullptr;
-  const auto emitParameter = [&](const OrderKindOption& _kind) {
+  bool chipPlaced = false;
+
+  /*
+   * `_kind` is null when the armed command varies by nothing -- Attack takes a
+   * target rather than a parameter, and says so with a null name.
+   *
+   * **The slot is still filled**, with a dash and nothing to press. Leaving it
+   * empty would move every button to its right the moment such a command was
+   * armed, which is the whole defect this layout was fixed for; and the dash is
+   * this HUD's existing word for an absent value, the one the roster draws for
+   * a wing with no ships. It is punctuation rather than vocabulary, so the
+   * engine is not naming anything the game did not.
+   */
+  const auto emitParameter = [&](const OrderKindOption* _kind) {
     CommandButton& parameter = _outButtons[count];
     parameter = CommandButton{};
     parameter.rect = UiRect{pen, top, width, height};
-    parameter.label = _kind.parameterName;
+    parameter.label = _kind != nullptr ? _kind->parameterName : "-";
     parameter.action = CommandAction::CycleParameter;
-    parameter.payload = _kind.kind;
-    parameter.opensPicker = true;
+    parameter.payload = _kind != nullptr ? _kind->kind : _selectedKind;
+    parameter.opensPicker = _kind != nullptr;
 
     // The same predicate, plus something to cycle *to*: one option is a
     // constant rather than a choice, and a button that visibly does nothing
     // when pressed is worse than one that is visibly not for pressing.
-    parameter.enabled = _kind.available && _context.hasSelection && _options.size() > 1;
-    if (_optionIndex < _options.size())
+    parameter.enabled = _kind != nullptr && _kind->available && _context.hasSelection && _options.size() > 1;
+    if (_kind != nullptr && _optionIndex < _options.size())
     {
       parameter.value = _options[_optionIndex].name;
     }
@@ -61,6 +107,23 @@ std::uint32_t BuildCommandRow(std::span<const OrderKindOption> _kinds, std::uint
     pen += width + gap;
   };
 
+  // Which command's parameter the chip will show. Resolved before the row is
+  // laid out, because the chip's slot comes before the selected command as
+  // often as after it.
+  for (const OrderKindOption& kind : _kinds)
+  {
+    if (kind.name == nullptr)
+    {
+      break;
+    }
+    if (kind.kind == _selectedKind && kind.parameterName != nullptr)
+    {
+      pendingParameter = &kind;
+      break;
+    }
+  }
+
+  std::size_t kindIndex = 0;
   for (const OrderKindOption& kind : _kinds)
   {
     if (kind.name == nullptr)
@@ -68,17 +131,18 @@ std::uint32_t BuildCommandRow(std::span<const OrderKindOption> _kinds, std::uint
       break;
     }
 
-    // The held parameter chip goes down at the door of the picker cluster --
-    // just before the next command that has a parameter of its own.
-    if (pendingParameter != nullptr && kind.parameterName != nullptr)
+    // The chip goes in its fixed slot, whoever is selected and whether or not
+    // that command has anything to vary by.
+    if (kindIndex == chipSlot)
     {
       if (count >= _outButtons.size() || pen + width > right)
       {
         return count; // No room. Dropped rather than shrunk: see the header.
       }
-      emitParameter(*pendingParameter);
-      pendingParameter = nullptr;
+      emitParameter(pendingParameter);
+      chipPlaced = true;
     }
+    ++kindIndex;
 
     if (count >= _outButtons.size())
     {
@@ -109,17 +173,16 @@ std::uint32_t BuildCommandRow(std::span<const OrderKindOption> _kinds, std::uint
     button.opensPicker = kind.parameterName != nullptr && !kind.available;
     ++count;
     pen += width + gap;
-
-    if (selected && kind.parameterName != nullptr)
-    {
-      pendingParameter = &kind;
-    }
   }
 
-  // A selected command at the tail of the list still gets its chip.
-  if (pendingParameter != nullptr && count < _outButtons.size() && pen + width <= right)
+  // A kind list whose picker cluster never opened -- one command, or none with
+  // a parameter after the first -- still gets its chip, at the end.
+  // `count > 0` because a row with no commands has no cluster to open and
+  // nothing to vary: a chip alone on an empty row would be a control for a verb
+  // that is not there.
+  if (!chipPlaced && count > 0 && count < _outButtons.size() && pen + width <= right)
   {
-    emitParameter(*pendingParameter);
+    emitParameter(pendingParameter);
   }
   return count;
 }

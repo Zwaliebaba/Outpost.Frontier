@@ -147,6 +147,7 @@ public:
                                       Neuron::ContextAction& _outAction) const override;
   [[nodiscard]] bool ApplySummary(std::span<const std::uint8_t> _payload) override;
   [[nodiscard]] std::uint32_t BuildLocationBlocks(std::span<Neuron::LocationBlock> _outBlocks) const override;
+  [[nodiscard]] bool BuildFieldReadout(Neuron::FieldReadout& _outReadout) const override;
   [[nodiscard]] std::uint32_t PollNotices(std::span<Neuron::Notice> _outNotices) override;
   void PollOrderFeedback(Neuron::OrderFeedback& _outFeedback) override;
   [[nodiscard]] const char* ReasonText(std::uint16_t _reasonCode) const override;

@@ -64,27 +64,123 @@ struct HudPalette
   std::uint32_t trackShield = 0xFF201A0Du;  // #0D1A20 - and an empty shield strip.
 };
 
-/*
- * The table the config string names.
- *
- * "default" is the print's phosphor table above; the settings sheet's two
- * colour-vision palettes join this switch when they are authored. An unknown
- * name resolves to the default rather than failing -- a client that will not
- * start because a palette is mistyped would be the wrong failure, the same
- * judgement ADR-006 makes for a nebula block that describes no field.
- */
-[[nodiscard]] constexpr HudPalette ResolveHudPalette(std::string_view _name) noexcept
-{
-  (void)_name; // One table so far; the name exists so config can already say it.
-  return HudPalette{};
-}
-
 /// A colour at a different opacity, for the treatments the prints specify as
 /// "half alpha" -- spelled as an operation on a palette entry rather than as a
 /// second literal, so the entry stays the single source of the hue.
 [[nodiscard]] constexpr std::uint32_t WithAlpha(std::uint32_t _colourRgba, std::uint8_t _alpha) noexcept
 {
   return (_colourRgba & 0x00FFFFFFu) | (static_cast<std::uint32_t>(_alpha) << 24);
+}
+
+/*
+ * A chip ground in a table's own hue.
+ *
+ * The default table spells its ground as a literal because it was authored
+ * beside the print; every table after it derives one, so a new palette cannot
+ * ship a ground that belongs to a different hue than its text. Five per cent of
+ * the colour at the ground's own opacity: dark enough to read as a surface, and
+ * tinted enough to be *this* table's surface rather than a neutral black that
+ * would make every palette's chips identical.
+ */
+[[nodiscard]] constexpr std::uint32_t GroundOf(std::uint32_t _colourRgba) noexcept
+{
+  const std::uint32_t r = (_colourRgba & 0xFFu) / 20u;
+  const std::uint32_t g = ((_colourRgba >> 8) & 0xFFu) / 20u;
+  const std::uint32_t b = ((_colourRgba >> 16) & 0xFFu) / 20u;
+  return 0x8Cu << 24 | b << 16 | g << 8 | r;
+}
+
+/*
+ * The two colour-vision tables (`settings.png`, ADR-020 §8's token doc).
+ *
+ * **They are not filters over the default.** A deuteranopic table produced by
+ * rotating hues would keep the default's *structure* -- five semantics that
+ * differ by hue and nothing else -- which is the property that fails. Each is
+ * authored: the semantics are chosen to differ in **lightness and saturation as
+ * well as hue**, so they separate for a viewer who cannot use the hue at all.
+ *
+ * **Deuteranopia moves the chrome ramp too**, and that is the larger change:
+ * own-fleet green and hostile red are the pair that collapses, so the own
+ * colour becomes a blue and the whole seven-step ramp is re-anchored on it.
+ * Tritanopia leaves the ramp alone -- green/red separate fine for it -- and
+ * only moves the semantics that lean on blue and yellow.
+ *
+ * The lines, chips and grounds are **derived** from each table's own phosphor at
+ * the alphas the default uses, so a table cannot drift into borders from one
+ * hue and text from another. That is the single rule that keeps a palette a
+ * table rather than a set of forty independent decisions.
+ */
+[[nodiscard]] constexpr HudPalette DeuteranopiaPalette() noexcept
+{
+  HudPalette table;
+  // Chrome, re-anchored on #7CD4FF: own-fleet stops being green.
+  table.phosphor = 0xFFFFD47Cu;      // #7CD4FF
+  table.phosphorHot = 0xFFFFECC9u;   // #C9ECFF
+  table.phosphorBody = 0xFF8C8679u;  // #79868C
+  table.phosphorDim = 0xFF7A7057u;   // #57707A
+  table.phosphorLabel = 0xFF6A6049u; // #49606A
+  table.phosphorGhost = 0xFF5A5037u; // #37505A
+  table.phosphorDead = 0xFF4A422Au;  // #2A424A
+
+  table.hostile = 0xFF00B0FFu;  // #FFB000 - amber, not red.
+  table.critical = 0xFFC75EFFu; // #FF5EC7
+  table.caution = 0xFF66E0FFu;  // #FFE066
+  table.allied = 0xFFFF8CB9u;   // #B98CFF
+  table.neutral = 0xFF9AA39Au;  // #9AA39A
+
+  table.trackHull = 0xFF221C0Fu;   // #0F1C22
+  table.trackShield = 0xFF200D17u; // #170D20
+
+  table.borderStrong = WithAlpha(table.phosphor, 0x4Du);
+  table.border = WithAlpha(table.phosphor, 0x38u);
+  table.rule = WithAlpha(table.phosphor, 0x24u);
+  table.chipBg = GroundOf(table.phosphor);
+  return table;
+}
+
+[[nodiscard]] constexpr HudPalette TritanopiaPalette() noexcept
+{
+  HudPalette table; // The chrome ramp stands: green and red separate for this one.
+  table.hostile = 0xFF2D2DFFu;  // #FF2D2D
+  table.critical = 0xFF0000D4u; // #D40000
+  table.caution = 0xFFC07AFFu;  // #FF7AC0
+  table.allied = 0xFFE09DFFu;   // #FF9DE0
+  table.neutral = 0xFFA6B0A8u;  // #A8B0A6
+
+  table.trackShield = 0xFF180D20u; // #200D18
+
+  // Derived from the same own colour the default uses, so these are the default
+  // values -- spelled as derivations anyway, because the *rule* is what a third
+  // table will copy, and a table that inherited literals would copy the wrong
+  // thing the first time its phosphor moved.
+  table.borderStrong = WithAlpha(table.phosphor, 0x4Du);
+  table.border = WithAlpha(table.phosphor, 0x38u);
+  table.rule = WithAlpha(table.phosphor, 0x24u);
+  return table;
+}
+
+/*
+ * The table the config string names.
+ *
+ * An unknown name resolves to the default rather than failing -- a client that
+ * will not start because a palette is mistyped would be the wrong failure, the
+ * same judgement ADR-006 makes for a nebula block that describes no field.
+ *
+ * Resolved once, at boot. Live re-application belongs with the settings surface
+ * that offers the choice; until that exists, a client picks its table at start
+ * and every colour on screen comes from it.
+ */
+[[nodiscard]] constexpr HudPalette ResolveHudPalette(std::string_view _name) noexcept
+{
+  if (_name == "deuteranopia")
+  {
+    return DeuteranopiaPalette();
+  }
+  if (_name == "tritanopia")
+  {
+    return TritanopiaPalette();
+  }
+  return HudPalette{};
 }
 
 [[nodiscard]] constexpr std::uint32_t AtHalfAlpha(std::uint32_t _colourRgba) noexcept
