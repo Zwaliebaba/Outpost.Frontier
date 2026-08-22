@@ -53,6 +53,7 @@
     <ClCompile Include="RosterSelection.cpp" />
     <ClCompile Include="SnapshotBuffer.cpp" />
     <ClCompile Include="SoundBank.cpp" />
+    <ClCompile Include="StationScreen.cpp" />
     <ClCompile Include="SurfaceStack.cpp" />
     <ClCompile Include="TextEditState.cpp" />
     <ClCompile Include="ToastStack.cpp" />
@@ -100,6 +101,7 @@
     <ClInclude Include="Selection.h" />
     <ClInclude Include="RenderWorld.h" />
     <ClInclude Include="RosterSelection.h" />
+    <ClInclude Include="StationScreen.h" />
     <ClInclude Include="StationView.h" />
     <ClInclude Include="SoundBank.h" />
     <ClInclude Include="SurfaceStack.h" />

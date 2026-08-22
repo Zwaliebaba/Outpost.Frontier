@@ -60,6 +60,9 @@
     <ClCompile Include="ComposerTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="StationScreenTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="OverlayTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
