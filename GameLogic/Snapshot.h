@@ -1,37 +1,48 @@
 #pragma once
 
+#include "Relevance.h"
 #include "World.h"
 
 #include "ByteReader.h"
 #include "ByteWriter.h"
 #include "EntityRecord.h"
-// For the datagram cap. GameLogic does not touch the transport, but the
-// snapshot has to fit one datagram, so the budget below is derived from the one
-// definition of that number rather than restating it (ADR-004 §6). The header
-// is a pure interface -- no Windows, no sockets.
+// For the datagram cap. GameLogic does not touch the transport, but the tick
+// tail has to leave room for records inside one datagram, so the budget below
+// is derived from the one definition of that number rather than restating it
+// (ADR-004 §6). The header is a pure interface -- no Windows, no sockets.
 #include "Transport.h"
 
 #include <cstdint>
+#include <span>
 #include <vector>
 
 /*
- * State replication, server to client (ADR-004 §6).
+ * The game's half of state replication (ADR-004 §6, ADR-022).
  *
- * **Full snapshots every tick, no deltas.** Any snapshot completely replaces
- * the previous one, so loss is not a case to handle: a dropped datagram costs
- * one tick of freshness and nothing else. There is no baseline to track, no
- * acknowledgement to wait on, and no way for the client's view to drift out of
- * agreement with the server's. `baselineTick` is on the wire and always zero,
- * reserved so a delta-against-acked-baseline scheme slots in later without a
- * format break.
+ * **This file used to own the whole snapshot payload and no longer does.**
+ * Until U3d-b a snapshot was `[game header][entity records][order records]`,
+ * written here and opaque to the engine, one datagram, full every tick, refused
+ * outright when the fleet outgrew the cap. ADR-022 replaced all of that: the
+ * session host ranks (through `RankRelevance`), truncates to a byte budget,
+ * delta-encodes against the view it last *sent*, and packs the result into as
+ * many datagrams as it takes. Every one of those is a decision about a *viewer*
+ * and a *link*, and the sim tier has neither (§1), so the engine owns the
+ * envelope now.
  *
- * **The ship record is `Neuron::EntityRecord` and not a type of ours.** ADR-004
- * §6 specifies exactly the twenty bytes NeuronCore already defines, and ADR-014
- * §4 is why they live there: the engine has to buffer, interpolate and draw
+ * What is left here is the part that is genuinely the game's:
+ *
+ * - **the entity record's meaning** -- `typeId` is a `HullClass`, `gaugeA` is
+ *   hull, `gaugeB` is shield, and two bits of `statusBits` are the viewer's
+ *   relationship to the ship (§8b);
+ * - **the tick tail** -- the order-state records that promote a client's ghost,
+ *   and the session's order high-water mark beside them. Opaque to the engine,
+ *   under the game's own schema hash, exactly as `Summary` already is.
+ *
+ * The ship record is still `Neuron::EntityRecord` and still not a type of ours,
+ * for ADR-014 §4's reason: the engine has to buffer, interpolate, diff and draw
  * without knowing what a ship is. Declaring a `ShipRecord` here that happened to
- * match would be two layouts to keep in step and one of them would eventually
- * lose. What GameLogic owns is the *meaning* -- `typeId` is a `HullClass`,
- * `gaugeA` is hull, `gaugeB` is shield -- and the engine never reads it.
+ * match would be two layouts to keep in step, and one of them would eventually
+ * lose.
  *
  * Quantisation is the wire contract, and it is what both sides validate against
  * so a client pre-check and the authority cannot disagree on a rounding
@@ -42,66 +53,6 @@
 namespace Game
 {
 
-/// `{tick, baselineTick, gridAnchor, shipCount, orderCount, lastOrderSeqProcessed}`.
-struct SnapshotHeader
-{
-  std::uint32_t tick = 0;
-
-  /// Zero means "full". Reserved for the delta path (ADR-004 §6); nothing reads
-  /// it yet, and it is on the wire from the first snapshot so that adding
-  /// deltas is a behaviour change rather than a schema change.
-  std::uint32_t baselineTick = 0;
-
-  /*
-   * Which grid these ships are standing on (ADR-016 §6, U3b) -- **the smear
-   * guard**.
-   *
-   * A session hosts many grids and a client views one at a time (ADR-016 §4),
-   * so the moment a view can switch, "a snapshot" stops being self-evidently
-   * about the same world as the last one. Without this field a client that
-   * switched grids would interpolate the ship it *was* watching towards a ship
-   * that merely shares its id on the grid it is watching now, and the hulls
-   * would smear across the gap between two worlds. That is not a rendering
-   * artefact to tune away: the two records describe different ships.
-   *
-   * It costs two bytes of the header and, as the static assert below records,
-   * **no ships at all** -- 43 records still fit, because the cap had that much
-   * slack. A field that changes no budget is the cheapest moment to add one.
-   */
-  AnchorId gridAnchor = INVALID_ID;
-
-  std::uint16_t shipCount = 0;
-
-  /// Order state, which drives ghost-to-underway promotion and per-leg ETAs.
-  /// Always zero until S9 gives the client something to have ordered.
-  std::uint16_t orderCount = 0;
-
-  /*
-   * Closes the order feedback loop even when an `OrderAck` is delayed or lost.
-   *
-   * **Per viewer as of U3d-a** (ADR-022 §7). The field did not move -- it is
-   * still the game's header, still in this position, still the same width --
-   * but what fills it did: it was world-global state folded into the world
-   * hash, and it is now the session's own count of what *this* commander has
-   * had accepted. The wire always read as per-viewer; now it is.
-   */
-  std::uint32_t lastOrderSeqProcessed = 0;
-};
-
-inline constexpr std::size_t SNAPSHOT_HEADER_BYTES = 18;
-
-/*
- * How many ships fit in one datagram.
- *
- * The transport's cap is 1,152 bytes (ADR-003) and the framing costs a type
- * word, so this is what is left after the header, divided by the record. At MVP
- * scale -- 41 ships, about 840 bytes -- there is room to spare. At the corpus's
- * 1,024-entity cap a full snapshot is roughly 20 KB, which is precisely why
- * **delta encoding plus interest management is the designed growth path and a
- * bigger datagram is not** (ADR-004 §6).
- */
-inline constexpr std::size_t SNAPSHOT_BUDGET_BYTES = Neuron::MAX_DATAGRAM_BYTES - sizeof(std::uint16_t);
-
 /*
  * One order's state, for the ghost the client is drawing (ADR-004 §6).
  *
@@ -111,7 +62,7 @@ inline constexpr std::size_t SNAPSHOT_BUDGET_BYTES = Neuron::MAX_DATAGRAM_BYTES 
  * unreliable channel without a retransmit.
  *
  * `legIndex` and `legCount` are the ETA row's: "second of four" is what a
- * player reads, and it is not derivable from anything else in the snapshot.
+ * player reads, and it is not derivable from anything else in the tail.
  */
 struct OrderStateRecord
 {
@@ -148,16 +99,10 @@ inline constexpr std::uint16_t NO_ETA = 0xffffu;
  * The bytes one record puts on the wire.
  *
  * **Not `sizeof`,** and the change is worth explaining rather than just making:
- * the record now has a `uint16_t` beside four `uint8_t`s, so the compiler
- * rounds the struct up to its own alignment and `sizeof` reports sixteen where
- * fourteen are written. `sizeof` was only ever standing in for the real
- * invariant; summing the fields asserts the thing the budget actually cares
- * about, and cannot drift when padding does.
- *
- * The comment it replaces was right: a field added here costs ships. This one
- * cost two -- the fleet cap fell from 47 to 45 (and to 43 when ADR-017 §5's
- * status byte widened the entity record), still above the 41 the MVP
- * fields and the static assert below still checks it.
+ * the record has a `uint16_t` beside four `uint8_t`s, so the compiler rounds the
+ * struct up to its own alignment and `sizeof` reports sixteen where fourteen are
+ * written. Summing the fields asserts the thing the budget actually cares about,
+ * and cannot drift when padding does.
  */
 inline constexpr std::size_t ORDER_STATE_RECORD_BYTES = 14;
 static_assert(sizeof(OrderStateRecord::serverOrderId) + sizeof(OrderStateRecord::clientOrderSeq) +
@@ -165,90 +110,99 @@ static_assert(sizeof(OrderStateRecord::serverOrderId) + sizeof(OrderStateRecord:
                       sizeof(OrderStateRecord::legIndex) + sizeof(OrderStateRecord::legCount) +
                       sizeof(OrderStateRecord::memberCount) ==
                   ORDER_STATE_RECORD_BYTES,
-              "the record is written field by field; the sum of the fields is the budget, so a field added here costs ships");
+              "the record is written field by field; the sum of the fields is the budget");
 
 /*
- * How many orders ride along with the ships.
+ * How many orders ride in one tick's tail.
  *
- * A fixed reservation rather than whatever is left, so the ship budget is a
- * constant and not a function of how busy the player has been. Sixteen groups
- * is four times the fleet an MVP session fields, and it costs 192 bytes of the
- * 1,150.
+ * A fixed reservation rather than whatever is left, so the record budget is a
+ * constant and not a function of how busy the player has been. Sixteen groups is
+ * four times the fleet an MVP session fields.
  *
- * Orders are the half that may be truncated. A missing ship record reads as a
- * despawn and is unrecoverable; a missing order record costs one frame of ETA,
- * and the header's `lastOrderSeqProcessed` still promotes the ghost.
+ * Orders are the half that may be truncated. An entity record absent from a
+ * delta means *unchanged* and one that has left is named explicitly (ADR-022
+ * §5e), so neither reads as a despawn; a missing order record costs one frame of
+ * ETA, and `lastOrderSeqProcessed` still promotes the ghost.
  */
 inline constexpr std::uint16_t MAX_ORDERS_PER_SNAPSHOT = 16;
 inline constexpr std::size_t ORDER_AREA_BYTES = MAX_ORDERS_PER_SNAPSHOT * ORDER_STATE_RECORD_BYTES;
 
+/// `[u16 orderCount][u32 lastOrderSeqProcessed]`, then that many records.
+inline constexpr std::size_t TICK_TAIL_HEADER_BYTES = 6;
+
+/// The most one tick tail can occupy. The engine reserves this out of part
+/// zero's datagram, so a tail can never be the reason a record does not fit.
+inline constexpr std::size_t MAX_TICK_TAIL_BYTES = TICK_TAIL_HEADER_BYTES + ORDER_AREA_BYTES;
+
+// The tail has to leave a datagram usefully full of records, or reserving it
+// would starve the thing it rides with. Asserted rather than assumed, because
+// this is the number a future order field would silently spend.
+static_assert(MAX_TICK_TAIL_BYTES + Neuron::ENTITY_RECORD_BYTES * 16 < Neuron::MAX_DATAGRAM_BYTES,
+              "the tick tail must leave room for a useful number of records in part zero");
+
 /*
- * What the game means by `EntityRecord::statusBits` (ADR-017 §5, ADR-014 §4).
+ * What the game means by `EntityRecord::statusBits` (ADR-017 §5, ADR-022 §8b).
  *
  * The engine carries the byte and reads none of it; the bits are defined here
- * because a bit's *meaning* is game semantics. Bit 0 is undock protection --
- * immunity to damage, drawn as a shimmer -- and the other seven are where
- * in-warp, combat-flagged and [ADR-022](../Design/ADR/ADR-022-interest-and-delta.md)'s
- * two relationship bits will live, which is why this is a byte and not a
- * widened `typeId`.
+ * because a bit's *meaning* is game semantics.
+ *
+ * Bit 0 is undock protection -- immunity to damage, drawn as a shimmer. Bits 1
+ * and 2 are the viewer's **relationship** to the ship, which is ADR-022 §8b's
+ * whole trick: OWN / ALLIED / NEUTRAL / HOSTILE is the icon sheet's colour
+ * channel (`tactical-icon-system.png` §3) and it costs **zero extra bytes**,
+ * where an owner id per record would have cost four on every entity every tick
+ * to answer a question a player asks once a session.
+ *
+ * The value stored is `Relationship`, which is why that enum's numbering is
+ * fixed at four values: it is a wire encoding, not a convenience.
  */
 inline constexpr std::uint8_t SHIP_STATUS_PROTECTED = 1u << 0;
+inline constexpr std::uint8_t SHIP_STATUS_RELATIONSHIP_SHIFT = 1;
+inline constexpr std::uint8_t SHIP_STATUS_RELATIONSHIP_MASK = 0x3u << SHIP_STATUS_RELATIONSHIP_SHIFT;
 
-inline constexpr std::uint16_t MAX_SHIPS_PER_SNAPSHOT = static_cast<std::uint16_t>(
-    (SNAPSHOT_BUDGET_BYTES - SNAPSHOT_HEADER_BYTES - ORDER_AREA_BYTES) / Neuron::ENTITY_RECORD_BYTES);
-
-/// Bytes a snapshot of this many ships and orders occupies, framing excluded.
-[[nodiscard]] constexpr std::size_t SnapshotBytes(std::size_t _shipCount, std::size_t _orderCount = 0) noexcept
+/// Packs a relationship into a status byte, leaving every other bit alone.
+[[nodiscard]] constexpr std::uint8_t WithRelationship(std::uint8_t _statusBits, Relationship _relationship) noexcept
 {
-  return SNAPSHOT_HEADER_BYTES + _shipCount * Neuron::ENTITY_RECORD_BYTES + _orderCount * ORDER_STATE_RECORD_BYTES;
+  return static_cast<std::uint8_t>((_statusBits & ~SHIP_STATUS_RELATIONSHIP_MASK) |
+                                   ((static_cast<std::uint8_t>(_relationship) << SHIP_STATUS_RELATIONSHIP_SHIFT) &
+                                    SHIP_STATUS_RELATIONSHIP_MASK));
 }
 
-// The budget ADR-004 §6 states, asserted rather than believed. The order area
-// is reserved whether or not any order is flying, which is what keeps the ship
-// cap from moving under the client.
-static_assert(SnapshotBytes(41, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES, "the MVP fleet must fit one datagram");
-// U3b's `gridAnchor` widened the header by two bytes and moved the cap by none:
-// the arithmetic had that much slack. Asserted rather than remembered, because
-// the next field to land here may not be free and this is where it finds out.
-static_assert(MAX_SHIPS_PER_SNAPSHOT == 43, "the header grew without costing a ship; if this fires, the cap moved");
-static_assert(MAX_SHIPS_PER_SNAPSHOT >= 41, "the MVP fleet must fit one datagram");
-static_assert(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES,
-              "the cap must be a cap");
-static_assert(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT + 1u, MAX_ORDERS_PER_SNAPSHOT) > SNAPSHOT_BUDGET_BYTES,
-              "the cap must be the largest that fits");
-
-/// Quantises one ship into the neutral record the engine carries.
-[[nodiscard]] Neuron::EntityRecord MakeShipRecord(const World& _world, std::uint32_t _slot) noexcept;
+/// And back out. Every two-bit value is a legal `Relationship`, so this cannot
+/// fail -- which is the point of spending exactly two bits on a four-valued
+/// channel rather than a byte with a hole in it.
+[[nodiscard]] constexpr Relationship RelationshipFrom(std::uint8_t _statusBits) noexcept
+{
+  return static_cast<Relationship>((_statusBits & SHIP_STATUS_RELATIONSHIP_MASK) >> SHIP_STATUS_RELATIONSHIP_SHIFT);
+}
 
 /*
- * Writes a full snapshot of the world.
+ * Quantises one ship into the neutral record the engine carries.
  *
- * Returns false if the fleet does not fit one datagram, and writes nothing --
- * a truncated snapshot is worse than no snapshot, because the client would
- * treat the missing ships as despawned and then resurrect them next tick. The
- * caller's job is to say so loudly; the growth path is deltas, not silence.
+ * `_relationship` is the **viewer's**, which is why it is a parameter rather
+ * than something the world could answer: the same hull is `Own` to one
+ * commander and `Neutral` to the next, and a column on `World` could only hold
+ * one of those answers (ADR-022 §8b).
+ */
+[[nodiscard]] Neuron::EntityRecord MakeShipRecord(const World& _world, std::uint32_t _slot,
+                                                  Relationship _relationship = Relationship::Neutral) noexcept;
+
+/*
+ * Writes the game's tick tail for one viewer.
  *
  * `_lastOrderSeqProcessed` is the **session's** number and travels in
  * (ADR-022 §7): the world stopped owning it with U3d-a, because a world has no
- * viewers and that field only ever meant something about one. It defaults to
- * zero for the callers that are asking about a world rather than serving a
- * commander -- the self test's determinism harness and most of this suite --
- * where "no orders have been acknowledged to anybody" is the honest answer
- * rather than a stub.
+ * viewers and that field only ever meant something about one.
+ *
+ * Returns false only when the writer could not hold `MAX_TICK_TAIL_BYTES`, which
+ * the engine reserves in advance -- so in practice this does not fail, and a
+ * false is a caller that did not reserve.
  */
-[[nodiscard]] bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer,
-                                 std::uint32_t _lastOrderSeqProcessed = 0);
+[[nodiscard]] bool WriteTickTail(const World& _world, Neuron::ByteWriter& _writer, std::uint32_t _lastOrderSeqProcessed);
 
 /// Reads one back. Returns false on a truncated or implausible payload, leaving
-/// the outputs untouched -- a half-applied snapshot is a corrupt view.
-[[nodiscard]] bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader,
-                                std::vector<Neuron::EntityRecord>& _outShips);
-
-/// The same, with the order records. The two-argument form stays because most
-/// callers -- and every test written before S9 -- want the fleet and nothing
-/// else, and reading orders they will not look at is work with no reader.
-[[nodiscard]] bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader,
-                                std::vector<Neuron::EntityRecord>& _outShips,
+/// the outputs untouched -- a half-applied tail is a corrupt view.
+[[nodiscard]] bool ReadTickTail(Neuron::ByteReader& _reader, std::uint32_t& _outLastOrderSeqProcessed,
                                 std::vector<OrderStateRecord>& _outOrders);
 
 } // namespace Game

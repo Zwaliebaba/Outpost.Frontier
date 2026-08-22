@@ -886,7 +886,22 @@ ConnectionId QuicTransport::Connect(const std::string& _host, std::uint16_t _por
     }
     if (QUIC_SUCCEEDED(status))
     {
-      status = impl.m_api->StreamStart(connection->bulkStream, QUIC_STREAM_START_FLAG_SHUTDOWN_ON_FAIL);
+      /*
+       * **`IMMEDIATE`, and it is load-bearing rather than an optimisation.**
+       *
+       * QUIC does not put a stream on the wire until something is written to
+       * it, so a stream that is opened and started and then stays quiet is a
+       * stream the peer has never heard of. On this channel the **server**
+       * speaks first -- the keyframe is server to client -- so without this
+       * flag the server would have no `bulkStream` to send on and every
+       * keyframe would be silently refused, which is a client that joins and
+       * then watches nothing at all.
+       *
+       * The control stream does not need it because the client's `Hello` is the
+       * first thing on the connection, and that write announces the stream.
+       */
+      status = impl.m_api->StreamStart(connection->bulkStream,
+                                       QUIC_STREAM_START_FLAG_IMMEDIATE | QUIC_STREAM_START_FLAG_SHUTDOWN_ON_FAIL);
     }
   }
   if (QUIC_SUCCEEDED(status))

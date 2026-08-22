@@ -164,7 +164,9 @@ bool ReadCargoStatus(Neuron::ByteReader& _reader, std::vector<CargoStatusRow>& _
   {
     CargoStatusRow row;
     const std::uint32_t wide = _reader.ReadUInt32();
-    row.shipId = wide > INVALID_SHIP_ID ? INVALID_SHIP_ID : static_cast<ShipId>(wide);
+    // Both u32 as of U3d-b, so this is a width match rather than a narrowing
+    // (ADR-018 D6, ADR-022 §8a).
+    row.shipId = static_cast<ShipId>(wide);
     for (std::uint32_t& units : row.oreUnits)
     {
       units = _reader.ReadUInt32();

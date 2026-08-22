@@ -104,11 +104,15 @@ void ServerHost::SendSnapshots(std::uint32_t _tick)
   for (SessionInfo& session : m_sessions)
   {
     /*
-     * Each client's own sender, asked for that client's own bytes. The refusal
-     * -- the fleet outgrowing one datagram, the point at which ADR-004 §6's
-     * growth path stops being optional -- is counted and logged inside the
-     * sender, which is where "*which* client" is answerable. The host keeps
-     * its own total because the debug strip reads one number for the session.
+     * Each client's own sender, asked for that client's own bytes.
+     *
+     * **The refusal this used to count is gone** (ADR-022 §6). It was the fleet
+     * outgrowing one datagram, and the correct answer while a full snapshot in
+     * one datagram was the only format; a grid over budget now produces a
+     * *partial* view with an honest `culledCount` instead of silence. What is
+     * left to count is a sender that had nothing to send at all -- a grid the
+     * simulation would not rank -- which is a different and much quieter
+     * condition, and it keeps the strip's row honest rather than retiring it.
      */
     if (session.sender.Send(*m_simulation, *m_transport, _tick))
     {
@@ -227,6 +231,15 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     SessionInfo& session = m_sessions.emplace_back(m_nextClientId++, playerId, _event.connection, grid);
     session.handshakeComplete = true;
 
+    // The per-tick byte budget is a deployment number (ADR-022 §5b), so it
+    // comes from config and the sender is told rather than deciding. Zero in
+    // the config means "whatever the engine thinks is sane", which is what a
+    // config written before interest management existed says.
+    if (m_config.tickBudgetBytes != 0)
+    {
+      session.sender.SetTickBudgetBytes(m_config.tickBudgetBytes);
+    }
+
     /*
      * A fresh token every time, including on a resume.
      *
@@ -329,6 +342,60 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     WriteWireType(writer, WireType::ViewChanged);
     Write(writer, ViewChanged{request.gridAnchor, reasonCode, accepted});
     SendTo(session->connection, TransportChannel::Control, writer);
+    return;
+  }
+
+  case WireType::SnapshotAck:
+  {
+    /*
+     * "I hold the whole of tick T for grid G" (ADR-022 §2a).
+     *
+     * The engine's whole part, and it is entirely link semantics: the game is
+     * never told what a client has, because what a client has is a fact about a
+     * socket. Dropped silently before the handshake, like every other message
+     * from a connection that has not joined.
+     */
+    SessionInfo* session = FindSession(_event.connection);
+    if (session == nullptr || !session->handshakeComplete)
+    {
+      return;
+    }
+    SnapshotAck ack;
+    if (!Read(reader, ack))
+    {
+      return; // A malformed ack costs one larger delta and nothing else.
+    }
+    session->sender.NoteAck(ack);
+    return;
+  }
+
+  case WireType::ViewFocus:
+  {
+    /*
+     * Where this viewer is looking, and what they have selected (ADR-022 §4).
+     *
+     * ADR-016 §7 said the server had no business holding this and ADR-022 §1 is
+     * what changed it: relevance is a property of a viewer, and §5a's guarantee
+     * cannot be kept for a selection nobody told the server about.
+     *
+     * A malformed one -- a selection past `MAX_VIEW_SELECTION` -- is dropped
+     * rather than clamped. The reader refuses it for the reason recorded there:
+     * a truncated selection is a *different* selection, and the guarantee would
+     * then be kept for the wrong set of ships, which is worse than not keeping
+     * it because it would look kept.
+     */
+    SessionInfo* session = FindSession(_event.connection);
+    if (session == nullptr || !session->handshakeComplete)
+    {
+      return;
+    }
+    ViewFocus focus;
+    if (!Read(reader, focus))
+    {
+      NEURON_LOG_WARNING("malformed view focus from client %u", session->clientId);
+      return;
+    }
+    session->sender.NoteFocus(focus);
     return;
   }
 

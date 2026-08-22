@@ -21,18 +21,53 @@
  *   position  centimetres, +-21474 km
  *   velocity  centimetres per second, +-327 m/s
  *   heading   1/65536 of a turn
- * 21 bytes per entity: 41 ships and a header fit one datagram, and the 1024-cap
- * case is what forces delta encoding later rather than a bigger packet.
+ *
+ * **23 bytes per entity as of U3d-b**, the id having widened to u32
+ * (ADR-022 §8a, ADR-018 D6). It was 21, and 41 ships plus a header fit one
+ * datagram -- which was exactly the constraint that held the id at u16: a
+ * 23-byte record fits 39 per datagram, under ADR-018's 41-ship floor, so the
+ * widening was unsafe while one datagram had to hold everything. ADR-022 §5b is
+ * what removed that: the per-tick budget is a *bandwidth* figure now, packed
+ * into as many datagrams as it takes, and the datagram cap itself never moved.
  */
 
 namespace Neuron
 {
 
-inline constexpr std::uint16_t INVALID_ENTITY_ID = 0xffffu;
+/*
+ * A replicated entity's identity (ADR-022 §8a, U3d-b).
+ *
+ * A named alias rather than a bare `std::uint32_t`, and it earns its keep for
+ * exactly the reason `Game::Ids.h` gives for *not* using one on its own ids:
+ * "a strong id type earns its keep when ids of different kinds get passed to
+ * the same function and can be swapped by mistake". That is this case. The
+ * client's seams pass entity ids and grid ids side by side, both were
+ * `std::uint16_t`, and when the entity id widened the compiler had nothing to
+ * say about the dozens of sites that had to widen with it -- which is how a
+ * ship id 65,537 would have arrived as ship 1 and been drawn, picked and
+ * ordered as somebody else's hull.
+ *
+ * A plain alias and not a strong type, for the other half of that reasoning:
+ * these are array-ish handles read off a wire, and a wrapper would be ceremony
+ * at every call site. What is wanted is a name that moves when the width does.
+ */
+using EntityId = std::uint32_t;
+
+inline constexpr EntityId INVALID_ENTITY_ID = 0xffffffffu;
 
 struct EntityRecord
 {
-  std::uint16_t id = INVALID_ENTITY_ID;
+  /*
+   * u32 as of U3d-b (ADR-022 §8a, ADR-018 D6).
+   *
+   * The staging was arithmetic rather than taste, and it is worth keeping the
+   * arithmetic here where the next person widening a field will find it: at 23
+   * bytes a record fits 39 per datagram, below the 41-ship floor ADR-018 set,
+   * so this could not widen while a snapshot had to fit one datagram. It does
+   * not any more (§5b), which is why the widening rides in this cluster and not
+   * an earlier one.
+   */
+  EntityId id = INVALID_ENTITY_ID;
   std::uint8_t typeId = 0;
 
   /*
@@ -67,9 +102,11 @@ struct EntityRecord
    *
    * A byte rather than a widened `typeId` because the other seven bits are
    * already spoken for: in-warp, combat-flagged, and -- per
-   * [ADR-022](../Design/ADR/ADR-022-interest-and-delta.md) -- two bits of
-   * viewer-relative relationship, which is how ownership reaches the client
-   * costing no byte at all.
+   * [ADR-022](../Design/ADR/ADR-022-interest-and-delta.md) §8b, **landed with
+   * U3d-b** -- two bits of viewer-relative relationship, which is how ownership
+   * reaches the client costing no byte at all. An owner id per record would
+   * have cost four bytes on every entity every tick to answer a question the
+   * player asks once a session.
    *
    * **It cost ships.** `ENTITY_RECORD_BYTES` went 20 to 21 and the snapshot cap
    * fell from 45 to 43. That is recorded here rather than only in the ADR for
@@ -79,7 +116,34 @@ struct EntityRecord
   std::uint8_t statusBits = 0;
 };
 
-inline constexpr std::size_t ENTITY_RECORD_BYTES = 21;
+inline constexpr std::size_t ENTITY_RECORD_BYTES = 23;
+static_assert(ENTITY_RECORD_BYTES == sizeof(EntityRecord::id) + sizeof(EntityRecord::typeId) + sizeof(EntityRecord::groupId) +
+                                       sizeof(EntityRecord::posXCm) + sizeof(EntityRecord::posYCm) +
+                                       sizeof(EntityRecord::velXCmPerSec) + sizeof(EntityRecord::velYCmPerSec) +
+                                       sizeof(EntityRecord::headingTurns16) + sizeof(EntityRecord::gaugeA) +
+                                       sizeof(EntityRecord::gaugeB) + sizeof(EntityRecord::statusBits),
+              "the record is written field by field; the sum of the fields is the budget, and padding must not enter it");
+
+/*
+ * Do two records describe the same state? (ADR-022 §2b.)
+ *
+ * The whole of delta encoding, in one comparison: a record equal to the one the
+ * client was last *sent* is a record that does not need sending again. It is
+ * here rather than beside the session host because the fields are this file's,
+ * and a comparison written next to the fields cannot fall out of step with them
+ * the way a hand-written field list one library away would.
+ *
+ * Not `memcmp` and not defaulted `operator==` on the struct: the compiler pads
+ * this type, and padding is uninitialised memory that would make two identical
+ * records compare different at random. Field by field, like the writer.
+ */
+[[nodiscard]] constexpr bool SameEntityState(const EntityRecord& _lhs, const EntityRecord& _rhs) noexcept
+{
+  return _lhs.id == _rhs.id && _lhs.typeId == _rhs.typeId && _lhs.groupId == _rhs.groupId && _lhs.posXCm == _rhs.posXCm &&
+         _lhs.posYCm == _rhs.posYCm && _lhs.velXCmPerSec == _rhs.velXCmPerSec && _lhs.velYCmPerSec == _rhs.velYCmPerSec &&
+         _lhs.headingTurns16 == _rhs.headingTurns16 && _lhs.gaugeA == _rhs.gaugeA && _lhs.gaugeB == _rhs.gaugeB &&
+         _lhs.statusBits == _rhs.statusBits;
+}
 
 void WriteEntityRecord(ByteWriter& _writer, const EntityRecord& _record) noexcept;
 [[nodiscard]] EntityRecord ReadEntityRecord(ByteReader& _reader) noexcept;

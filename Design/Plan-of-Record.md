@@ -1,7 +1,7 @@
 # Plan of Record
 
 **Status:** standing document, **revised in place** · opened 2026-08-22 · current as of
-2026-08-22. **This is the only document that says what is built next.** The three build orders
+2026-08-22 (U3d-a and U3d-b built). **This is the only document that says what is built next.** The three build orders
 say what a slice *contains* and record what happened when it landed; this one says which slice,
 and when. Where it and an ADR disagree the ADR wins on *what*, which is the rule the build
 orders already run under.
@@ -222,7 +222,9 @@ property of a viewer and the registry currently has no viewer to be a property o
 
 **Now, in order:**
 
-1. **U3d — interest & delta** *(was N1; specified in [Universe-Build-Order.md](Universe-Build-Order.md) on 2026-08-22)*. Retires R19, lifts the shared-grid gate, carries A11's remainder. **Three sub-slices on the repo's own seam:** **U3d-a** the ranking and the world-hash subtraction (device-free, `GameLogicTests`, and the one replay re-baseline in all of ADR-022); **U3d-b** the wire cluster — ack, delta header, keyframe on the new `Bulk` channel, u32 ids, relationship bits, the sent-view baseline ring, priority truncation; **U3d-c** the client half and the counted chip that makes `culledCount` an honest sentence rather than a silent absence.
+1. ~~**U3d — interest & delta**~~ — **U3d-a and U3d-b built 2026-08-22.** R19 is closed, the shared-grid gate (ADR-018 D3) is lifted, and A11's remainder landed with the `ShipId`/`EntityRecord::id` widening. What is left is **U3d-c's counted chip** — `culledCount` reaches `ReplicatedView::CulledCount()` and nothing draws it yet — and that is screen work, so it moves down to sit behind the input model with the rest of the screens. The client's ack, keyframe and delta-apply paths, which this plan listed under U3d-c, landed with U3d-b because the wire cannot be tested without a reader.
+
+    Two decisions the slice had to take rather than find, both recorded with it: **tier 1 reads as "inside the camera's extent"** rather than ADR-022 §4's literal "a visible relationship *and* inside the extent", because the first conjunct has no producer until the combat phase; and **`ViewFocus` had to be invented** — §4's query needs a focus, an extent and a selection, and §5a's guarantee cannot be kept for a selection nobody told the server about, which amends ADR-016 §7's "the server has no business holding this".
 2. **N2 — the user layer.** Small, unblocks T3's reorganisation room and closes 🏁 H1.
 3. ~~**The item-taxonomy ADR.**~~ **Done 2026-08-22** — [ADR-027](ADR/ADR-027-item-taxonomy.md).
 4. **N4, N5, N6.** Three small slices, each closing a named gap; N6 before U5 as A20 requires.
@@ -231,8 +233,8 @@ property of a viewer and the registry currently has no viewer to be a property o
 can land before a touch device exists; I3 cannot be accepted without one.
 
 **Then the screens, unchanged in content but re-based on the input model:** N3 (settings, which
-I3 needs for handedness and the Auto toggle), U3b's remainder, U4's client half, U5 **including
-N7**, U6, E5.
+I3 needs for handedness and the Auto toggle), **U3d-c's counted chip**, U3b's remainder, U4's
+client half, U5 **including N7**, U6, E5.
 
 **What moved and why:** every screen slice now sits behind the input model rather than beside it.
 Building a screen against the mouse adaptation and re-fitting it for touch afterwards is the
@@ -303,6 +305,18 @@ named.
   decision before I1 builds against it. Six of the fifteen tracked rulings closed. What remains
   unowned is the push-notification contradiction, and the fleet-template ADR is now the whole of
   the upstream-citation debt.
+- **2026-08-22 — U3d-a and U3d-b built; R19 closed.** The ranking and `lastOrderSeqProcessed`'s
+  departure from the world hash, then the whole wire cluster: `SnapshotAck`, `DeltaHeader`, the
+  keyframe on a new reliable `Bulk` channel, u32 ids across the sim and the wire together, the
+  viewer-relative relationship bits, the ring of views **as sent**, and priority truncation with
+  an honest `culledCount`. The replication cliff is removed rather than mitigated, so R19 closes
+  and ADR-018 D3's shared-grid gate lifts. Two things the slice had to decide rather than look
+  up are recorded in the build order beside it — tier 1's reading, and the `ViewFocus` message
+  ADR-022 §4 needs but does not name, which amends ADR-016 §7. Three defects fell out that were
+  older than the slice: a size helper that had stopped agreeing with its writer, a pick radius
+  that was an id sentinel, and a QUIC stream the peer had never heard of because nobody had
+  written to it. **What is left of U3d is the counted chip**, which is screen work and has moved
+  behind the input model with the other screens.
 - **2026-08-22 — N1 given a home and a specification.** It is **U3d** in
   [Universe-Build-Order.md](Universe-Build-Order.md), split a/b/c along the sim → wire → client
   seam, with acceptance criteria per sub-slice. The numbering takes ADR-018 A14 at its word

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ByteWriter.h"
+#include "DeltaReceiver.h"
 #include "HudRoster.h"
 #include "OrderIntent.h"
 #include "StationIntent.h"
@@ -47,22 +48,26 @@ public:
   virtual ~WorldView() = default;
 
   /*
-   * Hands the game one snapshot payload, exactly as it came off the wire, and
-   * asks what tick it described. Returns 0 if the payload was rejected.
+   * Hands the game one assembled tick and asks it to take it. False if the
+   * frame was rejected.
    *
-   * The tick is a *return* value rather than a parameter, and that is the whole
-   * design of this call. The engine has framed and ordered the payload and has
-   * not looked inside, so it cannot know which tick the bytes describe -- only
-   * the game can read that. Passing a tick in would mean the engine supplying a
-   * number it had guessed from somewhere else (the last `Pong`, say), and the
-   * clock estimate would then be built on a value that drifts from the payload
-   * it is supposed to time. Putting the tick in the framing as well would fix
-   * that and create two copies of one number, which is the arrangement S5b
-   * already refused for the content hash.
+   * **This used to be `ApplySnapshot(payload) -> tick`, and both halves of that
+   * changed with ADR-022.** The payload was opaque and the game read the tick
+   * out of it, because the whole snapshot was the game's from its first byte.
+   * Interest and delta made the envelope the engine's: reassembling a
+   * multi-part tick, holding the acked baseline and deciding when a tick is
+   * whole are decisions about a viewer and a link (§1), and `EntityRecord` is
+   * this library's type (ADR-014 §4). So the engine now *knows* the tick --
+   * `DeltaHeader` carries it -- and passing it in is no longer the engine
+   * guessing a number from somewhere else.
+   *
+   * What is still the game's, and still travels unread, is `ReplicatedFrame::tail`:
+   * the order-state records and the order high-water mark, under the game's own
+   * schema hash, exactly as a summary is.
    *
    * The tick is the only clock either side agrees on (ADR-002 §1).
    */
-  [[nodiscard]] virtual std::uint32_t ApplySnapshot(std::span<const std::uint8_t> _payload) = 0;
+  [[nodiscard]] virtual bool ApplyFrame(const ReplicatedFrame& _frame) = 0;
 
   /*
    * Hands the game one summary payload, the same way and with the same
@@ -186,7 +191,7 @@ public:
    *
    * Writes at most `_outKinds.size()` and returns how many.
    */
-  [[nodiscard]] virtual std::uint32_t OrderKinds(std::span<const std::uint16_t> _selectedIds,
+  [[nodiscard]] virtual std::uint32_t OrderKinds(std::span<const EntityId> _selectedIds,
                                                  std::span<OrderKindOption> _outKinds) const = 0;
 
   /*
@@ -207,7 +212,7 @@ public:
    * An empty answer is legitimate: a game with no groups has no roster, and the
    * panel draws its frame with nothing in it.
    */
-  [[nodiscard]] virtual std::uint32_t BuildRoster(std::span<const std::uint16_t> _selectedIds,
+  [[nodiscard]] virtual std::uint32_t BuildRoster(std::span<const EntityId> _selectedIds,
                                                   std::span<RosterRow> _outRows) const = 0;
 
   /*
@@ -225,7 +230,7 @@ public:
    * Defaulted rather than pure, because a game with no context verbs is a real
    * thing and every client before this one was one.
    */
-  [[nodiscard]] virtual bool ContextActionFor(std::uint16_t _entityId, std::span<const std::uint16_t> _selectedIds,
+  [[nodiscard]] virtual bool ContextActionFor(EntityId _entityId, std::span<const EntityId> _selectedIds,
                                               ContextAction& _outAction) const
   {
     (void)_entityId;
@@ -393,7 +398,7 @@ public:
    * Returns how many were written, never more than the span holds.
    */
   [[nodiscard]] virtual std::uint32_t BuildGroupMembers(std::uint16_t _groupId,
-                                                        std::span<std::uint16_t> _outIds) const
+                                                        std::span<EntityId> _outIds) const
   {
     (void)_groupId;
     (void)_outIds;
@@ -522,13 +527,13 @@ public:
 class NullWorldView final : public WorldView
 {
 public:
-  /// Records the size and reports no tick: a view with no world cannot say
-  /// when it is, and claiming a tick would give the clock estimate something
-  /// to track that nothing is producing.
-  [[nodiscard]] std::uint32_t ApplySnapshot(std::span<const std::uint8_t> _payload) override
+  /// Records the size and takes nothing: a view with no world has nowhere to
+  /// put a frame, and pretending otherwise would give the clock estimate
+  /// something to track that nothing is producing.
+  [[nodiscard]] bool ApplyFrame(const ReplicatedFrame& _frame) override
   {
-    m_lastPayloadBytes = static_cast<std::uint32_t>(_payload.size());
-    return 0;
+    m_lastPayloadBytes = static_cast<std::uint32_t>(_frame.entities.size() * ENTITY_RECORD_BYTES + _frame.tail.size());
+    return false;
   }
 
   void BuildScene(double, RenderScene& _outScene) override { _outScene.Clear(); }
@@ -545,12 +550,12 @@ public:
   [[nodiscard]] OrderDefaults DefaultOrder() const override { return OrderDefaults{}; }
 
   [[nodiscard]] std::uint32_t OrderOptions(std::uint16_t, std::span<OrderOption>) const override { return 0; }
-  [[nodiscard]] std::uint32_t OrderKinds(std::span<const std::uint16_t>, std::span<OrderKindOption>) const override
+  [[nodiscard]] std::uint32_t OrderKinds(std::span<const EntityId>, std::span<OrderKindOption>) const override
   {
     return 0;
   }
 
-  [[nodiscard]] std::uint32_t BuildRoster(std::span<const std::uint16_t>, std::span<RosterRow>) const override { return 0; }
+  [[nodiscard]] std::uint32_t BuildRoster(std::span<const EntityId>, std::span<RosterRow>) const override { return 0; }
 
   void PollOrderFeedback(OrderFeedback& _outFeedback) override { _outFeedback.Clear(); }
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EntityRecord.h" // EntityId, INVALID_ENTITY_ID (ADR-022 §8a).
+
 #include "IsoCamera.h"
 #include "OrderIntent.h"
 #include "RenderWorld.h"
@@ -141,7 +143,7 @@ private:
  * Two callers, both about the same fleet: the fallback facing, and where a
  * refused ghost bounces back to.
  */
-[[nodiscard]] bool SelectionCentre(std::span<const SceneEntity> _entities, std::span<const std::uint16_t> _ids,
+[[nodiscard]] bool SelectionCentre(std::span<const SceneEntity> _entities, std::span<const EntityId> _ids,
                                    DirectX::XMFLOAT2& _outMetres) noexcept;
 
 /*
@@ -152,7 +154,7 @@ private:
  * the selection is present, because `atan2(0, 0)` is a direction nobody asked
  * for.
  */
-[[nodiscard]] float TravelFacingRadians(std::span<const SceneEntity> _entities, std::span<const std::uint16_t> _ids,
+[[nodiscard]] float TravelFacingRadians(std::span<const SceneEntity> _entities, std::span<const EntityId> _ids,
                                         const DirectX::XMFLOAT2& _targetMetres, float _ifStationary) noexcept;
 
 /*
@@ -164,6 +166,6 @@ private:
  * the caller's selection, which must outlive the call the intent is passed to.
  */
 [[nodiscard]] OrderIntent MakeOrderIntent(const PuckSample& _sample, const OrderDefaults& _defaults,
-                                          std::span<const std::uint16_t> _ids, std::uint32_t _orderSeq) noexcept;
+                                          std::span<const EntityId> _ids, std::uint32_t _orderSeq) noexcept;
 
 } // namespace Neuron

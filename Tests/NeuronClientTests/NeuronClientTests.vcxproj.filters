@@ -39,6 +39,9 @@
     <ClCompile Include="SeamTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DeltaTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="PickingTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

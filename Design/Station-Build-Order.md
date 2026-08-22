@@ -288,8 +288,9 @@ hold at the narrowed cap and a 43-ship snapshot round-trips inside one datagram;
 pre-existing suite green. **ADR-018 additions:** the **over-cap refusal is tested loudly**
 (a grid pushed past the snapshot cap refuses with a counted, logged event — the designed
 behaviour until the interest/delta slice, A13/SIM-4 — now designed as
-[ADR-022](ADR/ADR-022-interest-and-delta.md), whose §6 replaces this refusal with priority
-truncation, and whose §1 is why the sender T2 writes must be **per client from its first
+[ADR-022](ADR/ADR-022-interest-and-delta.md) and **built 2026-08-22 as U3d-b**, whose §6
+replaced this refusal with priority truncation, and whose §1 is why the sender T2 writes must be
+**per client from its first
 line**); the roster message is observed to reach **only** its owner's connection — which
 ADR-022 §1 restates as a rule rather than a test: on a broadcast-shaped sender that privacy
 promise is a silent leak nothing catches, because nothing before U3c runs two clients — **and
@@ -311,7 +312,16 @@ because a system order has no sequence to echo, and a membership of exactly the 
 left. It is also the only observation in the gate that proves `systemIssued` did not disarm the
 protection it was issued alongside — the ships are parking *and* still wearing bit 0.
 
-**A fleet at the snapshot cap, round-tripped.** `TheMvpFleetFitsOneDatagram` puts 41 ships on
+**A fleet at the snapshot cap, round-tripped.** *(Both tests named here were retired by U3d-b
+on 2026-08-22, along with the cap they were about: ADR-022 §5b replaced the per-snapshot ship
+count with a per-tick byte budget spread over as many datagrams as it takes, and §6 replaced the
+refusal with priority truncation and an honest `culledCount`. What follows is the record of what
+T2 proved while the cap was real — `TheMvpFleetFitsOneDatagram` became
+`TheTickTailFitsBesideAUsefulNumberOfRecords`, and `AFleetAtTheCapRoundTripsInsideOneDatagram`
+plus `AFleetTooBigForOneDatagramIsRefusedRatherThanTruncated` became
+`AGridPastTheOldCapIsReplicatedRatherThanRefused`.)*
+
+`TheMvpFleetFitsOneDatagram` puts 41 ships on
 the wire and the static asserts cover the arithmetic; **neither ever encoded the cap itself**.
 That mattered more after T2 than before, because the cap fell 45 → 43 when `EntityRecord` grew
 its status byte, so the margin over the MVP's own content is two records — and a budget with

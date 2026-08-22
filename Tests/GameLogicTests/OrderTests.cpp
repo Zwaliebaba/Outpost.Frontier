@@ -48,6 +48,53 @@ namespace
 {
 
 /*
+ * What a session host would send this world's viewer, decoded (ADR-022).
+ *
+ * **This replaces a `WriteSnapshot`/`ReadSnapshot` round trip that no longer
+ * exists.** The envelope -- the header, the framing, the delta encoding -- is
+ * the engine's now (§1), so what a GameLogic test can still write and read is
+ * the two halves this library owns: the entity records and the tick tail. The
+ * struct puts them back in the shape the assertions below were written against,
+ * so a test about docking radii does not become a test about replication.
+ *
+ * No culling and no budget: every ship on the grid, in dense order. The engine's
+ * truncation is tested where it lives.
+ */
+struct DecodedFrame
+{
+  std::uint32_t tick = 0;
+  AnchorId gridAnchor = INVALID_ID;
+  std::vector<Neuron::EntityRecord> ships;
+  std::vector<OrderStateRecord> orders;
+  std::uint32_t lastOrderSeqProcessed = 0;
+};
+
+[[nodiscard]] DecodedFrame SendFrame(const World& _world, std::uint32_t _lastOrderSeq = 0)
+{
+  DecodedFrame frame;
+  frame.tick = _world.Tick();
+  frame.gridAnchor = _world.Anchor();
+  frame.ships.reserve(_world.ShipCount());
+  for (std::uint32_t slot = 0; slot < _world.ShipCount(); ++slot)
+  {
+    frame.ships.push_back(MakeShipRecord(_world, slot));
+  }
+
+  std::array<std::uint8_t, MAX_TICK_TAIL_BYTES> buffer{};
+  Neuron::ByteWriter writer{buffer};
+  if (WriteTickTail(_world, writer, _lastOrderSeq) && writer.Ok())
+  {
+    // Through the wire and back, so the test is reading what a client would
+    // rather than what the writer happened to hold.
+    Neuron::ByteReader reader{writer.Written()};
+    Assert::IsTrue(ReadTickTail(reader, frame.lastOrderSeqProcessed, frame.orders), L"the tail did not round-trip");
+    Assert::IsTrue(reader.FullyConsumed(), L"the tail had bytes nobody read");
+  }
+  return frame;
+}
+
+
+/*
  * The id the world would have minted before ADR-018 D6a moved allocation to the
  * registry: sequential from zero, per world.
  *
@@ -576,14 +623,8 @@ public:
     Assert::AreEqual<std::uint32_t>(FLEET_SIZE, dock.shipCount);
 
     // Through the wire, and back.
-    std::array<std::uint8_t, 2048> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer), L"the fleet plus its station must fit one datagram");
-
-    SnapshotHeader header;
-    std::vector<Neuron::EntityRecord> records;
-    Neuron::ByteReader reader{writer.Written()};
-    Assert::IsTrue(ReadSnapshot(reader, header, records));
+    const DecodedFrame header = SendFrame(world);
+    const std::vector<Neuron::EntityRecord>& records = header.ships;
     Assert::AreEqual<std::size_t>(FLEET_SIZE + 1, records.size(), L"the fleet and the station both have to arrive");
 
     // The client's view, built from what arrived and from nothing else.
@@ -643,13 +684,8 @@ public:
       Assert::IsTrue(strayed.AddShip(ship));
     }
 
-    std::array<std::uint8_t, 2048> strayedBuffer{};
-    Neuron::ByteWriter strayedWriter{strayedBuffer};
-    Assert::IsTrue(WriteSnapshot(distant, strayedWriter));
-    SnapshotHeader strayedHeader;
-    std::vector<Neuron::EntityRecord> strayedRecords;
-    Neuron::ByteReader strayedReader{strayedWriter.Written()};
-    Assert::IsTrue(ReadSnapshot(strayedReader, strayedHeader, strayedRecords));
+    const DecodedFrame strayedHeader = SendFrame(distant);
+    const std::vector<Neuron::EntityRecord>& strayedRecords = strayedHeader.ships;
 
     std::vector<ShipId> strayedIds;
     std::vector<ShipMark> strayedMarks;
@@ -1420,17 +1456,9 @@ public:
     Assert::IsTrue(world.SubmitOrder(queued).accepted);
     world.Tick(2);
 
-    std::array<std::uint8_t, 2048> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    // The session's high-water mark travels in (ADR-022 §7); what this test is
-    // about is the *record*, which is the half the world still owns.
-    Assert::IsTrue(WriteSnapshot(world, writer, 701));
-
-    Neuron::ByteReader reader{writer.Written()};
-    SnapshotHeader header;
-    std::vector<Neuron::EntityRecord> ships;
-    std::vector<OrderStateRecord> orders;
-    Assert::IsTrue(ReadSnapshot(reader, header, ships, orders));
+    const DecodedFrame header = SendFrame(world, 701);
+    const std::vector<Neuron::EntityRecord>& ships = header.ships;
+    const std::vector<OrderStateRecord>& orders = header.orders;
 
     Assert::AreEqual<std::uint32_t>(701, header.lastOrderSeqProcessed, L"the session's number, echoed");
     Assert::AreEqual<std::size_t>(1, orders.size());
@@ -1576,26 +1604,15 @@ public:
     (void)world.SubmitOrder(order);
     world.Tick(1);
 
-    std::array<std::uint8_t, 2048> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer, 42));
-
-    Neuron::ByteReader reader{writer.Written()};
-    SnapshotHeader header;
-    std::vector<Neuron::EntityRecord> ships;
-    Assert::IsTrue(ReadSnapshot(reader, header, ships));
-    Assert::AreEqual<std::uint32_t>(42, header.lastOrderSeqProcessed, L"the session's number must reach the wire");
+    const DecodedFrame served = SendFrame(world, 42);
+    Assert::AreEqual<std::uint32_t>(42, served.lastOrderSeqProcessed, L"the session's number must reach the wire");
+    Assert::AreEqual<std::size_t>(1, served.ships.size(), L"the ship rode along with it");
 
     // And the default is honest rather than a stub: a caller asking about a
     // world rather than serving a commander is told that nothing has been
     // acknowledged to anybody.
-    Neuron::ByteWriter unserved{buffer};
-    Assert::IsTrue(WriteSnapshot(world, unserved));
-    Neuron::ByteReader unservedReader{unserved.Written()};
-    SnapshotHeader unservedHeader;
-    ships.clear();
-    Assert::IsTrue(ReadSnapshot(unservedReader, unservedHeader, ships));
-    Assert::AreEqual<std::uint32_t>(0, unservedHeader.lastOrderSeqProcessed);
+    const DecodedFrame unserved = SendFrame(world);
+    Assert::AreEqual<std::uint32_t>(0, unserved.lastOrderSeqProcessed);
   }
 
   TEST_METHOD(ARetiredOrdersSequenceLeavesNoTraceInTheReplayDomain)
@@ -1740,6 +1757,9 @@ public:
     std::array<std::uint8_t, 256> buffer{};
     Neuron::ByteWriter writer{buffer};
     Assert::IsTrue(WriteOrderSubmit(sent, writer));
+    // Six bytes wider than before U3d-b: three ship ids at u32 instead of u16
+    // (ADR-022 §8a). Asserted against the function rather than a literal, so
+    // the width and the budget cannot drift apart.
     Assert::AreEqual(OrderSubmitBytes(3), writer.Written().size());
 
     Neuron::ByteReader reader{writer.Written()};
@@ -1880,19 +1900,11 @@ public:
     const OrderVerdict verdict = world.SubmitOrder(order);
     world.Tick(1);
 
-    std::array<std::uint8_t, 2048> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    // 99 is the session's number now rather than the world's (ADR-022 §7); the
-    // group record beside it is still the world's, which is what this checks.
-    Assert::IsTrue(WriteSnapshot(world, writer, 99));
+    const DecodedFrame header = SendFrame(world, 99);
+    const std::vector<Neuron::EntityRecord>& ships = header.ships;
+    const std::vector<OrderStateRecord>& orders = header.orders;
 
-    Neuron::ByteReader reader{writer.Written()};
-    SnapshotHeader header;
-    std::vector<Neuron::EntityRecord> ships;
-    std::vector<OrderStateRecord> orders;
-    Assert::IsTrue(ReadSnapshot(reader, header, ships, orders));
-
-    Assert::AreEqual<std::uint16_t>(1, header.orderCount);
+    Assert::AreEqual<std::size_t>(1, header.orders.size());
     Assert::AreEqual<std::uint32_t>(99, header.lastOrderSeqProcessed);
     Assert::AreEqual<std::size_t>(1, orders.size());
     Assert::AreEqual<std::uint32_t>(verdict.serverOrderId, orders[0].serverOrderId);
@@ -1909,19 +1921,20 @@ public:
     (void)SpawnAt(world, HullClass::Interceptor);
     world.Tick(1);
 
-    std::array<std::uint8_t, 2048> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
+    const DecodedFrame header = SendFrame(world);
+    const std::vector<Neuron::EntityRecord>& ships = header.ships;
+    const std::vector<OrderStateRecord>& orders = header.orders;
 
-    Neuron::ByteReader reader{writer.Written()};
-    SnapshotHeader header;
-    std::vector<Neuron::EntityRecord> ships;
-    std::vector<OrderStateRecord> orders;
-    Assert::IsTrue(ReadSnapshot(reader, header, ships, orders));
-
-    Assert::AreEqual<std::uint16_t>(0, header.orderCount);
     Assert::IsTrue(orders.empty());
-    Assert::AreEqual(SnapshotBytes(1, 0), writer.Written().size(), L"an idle world pays nothing for the order area");
+    Assert::AreEqual<std::size_t>(1, ships.size());
+
+    // An idle world's tail is its header and nothing else -- the order area is
+    // *reserved* in the engine's packing, not spent on the wire.
+    std::array<std::uint8_t, MAX_TICK_TAIL_BYTES> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteTickTail(world, writer, 0));
+    Assert::AreEqual<std::size_t>(TICK_TAIL_HEADER_BYTES, writer.BytesWritten(),
+                                 L"an idle world pays nothing for the order area");
   }
 
   TEST_METHOD(OrdersAreTruncatedWhereShipsWouldBeRefused)
@@ -1950,28 +1963,31 @@ public:
     }
     Assert::IsTrue(world.Groups().size() > MAX_ORDERS_PER_SNAPSHOT);
 
-    std::array<std::uint8_t, 2048> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer), L"a busy world still produces a snapshot");
+    const DecodedFrame header = SendFrame(world);
+    const std::vector<Neuron::EntityRecord>& read = header.ships;
+    const std::vector<OrderStateRecord>& orders = header.orders;
 
-    Neuron::ByteReader reader{writer.Written()};
-    SnapshotHeader header;
-    std::vector<Neuron::EntityRecord> read;
-    std::vector<OrderStateRecord> orders;
-    Assert::IsTrue(ReadSnapshot(reader, header, read, orders));
-
-    Assert::AreEqual<std::uint16_t>(MAX_ORDERS_PER_SNAPSHOT, header.orderCount);
+    Assert::AreEqual<std::size_t>(MAX_ORDERS_PER_SNAPSHOT, orders.size());
     Assert::AreEqual<std::size_t>(ships.size(), read.size(), L"every ship is present even when orders were cut");
   }
 
-  TEST_METHOD(TheOrderAreaIsReservedSoTheShipCapNeverMoves)
+  TEST_METHOD(TheOrderAreaIsBoundedSoTheEngineCanReserveIt)
   {
-    // A constant the client can rely on. If the ship cap were "whatever is
-    // left", it would shrink as the player issued orders -- and the failure
-    // would be a fleet that stops replicating when it gets busy.
-    Assert::IsTrue(MAX_SHIPS_PER_SNAPSHOT >= 41);
-    Assert::IsTrue(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES);
-    Assert::IsTrue(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT + 1, MAX_ORDERS_PER_SNAPSHOT) > SNAPSHOT_BUDGET_BYTES);
+    /*
+     * **This used to be `TheOrderAreaIsReservedSoTheShipCapNeverMoves`**, and
+     * the thing it protected -- a ship cap that would otherwise shrink as the
+     * player issued orders -- stopped existing with ADR-022 §5b. There is no
+     * ship cap: a tick's records are bounded by a byte budget and spill into as
+     * many datagrams as they need.
+     *
+     * The reservation still matters for the opposite reason. The engine puts
+     * the tail in part zero and reserves room for it *before* it packs records,
+     * so what has to be true is that the tail is **bounded** -- an order area
+     * that could grow without limit could not be reserved, and a busy player
+     * would push records out of their own first datagram.
+     */
+    Assert::AreEqual<std::size_t>(TICK_TAIL_HEADER_BYTES + ORDER_AREA_BYTES, MAX_TICK_TAIL_BYTES);
+    Assert::IsTrue(MAX_TICK_TAIL_BYTES < Neuron::MAX_DATAGRAM_BYTES / 4, L"the tail must not be most of its part");
   }
 };
 
@@ -2009,14 +2025,9 @@ public:
     // While it lingers, the wire says so: the whole point of the linger is
     // that the client sees `Done` at least once instead of inferring it from
     // an absence.
-    std::array<std::uint8_t, 2048> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
-    Neuron::ByteReader reader{writer.Written()};
-    SnapshotHeader header;
-    std::vector<Neuron::EntityRecord> ships;
-    std::vector<OrderStateRecord> orders;
-    Assert::IsTrue(ReadSnapshot(reader, header, ships, orders));
+    const DecodedFrame header = SendFrame(world);
+    const std::vector<Neuron::EntityRecord>& ships = header.ships;
+    const std::vector<OrderStateRecord>& orders = header.orders;
     Assert::AreEqual<std::size_t>(1, orders.size());
     Assert::AreEqual<std::uint8_t>(static_cast<std::uint8_t>(OrderState::Done), orders[0].state,
                                    L"the linger exists so this record can exist");
@@ -2062,16 +2073,11 @@ public:
     Assert::AreEqual<std::size_t>(MAX_ORDERS_PER_SNAPSHOT + 1, world.Groups().size(),
                                   L"sixteen corpses and one live order share the table");
 
-    std::array<std::uint8_t, 2048> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
-    Neuron::ByteReader reader{writer.Written()};
-    SnapshotHeader header;
-    std::vector<Neuron::EntityRecord> ships;
-    std::vector<OrderStateRecord> orders;
-    Assert::IsTrue(ReadSnapshot(reader, header, ships, orders));
+    const DecodedFrame header = SendFrame(world);
+    const std::vector<Neuron::EntityRecord>& ships = header.ships;
+    const std::vector<OrderStateRecord>& orders = header.orders;
 
-    Assert::AreEqual<std::uint16_t>(MAX_ORDERS_PER_SNAPSHOT, header.orderCount, L"the cap itself is unchanged");
+    Assert::AreEqual<std::size_t>(MAX_ORDERS_PER_SNAPSHOT, orders.size(), L"the cap itself is unchanged");
     bool liveReported = false;
     for (const OrderStateRecord& record : orders)
     {
@@ -2524,15 +2530,9 @@ public:
     const float source = world.LegEtaSeconds(world.Groups()[0]);
     Assert::IsTrue(source > 0.0f);
 
-    std::array<std::uint8_t, 2048> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
-
-    Neuron::ByteReader reader{writer.Written()};
-    SnapshotHeader header;
-    std::vector<Neuron::EntityRecord> ships;
-    std::vector<OrderStateRecord> orders;
-    Assert::IsTrue(ReadSnapshot(reader, header, ships, orders));
+    const DecodedFrame header = SendFrame(world);
+    const std::vector<Neuron::EntityRecord>& ships = header.ships;
+    const std::vector<OrderStateRecord>& orders = header.orders;
     Assert::AreEqual<std::size_t>(1, orders.size());
 
     Assert::AreEqual<std::uint16_t>(static_cast<std::uint16_t>(std::ceil(source)), orders[0].etaSeconds);
@@ -2542,11 +2542,20 @@ public:
 
   TEST_METHOD(TheOrderAreaStillFitsWithTheEtaOnIt)
   {
-    // The record grew from 12 bytes to 14, and the comment on it says a field
-    // added here costs ships. It cost two.
+    /*
+     * The record grew from 12 bytes to 14 when S12 put the ETA on it, and the
+     * comment on it says a field added here costs ships. It cost two.
+     *
+     * **What it costs now is different and smaller** (ADR-022 §5b): the order
+     * area no longer competes with a ship cap, because there is no ship cap --
+     * it competes with records in part zero of a tick, which the engine
+     * reserves for it in advance. So the assertion that used to be "41 still
+     * fit" is now "the tail is still bounded and still small beside a
+     * datagram", which is the property the reservation actually needs.
+     */
     Assert::AreEqual<std::size_t>(14, ORDER_STATE_RECORD_BYTES);
-    Assert::IsTrue(MAX_SHIPS_PER_SNAPSHOT >= 41, L"the MVP fleet still has to fit one datagram");
-    Assert::IsTrue(SnapshotBytes(MAX_SHIPS_PER_SNAPSHOT, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES);
+    Assert::AreEqual<std::size_t>(TICK_TAIL_HEADER_BYTES + ORDER_AREA_BYTES, MAX_TICK_TAIL_BYTES);
+    Assert::IsTrue(MAX_TICK_TAIL_BYTES < Neuron::MAX_DATAGRAM_BYTES / 4, L"the tail must not crowd out part zero");
     Assert::IsTrue(GAME_SCHEMA_TEXT.find("u16 etaSeconds") != std::string_view::npos,
                    L"a field on the wire that is not in the schema is two builds disagreeing silently");
   }

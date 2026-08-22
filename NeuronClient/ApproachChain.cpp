@@ -7,7 +7,7 @@
 namespace Neuron
 {
 
-bool ApproachChain::Begin(const ContextAction& _action, std::span<const std::uint16_t> _ships) noexcept
+bool ApproachChain::Begin(const ContextAction& _action, std::span<const EntityId> _ships) noexcept
 {
   if (!_action.available || _ships.empty() || _ships.size() > MAX_SHIPS)
   {
@@ -37,7 +37,7 @@ void ApproachChain::NoteOrderRefused(std::uint32_t _orderSeq) noexcept
   }
 }
 
-void ApproachChain::NoteWorld(std::span<const std::uint16_t> _liveIds) noexcept
+void ApproachChain::NoteWorld(std::span<const EntityId> _liveIds) noexcept
 {
   if (!m_active)
   {
@@ -45,7 +45,7 @@ void ApproachChain::NoteWorld(std::span<const std::uint16_t> _liveIds) noexcept
   }
   for (std::uint32_t index = 0; index < m_shipCount; ++index)
   {
-    const std::uint16_t ship = m_ships[index];
+    const EntityId ship = m_ships[index];
     if (std::find(_liveIds.begin(), _liveIds.end(), ship) == _liveIds.end())
     {
       m_active = false;

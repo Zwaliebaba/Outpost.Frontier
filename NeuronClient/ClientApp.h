@@ -131,6 +131,15 @@ private:
   void AdvanceApproach(double _nowSeconds);
 
   /*
+   * Reports the camera and the selection to the server (ADR-022 §4).
+   *
+   * Sent when it changes rather than every frame, so the retained copy below is
+   * what "changed" is measured against. Quantised before comparing, because the
+   * wire is quantised and a difference the server cannot see is not a change.
+   */
+  void SendViewFocus();
+
+  /*
    * What the client throws away when the feed points somewhere else
    * (ADR-016 9's ~200 ms settle).
    *
@@ -329,7 +338,12 @@ private:
 
   /// Scratch for the approach's liveness check, kept rather than made each
   /// frame: this runs at display rate.
-  std::vector<std::uint16_t> m_liveIds;
+  std::vector<EntityId> m_liveIds;
+
+  /// The last `ViewFocus` this client actually put on the wire. Held so a
+  /// camera that has not moved and a selection that has not changed cost
+  /// nothing (ADR-022 §4).
+  ViewFocus m_sentFocus;
 
   /// Reused across frames, like the scene: polled every frame and thrown away.
   OrderFeedback m_orderFeedback;
@@ -631,7 +645,7 @@ private:
    * count of that wing in this frame. Exact by construction, so the seam call
    * can never truncate and no cap has to be invented for it.
    */
-  std::vector<std::uint16_t> m_groupMembers;
+  std::vector<EntityId> m_groupMembers;
 
   /// Where the selected ships are, for the camera to frame. A member for
   /// `m_groupMembers`' reason: a press should not allocate.

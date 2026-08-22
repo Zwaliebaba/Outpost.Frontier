@@ -51,7 +51,7 @@ namespace Neuron
  */
 struct SceneEntity
 {
-  std::uint16_t id = INVALID_ENTITY_ID;
+  EntityId id = INVALID_ENTITY_ID;
   DirectX::XMFLOAT2 planeMetres{};  // Sim plane metres (ADR-001 §3), not render space.
   float pickRadiusMetres = 0.0f;    // The class's, so a Battleship is easier to hit than a fighter.
   std::uint8_t hullGauge = 0;    // 0-255, not a percentage. Full is 255.

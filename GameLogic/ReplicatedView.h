@@ -107,10 +107,27 @@ public:
   /// 20 Hz (ADR-002 §4), and the number the icon sheet's STALE marker means.
   static constexpr double MAX_EXTRAPOLATION_TICKS = 5.0;
 
-  /// Applies one snapshot payload, exactly as it came off the wire. Returns
-  /// false on a malformed or truncated payload, leaving the view untouched --
-  /// a half-applied snapshot is a corrupt view, and the next one is 50 ms away.
-  [[nodiscard]] bool ApplySnapshot(std::span<const std::uint8_t> _payload);
+  /*
+   * Applies one tick's worth of replicated state (ADR-022).
+   *
+   * **The entities arrive already assembled.** Interest, delta encoding, the
+   * baseline ring and the reassembly of a multi-part tick are the engine's
+   * (ADR-022 §1, §2b): they are decisions about a viewer and a link, and
+   * `EntityRecord` is NeuronCore's type. What reaches this library is what the
+   * client's picture of the grid *is* at `_tick`, plus the game's own tail --
+   * the order-state records and the order high-water mark, which travel opaque
+   * to the engine under the game's schema hash.
+   *
+   * `_culledCount` is ADR-022 §5d: how many entities on this grid are not being
+   * sent. Held rather than acted on, so the counted chip can say *how many* the
+   * player is not being shown rather than the view pretending the grid is that
+   * size.
+   *
+   * Returns false on a malformed or truncated tail, leaving the view untouched
+   * -- a half-applied frame is a corrupt view, and the next one is 50 ms away.
+   */
+  [[nodiscard]] bool ApplyFrame(std::uint32_t _tick, AnchorId _gridAnchor, std::uint16_t _culledCount,
+                                std::span<const Neuron::EntityRecord> _entities, std::span<const std::uint8_t> _tail);
 
   /*
    * Samples the world at a fractional tick.
@@ -129,7 +146,7 @@ public:
   /// Which grid the view is currently holding, or `INVALID_ID` before the first
   /// snapshot. A change here is a view switch, and the history was dropped on
   /// the frame that changed it (U3b's smear guard).
-  [[nodiscard]] AnchorId Grid() const noexcept { return m_count > 0 ? m_frames[0].header.gridAnchor : INVALID_ID; }
+  [[nodiscard]] AnchorId Grid() const noexcept { return m_count > 0 ? m_frames[0].gridAnchor : INVALID_ID; }
   [[nodiscard]] std::uint32_t LatestTick() const noexcept;
   [[nodiscard]] std::uint32_t OldestTick() const noexcept;
   [[nodiscard]] std::size_t SnapshotCount() const noexcept { return m_count; }
@@ -157,12 +174,25 @@ public:
   /// when a snapshot arrives out of order.
   [[nodiscard]] std::uint32_t LastOrderSeqProcessed() const noexcept;
 
+  /*
+   * How many entities on this grid the newest frame did **not** carry
+   * (ADR-022 §5d).
+   *
+   * Culling is stated to the player, never silent: the icon ladder's counted
+   * chip draws this, so a grid over budget reads as "and 40 more" rather than
+   * as a grid with forty fewer ships on it. Zero is the ordinary case and means
+   * the client is seeing everything.
+   */
+  [[nodiscard]] std::uint16_t CulledCount() const noexcept { return m_count > 0 ? m_frames[0].culledCount : 0; }
+
   void Clear() noexcept;
 
 private:
   struct Frame
   {
-    SnapshotHeader header;
+    std::uint32_t tick = 0;
+    AnchorId gridAnchor = INVALID_ID;
+    std::uint16_t culledCount = 0;
     std::vector<Neuron::EntityRecord> ships;
   };
 
@@ -176,6 +206,11 @@ private:
   /// nothing looks back at an older one, and a per-frame copy would be seven
   /// vectors kept alive so that none of them is read.
   std::vector<OrderStateRecord> m_latestOrders;
+
+  /// The newest frame's order high-water mark, beside its orders and for the
+  /// same reason. It is the *session's* number (ADR-022 §7) and arrives in the
+  /// game's tail, which is the only part of a frame this library still parses.
+  std::uint32_t m_lastOrderSeqProcessed = 0;
 };
 
 } // namespace Game

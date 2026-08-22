@@ -83,14 +83,14 @@ PuckSample OrderPuck::Resolve(const PlaneMapping& _mapping, std::uint32_t _viewp
   return sample;
 }
 
-bool SelectionCentre(std::span<const SceneEntity> _entities, std::span<const std::uint16_t> _ids,
+bool SelectionCentre(std::span<const SceneEntity> _entities, std::span<const EntityId> _ids,
                      XMFLOAT2& _outMetres) noexcept
 {
   float sumX = 0.0f;
   float sumY = 0.0f;
   std::uint32_t found = 0;
 
-  for (const std::uint16_t id : _ids)
+  for (const EntityId id : _ids)
   {
     const auto entity = std::find_if(_entities.begin(), _entities.end(), [id](const SceneEntity& _e) { return _e.id == id; });
     if (entity == _entities.end())
@@ -112,7 +112,7 @@ bool SelectionCentre(std::span<const SceneEntity> _entities, std::span<const std
   return true;
 }
 
-float TravelFacingRadians(std::span<const SceneEntity> _entities, std::span<const std::uint16_t> _ids,
+float TravelFacingRadians(std::span<const SceneEntity> _entities, std::span<const EntityId> _ids,
                           const XMFLOAT2& _targetMetres, float _ifStationary) noexcept
 {
   XMFLOAT2 centre{};
@@ -130,7 +130,7 @@ float TravelFacingRadians(std::span<const SceneEntity> _entities, std::span<cons
   return std::atan2(dy, dx);
 }
 
-OrderIntent MakeOrderIntent(const PuckSample& _sample, const OrderDefaults& _defaults, std::span<const std::uint16_t> _ids,
+OrderIntent MakeOrderIntent(const PuckSample& _sample, const OrderDefaults& _defaults, std::span<const EntityId> _ids,
                             std::uint32_t _orderSeq) noexcept
 {
   OrderIntent intent;

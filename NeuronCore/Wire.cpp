@@ -4,6 +4,8 @@
 
 #include "Hash.h"
 
+#include <algorithm>
+
 namespace Neuron
 {
 
@@ -185,6 +187,100 @@ void Write(ByteWriter& _writer, const Goodbye& _message) noexcept
 bool Read(ByteReader& _reader, Goodbye& _outMessage) noexcept
 {
   _outMessage.reason = _reader.ReadUInt16();
+  return _reader.Ok();
+}
+
+void Write(ByteWriter& _writer, const SnapshotAck& _message) noexcept
+{
+  _writer.WriteUInt16(_message.gridId);
+  _writer.WriteUInt32(_message.tick);
+}
+
+bool Read(ByteReader& _reader, SnapshotAck& _outMessage) noexcept
+{
+  _outMessage.gridId = _reader.ReadUInt16();
+  _outMessage.tick = _reader.ReadUInt32();
+  return _reader.Ok();
+}
+
+void Write(ByteWriter& _writer, const DeltaHeader& _message) noexcept
+{
+  _writer.WriteUInt32(_message.tick);
+  _writer.WriteUInt32(_message.baselineTick);
+  _writer.WriteUInt16(_message.gridId);
+  _writer.WriteUInt16(_message.culledCount);
+  _writer.WriteUInt8(_message.partIndex);
+  _writer.WriteUInt8(_message.partCount);
+  _writer.WriteUInt16(_message.recordCount);
+}
+
+bool Read(ByteReader& _reader, DeltaHeader& _outMessage) noexcept
+{
+  _outMessage.tick = _reader.ReadUInt32();
+  _outMessage.baselineTick = _reader.ReadUInt32();
+  _outMessage.gridId = _reader.ReadUInt16();
+  _outMessage.culledCount = _reader.ReadUInt16();
+  _outMessage.partIndex = _reader.ReadUInt8();
+  _outMessage.partCount = _reader.ReadUInt8();
+  _outMessage.recordCount = _reader.ReadUInt16();
+  // A header that indexes past its own part count describes a message that
+  // cannot exist. Refused here rather than treated as a partial tick, because
+  // ADR-022 §2d's whole-tick rule is checked against `partCount` and a nonsense
+  // one would make the ack fire on a tick the client does not hold.
+  return _reader.Ok() && _outMessage.partCount > 0 && _outMessage.partIndex < _outMessage.partCount;
+}
+
+void Write(ByteWriter& _writer, const KeyframeHeader& _message) noexcept
+{
+  _writer.WriteUInt32(_message.tick);
+  _writer.WriteUInt16(_message.gridId);
+  _writer.WriteUInt16(_message.culledCount);
+  _writer.WriteUInt32(_message.recordCount);
+}
+
+bool Read(ByteReader& _reader, KeyframeHeader& _outMessage) noexcept
+{
+  _outMessage.tick = _reader.ReadUInt32();
+  _outMessage.gridId = _reader.ReadUInt16();
+  _outMessage.culledCount = _reader.ReadUInt16();
+  _outMessage.recordCount = _reader.ReadUInt32();
+  return _reader.Ok();
+}
+
+void Write(ByteWriter& _writer, const ViewFocus& _message) noexcept
+{
+  _writer.WriteUInt16(_message.gridId);
+  _writer.WriteInt32(_message.focusXCm);
+  _writer.WriteInt32(_message.focusYCm);
+  _writer.WriteUInt32(_message.halfExtentCm);
+  const auto count = static_cast<std::uint16_t>(std::min<std::size_t>(_message.selection.size(), MAX_VIEW_SELECTION));
+  _writer.WriteUInt16(count);
+  for (std::uint16_t index = 0; index < count; ++index)
+  {
+    _writer.WriteUInt32(_message.selection[index]);
+  }
+}
+
+bool Read(ByteReader& _reader, ViewFocus& _outMessage)
+{
+  _outMessage.gridId = _reader.ReadUInt16();
+  _outMessage.focusXCm = _reader.ReadInt32();
+  _outMessage.focusYCm = _reader.ReadInt32();
+  _outMessage.halfExtentCm = _reader.ReadUInt32();
+  const std::uint16_t count = _reader.ReadUInt16();
+  if (!_reader.Ok() || count > MAX_VIEW_SELECTION)
+  {
+    // Refused, not clamped. A truncated selection is a *different* selection,
+    // and ADR-022 §5a's guarantee would then be kept for the wrong set of
+    // ships -- which is worse than not keeping it, because it would look kept.
+    return false;
+  }
+  _outMessage.selection.clear();
+  _outMessage.selection.reserve(count);
+  for (std::uint16_t index = 0; index < count; ++index)
+  {
+    _outMessage.selection.push_back(_reader.ReadUInt32());
+  }
   return _reader.Ok();
 }
 

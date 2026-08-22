@@ -269,7 +269,7 @@ public:
     // The answer for a plain right-click, which is the common case and says
     // nothing about heading. Ships at the origin, target due east: east.
     const std::vector<SceneEntity> entities{Ship(1, -10.0f, 0.0f), Ship(2, 10.0f, 0.0f)};
-    const std::uint16_t ids[] = {1, 2};
+    const EntityId ids[] = {1, 2};
 
     const float facing = TravelFacingRadians(entities, ids, XMFLOAT2{5000.0f, 0.0f}, 99.0f);
     AssertAngleNear(0.0f, facing, 0.001f, L"travelling east means arriving facing east");
@@ -278,7 +278,7 @@ public:
   TEST_METHOD(TheCentreIsTheAverageOfWhatIsActuallyThere)
   {
     const std::vector<SceneEntity> entities{Ship(1, 0.0f, 0.0f), Ship(2, 100.0f, 200.0f)};
-    const std::uint16_t ids[] = {1, 2};
+    const EntityId ids[] = {1, 2};
 
     XMFLOAT2 centre{};
     Assert::IsTrue(SelectionCentre(entities, ids, centre), L"two present ships have a centre");
@@ -296,7 +296,7 @@ public:
      * is the same argument the overlay's own skip is made with.
      */
     const std::vector<SceneEntity> entities{Ship(1, 1000.0f, 1000.0f)};
-    const std::uint16_t ids[] = {1, 777};
+    const EntityId ids[] = {1, 777};
 
     XMFLOAT2 centre{};
     Assert::IsTrue(SelectionCentre(entities, ids, centre), L"one of the two is present");
@@ -307,7 +307,7 @@ public:
   TEST_METHOD(NothingPresentHasNoCentreAndNoFacing)
   {
     const std::vector<SceneEntity> entities{Ship(1, 0.0f, 0.0f)};
-    const std::uint16_t ids[] = {42};
+    const EntityId ids[] = {42};
 
     XMFLOAT2 centre{7.0f, 9.0f};
     Assert::IsFalse(SelectionCentre(entities, ids, centre), L"a fleet of nothing has no centre");
@@ -323,7 +323,7 @@ public:
     // atan2(0, 0) is a direction nobody asked for, and a right-click on top of
     // the fleet is a real thing a player does when nudging a formation.
     const std::vector<SceneEntity> entities{Ship(1, 250.0f, -75.0f)};
-    const std::uint16_t ids[] = {1};
+    const EntityId ids[] = {1};
 
     Assert::AreEqual(0.5f, TravelFacingRadians(entities, ids, XMFLOAT2{250.0f, -75.0f}, 0.5f),
                      L"no travel means no travel heading");
@@ -344,7 +344,7 @@ public:
     defaults.kind = 3;      // Whatever the game said. The client never reads it.
     defaults.parameter = 7; // Likewise.
 
-    const std::uint16_t ids[] = {11, 22, 33};
+    const EntityId ids[] = {11, 22, 33};
     const OrderIntent intent = MakeOrderIntent(sample, defaults, ids, 9u);
 
     Assert::AreEqual<std::uint16_t>(3, intent.kind, L"the kind is the game's, copied");
@@ -365,7 +365,7 @@ public:
     // already guess the answer to. Guessing here would be a second validator.
     const PuckSample sample;
     const OrderDefaults defaults;
-    const OrderIntent intent = MakeOrderIntent(sample, defaults, std::span<const std::uint16_t>{}, 1u);
+    const OrderIntent intent = MakeOrderIntent(sample, defaults, std::span<const EntityId>{}, 1u);
 
     Assert::AreEqual<std::uint32_t>(0, intent.entityCount, L"no ships");
     Assert::AreEqual<std::uint32_t>(1, intent.orderSeq, L"but a real sequence");

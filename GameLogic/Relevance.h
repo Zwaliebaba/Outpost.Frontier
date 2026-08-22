@@ -1,8 +1,6 @@
 #pragma once
 
 #include "Ids.h"
-#include "World.h"
-#include "WorldRegistry.h"
 
 #include "Wire.h"
 
@@ -33,6 +31,15 @@
 
 namespace Game
 {
+
+/*
+ * Declared rather than included, and deliberately: `Snapshot.h` needs
+ * `Relationship` to pack a status byte, and pulling the registry and the world
+ * in behind that would make the wire's header depend on the simulation's. The
+ * definitions are where they are used, in `Relevance.cpp`.
+ */
+class World;
+class WorldRegistry;
 
 /*
  * What one viewer is to one ship (ADR-022 §8b).
@@ -124,10 +131,16 @@ struct RelevanceQuery
  * expresses that. When a hostility model exists the conjunct is added here;
  * the tier does not have to be invented then.
  *
+ * **The return value is how many of the front are tier 0** -- the guaranteed
+ * prefix ADR-022 §5a says is never culled. The engine cannot work it out for
+ * itself: which ships are guaranteed is game semantics, and the whole point of
+ * ranking here is that the engine does not have to know any of it. When that
+ * prefix alone costs more than a tick's budget, §5c says the budget loses.
+ *
  * `_world` must be the grid `_query.grid` names. The registry is what supplies
  * ownership, which lives on the ship-to-owner index and not on the world.
  */
-void RankRelevance(const WorldRegistry& _registry, const World& _world, const RelevanceQuery& _query,
-                   std::vector<ShipId>& _outRanked);
+[[nodiscard]] std::uint32_t RankRelevance(const WorldRegistry& _registry, const World& _world, const RelevanceQuery& _query,
+                                          std::vector<ShipId>& _outRanked);
 
 } // namespace Game

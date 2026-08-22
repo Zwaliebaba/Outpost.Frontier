@@ -5,8 +5,8 @@
 per-session state and leaves the world hash, because with two commanders it is wrong twice
 over — one player's sequence perturbs the other's feedback loop, and a replay's hash depends
 on who submitted. **Landed 2026-08-22 with U3d-a**: the field left `World` entirely, the
-session (`SnapshotSender`) keeps it per viewer, and `Game::WriteSnapshot` takes it as an
-argument. Every replay hash moved once, here; no golden is stored in this tree, so the
+session (`SnapshotSender`) keeps it per viewer, and the game's writer takes it as an
+argument (`Game::WriteSnapshot` then; `Game::WriteTickTail` since U3d-b split the payload). Every replay hash moved once, here; no golden is stored in this tree, so the
 re-baseline is the two-run comparisons re-agreeing on a new number rather than an edit ·
 §2's "no inter-ship avoidance in MVP" superseded by
 [ADR-015](ADR-015-ship-collision.md) (2026-08-18), which lands the avoidance this ADR's

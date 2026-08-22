@@ -228,27 +228,6 @@ public:
    * starts answering "which grid is this player watching", the call site above
    * it does not change.
    */
-  [[nodiscard]] bool WriteSnapshot(const SnapshotRequest& _request, ByteWriter& _writer) override
-  {
-    /*
-     * The grid the *viewer* asked for, not the one the session started on
-     * (ADR-016 §4). The session role decides which anchor this is and has
-     * already gated it through `MayView`; borrowing it here is what makes the
-     * decision real.
-     *
-     * Borrowed and never stored, like every other use (ADR-019 §6.1). A grid
-     * that has torn down under a viewer since the request answers `nullptr`,
-     * and that is a refusal rather than a crash: no snapshot goes out, the
-     * sender counts it, and the presence-edge rules that decide where the
-     * viewer lands instead are A16's, not this function's.
-     */
-    Game::World* world = m_registry.Borrow(static_cast<Game::AnchorId>(_request.grid));
-    // The order sequence comes in with the request rather than off the world
-    // (ADR-022 §7): it is the session's count of what *this* commander has had
-    // accepted, and a world has no viewers to count for.
-    return world != nullptr && Game::WriteSnapshot(*world, _writer, _request.lastOrderSeqProcessed);
-  }
-
   /*
    * The relevance hook (ADR-022 §4), forwarded and not implemented here.
    *
@@ -263,13 +242,13 @@ public:
    * nobody is standing on, and the presence-edge rules that decide where the
    * viewer lands instead are A16's rather than this function's.
    */
-  void RankRelevance(const InterestQuery& _query, std::vector<std::uint16_t>& _outRanked) override
+  [[nodiscard]] std::uint32_t RankRelevance(const InterestQuery& _query, std::vector<std::uint32_t>& _outRanked) override
   {
     _outRanked.clear();
     const Game::World* world = m_registry.Borrow(static_cast<Game::AnchorId>(_query.grid));
     if (world == nullptr)
     {
-      return;
+      return 0;
     }
 
     Game::RelevanceQuery query;
@@ -281,7 +260,64 @@ public:
     query.viewHalfExtentMetres = _query.viewHalfExtentMetres;
     query.tick = _query.tick;
 
-    Game::RankRelevance(m_registry, *world, query, _outRanked);
+    return Game::RankRelevance(m_registry, *world, query, _outRanked);
+  }
+
+  /*
+   * The records for exactly the entities the engine chose (ADR-022 §1, §8).
+   *
+   * Wiring again, with one decision in it: the **relationship** each record
+   * carries is the viewer's, computed here because it is viewer-relative and
+   * could not live on a world (§8b). It costs two bits of a byte the record
+   * already had, where an owner id would have cost four bytes on every entity
+   * every tick.
+   *
+   * An id the world does not hold is skipped rather than filled with a
+   * placeholder: a ship can despawn between the ranking and this call, and a
+   * placeholder would be a hull the client draws at the origin.
+   */
+  void WriteEntities(const SnapshotRequest& _request, std::span<const std::uint32_t> _ids,
+                     std::vector<EntityRecord>& _outRecords) override
+  {
+    _outRecords.clear();
+    const Game::World* world = m_registry.Borrow(static_cast<Game::AnchorId>(_request.grid));
+    if (world == nullptr)
+    {
+      return;
+    }
+
+    _outRecords.reserve(_ids.size());
+    for (const std::uint32_t id : _ids)
+    {
+      std::uint32_t slot = 0;
+      if (!world->FindSlot(static_cast<Game::ShipId>(id), slot))
+      {
+        continue;
+      }
+      _outRecords.push_back(
+        Game::MakeShipRecord(*world, slot, Game::RelationshipOf(m_registry, _request.viewer, static_cast<Game::ShipId>(id))));
+    }
+  }
+
+  /*
+   * The game's per-tick tail (ADR-022 §3b): the order-state records that
+   * promote a client's ghost, and the session's order high-water mark.
+   *
+   * Opaque to the engine, like the summaries and for the same reason. The
+   * sequence comes in with the request rather than off the world (ADR-022 §7):
+   * it is the session's count of what *this* commander has had accepted, and a
+   * world has no viewers to count for.
+   */
+  [[nodiscard]] bool WriteTickTail(const SnapshotRequest& _request, ByteWriter& _writer) override
+  {
+    /*
+     * Borrowed and never stored, like every other use (ADR-019 §6.1). A grid
+     * that has torn down under a viewer since the request answers `nullptr`,
+     * and that is "no tail" rather than a crash: the presence-edge rules that
+     * decide where the viewer lands instead are A16's, not this function's.
+     */
+    const Game::World* world = m_registry.Borrow(static_cast<Game::AnchorId>(_request.grid));
+    return world != nullptr && Game::WriteTickTail(*world, _writer, _request.lastOrderSeqProcessed);
   }
 
   /*

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ByteWriter.h"
+#include "EntityRecord.h"
 #include "OrderIntent.h"
 #include "Wire.h"
 
@@ -135,7 +136,7 @@ struct InterestQuery
   /// What the viewer has selected, as replicated ids (`EntityRecord::id`). A
   /// span, because the selection already exists in the session and this seam
   /// should not decide where.
-  std::span<const std::uint16_t> selection;
+  std::span<const std::uint32_t> selection;
 
   float focusXMetres = 0.0f;
   float focusYMetres = 0.0f;
@@ -156,28 +157,6 @@ public:
   virtual void AdvanceTick(std::uint32_t _tick) = 0;
 
   /*
-   * Serializes the state **one viewer** needs for this tick.
-   *
-   * The viewer is here from this method's first line rather than added when it
-   * first matters (ADR-018 A13, ADR-022 §1). A simulation is free to ignore it
-   * -- and today's does, because there is one grid and one player -- but the
-   * *seam* may not, because every replication decision after this one is a
-   * decision about a viewer: which grid they are watching, what they own, what
-   * they last acked. A signature without a viewer is a signature that has to
-   * change at every call site on the day two clients see different worlds.
-   *
-   * Returns false if it could not -- which at MVP scale means the fleet
-   * outgrew one datagram, the point at which ADR-004 §6's growth path stops
-   * being optional. A bool rather than a silent short write, because a
-   * truncated snapshot is worse than a missing one: the client would read the
-   * absent ships as despawned and resurrect them on the next tick.
-   * [ADR-022](../Design/ADR/ADR-022-interest-and-delta.md) §6 replaces this
-   * refusal with priority truncation; until that slice lands it stays exactly
-   * as loud as it is.
-   */
-  [[nodiscard]] virtual bool WriteSnapshot(const SnapshotRequest& _request, ByteWriter& _writer) = 0;
-
-  /*
    * Ranks one viewer's grid, most relevant first (ADR-022 §4).
    *
    * **It never truncates**, and that is the whole seam: the caller knows the
@@ -187,6 +166,14 @@ public:
    * is then a GameLogic edit that touches no engine code, and a budget change
    * is an engine edit that touches no game rule.
    *
+   * **The return value is how many of the front are guaranteed** (§5a): the
+   * viewer's own ships, anything selected, and the grid's landmarks. The engine
+   * never truncates inside that prefix -- when it alone exceeds the budget, the
+   * budget loses and the overrun is counted, because culling a player's own
+   * fleet to hit a bandwidth number is the one outcome ADR-022 exists to
+   * prevent. The engine cannot work the prefix out for itself: which ships are
+   * guaranteed is game semantics, and this is the only place that knows.
+   *
    * `_outRanked` is cleared and refilled. The caller owns the vector so the
    * per-tick, per-viewer ranking costs no allocation once it is warm.
    *
@@ -195,10 +182,64 @@ public:
    * one. An empty ranking is read by the engine as an empty grid, which is
    * exactly what such a simulation has.
    */
-  virtual void RankRelevance(const InterestQuery& _query, std::vector<std::uint16_t>& _outRanked)
+  [[nodiscard]] virtual std::uint32_t RankRelevance(const InterestQuery& _query, std::vector<std::uint32_t>& _outRanked)
   {
     (void)_query;
     _outRanked.clear();
+    return 0;
+  }
+
+  /*
+   * Fills the neutral records for exactly these entities, in this order
+   * (ADR-022 §1, §8).
+   *
+   * The engine chose the ids -- it ranked through `RankRelevance` and truncated
+   * to this tick's budget -- and the game says what each of them *is*. That is
+   * the same split one step further along: relevance is game policy, budget is
+   * link mechanism, and quantisation is game semantics again.
+   *
+   * Records rather than bytes, because the session host has to **compare** them
+   * against the view it last sent (§2b) to work out what changed. Handing back
+   * a serialised blob would put delta encoding inside the game, which §1 exists
+   * to prevent.
+   *
+   * `_request.viewer` is what makes `statusBits`'s relationship bits fillable:
+   * the same hull is OWN to one commander and NEUTRAL to the next (§8b).
+   *
+   * An id the simulation does not recognise is **skipped**, not filled with a
+   * placeholder -- so `_outRecords` may be shorter than `_ids`. A ship can be
+   * despawned between the ranking and this call, and a placeholder record would
+   * be a hull the client draws at the origin.
+   */
+  virtual void WriteEntities(const SnapshotRequest& _request, std::span<const std::uint32_t> _ids,
+                             std::vector<EntityRecord>& _outRecords)
+  {
+    (void)_request;
+    (void)_ids;
+    _outRecords.clear();
+  }
+
+  /*
+   * The game's own per-tick tail for one viewer (ADR-022 §3b).
+   *
+   * Whatever a viewer is owed beside the entity records: for this game, the
+   * order-state records that promote a client's ghost and the order high-water
+   * mark beside them. **Opaque**, exactly as `WriteSummaries` is and for the
+   * same reason -- the engine frames the bytes and has no opinion about what an
+   * order is (ADR-014 §5).
+   *
+   * It rides in part zero of the tick's update, and the engine reserves room for
+   * it before it starts packing records, so a busy tick cannot be the reason a
+   * ghost loses its ETA.
+   *
+   * False when there is nothing to say, and the engine then sends no tail
+   * rather than an empty one.
+   */
+  [[nodiscard]] virtual bool WriteTickTail(const SnapshotRequest& _request, ByteWriter& _writer)
+  {
+    (void)_request;
+    (void)_writer;
+    return false;
   }
 
   /*
@@ -376,7 +417,8 @@ class NullSimulation final : public Simulation
 {
 public:
   void AdvanceTick(std::uint32_t _tick) override { m_lastTick = _tick; }
-  [[nodiscard]] bool WriteSnapshot(const SnapshotRequest&, ByteWriter&) override { return false; }
+  // Writes nothing and ranks nothing: there is no world here to have entities
+  // in, which is a real thing for a simulation to be rather than a stub.
 
   [[nodiscard]] OrderVerdict ApplyOrderBytes(PlayerId, std::uint32_t, std::span<const std::uint8_t>) override
   {

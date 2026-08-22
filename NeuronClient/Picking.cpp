@@ -53,9 +53,9 @@ bool PlaneToNdc(const PlaneMapping& _mapping, const XMFLOAT2& _planeMetres, XMFL
   return true;
 }
 
-std::uint16_t PickPoint(std::span<const SceneEntity> _entities, const XMFLOAT2& _planeMetres, float _minRadiusMetres) noexcept
+EntityId PickPoint(std::span<const SceneEntity> _entities, const XMFLOAT2& _planeMetres, float _minRadiusMetres) noexcept
 {
-  std::uint16_t best = INVALID_ENTITY_ID;
+  EntityId best = INVALID_ENTITY_ID;
   float bestDistanceSquared = 0.0f;
 
   for (const SceneEntity& entity : _entities)
@@ -87,7 +87,7 @@ std::uint16_t PickPoint(std::span<const SceneEntity> _entities, const XMFLOAT2& 
 }
 
 void PickBox(std::span<const SceneEntity> _entities, const PlaneMapping& _mapping, const XMFLOAT2& _ndcCornerA,
-             const XMFLOAT2& _ndcCornerB, std::vector<std::uint16_t>& _outIds)
+             const XMFLOAT2& _ndcCornerB, std::vector<EntityId>& _outIds)
 {
   const float minX = _ndcCornerA.x < _ndcCornerB.x ? _ndcCornerA.x : _ndcCornerB.x;
   const float maxX = _ndcCornerA.x < _ndcCornerB.x ? _ndcCornerB.x : _ndcCornerA.x;

@@ -69,16 +69,29 @@ namespace
 
 } // namespace
 
-bool ReplicatedView::ApplySnapshot(std::span<const std::uint8_t> _payload)
+bool ReplicatedView::ApplyFrame(std::uint32_t _tick, AnchorId _gridAnchor, std::uint16_t _culledCount,
+                                std::span<const Neuron::EntityRecord> _entities, std::span<const std::uint8_t> _tail)
 {
-  Neuron::ByteReader reader{_payload};
-
-  SnapshotHeader header;
-  std::vector<Neuron::EntityRecord> ships;
+  /*
+   * The tail is parsed before anything is disturbed, for `ApplySnapshot`'s old
+   * reason: a half-applied frame is a corrupt view. The entities are the
+   * engine's and arrive assembled, so the only thing that can be malformed here
+   * is the game's own bytes.
+   *
+   * An *empty* tail is legal and not an error -- it is what a frame carries when
+   * the engine had nothing of the game's to attach, and the honest reading is
+   * "no orders, nothing acknowledged" rather than a refusal that would drop a
+   * perfectly good set of entities.
+   */
+  std::uint32_t lastOrderSeq = 0;
   std::vector<OrderStateRecord> orders;
-  if (!ReadSnapshot(reader, header, ships, orders))
+  if (!_tail.empty())
   {
-    return false;
+    Neuron::ByteReader reader{_tail};
+    if (!ReadTickTail(reader, lastOrderSeq, orders))
+    {
+      return false;
+    }
   }
 
   /*
@@ -99,16 +112,17 @@ bool ReplicatedView::ApplySnapshot(std::span<const std::uint8_t> _payload)
    * on that to avoid rendering nonsense). A frame from elsewhere is never stale;
    * it is a fresh start.
    */
-  if (m_count > 0 && header.gridAnchor != m_frames[0].header.gridAnchor)
+  if (m_count > 0 && _gridAnchor != m_frames[0].gridAnchor)
   {
     m_count = 0;
     m_latestOrders.clear();
+    m_lastOrderSeqProcessed = 0;
   }
 
   // Out-of-order arrival is normal on an unordered channel (ADR-003), and a
   // stale snapshot is not an error -- it is simply already superseded. Dropping
   // it beats letting it overwrite newer state.
-  if (m_count > 0 && header.tick <= m_frames[0].header.tick)
+  if (m_count > 0 && _tick <= m_frames[0].tick)
   {
     return true;
   }
@@ -117,13 +131,16 @@ bool ReplicatedView::ApplySnapshot(std::span<const std::uint8_t> _payload)
   {
     m_frames[i] = std::move(m_frames[i - 1]);
   }
-  m_frames[0].header = header;
-  m_frames[0].ships = std::move(ships);
+  m_frames[0].tick = _tick;
+  m_frames[0].gridAnchor = _gridAnchor;
+  m_frames[0].culledCount = _culledCount;
+  m_frames[0].ships.assign(_entities.begin(), _entities.end());
   m_count = std::min(m_count + 1, HISTORY);
 
-  // Replaced wholesale, and only past the staleness check above: an order area
-  // that arrived out of order describes a tick the view has already left.
+  // Replaced wholesale, and only past the staleness check above: a tail that
+  // arrived out of order describes a tick the view has already left.
   m_latestOrders = std::move(orders);
+  m_lastOrderSeqProcessed = lastOrderSeq;
   return true;
 }
 
@@ -141,7 +158,7 @@ void ReplicatedView::SampleAt(double _renderTick, std::vector<ReplicatedShip>& _
   const Frame* newer = nullptr;
   for (std::size_t i = 0; i < m_count; ++i)
   {
-    if (static_cast<double>(m_frames[i].header.tick) <= _renderTick)
+    if (static_cast<double>(m_frames[i].tick) <= _renderTick)
     {
       older = &m_frames[i];
       newer = i > 0 ? &m_frames[i - 1] : nullptr;
@@ -160,8 +177,8 @@ void ReplicatedView::SampleAt(double _renderTick, std::vector<ReplicatedShip>& _
 
   if (newer != nullptr)
   {
-    const double span = static_cast<double>(newer->header.tick) - static_cast<double>(older->header.tick);
-    const float blend = span > 0.0 ? static_cast<float>(std::clamp((_renderTick - older->header.tick) / span, 0.0, 1.0)) : 0.0f;
+    const double span = static_cast<double>(newer->tick) - static_cast<double>(older->tick);
+    const float blend = span > 0.0 ? static_cast<float>(std::clamp((_renderTick - older->tick) / span, 0.0, 1.0)) : 0.0f;
     const auto spanSeconds = static_cast<float>(span * World::TICK_SECONDS);
 
     _outShips.reserve(older->ships.size());
@@ -211,7 +228,7 @@ void ReplicatedView::SampleAt(double _renderTick, std::vector<ReplicatedShip>& _
    * ends up somewhere the server never put it, and the correction when the
    * stream returns is a jump. Frozen and flagged is a visible, honest failure.
    */
-  const double aheadTicks = std::max(0.0, _renderTick - static_cast<double>(older->header.tick));
+  const double aheadTicks = std::max(0.0, _renderTick - static_cast<double>(older->tick));
   const bool stale = aheadTicks > MAX_EXTRAPOLATION_TICKS;
   const auto carried = static_cast<float>(std::min(aheadTicks, MAX_EXTRAPOLATION_TICKS) * World::TICK_SECONDS);
 
@@ -228,17 +245,17 @@ void ReplicatedView::SampleAt(double _renderTick, std::vector<ReplicatedShip>& _
 
 std::uint32_t ReplicatedView::LatestTick() const noexcept
 {
-  return m_count > 0 ? m_frames[0].header.tick : 0;
+  return m_count > 0 ? m_frames[0].tick : 0;
 }
 
 std::uint32_t ReplicatedView::OldestTick() const noexcept
 {
-  return m_count > 0 ? m_frames[m_count - 1].header.tick : 0;
+  return m_count > 0 ? m_frames[m_count - 1].tick : 0;
 }
 
 std::uint16_t ReplicatedView::LatestShipCount() const noexcept
 {
-  return m_count > 0 ? m_frames[0].header.shipCount : 0;
+  return m_count > 0 ? static_cast<std::uint16_t>(m_frames[0].ships.size()) : 0;
 }
 
 std::span<const OrderStateRecord> ReplicatedView::LatestOrders() const noexcept
@@ -248,18 +265,21 @@ std::span<const OrderStateRecord> ReplicatedView::LatestOrders() const noexcept
 
 std::uint32_t ReplicatedView::LastOrderSeqProcessed() const noexcept
 {
-  return m_count > 0 ? m_frames[0].header.lastOrderSeqProcessed : 0;
+  return m_lastOrderSeqProcessed;
 }
 
 void ReplicatedView::Clear() noexcept
 {
   for (Frame& frame : m_frames)
   {
-    frame.header = SnapshotHeader{};
+    frame.tick = 0;
+    frame.gridAnchor = INVALID_ID;
+    frame.culledCount = 0;
     frame.ships.clear();
   }
   m_count = 0;
   m_latestOrders.clear();
+  m_lastOrderSeqProcessed = 0;
 }
 
 } // namespace Game

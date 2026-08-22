@@ -50,25 +50,38 @@ using AnchorId = std::uint16_t;
  * on the wire and in every order that names it, which is why the world keeps an
  * id-to-slot indirection rather than letting slots be the identity.
  *
- * `ShipId` is `u16` to match `Neuron::EntityRecord::id`, so a replicated record
+ * `ShipId` is `u32` to match `Neuron::EntityRecord::id`, so a replicated record
  * needs no translation on the way out. `OrderId` is `u32` because order ids are
  * never reused within a session and 65k orders is a long evening.
  *
- * **`ShipId` widens to u32 in the T1/T2 clusters (ADR-018 D6)**, staged by
+ * **It widened with U3d-b** (ADR-018 D6, ADR-022 §8a), and the staging was
  * arithmetic rather than taste: a 23-byte `EntityRecord` fits 39 records per
- * datagram, under the 41-ship floor, so the *wire* record cannot widen until
- * [ADR-022](../Design/ADR/ADR-022-interest-and-delta.md) removes the full-fit
- * constraint. Until then the registry allocator keeps issued ids inside the u16
- * window and asserts it. The bake already speaks u32 (`Anchor::occupantIdBase`)
- * because a baked id is not a wire value.
+ * datagram, under ADR-018's 41-ship floor, so the *wire* record could not widen
+ * while one datagram had to hold everything. ADR-022 §5b removed that -- the
+ * per-tick budget is a bandwidth figure packed into as many datagrams as it
+ * takes -- and the two widened together, because the whole point of this being
+ * a `u16` was that it matched the record.
+ *
+ * The bake already spoke u32 (`Anchor::occupantIdBase`), because a baked id was
+ * never a wire value; what changed is that the runtime allocator's ceiling is
+ * no longer a wire constraint wearing an allocator's clothes.
+ *
+ * **One consequence worth naming**: `World::m_slotById` and the registry's
+ * ship-keyed indices are flat tables indexed by id, so they are as long as the
+ * highest id ever issued rather than as long as the fleet. Authored ids stop
+ * below `DYNAMIC_SHIP_ID_BASE` (32,768) and dynamic ones count up from there,
+ * so the cost is four bytes per id ever issued in a session -- a megabyte per
+ * quarter-million spawns, which is far outside anything ADR-018 D4 sizes for.
+ * If a shard ever runs long enough for that to matter, the answer is a sparse
+ * index, and this note is where the next person should start.
  */
-using ShipId = std::uint16_t;
+using ShipId = std::uint32_t;
 using WingId = std::uint8_t;
 using OrderId = std::uint32_t;
 
 /// No such ship. Matches `Neuron::INVALID_ENTITY_ID` so the two agree on the
 /// wire without either side owning the other's constant.
-inline constexpr ShipId INVALID_SHIP_ID = 0xffffu;
+inline constexpr ShipId INVALID_SHIP_ID = 0xffffffffu;
 
 /// No wing. Unlike ships, wings are authored-ish groupings and count from 1.
 inline constexpr WingId INVALID_WING_ID = 0;

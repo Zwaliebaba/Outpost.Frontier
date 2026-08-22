@@ -49,20 +49,33 @@ public:
   static constexpr std::uint16_t DEFAULT_KIND = 5;
   static constexpr std::uint16_t DEFAULT_PARAMETER = 9;
 
-  /// Reads a tick out of the first four bytes, the way a real view reads it out
-  /// of the snapshot header -- the engine cannot know it, so the game reports it.
-  [[nodiscard]] std::uint32_t ApplySnapshot(std::span<const std::uint8_t> _payload) override
+  /*
+   * Takes a frame the engine assembled (ADR-022).
+   *
+   * **The tick comes in now rather than out.** It used to be read out of the
+   * first four bytes of an opaque payload, because the game was the only side
+   * that could read a snapshot header; the header is the engine's since U3d-b,
+   * so the number arrives with the frame and there is nothing to guess.
+   *
+   * The tail is refused when it is too short to be one, which stands in for the
+   * real view's "a malformed tail leaves the picture untouched".
+   */
+  [[nodiscard]] bool ApplyFrame(const ReplicatedFrame& _frame) override
   {
     ++m_snapshotCount;
-    if (_payload.size() < sizeof(std::uint32_t))
+    if (!_frame.tail.empty() && _frame.tail.size() < sizeof(std::uint32_t))
     {
-      return 0; // Rejected: too short to carry a tick.
+      return false; // Rejected: something arrived that is not a tail.
     }
-    m_lastTick = static_cast<std::uint32_t>(_payload[0]) | (static_cast<std::uint32_t>(_payload[1]) << 8) |
-                 (static_cast<std::uint32_t>(_payload[2]) << 16) | (static_cast<std::uint32_t>(_payload[3]) << 24);
-    m_lastPayload.assign(_payload.begin(), _payload.end());
-    return m_lastTick;
+    m_lastTick = _frame.tick;
+    m_lastPayload.assign(_frame.tail.begin(), _frame.tail.end());
+    m_lastEntityCount = static_cast<std::uint32_t>(_frame.entities.size());
+    m_lastCulledCount = _frame.culledCount;
+    return true;
   }
+
+  [[nodiscard]] std::uint32_t LastEntityCount() const noexcept { return m_lastEntityCount; }
+  [[nodiscard]] std::uint16_t LastCulledCount() const noexcept { return m_lastCulledCount; }
 
   void BuildScene(double _renderTick, RenderScene& _outScene) override
   {
@@ -157,7 +170,7 @@ public:
    * this one has groups it named, counted and combined health for on its own
    * side of the seam.
    */
-  [[nodiscard]] std::uint32_t BuildRoster(std::span<const std::uint16_t> _selectedIds,
+  [[nodiscard]] std::uint32_t BuildRoster(std::span<const EntityId> _selectedIds,
                                           std::span<RosterRow> _outRows) const override
   {
     if (_outRows.size() < 2)
@@ -178,7 +191,7 @@ public:
    * built against. A stub that reported only working commands would let a row
    * that quietly dropped the greyed ones pass.
    */
-  [[nodiscard]] std::uint32_t OrderKinds(std::span<const std::uint16_t>,
+  [[nodiscard]] std::uint32_t OrderKinds(std::span<const EntityId>,
                                          std::span<OrderKindOption> _outKinds) const override
   {
     if (_outKinds.size() < 2)
@@ -209,6 +222,8 @@ public:
 
 private:
   std::uint32_t m_snapshotCount = 0;
+  std::uint32_t m_lastEntityCount = 0;
+  std::uint16_t m_lastCulledCount = 0;
   std::uint32_t m_sceneCount = 0;
   std::uint32_t m_lastTick = 0;
   std::uint32_t m_feedbackCount = 0;
@@ -274,18 +289,30 @@ public:
     Assert::AreEqual<std::size_t>(3, scene.instances.size(), L"three frames, three instances, not nine");
   }
 
-  TEST_METHOD(ASnapshotCrossesAsOpaqueBytes)
+  TEST_METHOD(TheGamesTailCrossesAsOpaqueBytes)
   {
-    // The engine frames and orders the payload; it does not look inside. What
-    // this asserts is that nothing on the way in reinterprets it.
+    /*
+     * **The envelope stopped being opaque and the tail did not** (ADR-022 §1).
+     *
+     * The engine now reads the header, holds the baseline and assembles the
+     * tick -- all of it link semantics over a record type it owns. What it
+     * still does not look inside is the game's own bytes for the tick, and this
+     * asserts that nothing on the way in reinterprets them.
+     */
     StubWorldView view;
-    // Little-endian 9001 followed by a byte the view must not touch.
+    // Five bytes the view must carry and not touch.
     const std::array<std::uint8_t, 5> payload{0x29, 0x23, 0x00, 0x00, 0xef};
 
-    Assert::AreEqual<std::uint32_t>(9001, view.ApplySnapshot(payload), L"the game reports the tick it read");
+    ReplicatedFrame frame;
+    frame.tick = 9001;
+    frame.gridId = 42;
+    frame.culledCount = 7;
+    frame.tail = payload;
+    Assert::IsTrue(view.ApplyFrame(frame), L"the game took the frame");
 
     Assert::AreEqual<std::uint32_t>(1, view.SnapshotCount());
     Assert::AreEqual<std::uint32_t>(9001, view.LastTick());
+    Assert::AreEqual<std::uint16_t>(7, view.LastCulledCount(), L"the culled count crosses the seam unread");
     Assert::AreEqual<std::size_t>(payload.size(), view.LastPayload().size());
     for (std::size_t i = 0; i < payload.size(); ++i)
     {
@@ -299,7 +326,7 @@ public:
     // The engine cannot guarantee that by inspecting the code -- it guarantees
     // it by never inspecting the code.
     StubWorldView view;
-    const std::uint16_t selection[] = {1, 2, 3};
+    const EntityId selection[] = {1, 2, 3};
 
     OrderIntent accepted;
     accepted.kind = 1;
@@ -324,7 +351,7 @@ public:
   TEST_METHOD(APreviewComesBackAsPlaneMarks)
   {
     StubWorldView view;
-    const std::uint16_t selection[] = {1, 2, 3, 4};
+    const EntityId selection[] = {1, 2, 3, 4};
 
     OrderIntent intent;
     intent.entityIds = selection;
@@ -363,7 +390,7 @@ public:
   TEST_METHOD(AnOrderIsEncodedByTheGameAndCarriedByTheEngine)
   {
     StubWorldView view;
-    const std::uint16_t selection[] = {5, 6};
+    const EntityId selection[] = {5, 6};
 
     OrderIntent intent;
     intent.kind = 3;
@@ -453,7 +480,7 @@ public:
     StubWorldView view;
     WorldView& seam = view;
 
-    const std::uint16_t selected[] = {1, 2, 3};
+    const EntityId selected[] = {1, 2, 3};
     RosterRow rows[MAX_ROSTER_ROWS] = {};
     const std::uint32_t count = seam.BuildRoster(selected, rows);
 
@@ -471,7 +498,7 @@ public:
     WorldView& seam = view;
 
     RosterRow one[1] = {};
-    Assert::AreEqual<std::uint32_t>(0, seam.BuildRoster(std::span<const std::uint16_t>{}, one),
+    Assert::AreEqual<std::uint32_t>(0, seam.BuildRoster(std::span<const EntityId>{}, one),
                                     L"this stub would rather offer nothing than half a roster");
   }
 
@@ -508,7 +535,7 @@ public:
     OrderIntent intent;
     intent.kind = StubWorldView::REFUSE_KIND;
     intent.entityCount = 1;
-    const std::uint16_t id = 1;
+    const EntityId id = 1;
     intent.entityIds = &id;
 
     const OrderVerdict verdict = seam.PreCheck(intent);
@@ -522,7 +549,7 @@ public:
     // "Not sent" and "sent empty" are different outcomes, and only one of them
     // leaves the player's fleet doing what they expected.
     StubWorldView view;
-    const std::uint16_t selection[] = {5};
+    const EntityId selection[] = {5};
 
     OrderIntent intent;
     intent.entityIds = selection;
@@ -579,9 +606,9 @@ public:
     OrderOption options[MAX_ORDER_OPTIONS] = {};
     Assert::AreEqual<std::uint32_t>(0, view.OrderOptions(0, options), L"and no parameters to give it");
     RosterRow rows[MAX_ROSTER_ROWS] = {};
-    Assert::AreEqual<std::uint32_t>(0, view.BuildRoster(std::span<const std::uint16_t>{}, rows),
+    Assert::AreEqual<std::uint32_t>(0, view.BuildRoster(std::span<const EntityId>{}, rows),
                                     L"a world with no fleet has no roster");
-    std::uint16_t members[8] = {};
+    EntityId members[8] = {};
     Assert::AreEqual<std::uint32_t>(0, view.BuildGroupMembers(1, members),
                                     L"and no group in it to press, so no ships behind one");
     Assert::IsNotNull(view.ReasonText(0), L"and still never a null string to draw");
@@ -639,9 +666,15 @@ public:
     NullWorldView view;
     const std::array<std::uint8_t, 4> payload{1, 2, 3, 4};
 
-    // Zero, not 77: a view with no world cannot say when it is, and a made-up
-    // tick would give the clock estimate something to chase that nothing emits.
-    Assert::AreEqual<std::uint32_t>(0, view.ApplySnapshot(payload), L"a null view reports no tick");
+    /*
+     * False, not true: a view with no world has nowhere to put a frame, and
+     * claiming to have taken one would give the clock estimate something to
+     * chase that nothing emits.
+     */
+    ReplicatedFrame frame;
+    frame.tick = 77;
+    frame.tail = payload;
+    Assert::IsFalse(view.ApplyFrame(frame), L"a null view takes no frame");
     Assert::AreEqual<std::uint32_t>(4, view.LastPayloadBytes());
   }
 };

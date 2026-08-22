@@ -104,6 +104,7 @@
     <ClCompile Include="GhostTests.cpp" />
     <ClCompile Include="DockingTests.cpp" />
     <ClCompile Include="OverlayTests.cpp" />
+    <ClCompile Include="DeltaTests.cpp" />
     <ClCompile Include="PickingTests.cpp" />
     <ClCompile Include="PuckTests.cpp" />
     <ClCompile Include="CommandTests.cpp" />

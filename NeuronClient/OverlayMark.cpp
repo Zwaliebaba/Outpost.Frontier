@@ -17,7 +17,7 @@ namespace
 /// The entity with this id, or null. Linear because a selection is a handful
 /// of ships and the entity list is a few hundred: a map would cost more to
 /// build every frame than the scan costs to run.
-[[nodiscard]] const SceneEntity* FindEntity(std::span<const SceneEntity> _entities, std::uint16_t _id) noexcept
+[[nodiscard]] const SceneEntity* FindEntity(std::span<const SceneEntity> _entities, EntityId _id) noexcept
 {
   const auto found = std::find_if(_entities.begin(), _entities.end(), [_id](const SceneEntity& _e) { return _e.id == _id; });
   return found == _entities.end() ? nullptr : &*found;
@@ -41,7 +41,7 @@ namespace
 
 } // namespace
 
-void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const std::uint16_t> _selectedIds,
+void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const EntityId> _selectedIds,
                        const OverlayTuning& _tuning, float _metresPerPixel, OverlayMarkList& _outMarks)
 {
   _outMarks.Clear();
@@ -52,7 +52,7 @@ void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const s
   // frozen ship, selected or not (S14).
   const float minRadiusMetres = _tuning.ringMinRadiusPixels * _metresPerPixel;
 
-  for (const std::uint16_t id : _selectedIds)
+  for (const EntityId id : _selectedIds)
   {
     const SceneEntity* entity = FindEntity(_entities, id);
     if (entity == nullptr)

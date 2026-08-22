@@ -582,13 +582,43 @@ public:
      * rides the ~1 Hz summary family instead, which is what this whole file is
      * about.
      */
-    Assert::AreEqual<std::size_t>(21, Neuron::ENTITY_RECORD_BYTES, L"the per-tick record grew; the economy must not do this");
-    Assert::AreEqual<std::uint32_t>(43, MAX_SHIPS_PER_SNAPSHOT, L"the ship cap moved");
+    /*
+     * **The cliff this guarded is gone, and the rule it enforced is not**
+     * (ADR-022 §5b, U3d-b).
+     *
+     * The original arithmetic was that one cargo byte would take the record
+     * 21 -> 22 and the snapshot cap 43 -> 41, landing exactly on ADR-018's
+     * 41-ship floor with nothing left over. There is no snapshot cap now: a
+     * tick's records are bounded by a *bandwidth* budget and spill into as many
+     * datagrams as they need, which is what let the record grow to 23 bytes for
+     * the u32 id in the first place.
+     *
+     * So the assertion changes from "one more byte breaks the floor" to the
+     * thing that is still true and still the point: **the per-tick record is
+     * where the economy does not go.** Cargo changes on the scale of a mining
+     * cycle, not a tick, and every byte here is paid twenty times a second by
+     * every entity in interest -- so it rides the ~1 Hz summary family, which
+     * is what this whole file is about. The number below is a tripwire: if it
+     * moves, somebody widened the thing that is multiplied by the population.
+     */
+    Assert::AreEqual<std::size_t>(23, Neuron::ENTITY_RECORD_BYTES,
+                                  L"the per-tick record grew; the economy must not be why");
 
+    /*
+     * What a cargo byte would actually cost now: entities per tick.
+     *
+     * The budget figure is the engine's (`Neuron::DEFAULT_TICK_BUDGET_BYTES`)
+     * and is restated rather than included, because a GameLogic test reaching
+     * into NeuronServer would be this suite acquiring the dependency ADR-014
+     * spends a CI guard keeping out. Eight kilobytes is what that constant says
+     * today; the assertion is a comparison rather than an absolute, so it
+     * remains true if the deployment number moves.
+     */
+    constexpr std::size_t TICK_BUDGET_BYTES = 8192;
     constexpr std::size_t widened = Neuron::ENTITY_RECORD_BYTES + 1;
-    constexpr std::uint32_t wouldFit =
-      static_cast<std::uint32_t>((SNAPSHOT_BUDGET_BYTES - SNAPSHOT_HEADER_BYTES - ORDER_AREA_BYTES) / widened);
-    Assert::AreEqual<std::uint32_t>(41, wouldFit, L"the one-byte cost is no longer 43 -> 41; the note needs rewriting");
+    constexpr std::uint32_t recordsNow = static_cast<std::uint32_t>(TICK_BUDGET_BYTES / Neuron::ENTITY_RECORD_BYTES);
+    constexpr std::uint32_t recordsThen = static_cast<std::uint32_t>(TICK_BUDGET_BYTES / widened);
+    Assert::IsTrue(recordsThen < recordsNow, L"a wider record must cost entities per tick, or this test proves nothing");
   }
 
   TEST_METHOD(AStationCommandRoundTripsWithItsOreAndUnits)
@@ -793,7 +823,7 @@ public:
     spawn.hullClass = HullClass::Miner;
     spawn.wing = 1;
     const ShipId miner = registry.Spawn(site, spawn, Neuron::SOLE_PLAYER_ID);
-    Assert::AreNotEqual<std::uint16_t>(INVALID_SHIP_ID, miner, L"no miner");
+    Assert::AreNotEqual<std::uint32_t>(INVALID_SHIP_ID, miner, L"no miner");
 
     World* world = registry.Borrow(site);
     OrderSubmit mine;
@@ -834,7 +864,7 @@ public:
     spawn.wing = 1;
     spawn.cargo.oreUnits[0] = 33;
     const ShipId ship = registry.Spawn(site, spawn, Neuron::SOLE_PLAYER_ID);
-    Assert::AreNotEqual<std::uint16_t>(INVALID_SHIP_ID, ship, L"no ship");
+    Assert::AreNotEqual<std::uint32_t>(INVALID_SHIP_ID, ship, L"no ship");
 
     const std::vector<CargoStatusRow> mine = registry.CargoFor(ONE);
     const auto row = std::find_if(mine.begin(), mine.end(), [ship](const CargoStatusRow& _r) { return _r.shipId == ship; });

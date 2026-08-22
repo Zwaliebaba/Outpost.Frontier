@@ -2,41 +2,30 @@
 
 #include "Snapshot.h"
 
+#include "Eta.h"
+
 #include <algorithm>
 #include <cmath>
 
-using namespace DirectX;
+using DirectX::XMFLOAT2;
 
 namespace Game
 {
 
-Neuron::EntityRecord MakeShipRecord(const World& _world, std::uint32_t _slot) noexcept
+Neuron::EntityRecord MakeShipRecord(const World& _world, std::uint32_t _slot, Relationship _relationship) noexcept
 {
   Neuron::EntityRecord record;
-  if (_slot >= _world.ShipCount())
-  {
-    return record; // Leaves INVALID_ENTITY_ID, which is what an empty slot is.
-  }
-
-  const XMFLOAT2& position = _world.Positions()[_slot];
-  const XMFLOAT2& velocity = _world.Velocities()[_slot];
-
   record.id = _world.Ids()[_slot];
-
-  // `typeId` is the hull class and `gaugeA`/`gaugeB` are hull and shield. The
-  // engine moves all four and reads none of them (ADR-014 §4).
   record.typeId = _world.Classes()[_slot];
-  // The ship's wing, which is what the HUD's roster is a roster *of*. It rides
-  // in the neutral `groupId` byte: the engine carries the number and only this
-  // library knows the word for it (ADR-014 §4).
   record.groupId = _world.Wings()[_slot];
 
+  const XMFLOAT2& position = _world.Positions()[_slot];
   record.posXCm = Neuron::MetresToCentimetres(position.x);
   record.posYCm = Neuron::MetresToCentimetres(position.y);
 
-  // Velocity is 16-bit centimetres per second: +/-327 m/s, which is above every
-  // hull's top speed with room to spare. Clamped rather than wrapped, because a
-  // velocity that wrapped would send a ship backwards on the client for one
+  const XMFLOAT2& velocity = _world.Velocities()[_slot];
+  // Clamped rather than wrapped: a ship past the velocity range would otherwise
+  // replicate as travelling backwards, and the client would interpolate one
   // tick and then correct -- a visible glitch from an invisible cause.
   const std::int32_t velocityX = Neuron::MetresToCentimetres(velocity.x);
   const std::int32_t velocityY = Neuron::MetresToCentimetres(velocity.y);
@@ -49,42 +38,34 @@ Neuron::EntityRecord MakeShipRecord(const World& _world, std::uint32_t _slot) no
   record.gaugeB = _world.Shields()[_slot];
 
   /*
-   * The status byte (ADR-017 §5). One bit today: undock protection, which the
-   * client draws as a shimmer.
+   * The status byte (ADR-017 §5, ADR-022 §8b). Two things live in it now.
    *
-   * Read against the world's *own* tick rather than a tick passed in, for the
-   * same reason `WriteSnapshot` ignores the loop's: the world knows its own and
-   * they are the same number, and writing the world's is the one that cannot
-   * drift.
+   * Undock protection is read against the world's *own* tick rather than a tick
+   * passed in: the world knows its own and they are the same number, and
+   * writing the world's is the one that cannot drift.
+   *
+   * The relationship is the **viewer's** and cannot come from the world at all,
+   * which is why it arrives as a parameter. Bits rather than a field because
+   * the client asks "what colour is this hull" every frame and "whose is it"
+   * once a session (§8b).
    */
   record.statusBits = _world.IsProtected(record.id, _world.Tick()) ? SHIP_STATUS_PROTECTED : 0;
+  record.statusBits = WithRelationship(record.statusBits, _relationship);
   return record;
 }
 
-bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer, std::uint32_t _lastOrderSeqProcessed)
+bool WriteTickTail(const World& _world, Neuron::ByteWriter& _writer, std::uint32_t _lastOrderSeqProcessed)
 {
-  const std::uint32_t shipCount = _world.ShipCount();
-  if (shipCount > MAX_SHIPS_PER_SNAPSHOT)
-  {
-    // Nothing is written. A truncated snapshot is worse than none: the client
-    // would read the missing ships as despawned and resurrect them next tick.
-    return false;
-  }
-  // Orders are truncated where ships are not, and the asymmetry is deliberate:
-  // a missing ship record reads as a despawn and is unrecoverable, while a
-  // missing order record costs one frame of ETA and the header's
-  // `lastOrderSeqProcessed` still promotes the client's ghost.
-  const auto orderCount =
-      static_cast<std::uint16_t>(std::min<std::size_t>(_world.Groups().size(), MAX_ORDERS_PER_SNAPSHOT));
+  const auto orderCount = static_cast<std::uint16_t>(std::min<std::size_t>(_world.Groups().size(), MAX_ORDERS_PER_SNAPSHOT));
 
   /*
    * Which sixteen: the live ones first, then the finished ones with whatever
    * room is left. When the cap bites, the record that gets dropped must be a
-   * corpse serving out its linger, never the order the player just gave --
-   * a live group with no record is a ghost with no ETA and no promotion,
-   * while a `Done` group missing a frame costs a retirement one snapshot of
-   * lateness. Selection order, not table order, so nothing here touches the
-   * world or the replay.
+   * corpse serving out its linger, never the order the player just gave -- a
+   * live group with no record is a ghost with no ETA and no promotion, while a
+   * `Done` group missing a frame costs a retirement one tick of lateness.
+   * Selection order, not table order, so nothing here touches the world or the
+   * replay.
    */
   std::uint16_t chosen[MAX_ORDERS_PER_SNAPSHOT] = {};
   std::uint16_t chosenCount = 0;
@@ -101,26 +82,13 @@ bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer, std::uint32
     }
   }
 
-  if (_writer.BytesRemaining() < SnapshotBytes(shipCount, orderCount))
+  if (_writer.BytesRemaining() < TICK_TAIL_HEADER_BYTES + static_cast<std::size_t>(orderCount) * ORDER_STATE_RECORD_BYTES)
   {
     return false;
   }
 
-  _writer.WriteUInt32(_world.Tick());
-  _writer.WriteUInt32(0); // baselineTick: full snapshots only (ADR-004 §6).
-  // Which grid these ships stand on: the client's guard against interpolating
-  // one world's hulls towards another's after a view switch (U3b).
-  _writer.WriteUInt16(_world.Anchor());
-  _writer.WriteUInt16(static_cast<std::uint16_t>(shipCount));
   _writer.WriteUInt16(orderCount);
   _writer.WriteUInt32(_lastOrderSeqProcessed);
-
-  // Dense-array order, which is the world's only iteration order and therefore
-  // the one a replay reproduces.
-  for (std::uint32_t slot = 0; slot < shipCount; ++slot)
-  {
-    Neuron::WriteEntityRecord(_writer, MakeShipRecord(_world, slot));
-  }
 
   for (std::uint16_t index = 0; index < orderCount; ++index)
   {
@@ -149,46 +117,26 @@ bool WriteSnapshot(const World& _world, Neuron::ByteWriter& _writer, std::uint32
   return _writer.Ok();
 }
 
-bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader, std::vector<Neuron::EntityRecord>& _outShips)
+bool ReadTickTail(Neuron::ByteReader& _reader, std::uint32_t& _outLastOrderSeqProcessed, std::vector<OrderStateRecord>& _outOrders)
 {
-  std::vector<OrderStateRecord> ignored;
-  return ReadSnapshot(_reader, _outHeader, _outShips, ignored);
-}
-
-bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader, std::vector<Neuron::EntityRecord>& _outShips,
-                  std::vector<OrderStateRecord>& _outOrders)
-{
-  SnapshotHeader header;
-  header.tick = _reader.ReadUInt32();
-  header.baselineTick = _reader.ReadUInt32();
-  header.gridAnchor = _reader.ReadUInt16();
-  header.shipCount = _reader.ReadUInt16();
-  header.orderCount = _reader.ReadUInt16();
-  header.lastOrderSeqProcessed = _reader.ReadUInt32();
-
+  const std::uint16_t orderCount = _reader.ReadUInt16();
+  const std::uint32_t lastOrderSeq = _reader.ReadUInt32();
   if (!_reader.Ok())
   {
     return false;
   }
 
   // Checked before allocating: a corrupt or hostile count is a refusal, not a
-  // reservation. The cap is what one datagram can carry, so a larger number did
-  // not come from a snapshot this build wrote.
-  if (header.shipCount > MAX_SHIPS_PER_SNAPSHOT || header.orderCount > MAX_ORDERS_PER_SNAPSHOT)
+  // reservation. The cap is what this build ever writes, so a larger number did
+  // not come from a tail this build produced.
+  if (orderCount > MAX_ORDERS_PER_SNAPSHOT)
   {
     return false;
   }
 
-  std::vector<Neuron::EntityRecord> ships;
-  ships.reserve(header.shipCount);
-  for (std::uint16_t index = 0; index < header.shipCount; ++index)
-  {
-    ships.push_back(Neuron::ReadEntityRecord(_reader));
-  }
-
   std::vector<OrderStateRecord> orders;
-  orders.reserve(header.orderCount);
-  for (std::uint16_t index = 0; index < header.orderCount; ++index)
+  orders.reserve(orderCount);
+  for (std::uint16_t index = 0; index < orderCount; ++index)
   {
     OrderStateRecord record;
     record.serverOrderId = _reader.ReadUInt32();
@@ -206,8 +154,7 @@ bool ReadSnapshot(Neuron::ByteReader& _reader, SnapshotHeader& _outHeader, std::
     return false; // Truncated: leave the caller's view untouched.
   }
 
-  _outHeader = header;
-  _outShips = std::move(ships);
+  _outLastOrderSeqProcessed = lastOrderSeq;
   _outOrders = std::move(orders);
   return true;
 }

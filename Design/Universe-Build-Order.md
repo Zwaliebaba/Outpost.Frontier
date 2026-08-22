@@ -7,9 +7,11 @@ across all three phases and the work that belongs to none of them. The paragraph
 state of this phase, not a claim about what happens next.
 
 **Status:** Session output 2026-08-19 · **U1, U2, U3a, U3b's sim and wire halves, U4's sim
-half, U5's pure half and U3c built** (U3c 2026-08-21). **U3d — interest and delta — was added
-2026-08-22**: ADR-018 A14 scheduled it for "after U3c" and no build order had absorbed it, so it
-is specified below and is the next thing built. What is left after it is **screen work**:
+half, U5's pure half, U3c and U3d-a/U3d-b built** (U3c 2026-08-21; U3d-a and U3d-b 2026-08-22).
+**U3d — interest and delta — was added 2026-08-22**: ADR-018 A14 scheduled it for "after U3c"
+and no build order had absorbed it, so it is specified below. **Its first two sub-slices are
+built and R19 is closed**; what is left of it is U3d-c's counted chip, which is screen work and
+sits behind the input model with the rest. What is left after it is **screen work**:
 U3b's client half, U4's route feeder and icons, U5's map itself and U6 need a GPU and a person —
 ~~with no exceptions left~~ **and, as of 2026-08-22, behind the input model the plan of record
 establishes**, since a screen built against the mouse adaptation would be retrofitted for touch
@@ -281,8 +283,9 @@ subtracted, or every station in the universe would read as a parked one-ship fle
 grid-switch notice — the three wire pieces the previous note filed under "on screen" and
 which were not screen work at all.
 
-`SnapshotHeader` carries `gridAnchor`, and `ReplicatedView` drops its history when that
-number changes. That is **the smear guard**, and the failure it prevents needs only two
+The header carries `gridAnchor` -- the game's own `SnapshotHeader` at the time, and `DeltaHeader`/
+`KeyframeHeader` since U3d-b moved the envelope to the engine -- and `ReplicatedView` drops its
+history when that number changes. That is **the smear guard**, and the failure it prevents needs only two
 ordinary facts: ids are allocated per registry, so two grids can each hold a ship 1, and the
 view interpolates between its last two frames. Together, unguarded, a switch walks every hull
 from where it stood on the grid you left to where a ship of the same id stands on the grid you
@@ -772,7 +775,8 @@ and the suite asserts an owned ship holds the lead across forty ticks, because t
 **`lastOrderSeqProcessed` left the world hash, and left `World` altogether.** `World::m_lastOrderSeqProcessed`
 and its accessor are gone; `SnapshotSender` keeps it per viewer, advanced from `ServerHost` **only on
 an accepted verdict** — a refusal carries a sequence too, and advancing on one would promote a ghost the
-authority turned down. `Game::WriteSnapshot` takes the number as a defaulted argument, so the wire field
+authority turned down. `Game::WriteTickTail` takes the number as an argument (it was
+`Game::WriteSnapshot`'s defaulted one until U3d-b split the payload), so the wire field
 did not move, did not change width, and the callers asking about a *world* rather than serving a
 commander (the self test's determinism harness, most of the suite) read an honest zero rather than a stub.
 
@@ -858,6 +862,71 @@ tick with a missing part is applied but **not acked**; a keyframe replaces rathe
 real `culledCount` on a grid over budget.
 
 ---
+
+**Built (2026-08-22).** One fail-closed schema bump, as ADR-018's Consequences require, and
+`PROTOCOL_VERSION` went to 4 beside it — `WireType::Snapshot`'s payload stopped being opaque game
+bytes, so a build that predates this would read a `DeltaHeader` as the game's old snapshot header
+and find a plausible tick with everything after it shifted. That is exactly what the version
+exists to refuse, and it is belt and braces beside the two hashes.
+
+**The envelope changed owner, and that is the shape of the whole slice.** GameLogic used to own
+the snapshot payload from its first byte. It now owns two things: the **entity record's meaning**
+(`MakeShipRecord`, the `statusBits` bits) and the **tick tail** (`WriteTickTail` — the order
+records and the session's high-water mark, opaque to the engine exactly as a summary frame is).
+Everything else — the delta header, the records, the baseline ring, the parts, the keyframe — is
+the engine's, because interest and delta are the session host's job (§1) and `EntityRecord` was
+always NeuronCore's type. `Simulation::WriteSnapshot` is gone; the seam is `RankRelevance` +
+`WriteEntities` + `WriteTickTail`.
+
+**`RankRelevance` grew a return value the ADR does not name**: how many of the front are
+guaranteed. The engine cannot work that out for itself — which ships are tier 0 is game
+semantics — and §5c's "when the guaranteed prefix alone exceeds the budget, the budget loses"
+is unimplementable without it.
+
+**One message the ADR does not name had to be invented, and it amends ADR-016 §7.** §4's
+`InterestQuery` is a focus, an extent and a selection; §7 says the server has no business
+holding any of them. Both cannot stand, and §5a's guarantee — owned **and selected** ships are
+never culled — is the one that decides it: a server that is never told the selection cannot keep
+it. So `ViewFocus` (C→S, unreliable, on change) carries the camera and up to
+`MAX_VIEW_SELECTION` ids, and `SnapshotSender` holds the latest. **The simulation still learns
+none of it**, which is what §7's sentence was protecting: the focus lives on the session and
+`World` gains nothing.
+
+**`ShipId` and `EntityRecord::id` widened together**, because Ids.h's reason for the first being
+u16 was that it matched the second. Two things fell out. The registry's durable-load duplicate
+check was a bitset indexed by `ShipId` — free at 64k bits, half a gigabyte at u32 — and is now a
+sort. And `Neuron::EntityId` was introduced as a named alias, because the client's seams passed
+entity ids and grid ids side by side as bare `std::uint16_t` and the compiler had nothing to say
+about the dozens of sites that had to widen together.
+
+**Two defects the widening exposed, both real and both older than this slice.**
+`OrderSubmitBytes` still charged two bytes per ship id after the writer had widened to four, so
+the size helper and the wire disagreed. And `ClientApp::BeginContextAction` passed
+`INVALID_ENTITY_ID` as `PickPoint`'s **radius in metres** — a 65 km pick floor, so everything on
+the grid was "under the cursor", and the comment promising "the same pick the selection uses" was
+not true. The widening turned 65 km into 4.29 million, which is how it was found; it now passes
+the camera's screen floor like the selection does.
+
+**One transport surprise, and it is the kind that only shows up over a real socket.** QUIC does
+not put a stream on the wire until something is written to it, so the client's bulk stream —
+opened, started and then silent, because on that channel the **server** speaks first — was a
+stream the server had never heard of. Every keyframe was refused and a joined client watched
+nothing at all. `QUIC_STREAM_START_FLAG_IMMEDIATE` is the fix and it is load-bearing rather than
+an optimisation.
+
+**Verified:** Debug and Release x64 build clean and warning-free. 1,054 tests pass on both —
+`NeuronCoreTests` 76, `GameLogicTests` 401, `NeuronClientTests` 531 (10 new in `DeltaTests.cpp`
+for the receiver: baseline refusal, parts out of order, whole-tick acking, keyframe replacement,
+`leftInterest` retirement), `NeuronServerTests` 46 (new: truncation with an honest
+`culledCount`, the guarantee overriding the budget, ring eviction producing a keyframe, and a
+stale ack failing to walk the baseline backwards). The headless self test passes end to end, and
+its counters show the steady state the design intends: **3 keyframes over 124 ticks** — one per
+join, deltas after.
+
+**What this slice did *not* do**, so U3d-c's scope is not overstated: `culledCount` reaches
+`ReplicatedView::CulledCount()` and stops there. Nothing draws it yet. The counted chip is the
+whole of what U3d-c has left, and the client's ack, keyframe and delta-apply paths — which the
+build order lists under U3d-c — landed here because the wire cannot be tested without a reader.
 
 **What this slice unblocks, stated so it is not rediscovered:** **shared grids** (U3c ran on
 disjoint ones and ADR-018 D3 gates the rest behind exactly this); **A11's remainder**, the

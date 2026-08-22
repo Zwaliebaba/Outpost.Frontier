@@ -136,7 +136,7 @@ struct OrderGhost
    * game") -- and the authority's `legCount` is what corrects it if the guess
    * was wrong.
    */
-  std::uint16_t firstEntityId = INVALID_ENTITY_ID;
+  EntityId firstEntityId = INVALID_ENTITY_ID;
 
   /// Whether this order asked to be queued. Kept because the merge happens on
   /// *acceptance* rather than on send: until the authority agrees, a queued

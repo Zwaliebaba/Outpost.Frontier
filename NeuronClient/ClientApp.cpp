@@ -422,6 +422,8 @@ int ClientApp::Run()
       UpdateHud();
       UpdateSelection();
       UpdateOrders();
+      // After the camera and the selection, because it reports both.
+      SendViewFocus();
     }
     {
       /*
@@ -483,19 +485,28 @@ void ClientApp::PollNetwork()
   const double nowSeconds = Clock::SecondsSinceStart();
   if (!m_feedFrozen)
   {
-    for (const std::vector<std::uint8_t>& payload : m_connection.PendingSnapshots())
+    for (const ClientConnection::ReceivedFrame& received : m_connection.PendingFrames())
     {
-      // The tick comes back from the game, because the game is the only side
-      // that can read it. Zero means the payload was rejected, and a rejected
-      // snapshot must not move the clock.
-      const std::uint32_t tick = m_worldView->ApplySnapshot(payload);
-      if (tick != 0)
+      /*
+       * The tick comes off the *header* now rather than back out of the game
+       * (ADR-022 §3b): the envelope is the engine's, so the number the clock
+       * estimate tracks is the number the framing already carries. A frame the
+       * game refuses -- a malformed tail -- must not move the clock, which is
+       * the same rule as before with a different owner.
+       */
+      ReplicatedFrame frame;
+      frame.tick = received.tick;
+      frame.gridId = received.gridId;
+      frame.culledCount = received.culledCount;
+      frame.entities = received.entities;
+      frame.tail = received.tail;
+      if (m_worldView->ApplyFrame(frame))
       {
-        m_snapshots.OnSnapshot(tick, nowSeconds);
+        m_snapshots.OnSnapshot(received.tick, nowSeconds);
       }
     }
   }
-  m_connection.ClearPendingSnapshots();
+  m_connection.ClearPendingFrames();
 
   /*
    * The 1 Hz family, across the same seam and with the same ignorance
@@ -873,7 +884,7 @@ void ClientApp::UpdateHud()
     {
       if (m_router.Down(InputAction::SelectAdd))
       {
-        for (const std::uint16_t id : m_groupMembers)
+        for (const EntityId id : m_groupMembers)
         {
           m_selection.Add(id);
         }
@@ -1230,10 +1241,19 @@ void ClientApp::UpdateOrders()
 
 bool ClientApp::BeginContextAction(const PuckSample& _sample, double _nowSeconds)
 {
-  // What is under the cursor, by the same pick the selection uses -- so the
-  // thing acted on is the thing that would have been clicked, and a player
-  // cannot act on something they could not have selected.
-  const std::uint16_t hit = PickPoint(m_scene.entities, _sample.targetMetres, INVALID_ENTITY_ID);
+  /*
+   * What is under the cursor, by the same pick the selection uses -- so the
+   * thing acted on is the thing that would have been clicked, and a player
+   * cannot act on something they could not have selected.
+   *
+   * **The floor is the camera's, and it used to be `INVALID_ENTITY_ID`.** That
+   * was a real defect and not a spelling: the third parameter is a pick radius
+   * in *metres*, so passing the id sentinel made the floor 65 km -- everything
+   * on the grid was under the cursor, and the "same pick" this comment promises
+   * was not the same pick at all. U3d-b widened the sentinel to u32 and turned
+   * 65 km into 4.29 million, which is how it was found.
+   */
+  const EntityId hit = PickPoint(m_scene.entities, _sample.targetMetres, m_camera.ScreenFloorMetres(Selection::PICK_FLOOR_PIXELS));
   if (hit == INVALID_ENTITY_ID)
   {
     return false;
@@ -1745,6 +1765,57 @@ void ClientApp::OnViewChanged(std::uint16_t _gridAnchor, double _nowSeconds)
   NEURON_LOG_INFO("view changed to grid %u; settling for %.0f ms", _gridAnchor, VIEW_SETTLE_SECONDS * 1000.0);
 }
 
+void ClientApp::SendViewFocus()
+{
+  /*
+   * Tells the server where this viewer is looking and what they have selected
+   * (ADR-022 §4).
+   *
+   * **ADR-016 §7 said the server had no business holding this**, and ADR-022 §1
+   * is what changed it: relevance is a property of a viewer, so the ranking
+   * needs a focus, an extent and a selection. Without them the server ranks
+   * against a camera at the origin showing nothing, which puts every ship the
+   * player does not own into the far tier -- correct, and useless.
+   *
+   * **On change, not every frame.** At 144 Hz an unconditional send would be
+   * seven messages per tick of ranking that could use them, and the server
+   * cannot act on more than one a tick. The comparison is on the *quantised*
+   * values, so a camera drifting by less than a centimetre is not a change --
+   * which is the same rounding boundary the wire uses, so the client cannot
+   * hold an opinion the server never sees.
+   *
+   * Unreliable, so a lost one costs a single tick ranked against a slightly
+   * stale camera: a worse ordering, never a wrong one.
+   */
+  if (m_connection.State() != ClientLinkState::Joined)
+  {
+    return;
+  }
+
+  ViewFocus focus;
+  focus.gridId = m_connection.GridAnchor();
+  focus.focusXCm = MetresToCentimetres(m_camera.Focus().x);
+  focus.focusYCm = MetresToCentimetres(m_camera.Focus().y);
+  focus.halfExtentCm = static_cast<std::uint32_t>(std::max(0.0f, m_camera.ZoomMetres()) * 100.0f);
+
+  const std::span<const EntityId> selected = m_selection.Ids();
+  const std::size_t count = std::min<std::size_t>(selected.size(), MAX_VIEW_SELECTION);
+  focus.selection.assign(selected.begin(), selected.begin() + static_cast<std::ptrdiff_t>(count));
+
+  const bool changed = focus.gridId != m_sentFocus.gridId || focus.focusXCm != m_sentFocus.focusXCm ||
+                       focus.focusYCm != m_sentFocus.focusYCm || focus.halfExtentCm != m_sentFocus.halfExtentCm ||
+                       focus.selection != m_sentFocus.selection;
+  if (!changed)
+  {
+    return;
+  }
+
+  if (m_connection.SendViewFocus(focus))
+  {
+    m_sentFocus = std::move(focus);
+  }
+}
+
 void ClientApp::AdvanceApproach(double _nowSeconds)
 {
   if (!m_approach.Active())
@@ -1775,7 +1846,7 @@ void ClientApp::AdvanceApproach(double _nowSeconds)
    * on this side to drift from the authority's, which is ADR-014 3's parity
    * rule earning its keep twice.
    */
-  const std::span<const std::uint16_t> ships = m_approach.Ships();
+  const std::span<const EntityId> ships = m_approach.Ships();
   OrderIntent intent;
   intent.kind = m_approach.Kind();
   intent.anchor = m_approach.Anchor();

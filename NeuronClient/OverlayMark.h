@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EntityRecord.h" // EntityId, INVALID_ENTITY_ID (ADR-022 §8a).
+
 #include "OrderGhost.h"
 #include "EntityTransits.h"
 #include "RenderWorld.h"
@@ -308,7 +310,7 @@ struct OverlayMarkList
  * the second line of defence, because a ring at (0,0) is a bug that looks like
  * a feature.
  */
-void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const std::uint16_t> _selectedIds,
+void BuildOverlayMarks(std::span<const SceneEntity> _entities, std::span<const EntityId> _selectedIds,
                        const OverlayTuning& _tuning, float _metresPerPixel, OverlayMarkList& _outMarks);
 
 /*

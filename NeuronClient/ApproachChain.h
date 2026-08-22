@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EntityRecord.h" // EntityId, INVALID_ENTITY_ID (ADR-022 §8a).
+
 #include "OrderIntent.h"
 
 #include <cstdint>
@@ -55,7 +57,7 @@ public:
    * dropped members would dock a different fleet than the one the player
    * pointed at.
    */
-  [[nodiscard]] bool Begin(const ContextAction& _action, std::span<const std::uint16_t> _ships) noexcept;
+  [[nodiscard]] bool Begin(const ContextAction& _action, std::span<const EntityId> _ships) noexcept;
 
   void Cancel() noexcept { m_active = false; }
 
@@ -66,7 +68,7 @@ public:
 
   [[nodiscard]] std::uint16_t Kind() const noexcept { return m_kind; }
   [[nodiscard]] std::uint16_t Anchor() const noexcept { return m_anchor; }
-  [[nodiscard]] std::span<const std::uint16_t> Ships() const noexcept { return {m_ships, m_shipCount}; }
+  [[nodiscard]] std::span<const EntityId> Ships() const noexcept { return {m_ships, m_shipCount}; }
 
   /*
    * The order sequence of the approach leg, so its refusal can cancel the
@@ -91,7 +93,7 @@ public:
    * against the scene rather than against the selection, because the selection
    * is what the player is doing and the scene is what is true.
    */
-  void NoteWorld(std::span<const std::uint16_t> _liveIds) noexcept;
+  void NoteWorld(std::span<const EntityId> _liveIds) noexcept;
 
 private:
   bool m_active = false;
@@ -100,7 +102,7 @@ private:
   const char* m_label = nullptr;
   std::uint32_t m_approachSeq = 0;
 
-  std::uint16_t m_ships[MAX_SHIPS] = {};
+  EntityId m_ships[MAX_SHIPS] = {};
   std::uint32_t m_shipCount = 0;
 };
 

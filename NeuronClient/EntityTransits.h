@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EntityRecord.h" // EntityId, INVALID_ENTITY_ID (ADR-022 §8a).
+
 #include "RenderWorld.h"
 
 #include <cstdint>
@@ -105,7 +107,7 @@ public:
 private:
   struct Known
   {
-    std::uint16_t id = INVALID_ENTITY_ID;
+    EntityId id = INVALID_ENTITY_ID;
     DirectX::XMFLOAT2 planeMetres{};
     float radiusMetres = 0.0f;
   };

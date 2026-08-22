@@ -1,5 +1,7 @@
 #pragma once
 
+#include "DeltaReceiver.h"
+#include "EntityRecord.h"
 #include "OrderIntent.h"
 #include "Transport.h"
 #include "Wire.h"
@@ -139,16 +141,62 @@ public:
   [[nodiscard]] const std::string& WorldBadge() const noexcept { return m_worldBadge; }
 
   /*
-   * Snapshot payloads that arrived since the last drain, oldest first.
+   * One assembled tick, waiting for the frame loop.
    *
-   * The connection does not look inside them -- it cannot, they are the game's
-   * (ADR-014 §5) -- so it holds them until the frame loop hands each one to the
-   * world view. A span rather than a callback keeps the connection free of any
-   * opinion about who consumes them, and keeps the ordering visible at the one
-   * place that matters.
+   * **The connection reads the header now, and that is a change** (ADR-022).
+   * It used to hold the whole snapshot payload unread, because the payload was
+   * the game's from its first byte. Interest and delta made the envelope the
+   * *engine's*: the delta header, the entity records and the baseline ring are
+   * decisions about a viewer and a link (§1), and `EntityRecord` is NeuronCore's
+   * type. What stays opaque is `tail` -- the game's own bytes for the tick,
+   * carried and never parsed, exactly as a summary is.
+   *
+   * Owned storage rather than spans into the receiver: the frame loop drains
+   * this on its own schedule, and a span into a ring that has moved on since is
+   * the class of bug that only shows up under load.
    */
-  [[nodiscard]] std::span<const std::vector<std::uint8_t>> PendingSnapshots() const noexcept { return m_pendingSnapshots; }
-  void ClearPendingSnapshots() noexcept { m_pendingSnapshots.clear(); }
+  struct ReceivedFrame
+  {
+    std::uint32_t tick = 0;
+    std::uint16_t gridId = 0;
+    std::uint16_t culledCount = 0;
+    std::vector<EntityRecord> entities;
+    std::vector<std::uint8_t> tail;
+  };
+
+  /*
+   * Assembled ticks that arrived since the last drain, oldest first.
+   *
+   * A span rather than a callback keeps the connection free of any opinion
+   * about who consumes them, and keeps the ordering visible at the one place
+   * that matters.
+   */
+  [[nodiscard]] std::span<const ReceivedFrame> PendingFrames() const noexcept { return m_pendingFrames; }
+  void ClearPendingFrames() noexcept { m_pendingFrames.clear(); }
+
+  /// Delta parts that named a baseline this client does not hold (ADR-022 §2b).
+  /// Zero in steady state; a number that climbs means acks are not arriving and
+  /// the server should be answering with keyframes.
+  [[nodiscard]] std::uint32_t OrphanedPartCount() const noexcept { return m_delta.OrphanedPartCount(); }
+
+  /// Keyframes taken. One per join and per view switch; more than that means
+  /// the link is losing acks (ADR-022 §2c).
+  [[nodiscard]] std::uint32_t KeyframeCount() const noexcept { return m_delta.KeyframeCount(); }
+
+  /*
+   * Tells the server where this viewer is looking and what they have selected
+   * (ADR-022 §4).
+   *
+   * ADR-016 §7 said the server had no business holding this; ADR-022 §1 is what
+   * changed it, because relevance is a property of a viewer and §5a's guarantee
+   * cannot be kept for a selection nobody told the server about.
+   *
+   * Unreliable, and sent when the client decides it has changed. A lost one
+   * costs one tick ranked against a slightly stale camera, which is a worse
+   * ordering and never a wrong one -- so paying for reliability here would buy
+   * nothing and queue behind the player's orders.
+   */
+  [[nodiscard]] bool SendViewFocus(const ViewFocus& _focus);
 
   /*
    * Summary payloads, held the same way and looked into just as little.
@@ -245,11 +293,22 @@ private:
   std::uint32_t m_serverTick = 0;
   std::uint16_t m_serverTickRate = 0;
 
-  /// Bounded: a frame that fell far behind should drop the oldest snapshots
-  /// rather than grow without limit, because full snapshots are idempotent and
-  /// the newest is the only one that has to arrive.
+  /*
+   * Bounded: a frame loop that fell far behind should drop the oldest ticks
+   * rather than grow without limit.
+   *
+   * **Still safe to drop under deltas, and the reason has changed.** A full
+   * snapshot was idempotent, so the newest was the only one that had to arrive.
+   * An assembled frame is idempotent for the same *outcome* but a different
+   * cause: `DeltaReceiver` keeps the picture, so a frame dropped here is a tick
+   * the game never draws, not a tick the client forgets. The baseline and the
+   * ack are untouched by anything this queue does.
+   */
   static constexpr std::size_t MAX_PENDING_SNAPSHOTS = 8;
-  std::vector<std::vector<std::uint8_t>> m_pendingSnapshots;
+  std::vector<ReceivedFrame> m_pendingFrames;
+
+  /// Reassembly, the baseline ring and the whole-tick ack rule (ADR-022 §2).
+  DeltaReceiver m_delta;
 
   /// Summaries waiting to be read. Capped like the snapshots, and for the one
   /// reason that is the same: a queue nobody drains must not grow without

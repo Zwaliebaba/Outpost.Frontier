@@ -18,7 +18,7 @@ constexpr float RADIANS_TO_TURNS = 65536.0f / (2.0f * std::numbers::pi_v<float>)
 
 void WriteEntityRecord(ByteWriter& _writer, const EntityRecord& _record) noexcept
 {
-  _writer.WriteUInt16(_record.id);
+  _writer.WriteUInt32(_record.id);
   _writer.WriteUInt8(_record.typeId);
   _writer.WriteUInt8(_record.groupId);
   _writer.WriteInt32(_record.posXCm);
@@ -34,7 +34,7 @@ void WriteEntityRecord(ByteWriter& _writer, const EntityRecord& _record) noexcep
 EntityRecord ReadEntityRecord(ByteReader& _reader) noexcept
 {
   EntityRecord record{};
-  record.id = _reader.ReadUInt16();
+  record.id = _reader.ReadUInt32();
   record.typeId = _reader.ReadUInt8();
   record.groupId = _reader.ReadUInt8();
   record.posXCm = _reader.ReadInt32();

@@ -79,7 +79,7 @@ public:
   TEST_METHOD(OneSelectedShipIsARingAndTwoBars)
   {
     const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f)};
-    const std::vector<std::uint16_t> selected = {1};
+    const std::vector<EntityId> selected = {1};
 
     OverlayMarkList marks;
     BuildOverlayMarks(entities, selected, OverlayTuning{}, METRES_PER_PIXEL_CLOSE, marks);
@@ -98,7 +98,7 @@ public:
     // would be drawn depth-tested and disappear behind the ship it describes.
     const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f), Ship(2, 500.0f, 0.0f, 40.0f),
                                                Ship(3, 900.0f, 0.0f, 90.0f)};
-    const std::vector<std::uint16_t> selected = {1, 2, 3};
+    const std::vector<EntityId> selected = {1, 2, 3};
 
     OverlayMarkList marks;
     BuildOverlayMarks(entities, selected, OverlayTuning{}, METRES_PER_PIXEL_CLOSE, marks);
@@ -119,7 +119,7 @@ public:
   TEST_METHOD(ARingSitsOutsideTheHullItSurrounds)
   {
     const std::vector<SceneEntity> entities = {Ship(1, 100.0f, -200.0f, 90.0f)};
-    const std::vector<std::uint16_t> selected = {1};
+    const std::vector<EntityId> selected = {1};
     const OverlayTuning tuning;
 
     OverlayMarkList marks;
@@ -136,7 +136,7 @@ public:
     // fraction of a pixel, and a ring nobody can see is a selection nobody can
     // see (ADR-006 §8's scaling law).
     const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f)};
-    const std::vector<std::uint16_t> selected = {1};
+    const std::vector<EntityId> selected = {1};
     const OverlayTuning tuning;
 
     IsoCamera camera;
@@ -155,7 +155,7 @@ public:
   {
     // Zoomed in on a Carrier, the hull is bigger than the floor and wins.
     const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 90.0f)};
-    const std::vector<std::uint16_t> selected = {1};
+    const std::vector<EntityId> selected = {1};
     const OverlayTuning tuning;
 
     OverlayMarkList marks;
@@ -166,7 +166,7 @@ public:
   TEST_METHOD(AFrozenShipsRingIsColouredDifferently)
   {
     const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f, 255, 255, true)};
-    const std::vector<std::uint16_t> selected = {1};
+    const std::vector<EntityId> selected = {1};
     const OverlayTuning tuning;
 
     OverlayMarkList marks;
@@ -208,7 +208,7 @@ public:
     // A readout about the feed must not hide behind the hull it is warning
     // about, so the marker lives past the ring/bar split with the bars.
     const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f, 255, 255, true)};
-    const std::vector<std::uint16_t> selected = {1};
+    const std::vector<EntityId> selected = {1};
 
     OverlayMarkList marks;
     BuildOverlayMarks(entities, selected, OverlayTuning{}, METRES_PER_PIXEL_CLOSE, marks);
@@ -228,7 +228,7 @@ public:
     // A ship spawns at 255 and that is full. Treating it as a percentage would
     // put the bar two and a half times past its own end.
     const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f, 255, 0)};
-    const std::vector<std::uint16_t> selected = {1};
+    const std::vector<EntityId> selected = {1};
 
     OverlayMarkList marks;
     BuildOverlayMarks(entities, selected, OverlayTuning{}, METRES_PER_PIXEL_CLOSE, marks);
@@ -245,7 +245,7 @@ public:
   TEST_METHOD(AHalfGaugeIsHalfABar)
   {
     const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f, 128, 64)};
-    const std::vector<std::uint16_t> selected = {1};
+    const std::vector<EntityId> selected = {1};
 
     OverlayMarkList marks;
     BuildOverlayMarks(entities, selected, OverlayTuning{}, METRES_PER_PIXEL_CLOSE, marks);
@@ -258,7 +258,7 @@ public:
   TEST_METHOD(TheShieldBarSitsAboveTheHullBar)
   {
     const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f)};
-    const std::vector<std::uint16_t> selected = {1};
+    const std::vector<EntityId> selected = {1};
     const OverlayTuning tuning;
 
     OverlayMarkList marks;
@@ -280,7 +280,7 @@ public:
     // The whole reason for two spaces: a bar has to stay legible as the camera
     // zooms, and a ring has to stay glued to the ship.
     const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f)};
-    const std::vector<std::uint16_t> selected = {1};
+    const std::vector<EntityId> selected = {1};
     const OverlayTuning tuning;
 
     OverlayMarkList close;
@@ -306,7 +306,7 @@ public:
     // Selection::Retain should have removed it the same frame. A ring at the
     // origin is a bug that looks like a feature, so this is the second line.
     const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f)};
-    const std::vector<std::uint16_t> selected = {1, 77};
+    const std::vector<EntityId> selected = {1, 77};
 
     OverlayMarkList marks;
     BuildOverlayMarks(entities, selected, OverlayTuning{}, METRES_PER_PIXEL_CLOSE, marks);
@@ -360,10 +360,10 @@ public:
     const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, 12.0f), Ship(2, 500.0f, 0.0f, 40.0f)};
     OverlayMarkList marks;
 
-    BuildOverlayMarks(entities, std::vector<std::uint16_t>{1, 2}, OverlayTuning{}, METRES_PER_PIXEL_CLOSE, marks);
+    BuildOverlayMarks(entities, std::vector<EntityId>{1, 2}, OverlayTuning{}, METRES_PER_PIXEL_CLOSE, marks);
     Assert::AreEqual<std::size_t>(6, marks.marks.size());
 
-    BuildOverlayMarks(entities, std::vector<std::uint16_t>{2}, OverlayTuning{}, METRES_PER_PIXEL_CLOSE, marks);
+    BuildOverlayMarks(entities, std::vector<EntityId>{2}, OverlayTuning{}, METRES_PER_PIXEL_CLOSE, marks);
     Assert::AreEqual<std::size_t>(3, marks.marks.size());
     Assert::AreEqual<std::uint32_t>(1, marks.ringCount);
 

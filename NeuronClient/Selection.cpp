@@ -10,17 +10,17 @@ using namespace DirectX;
 namespace Neuron
 {
 
-bool Selection::Contains(std::uint16_t _id) const noexcept
+bool Selection::Contains(EntityId _id) const noexcept
 {
   return std::find(m_ids.begin(), m_ids.end(), _id) != m_ids.end();
 }
 
-void Selection::Set(std::span<const std::uint16_t> _ids)
+void Selection::Set(std::span<const EntityId> _ids)
 {
   m_ids.assign(_ids.begin(), _ids.end());
 }
 
-void Selection::Add(std::uint16_t _id)
+void Selection::Add(EntityId _id)
 {
   if (_id != INVALID_ENTITY_ID && !Contains(_id))
   {
@@ -28,7 +28,7 @@ void Selection::Add(std::uint16_t _id)
   }
 }
 
-void Selection::Toggle(std::uint16_t _id)
+void Selection::Toggle(EntityId _id)
 {
   if (_id == INVALID_ENTITY_ID)
   {
@@ -48,7 +48,7 @@ void Selection::Toggle(std::uint16_t _id)
 void Selection::Retain(std::span<const SceneEntity> _entities)
 {
   std::erase_if(m_ids,
-                [_entities](std::uint16_t _id)
+                [_entities](EntityId _id)
                 {
                   return std::find_if(_entities.begin(), _entities.end(),
                                       [_id](const SceneEntity& _target) { return _target.id == _id; }) == _entities.end();
@@ -101,14 +101,14 @@ void Selection::EndDrag(std::span<const SceneEntity> _entities, const PlaneMappi
     const XMFLOAT2 cornerA = PixelsToNdc(m_startX, m_startY, _viewportWidth, _viewportHeight);
     const XMFLOAT2 cornerB = PixelsToNdc(m_currentX, m_currentY, _viewportWidth, _viewportHeight);
 
-    std::vector<std::uint16_t> inside;
+    std::vector<EntityId> inside;
     PickBox(_entities, _mapping, cornerA, cornerB, inside);
 
     if (!additive)
     {
       m_ids.clear();
     }
-    for (const std::uint16_t id : inside)
+    for (const EntityId id : inside)
     {
       Add(id); // Add, not assign: a shift-box merges rather than replaces.
     }
@@ -119,7 +119,7 @@ void Selection::EndDrag(std::span<const SceneEntity> _entities, const PlaneMappi
   // through the same two functions the order puck uses, which is ADR-006 §11's
   // one code path rather than two that agree today.
   const XMFLOAT2 planePoint = NdcToPlane(_mapping, PixelsToNdc(m_currentX, m_currentY, _viewportWidth, _viewportHeight));
-  const std::uint16_t hit = PickPoint(_entities, planePoint, _minRadiusMetres);
+  const EntityId hit = PickPoint(_entities, planePoint, _minRadiusMetres);
 
   if (additive)
   {

@@ -81,7 +81,11 @@ inline constexpr std::size_t COMMAND_KIND_BYTES = 1;
 /// on a byte the payload chose.
 [[nodiscard]] constexpr std::size_t OrderSubmitBytes(std::size_t _shipCount) noexcept
 {
-  return 4 + 1 + 1 + 1 + 2 + _shipCount * 2 + 4 + 4 + 2 + 2 + 1;
+  // Four bytes per id as of U3d-b, not two (ADR-018 D6, ADR-022 §8a): these are
+  // the ids the client read off a replicated record, and that record's id
+  // widened with the delta cluster. At the 64-ship cap the largest order is
+  // 278 bytes, comfortably inside one datagram.
+  return 4 + 1 + 1 + 1 + 2 + _shipCount * 4 + 4 + 4 + 2 + 2 + 1;
 }
 
 /// The largest an order can be: the per-order ship cap, which is what makes the

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "EntityRecord.h" // EntityId, INVALID_ENTITY_ID (ADR-022 §8a).
+
 #include <cstdint>
 
 /*
@@ -63,7 +65,7 @@ struct OrderIntent
   /// Which entities the command is for, as replicated ids (`EntityRecord::id`).
   /// A span rather than a container: the selection already exists somewhere,
   /// and the seam should not decide where.
-  const std::uint16_t* entityIds = nullptr;
+  const EntityId* entityIds = nullptr;
   std::uint32_t entityCount = 0;
 
   /*

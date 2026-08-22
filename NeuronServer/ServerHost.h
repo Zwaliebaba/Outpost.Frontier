@@ -139,12 +139,21 @@ public:
   {
     return m_sessionCount.load(std::memory_order_relaxed);
   }
-  /// Snapshots that could not be sent, counted per client and per tick: with
-  /// one feed per session (A13) a tick that fails for two viewers is two.
-  /// Non-zero means somebody has seen the world stop moving, so it belongs on
-  /// the HUD next to the others rather than only in the log line that fires
-  /// once. *Which* viewer is the sender's own `OverCapCount`; this is the
-  /// session-wide number the strip reads.
+  /*
+   * Ticks on which a viewer was owed an update and got none.
+   *
+   * **This used to mean "the fleet outgrew one datagram"** and does not any
+   * more (ADR-022 §6): a grid over budget produces a partial view with an
+   * honest `culledCount`, not silence. What it counts now is a sender that had
+   * nothing at all to send -- a grid the simulation would not rank -- so a
+   * non-zero value has stopped meaning "somebody is watching a frozen world"
+   * and started meaning "somebody is watching nothing". Both belong on the
+   * strip; they are different sentences.
+   *
+   * The per-viewer figures that replaced the old one are the sender's own:
+   * `InterestOverrunCount` (§5c, the guaranteed prefix outgrowing the budget)
+   * and `LastCulledCount` (§5d, what the player is being told they cannot see).
+   */
   [[nodiscard]] std::uint32_t SnapshotFailureCount() const noexcept
   {
     return m_snapshotFailures.load(std::memory_order_relaxed);

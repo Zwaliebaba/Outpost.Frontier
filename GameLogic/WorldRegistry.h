@@ -431,7 +431,7 @@ public:
    *
    * Authored occupants do not come through here -- their ids are baked into
    * their anchor, which is what makes a recreated world reproduce them exactly.
-   * Returns `INVALID_SHIP_ID` when the block is spent, which is the u16 ceiling
+   * Returns `INVALID_SHIP_ID` when the block is spent, which is the u32 ceiling
    * D6 keeps until the delta cluster widens the record.
    */
   [[nodiscard]] ShipId AllocateShipId();

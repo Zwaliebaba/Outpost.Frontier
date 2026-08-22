@@ -100,7 +100,7 @@ public:
   TEST_METHOD(BeginningCarriesTheVerbAndTheFleet)
   {
     ApproachChain chain;
-    const std::vector<std::uint16_t> ships = {4, 5, 6};
+    const std::vector<EntityId> ships = {4, 5, 6};
     Assert::IsTrue(chain.Begin(DockAction(), ships));
 
     Assert::IsTrue(chain.Active());
@@ -116,7 +116,7 @@ public:
     // thing the player keeps editing, and an order that followed it would
     // quietly become an order about different ships.
     ApproachChain chain;
-    std::vector<std::uint16_t> ships = {4, 5, 6};
+    std::vector<EntityId> ships = {4, 5, 6};
     Assert::IsTrue(chain.Begin(DockAction(), ships));
 
     ships.clear();
@@ -131,7 +131,7 @@ public:
     ApproachChain chain;
     ContextAction unavailable = DockAction();
     unavailable.available = false;
-    const std::vector<std::uint16_t> ships = {4};
+    const std::vector<EntityId> ships = {4};
 
     Assert::IsFalse(chain.Begin(unavailable, ships));
     Assert::IsFalse(chain.Begin(DockAction(), {}));
@@ -143,7 +143,7 @@ public:
     // Refused, because an approach that silently dropped members would dock a
     // different fleet than the one the player pointed at.
     ApproachChain chain;
-    std::vector<std::uint16_t> ships;
+    std::vector<EntityId> ships;
     for (std::uint16_t id = 0; id < ApproachChain::MAX_SHIPS + 1; ++id)
     {
       ships.push_back(static_cast<std::uint16_t>(id + 1));
@@ -156,7 +156,7 @@ public:
   TEST_METHOD(TheApproachLegsRefusalCancelsTheChain)
   {
     ApproachChain chain;
-    const std::vector<std::uint16_t> ships = {4};
+    const std::vector<EntityId> ships = {4};
     Assert::IsTrue(chain.Begin(DockAction(), ships));
     chain.NoteApproachSent(11);
 
@@ -172,7 +172,7 @@ public:
     // Zero is "nothing sent yet" and is also what a malformed payload acks
     // with, so it must never cancel a chain that has not sent anything.
     ApproachChain chain;
-    const std::vector<std::uint16_t> ships = {4};
+    const std::vector<EntityId> ships = {4};
     Assert::IsTrue(chain.Begin(DockAction(), ships));
 
     chain.NoteOrderRefused(0);
@@ -182,14 +182,14 @@ public:
   TEST_METHOD(AMemberLeavingTheWorldCancelsTheChain)
   {
     ApproachChain chain;
-    const std::vector<std::uint16_t> ships = {4, 5};
+    const std::vector<EntityId> ships = {4, 5};
     Assert::IsTrue(chain.Begin(DockAction(), ships));
 
-    const std::vector<std::uint16_t> stillThere = {4, 5, 9};
+    const std::vector<EntityId> stillThere = {4, 5, 9};
     chain.NoteWorld(stillThere);
     Assert::IsTrue(chain.Active());
 
-    const std::vector<std::uint16_t> oneGone = {4, 9};
+    const std::vector<EntityId> oneGone = {4, 9};
     chain.NoteWorld(oneGone);
     Assert::IsFalse(chain.Active());
   }
@@ -199,8 +199,8 @@ public:
     // One at a time on purpose: two chips promising two different arrivals is
     // a HUD saying something the player did not ask for.
     ApproachChain chain;
-    Assert::IsTrue(chain.Begin(DockAction(7), std::vector<std::uint16_t>{4}));
-    Assert::IsTrue(chain.Begin(DockAction(8), std::vector<std::uint16_t>{5, 6}));
+    Assert::IsTrue(chain.Begin(DockAction(7), std::vector<EntityId>{4}));
+    Assert::IsTrue(chain.Begin(DockAction(8), std::vector<EntityId>{5, 6}));
 
     Assert::AreEqual<std::uint16_t>(8, chain.Anchor());
     Assert::AreEqual<std::size_t>(2, chain.Ships().size());
@@ -692,7 +692,7 @@ public:
      * would be drawn depth-tested and disappear behind the hull it is about.
      */
     const std::vector<SceneEntity> entities = {Ship(1, 0.0f, 0.0f, PROTECTED_BIT)};
-    const std::vector<std::uint16_t> selected = {1};
+    const std::vector<EntityId> selected = {1};
     OverlayTuning tuning;
     tuning.statusMarkBits = PROTECTED_BIT;
 

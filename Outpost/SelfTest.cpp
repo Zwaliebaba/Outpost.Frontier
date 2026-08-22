@@ -441,10 +441,18 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation, const G
     _checks.Record("an order round-trips the wire byte-exactly", ok);
   }
 
-  // The snapshot wire: emit from a real world, apply through the client's own
-  // view, and compare in *integers* -- re-quantising the sampled ships must
-  // reproduce the exact centimetres that crossed (the same assertion
-  // GameLogicTests makes, re-proved in the shipping binary).
+  /*
+   * The record wire: build from a real world, apply through the client's own
+   * view, and compare in *integers* -- re-quantising the sampled ships must
+   * reproduce the exact centimetres that crossed (the same assertion
+   * GameLogicTests makes, re-proved in the shipping binary).
+   *
+   * **The datagram-cap check went with ADR-022 §5b.** A tick's records are
+   * bounded by a bandwidth budget and spill into as many datagrams as they
+   * need, so "a snapshot fits one datagram" is no longer a property anything
+   * has. What is still true, and still worth proving in the shipping binary, is
+   * that a record survives the trip byte for byte.
+   */
   {
     Game::World world;
     world.Reset(1);
@@ -459,21 +467,44 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation, const G
     }
     world.Tick(1);
 
+    std::vector<Neuron::EntityRecord> built;
+    for (std::uint32_t slot = 0; slot < world.ShipCount(); ++slot)
+    {
+      built.push_back(Game::MakeShipRecord(world, slot, Game::Relationship::Own));
+    }
+
+    // Through the wire and back, so what the view is handed is what a client
+    // would have decoded rather than what this function happened to hold.
     std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> buffer{};
     Neuron::ByteWriter writer{buffer};
-    bool ok = Game::WriteSnapshot(world, writer);
-    _checks.Record("a snapshot fits the datagram cap", ok && writer.Written().size() <= Neuron::MAX_DATAGRAM_BYTES);
+    for (const Neuron::EntityRecord& record : built)
+    {
+      Neuron::WriteEntityRecord(writer, record);
+    }
+    bool ok = writer.Ok();
 
-    Game::SnapshotHeader header;
     std::vector<Neuron::EntityRecord> records;
     if (ok)
     {
       Neuron::ByteReader reader{writer.Written()};
-      ok = Game::ReadSnapshot(reader, header, records);
+      for (std::size_t index = 0; index < built.size(); ++index)
+      {
+        records.push_back(Neuron::ReadEntityRecord(reader));
+      }
+      ok = reader.Ok() && reader.FullyConsumed();
     }
+    _checks.Record("an entity record round-trips its bytes", ok && records.size() == built.size());
+
+    std::array<std::uint8_t, Game::MAX_TICK_TAIL_BYTES> tailBytes{};
+    Neuron::ByteWriter tailWriter{tailBytes};
+    ok = ok && Game::WriteTickTail(world, tailWriter, 0) && tailWriter.Ok();
+
+    // Every ship is the viewer's own here, so the relationship channel is
+    // exercised rather than merely present (ADR-022 §8b).
+    ok = ok && !records.empty() && Game::RelationshipFrom(records[0].statusBits) == Game::Relationship::Own;
 
     Game::ReplicatedView view;
-    ok = ok && view.ApplySnapshot(writer.Written());
+    ok = ok && view.ApplyFrame(world.Tick(), world.Anchor(), 0, records, tailWriter.Written());
 
     std::vector<Game::ReplicatedShip> sampled;
     if (ok)
@@ -490,7 +521,7 @@ void RunLocalChecks(Checklist& _checks, Neuron::Simulation& _simulation, const G
              Neuron::MetresToCentimetres(sampled[index].positionMetres.y) == records[index].posYCm;
       }
     }
-    _checks.Record("a snapshot round-trips emit -> bytes -> apply in integers", ok);
+    _checks.Record("a frame round-trips build -> bytes -> apply in integers", ok);
   }
 
   // Replay determinism, in this binary on this machine: two identical scripted
@@ -972,11 +1003,13 @@ void RunViewGate(Checklist& _checks, Neuron::ClientConnection& _client)
   (void)PumpUntil(_client,
                   [&]
                   {
-                    for (const std::vector<std::uint8_t>& payload : _client.PendingSnapshots())
+                    for (const Neuron::ClientConnection::ReceivedFrame& frame : _client.PendingFrames())
                     {
-                      applied = view.ApplySnapshot(payload) || applied;
+                      applied = view.ApplyFrame(frame.tick, static_cast<Game::AnchorId>(frame.gridId), frame.culledCount,
+                                                frame.entities, frame.tail) ||
+                                applied;
                     }
-                    _client.ClearPendingSnapshots();
+                    _client.ClearPendingFrames();
                     return applied;
                   });
   _checks.Record("a refused view left the feed on the grid we had", applied && view.Grid() == here);
@@ -1011,11 +1044,12 @@ void RunDockingLoop(Checklist& _checks, Neuron::ClientConnection& _client)
   std::vector<Game::ReplicatedShip> ships;
   const auto refresh = [&]
   {
-    for (const std::vector<std::uint8_t>& payload : _client.PendingSnapshots())
+    for (const Neuron::ClientConnection::ReceivedFrame& frame : _client.PendingFrames())
     {
-      (void)view.ApplySnapshot(payload);
+      (void)view.ApplyFrame(frame.tick, static_cast<Game::AnchorId>(frame.gridId), frame.culledCount, frame.entities,
+                            frame.tail);
     }
-    _client.ClearPendingSnapshots();
+    _client.ClearPendingFrames();
     ships.clear();
     view.SampleAt(static_cast<double>(view.LatestTick()), ships);
   };
@@ -1573,11 +1607,17 @@ void RunMineAvailabilityGate(Checklist& _checks, const Game::EconomyDef& _econom
   (void)world.Spawn(spawn, FRIGATE);
   world.Tick(1);
 
-  std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> snapshotBytes{};
-  Neuron::ByteWriter snapshotWriter{snapshotBytes};
-  if (!Game::WriteSnapshot(world, snapshotWriter) || !snapshotWriter.Ok())
+  std::vector<Neuron::EntityRecord> records;
+  for (std::uint32_t slot = 0; slot < world.ShipCount(); ++slot)
   {
-    _checks.Record("the mine gate could write its snapshot", false);
+    records.push_back(Game::MakeShipRecord(world, slot, Game::Relationship::Own));
+  }
+
+  std::array<std::uint8_t, Game::MAX_TICK_TAIL_BYTES> tailBytes{};
+  Neuron::ByteWriter tailWriter{tailBytes};
+  if (!Game::WriteTickTail(world, tailWriter, 0) || !tailWriter.Ok())
+  {
+    _checks.Record("the mine gate could write its frame", false);
     return;
   }
 
@@ -1589,12 +1629,17 @@ void RunMineAvailabilityGate(Checklist& _checks, const Game::EconomyDef& _econom
   desc.economy = &_economy;
   Outpost::ReplicatedWorldView view{std::move(desc)};
 
-  const bool applied = view.ApplySnapshot(snapshotWriter.Written()) != 0;
+  Neuron::ReplicatedFrame frame;
+  frame.tick = world.Tick();
+  frame.gridId = world.Anchor();
+  frame.entities = records;
+  frame.tail = tailWriter.Written();
+  const bool applied = view.ApplyFrame(frame);
   Neuron::RenderScene scene;
   view.BuildScene(static_cast<double>(world.Tick()), scene);
   _checks.Record("the mine gate's fleet is on screen", applied && scene.entities.size() == 2);
 
-  const auto mineOption = [&](std::span<const std::uint16_t> _selection) {
+  const auto mineOption = [&](std::span<const Neuron::EntityId> _selection) {
     std::array<Neuron::OrderKindOption, Neuron::MAX_ORDER_KINDS> kinds{};
     const std::uint32_t count = view.OrderKinds(_selection, kinds);
     for (std::uint32_t index = 0; index < count; ++index)
@@ -1607,8 +1652,8 @@ void RunMineAvailabilityGate(Checklist& _checks, const Game::EconomyDef& _econom
     return Neuron::OrderKindOption{};
   };
 
-  const std::uint16_t both[] = {MINER, FRIGATE};
-  const std::uint16_t frigateOnly[] = {FRIGATE};
+  const Neuron::EntityId both[] = {MINER, FRIGATE};
+  const Neuron::EntityId frigateOnly[] = {FRIGATE};
 
   // 1. No summary has arrived, so there is no field here.
   const Neuron::OrderKindOption noField = mineOption(both);
@@ -1858,7 +1903,7 @@ void RunWingAssignmentGate(Checklist& _checks)
                    options[3].parameter == 4);
 
   std::array<Neuron::RosterRow, Neuron::MAX_ROSTER_ROWS> roster{};
-  const std::uint32_t rowCount = view.BuildRoster(std::span<const std::uint16_t>{}, roster);
+  const std::uint32_t rowCount = view.BuildRoster(std::span<const Neuron::EntityId>{}, roster);
   _checks.Record("and the wing the player just made has a roster row to appear on",
                  rowCount == 3 && roster[2].groupId == 3 && roster[2].name != nullptr && std::string_view{roster[2].name} == "VERGE");
 
@@ -2169,11 +2214,12 @@ void RunSecondCommanderGate(Checklist& _checks, Neuron::ServerHost& _server, con
   (void)PumpUntil(alice,
                   [&]
                   {
-                    for (const std::vector<std::uint8_t>& payload : alice.PendingSnapshots())
+                    for (const Neuron::ClientConnection::ReceivedFrame& frame : alice.PendingFrames())
                     {
-                      (void)aliceView.ApplySnapshot(payload);
+                      (void)aliceView.ApplyFrame(frame.tick, static_cast<Game::AnchorId>(frame.gridId), frame.culledCount,
+                                             frame.entities, frame.tail);
                     }
-                    alice.ClearPendingSnapshots();
+                    alice.ClearPendingFrames();
                     aliceShips.clear();
                     aliceView.SampleAt(static_cast<double>(aliceView.LatestTick()), aliceShips);
                     return !aliceShips.empty();
@@ -2363,11 +2409,12 @@ void RunApproachDisconnectGate(Checklist& _checks, Neuron::ServerHost& _server, 
     std::vector<Game::ReplicatedShip> ships;
     const auto refresh = [&]
     {
-      for (const std::vector<std::uint8_t>& payload : client.PendingSnapshots())
+      for (const Neuron::ClientConnection::ReceivedFrame& frame : client.PendingFrames())
       {
-        (void)view.ApplySnapshot(payload);
+        (void)view.ApplyFrame(frame.tick, static_cast<Game::AnchorId>(frame.gridId), frame.culledCount,
+                               frame.entities, frame.tail);
       }
-      client.ClearPendingSnapshots();
+      client.ClearPendingFrames();
       ships.clear();
       view.SampleAt(static_cast<double>(view.LatestTick()), ships);
     };
@@ -2457,11 +2504,12 @@ void RunApproachDisconnectGate(Checklist& _checks, Neuron::ServerHost& _server, 
   std::vector<Game::ReplicatedShip> ships;
   const auto refresh = [&]
   {
-    for (const std::vector<std::uint8_t>& payload : observer.PendingSnapshots())
+    for (const Neuron::ClientConnection::ReceivedFrame& frame : observer.PendingFrames())
     {
-      (void)view.ApplySnapshot(payload);
+      (void)view.ApplyFrame(frame.tick, static_cast<Game::AnchorId>(frame.gridId), frame.culledCount, frame.entities,
+                            frame.tail);
     }
-    observer.ClearPendingSnapshots();
+    observer.ClearPendingFrames();
     ships.clear();
     view.SampleAt(static_cast<double>(view.LatestTick()), ships);
   };
@@ -2623,25 +2671,27 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
       // The rest of the loop (S13's exit criterion): a snapshot down the
       // unreliable channel, an order up the reliable one, and the authority's
       // verdict back. Until now the self test stopped at the heartbeat.
-      const bool snapshotArrived = PumpUntil(client, [&] { return !client.PendingSnapshots().empty(); });
-      checks.Record("a snapshot arrives", snapshotArrived);
+      const bool snapshotArrived = PumpUntil(client, [&] { return !client.PendingFrames().empty(); });
+      checks.Record("a state frame arrives", snapshotArrived);
 
       if (snapshotArrived)
       {
         Game::ReplicatedView view;
         bool applied = false;
-        for (const std::vector<std::uint8_t>& payload : client.PendingSnapshots())
+        for (const Neuron::ClientConnection::ReceivedFrame& frame : client.PendingFrames())
         {
-          applied = view.ApplySnapshot(payload) || applied;
+          applied = view.ApplyFrame(frame.tick, static_cast<Game::AnchorId>(frame.gridId), frame.culledCount, frame.entities,
+                                    frame.tail) ||
+                    applied;
         }
-        client.ClearPendingSnapshots();
+        client.ClearPendingFrames();
 
         std::vector<Game::ReplicatedShip> ships;
         if (applied)
         {
           view.SampleAt(static_cast<double>(view.LatestTick()), ships);
         }
-        checks.Record("the snapshot decodes to ships", applied && !ships.empty());
+        checks.Record("the frame decodes to ships", applied && !ships.empty());
 
         /*
          * One of the COMMANDER'S OWN hulls, which used to be `ships.front()`

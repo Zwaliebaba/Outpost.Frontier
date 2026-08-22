@@ -130,6 +130,31 @@ bool ClientConnection::RequestView(std::uint16_t _gridAnchor)
   return m_transport->Send(m_connection, TransportChannel::Control, writer.Written());
 }
 
+bool ClientConnection::SendViewFocus(const ViewFocus& _focus)
+{
+  if (m_state != ClientLinkState::Joined || m_transport == nullptr)
+  {
+    return false;
+  }
+
+  std::array<std::uint8_t, MAX_DATAGRAM_BYTES> buffer{};
+  ByteWriter writer{buffer};
+  WriteWireType(writer, WireType::ViewFocus);
+  Write(writer, _focus);
+  if (!writer.Ok())
+  {
+    // A selection past `MAX_VIEW_SELECTION` is the only way here, and the
+    // writer clamps that rather than overflowing -- so reaching this is a
+    // payload from somewhere this code does not build.
+    return false;
+  }
+
+  // Unreliable: a lost focus costs one tick ranked against a slightly stale
+  // camera, and paying for reliability would queue it behind the player's
+  // orders for nothing (ADR-022 §4).
+  return m_transport->Send(m_connection, TransportChannel::State, writer.Written());
+}
+
 bool ClientConnection::SendOrder(std::span<const std::uint8_t> _payload)
 {
   if (m_state != ClientLinkState::Joined || m_transport == nullptr || _payload.empty())
@@ -183,7 +208,10 @@ void ClientConnection::LogNetStats()
 void ClientConnection::HandleMessage(const TransportEvent& _event)
 {
   ByteReader reader{_event.payload};
-  switch (ReadWireType(reader))
+  // Named, because the snapshot and keyframe arms share a body and have to
+  // tell which one they are (ADR-022 §3).
+  const WireType type = ReadWireType(reader);
+  switch (type)
   {
   case WireType::Welcome:
   {
@@ -235,24 +263,66 @@ void ClientConnection::HandleMessage(const TransportEvent& _event)
   }
 
   case WireType::Snapshot:
+  case WireType::Keyframe:
   {
-    // Everything after the type word is the game's, byte for byte. The
-    // connection's whole job here is to not touch it.
+    /*
+     * One part of a delta, or a whole keyframe (ADR-022 §2, §3).
+     *
+     * The envelope is the engine's now and the receiver reads it; what stays
+     * untouched is the game's tail inside. A refused part -- malformed, or
+     * naming a baseline this client does not hold -- leaves the picture alone
+     * and, crucially, leaves the ack unsent, which is how the client asks for
+     * the keyframe that fixes it (§2c).
+     */
     const std::span<const std::uint8_t> payload = reader.Remaining();
     if (payload.empty())
     {
       return;
     }
 
-    ++m_snapshotCount;
-    if (m_pendingSnapshots.size() >= MAX_PENDING_SNAPSHOTS)
+    ReplicatedFrame frame;
+    const bool applied = type == WireType::Keyframe ? m_delta.OnKeyframe(payload, frame) : m_delta.OnDelta(payload, frame);
+    if (!applied)
     {
-      // Drop the oldest. Full snapshots supersede each other (ADR-004 §6), so
-      // the freshest is the one worth keeping when the frame loop is behind.
-      m_pendingSnapshots.erase(m_pendingSnapshots.begin());
+      return;
+    }
+
+    ++m_snapshotCount;
+    if (m_pendingFrames.size() >= MAX_PENDING_SNAPSHOTS)
+    {
+      // Drop the oldest: the receiver keeps the picture, so this costs a tick
+      // the game never draws rather than a tick the client forgets.
+      m_pendingFrames.erase(m_pendingFrames.begin());
       ++m_snapshotOverflowCount;
     }
-    m_pendingSnapshots.emplace_back(payload.begin(), payload.end());
+
+    ReceivedFrame& held = m_pendingFrames.emplace_back();
+    held.tick = frame.tick;
+    held.gridId = frame.gridId;
+    held.culledCount = frame.culledCount;
+    held.entities.assign(frame.entities.begin(), frame.entities.end());
+    held.tail.assign(frame.tail.begin(), frame.tail.end());
+
+    /*
+     * And the ack, the moment the tick is whole (§2d).
+     *
+     * Sent from here rather than from the frame loop because it is a *link*
+     * fact and must not wait on the renderer: a client that acked at frame rate
+     * would stall its own baseline whenever it dropped frames, and the server
+     * would answer with keyframes for a problem that was never on the wire.
+     */
+    SnapshotAck ack;
+    if (m_delta.TakeAck(ack))
+    {
+      std::array<std::uint8_t, 32> buffer{};
+      ByteWriter writer{buffer};
+      WriteWireType(writer, WireType::SnapshotAck);
+      Write(writer, ack);
+      if (writer.Ok())
+      {
+        (void)m_transport->Send(m_connection, TransportChannel::State, writer.Written());
+      }
+    }
     return;
   }
 
@@ -429,7 +499,8 @@ void ClientConnection::Disconnect()
   // reconnect would be answering an order the new session never heard, and the
   // sequence numbers restart, so it could match the wrong ghost outright.
   m_pendingVerdicts.clear();
-  m_pendingSnapshots.clear();
+  m_pendingFrames.clear();
+  m_delta.Reset();
 }
 
 } // namespace Neuron

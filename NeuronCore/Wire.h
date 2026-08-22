@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 /*
  * Framing and the semantics-free messages (ADR-004 §2, §4).
@@ -39,8 +40,18 @@ namespace Neuron
  * really is one. The field is what lets a client *address* the grid it is on
  * rather than only describe it, which is what a Dock and a station command both
  * need (ADR-017 §2, §3).
+ *
+ * **4 as of U3d-b** (ADR-022). `Snapshot`'s payload stops being opaque game
+ * bytes and becomes an engine-framed delta: a `DeltaHeader`, then records, then
+ * an optional trailer. A build that predates this reads a `DeltaHeader` as the
+ * game's old snapshot header and finds a plausible-looking tick with everything
+ * after it shifted, which is precisely the failure the version exists to make
+ * impossible. Both schema hashes move too -- the record's width changed and so
+ * did the game's payload -- so this is belt and braces, and the belt is worth
+ * having because the two hashes answer "do we agree about content" while this
+ * answers "do we agree about the envelope".
  */
-inline constexpr std::uint16_t PROTOCOL_VERSION = 3;
+inline constexpr std::uint16_t PROTOCOL_VERSION = 4;
 
 enum class WireType : std::uint16_t
 {
@@ -125,7 +136,45 @@ enum class WireType : std::uint16_t
    * `OrderAck`'s is (ADR-014 §3): a refusal the player reads has to say the
    * same words whichever half refused it.
    */
-  ViewChanged = 13
+  ViewChanged = 13,
+
+  /*
+   * "I have the whole of tick T for grid G" (ADR-022 §2a), client to server.
+   *
+   * On the **unreliable** channel on purpose: it is frequent, it is idempotent,
+   * and the server takes the highest acked tick per (client, grid) and ignores
+   * anything older -- so reordering is a non-event and a lost ack costs one
+   * slightly larger delta rather than a stall.
+   */
+  SnapshotAck = 14,
+
+  /*
+   * The baseline everything after it is a delta against (ADR-022 §3), server to
+   * client, on the `Bulk` channel.
+   *
+   * A view switch is a mid-session join, and so is a reconnect inside D5's
+   * grace window and a client whose acked tick has fallen out of the server's
+   * ring. All of them take this path, which is the point: one mechanism,
+   * exercised on every switch rather than only on the rare true join.
+   */
+  Keyframe = 15,
+
+  /*
+   * Where the viewer is looking and what they have selected (ADR-022 §4),
+   * client to server, unreliable.
+   *
+   * **ADR-016 §7 said the server has no business holding this**, and ADR-022 §1
+   * is what changed that: *relevance is a property of a viewer*, and §4's
+   * `InterestQuery` is a camera focus, a zoom extent and a selection. The
+   * guarantee in §5a -- that a commander's owned **and selected** ships are
+   * never culled -- cannot be kept by a server that does not know the
+   * selection, so this is the message that makes the guarantee reachable rather
+   * than aspirational.
+   *
+   * Unreliable and sent on change: a lost one costs one tick ranked against a
+   * slightly stale camera, which is a worse ordering and never a wrong one.
+   */
+  ViewFocus = 16
 };
 
 /// Why a server turned a client away. On the wire, so the values are fixed.
@@ -287,6 +336,120 @@ struct ViewChanged
   bool accepted = false;
 };
 
+/*
+ * How far back the session host keeps the views it sent (ADR-022 §2b).
+ *
+ * 32 ticks is 1.6 s at ADR-002's 20 Hz -- comfortably past any plausible ack
+ * round trip, and bounded so a stalled client cannot make the server retain its
+ * picture forever. A client whose acked tick has fallen out of this window gets
+ * a keyframe (§2c), unconditionally: there is no partial-resync mode to get
+ * subtly wrong.
+ */
+inline constexpr std::uint32_t BASELINE_RING_TICKS = 32;
+
+/*
+ * "I have the whole of tick T for grid G" (ADR-022 §2a).
+ *
+ * A tick is acked only when it is **whole** (§2d). Each part of a multi-part
+ * delta is applied on arrival for freshness, but the ack waits for every part,
+ * because the ack is what makes a baseline something both sides agree on and
+ * half a tick is not a baseline. Apply-for-freshness, ack-for-baseline: a lost
+ * part degrades to staleness for the entities it carried, which is exactly
+ * ADR-002's existing posture for a lost snapshot.
+ */
+struct SnapshotAck
+{
+  std::uint16_t gridId = 0;
+  std::uint32_t tick = 0;
+};
+
+/*
+ * The header on every part of a per-tick update (ADR-022 §3b).
+ *
+ * **Every part is independently applicable** -- it names its own tick, grid and
+ * baseline -- so there is no reassembly buffer and no fragmentation timeout,
+ * which is the whole reason the fields are repeated rather than sent once.
+ * `partCount` is what makes §2d's whole-tick rule checkable by the receiver.
+ *
+ * `culledCount` is §5d: how many entities on this grid the client is **not**
+ * being shown. It exists so culling is stated rather than silent -- the player
+ * is never told a grid is empty when it is not; they are told how many they are
+ * not seeing, which is the honest version of the same sentence.
+ */
+struct DeltaHeader
+{
+  std::uint32_t tick = 0;
+
+  /// The tick whose *sent view* this delta is encoded against (§2b). Not the
+  /// world at that tick: under culling the client's picture is a subset, so
+  /// delta-encoding against the grid's true state would describe changes the
+  /// client never had a baseline for.
+  std::uint32_t baselineTick = 0;
+
+  std::uint16_t gridId = 0;
+  std::uint16_t culledCount = 0;
+  std::uint8_t partIndex = 0;
+  std::uint8_t partCount = 1;
+  std::uint16_t recordCount = 0;
+};
+
+inline constexpr std::size_t DELTA_HEADER_BYTES = 16;
+
+/*
+ * The header on a keyframe (ADR-022 §3).
+ *
+ * No parts and no baseline: it rides the reliable `Bulk` stream, so it arrives
+ * whole or the connection is gone, and it *is* the baseline. `recordCount` is
+ * u32 rather than u16 because a keyframe is not datagram-shaped and there is no
+ * reason to build in a ceiling the channel does not have.
+ */
+struct KeyframeHeader
+{
+  std::uint32_t tick = 0;
+  std::uint16_t gridId = 0;
+  std::uint16_t culledCount = 0;
+  std::uint32_t recordCount = 0;
+};
+
+inline constexpr std::size_t KEYFRAME_HEADER_BYTES = 12;
+
+/*
+ * How many selected entities one `ViewFocus` may name.
+ *
+ * A cap rather than "whatever fits", because this message is read from a
+ * hostile client and an unbounded count is an allocation an attacker chooses.
+ * 256 is past any selection a person makes with a gesture and still leaves the
+ * message inside one datagram: 12 bytes of header plus 256 ids at four bytes is
+ * 1,036, under `MAX_DATAGRAM_BYTES`.
+ */
+inline constexpr std::uint16_t MAX_VIEW_SELECTION = 256;
+
+/*
+ * The viewer's camera and selection (ADR-022 §4).
+ *
+ * Centimetres, like every other length on this wire (ADR-004): the client and
+ * the server must agree about a position to the same precision whether they are
+ * validating an order or ranking relevance, and a second unit here would be a
+ * second rounding boundary.
+ *
+ * Engine-neutral, like everything else in this file: a point on a plane, how
+ * much of it is visible, and a set of entity ids. That the entities are ships
+ * and the plane is a tactical grid is the game's business (ADR-014).
+ */
+struct ViewFocus
+{
+  std::uint16_t gridId = 0;
+  std::int32_t focusXCm = 0;
+  std::int32_t focusYCm = 0;
+
+  /// What the zoom shows, as a half-extent. Zero is a camera that has not been
+  /// described yet, which ranks everything unselected into the far tier rather
+  /// than being an error.
+  std::uint32_t halfExtentCm = 0;
+
+  std::vector<std::uint32_t> selection;
+};
+
 struct UpdateRequired
 {
   std::uint64_t serverSchemaHash = 0;
@@ -349,6 +512,10 @@ void Write(ByteWriter& _writer, const OrderAck& _message) noexcept;
 void Write(ByteWriter& _writer, const Goodbye& _message) noexcept;
 void Write(ByteWriter& _writer, const ViewRequest& _message) noexcept;
 void Write(ByteWriter& _writer, const ViewChanged& _message) noexcept;
+void Write(ByteWriter& _writer, const SnapshotAck& _message) noexcept;
+void Write(ByteWriter& _writer, const DeltaHeader& _message) noexcept;
+void Write(ByteWriter& _writer, const KeyframeHeader& _message) noexcept;
+void Write(ByteWriter& _writer, const ViewFocus& _message) noexcept;
 
 [[nodiscard]] bool Read(ByteReader& _reader, Hello& _outMessage) noexcept;
 [[nodiscard]] bool Read(ByteReader& _reader, Welcome& _outMessage) noexcept;
@@ -360,6 +527,14 @@ void Write(ByteWriter& _writer, const ViewChanged& _message) noexcept;
 [[nodiscard]] bool Read(ByteReader& _reader, Goodbye& _outMessage) noexcept;
 [[nodiscard]] bool Read(ByteReader& _reader, ViewRequest& _outMessage) noexcept;
 [[nodiscard]] bool Read(ByteReader& _reader, ViewChanged& _outMessage) noexcept;
+[[nodiscard]] bool Read(ByteReader& _reader, SnapshotAck& _outMessage) noexcept;
+[[nodiscard]] bool Read(ByteReader& _reader, DeltaHeader& _outMessage) noexcept;
+[[nodiscard]] bool Read(ByteReader& _reader, KeyframeHeader& _outMessage) noexcept;
+
+/// Refuses a selection past `MAX_VIEW_SELECTION` rather than truncating it: a
+/// truncated selection is a *different* selection, and the guarantee in
+/// ADR-022 §5a would then be kept for the wrong set of ships.
+[[nodiscard]] bool Read(ByteReader& _reader, ViewFocus& _outMessage);
 
 /*
  * The schema hash covers this file's message layout. Any field added, removed
@@ -396,7 +571,28 @@ inline constexpr std::string_view CORE_SCHEMA_TEXT = "Hello{u16 protocolVersion,
                                                      // this library defines the shape of, even though what makes a
                                                      // view legal is the game's (ADR-016 §7).
                                                      "ViewRequest{u16 gridAnchor}"
-                                                     "ViewChanged{u16 gridAnchor,u16 reasonCode,u8 accepted}";
+                                                     "ViewChanged{u16 gridAnchor,u16 reasonCode,u8 accepted}"
+                                                     // ADR-022's cluster. Unlike `Snapshot`, these are not type
+                                                     // words over opaque bytes: the delta header, the entity
+                                                     // records and the keyframe are the *engine's* format now,
+                                                     // because interest and delta are the session host's job
+                                                     // (§1) and the record is this library's type (ADR-014 §4).
+                                                     // So the layout is described here in full and a mismatched
+                                                     // build fails at the handshake rather than misreading a
+                                                     // header.
+                                                     "SnapshotAck{u16 gridId,u32 tick}"
+                                                     "DeltaHeader{u32 tick,u32 baselineTick,u16 gridId,u16 culledCount,"
+                                                     "u8 partIndex,u8 partCount,u16 recordCount}"
+                                                     "KeyframeHeader{u32 tick,u16 gridId,u16 culledCount,u32 recordCount}"
+                                                     "ViewFocus{u16 gridId,i32 focusXCm,i32 focusYCm,u32 halfExtentCm,"
+                                                     "u16 selectionCount,u32 selection[]}"
+                                                     // The record itself, spelled here because its width is now
+                                                     // part of this contract rather than of the game's: u32 ids
+                                                     // as of ADR-022 §8a, and two of `statusBits` carrying the
+                                                     // viewer-relative relationship (§8b).
+                                                     "EntityRecord{u32 id,u8 typeId,u8 groupId,i32 posXCm,i32 posYCm,"
+                                                     "i16 velXCmPerSec,i16 velYCmPerSec,u16 headingTurns16,"
+                                                     "u8 gaugeA,u8 gaugeB,u8 statusBits}";
 
 [[nodiscard]] std::uint64_t CoreSchemaHash() noexcept;
 

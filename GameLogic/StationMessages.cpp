@@ -10,16 +10,23 @@ namespace
 {
 
 /*
- * A u32 ship id from the wire, narrowed to what this build can hold.
+ * A u32 ship id from the wire.
  *
- * Out of range becomes `INVALID_SHIP_ID` rather than a truncating cast: the
- * cast would alias a real ship -- id 65,537 would arrive as ship 1 -- which is
- * a validated command against the wrong hull. Invalid is a value validation
- * already refuses with a reason the player can read.
+ * **This used to narrow**, because these messages spoke u32 while the sim's
+ * `ShipId` was u16 -- an id past the window became `INVALID_SHIP_ID` rather
+ * than a truncating cast, since the cast would alias a real ship (65,537
+ * arriving as ship 1) and validate a command against the wrong hull. U3d-b
+ * widened `ShipId` to u32 (ADR-018 D6, ADR-022 §8a), so the two widths agree
+ * and there is nothing left to narrow.
+ *
+ * Kept as a named identity rather than deleted, because the *reason* is worth
+ * finding at the call site: the day a wire field is wider than the type it
+ * fills, this is where the check goes back.
  */
 [[nodiscard]] ShipId NarrowShipId(std::uint32_t _wireId) noexcept
 {
-  return _wireId > 0xfffeu ? INVALID_SHIP_ID : static_cast<ShipId>(_wireId);
+  static_assert(sizeof(ShipId) == sizeof(std::uint32_t), "if these widths diverge again, the range check comes back");
+  return static_cast<ShipId>(_wireId);
 }
 
 } // namespace

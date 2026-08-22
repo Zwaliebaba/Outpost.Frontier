@@ -2246,14 +2246,28 @@ bool WorldRegistry::LoadDurable(const DurableState& _state, std::vector<Persiste
    * an order of magnitude and the others are tens of rows.
    */
   {
-    std::vector<bool> seenShip(static_cast<std::size_t>(INVALID_SHIP_ID) + 1, false);
+    /*
+     * **This was a bitset indexed by `ShipId` and could not stay one** (U3d-b).
+     * With a u16 id the table was 64k bits and free; with a u32 id it would be
+     * half a gigabyte, allocated on the load path, sized by a constant rather
+     * than by anything in the file.
+     *
+     * A sort of the ids present is O(n log n) over the shard's ships and
+     * allocates once. It is the largest of the four duplicate checks here by an
+     * order of magnitude, which is why it is the one that gets a container of
+     * its own rather than a quadratic scan.
+     */
+    std::vector<ShipId> seenShip;
+    seenShip.reserve(_state.ships.size());
     for (const DurableShip& ship : _state.ships)
     {
-      if (seenShip[ship.shipId])
-      {
-        return refuse("ship " + std::to_string(ship.shipId), "is in the durable set twice");
-      }
-      seenShip[ship.shipId] = true;
+      seenShip.push_back(ship.shipId);
+    }
+    std::sort(seenShip.begin(), seenShip.end());
+    const auto duplicate = std::adjacent_find(seenShip.begin(), seenShip.end());
+    if (duplicate != seenShip.end())
+    {
+      return refuse("ship " + std::to_string(*duplicate), "is in the durable set twice");
     }
   }
   for (std::size_t index = 0; index + 1 < _state.rosters.size(); ++index)

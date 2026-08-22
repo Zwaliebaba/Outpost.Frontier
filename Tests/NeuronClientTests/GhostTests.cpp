@@ -44,12 +44,12 @@ namespace
 
 /// The ids a chained order names. Static so the span in `OrderIntent` outlives
 /// the call -- the intent holds a pointer, not a copy.
-const std::uint16_t CHAIN_SHIPS[] = {7, 8, 9};
-const std::uint16_t OTHER_SHIPS[] = {21, 22};
+const EntityId CHAIN_SHIPS[] = {7, 8, 9};
+const EntityId OTHER_SHIPS[] = {21, 22};
 
 /// An order over `_ships`, optionally asking to be queued behind whatever those
 /// ships are already doing.
-[[nodiscard]] OrderIntent FleetIntent(std::uint32_t _seq, std::span<const std::uint16_t> _ships, bool _queued, float _x,
+[[nodiscard]] OrderIntent FleetIntent(std::uint32_t _seq, std::span<const EntityId> _ships, bool _queued, float _x,
                                       float _y = 0.0f)
 {
   OrderIntent intent = Intent(_seq, _x, _y);
@@ -628,7 +628,7 @@ public:
     ship.shieldGauge = 128;
     entities.push_back(ship);
 
-    const std::uint16_t selected[] = {1};
+    const EntityId selected[] = {1};
     OverlayMarkList marks;
     const OverlayTuning tuning;
     BuildOverlayMarks(entities, selected, tuning, 1.0f, marks);

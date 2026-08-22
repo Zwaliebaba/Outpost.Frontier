@@ -85,6 +85,72 @@ void BuildFlyingWorld(World& _world, int _shipCount, std::vector<ShipId>& _outId
   }
 }
 
+/*
+ * What the session host does for a whole grid, compressed into a helper.
+ *
+ * ADR-022 moved the envelope out of this library: the engine ranks, truncates,
+ * delta-encodes and packs, and hands the game a finished picture plus the
+ * game's own tail. These suites are about *meaning* -- quantisation,
+ * interpolation, staleness, what a wing is -- so they stand in for the engine
+ * with the simplest honest policy there is: take every ship on the grid in dense
+ * order, cull nothing, and attach the tail.
+ *
+ * The engine's real path -- budgets, baselines, parts, keyframes -- is tested
+ * where it lives, in `NeuronServerTests` and `NeuronClientTests`. A test about
+ * whether a heading interpolates the short way round should not have to build a
+ * link to ask.
+ */
+struct WireFrame
+{
+  std::vector<Neuron::EntityRecord> entities;
+  std::vector<std::uint8_t> tail;
+};
+
+[[nodiscard]] WireFrame FrameOf(const World& _world, std::uint32_t _lastOrderSeq = 0,
+                                Relationship _relationship = Relationship::Neutral)
+{
+  WireFrame frame;
+  frame.entities.reserve(_world.ShipCount());
+  for (std::uint32_t slot = 0; slot < _world.ShipCount(); ++slot)
+  {
+    frame.entities.push_back(MakeShipRecord(_world, slot, _relationship));
+  }
+
+  std::array<std::uint8_t, MAX_TICK_TAIL_BYTES> buffer{};
+  Neuron::ByteWriter writer{buffer};
+  if (WriteTickTail(_world, writer, _lastOrderSeq) && writer.Ok())
+  {
+    frame.tail.assign(writer.Written().begin(), writer.Written().end());
+  }
+  return frame;
+}
+
+/// A frame kept for later, for the tests that emit one tick, run the world on,
+/// and then apply the two out of order.
+struct CapturedFrame
+{
+  std::uint32_t tick = 0;
+  AnchorId anchor = INVALID_ID;
+  WireFrame wire;
+};
+
+[[nodiscard]] CapturedFrame CaptureFrame(const World& _world, std::uint32_t _lastOrderSeq = 0)
+{
+  return CapturedFrame{_world.Tick(), _world.Anchor(), FrameOf(_world, _lastOrderSeq)};
+}
+
+[[nodiscard]] bool Apply(ReplicatedView& _view, const CapturedFrame& _frame, std::uint16_t _culled = 0)
+{
+  return _view.ApplyFrame(_frame.tick, _frame.anchor, _culled, _frame.wire.entities, _frame.wire.tail);
+}
+
+/// The whole grid, into a view, as one tick.
+[[nodiscard]] bool ApplyWorld(ReplicatedView& _view, const World& _world, std::uint32_t _lastOrderSeq = 0,
+                              std::uint16_t _culled = 0)
+{
+  return Apply(_view, CaptureFrame(_world, _lastOrderSeq), _culled);
+}
+
 /// Whether the view's newest order area mentions a client sequence.
 [[nodiscard]] bool HasOrder(const ReplicatedView& _view, std::uint32_t _clientOrderSeq)
 {
@@ -109,19 +175,31 @@ public:
     std::vector<ShipId> ids;
     BuildFlyingWorld(world, 41, ids);
 
-    std::array<std::uint8_t, 2048> buffer{};
+    /*
+     * The record round trip, which is where the wire contract actually lives.
+     *
+     * The *payload* is the engine's now (ADR-022 §3b), so what this asserts is
+     * the half GameLogic still owns: that a record written by this library and
+     * read back by `Neuron::ReadEntityRecord` is integer-identical. The framing
+     * around it is tested in `NeuronCoreTests`.
+     */
+    std::array<std::uint8_t, 4096> buffer{};
     Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
+    const WireFrame frame = FrameOf(world);
+    Assert::AreEqual<std::size_t>(41, frame.entities.size());
+    for (const Neuron::EntityRecord& record : frame.entities)
+    {
+      Neuron::WriteEntityRecord(writer, record);
+    }
+    Assert::IsTrue(writer.Ok());
+    Assert::AreEqual<std::size_t>(41 * Neuron::ENTITY_RECORD_BYTES, writer.BytesWritten());
 
     Neuron::ByteReader reader{writer.Written()};
-    SnapshotHeader header;
     std::vector<Neuron::EntityRecord> ships;
-    Assert::IsTrue(ReadSnapshot(reader, header, ships));
-
-    Assert::AreEqual<std::uint32_t>(world.Tick(), header.tick);
-    Assert::AreEqual<std::uint16_t>(41, header.shipCount);
-    Assert::AreEqual<std::uint32_t>(0, header.baselineTick, L"full snapshots only until deltas exist");
-    Assert::AreEqual<std::size_t>(41, ships.size());
+    for (int index = 0; index < 41; ++index)
+    {
+      ships.push_back(Neuron::ReadEntityRecord(reader));
+    }
     Assert::IsTrue(reader.FullyConsumed(), L"the payload had bytes nobody read");
 
     // Integer-exact, field by field. This is the property the wire actually
@@ -130,7 +208,7 @@ public:
     {
       const Neuron::EntityRecord expected = MakeShipRecord(world, slot);
       const Neuron::EntityRecord& got = ships[slot];
-      Assert::AreEqual<std::uint16_t>(expected.id, got.id);
+      Assert::AreEqual<std::uint32_t>(expected.id, got.id);
       Assert::AreEqual<std::uint8_t>(expected.typeId, got.typeId);
       Assert::AreEqual<std::int32_t>(expected.posXCm, got.posXCm);
       Assert::AreEqual<std::int32_t>(expected.posYCm, got.posYCm);
@@ -166,123 +244,135 @@ public:
     }
   }
 
-  TEST_METHOD(TheMvpFleetFitsOneDatagram)
+  TEST_METHOD(TheTickTailFitsBesideAUsefulNumberOfRecords)
   {
-    // ADR-004 §6's budget, measured rather than believed. The static asserts in
-    // Snapshot.h cover the arithmetic; this covers the bytes actually written.
+    /*
+     * **This was `TheMvpFleetFitsOneDatagram`, and the question it asked is
+     * gone** (ADR-022 §5b). The fleet no longer has to fit one datagram: the
+     * per-tick budget is a bandwidth figure packed into as many datagrams as it
+     * takes, which is exactly what let `EntityRecord::id` widen to u32.
+     *
+     * What survives is the reservation the *tail* still needs. It rides in part
+     * zero, and the engine reserves room for it before it starts packing
+     * records -- so a busy tick can never be the reason a ghost loses its ETA.
+     * The number this measures is what that reservation costs, and the assert
+     * is that it leaves a datagram usefully full of records rather than being
+     * the datagram.
+     */
     World world;
     std::vector<ShipId> ids;
     BuildFlyingWorld(world, 41, ids, 10);
 
-    std::array<std::uint8_t, 2048> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
-
-    // One order record too, since S9: `BuildFlyingWorld` gives the fleet
-    // somewhere to go, and the group that carries it rides along.
+    // One order record, since S9: `BuildFlyingWorld` gives the fleet somewhere
+    // to go, and the group that carries it rides along.
     Assert::AreEqual<std::uint16_t>(1, static_cast<std::uint16_t>(world.Groups().size()));
-    Assert::AreEqual<std::size_t>(SnapshotBytes(41, 1), writer.BytesWritten());
-    Assert::IsTrue(writer.BytesWritten() <= SNAPSHOT_BUDGET_BYTES, L"41 ships must fit one datagram");
-    Assert::IsTrue(writer.BytesWritten() < 1000, L"and with room to spare, per the budget in the ADR");
 
-    // And the worst case -- a full order area on top of that fleet -- is still
-    // inside the budget, which is what reserving the area buys.
-    Assert::IsTrue(SnapshotBytes(41, MAX_ORDERS_PER_SNAPSHOT) <= SNAPSHOT_BUDGET_BYTES);
+    std::array<std::uint8_t, MAX_TICK_TAIL_BYTES> buffer{};
+    Neuron::ByteWriter writer{buffer};
+    Assert::IsTrue(WriteTickTail(world, writer, 7));
+    Assert::AreEqual<std::size_t>(TICK_TAIL_HEADER_BYTES + ORDER_STATE_RECORD_BYTES, writer.BytesWritten());
+
+    // The worst case -- a full order area -- still leaves most of a datagram.
+    Assert::IsTrue(MAX_TICK_TAIL_BYTES < Neuron::MAX_DATAGRAM_BYTES / 4,
+                   L"the tail must not be most of the part it rides in");
+    Assert::AreEqual<std::size_t>(TICK_TAIL_HEADER_BYTES + ORDER_AREA_BYTES, MAX_TICK_TAIL_BYTES);
   }
 
-  TEST_METHOD(AFleetAtTheCapRoundTripsInsideOneDatagram)
+  TEST_METHOD(AGridPastTheOldCapIsReplicatedRatherThanRefused)
   {
     /*
-     * H0's criterion, and the one the arithmetic could not give us. The static
-     * asserts and `TheMvpFleetFitsOneDatagram` between them prove that 41 ships
-     * fit and that `MAX_SHIPS_PER_SNAPSHOT + 1` would not; neither of them ever
-     * puts the **cap itself** on the wire.
+     * **The two tests this replaces were the refusal**, and ADR-022 §6 is what
+     * retired them: `AFleetAtTheCapRoundTripsInsideOneDatagram` and
+     * `AFleetTooBigForOneDatagramIsRefusedRatherThanTruncated` between them
+     * asserted that 43 ships fit one datagram and 44 produced nothing at all.
      *
-     * That gap matters more after T2 than it did before. The cap fell from 45
-     * to 43 when `EntityRecord` grew its status byte, so the margin between the
-     * MVP's own content and the refusal is now two records -- and a budget with
-     * two records of headroom is one that has to be measured in bytes actually
-     * written, not in a `constexpr` that agrees with itself.
+     * That behaviour was correct while a full snapshot in one datagram was the
+     * only format -- a truncated snapshot reads as a mass despawn followed by a
+     * mass respawn, so silence was the honest failure. It is also the
+     * session-killing outage R19 was raised for: two commanders meeting at the
+     * starter station is 83 records, and the designed response was to send
+     * nobody anything.
      *
-     * Round-trip rather than write-and-measure, because a snapshot that fits
-     * and does not decode is not a snapshot that works.
+     * The replacement claim is the one this slice is for: **a grid past the old
+     * cap replicates.** Sixty ships -- comfortably past 43 -- produce sixty
+     * records, all of them, with nothing refused and nothing dropped. What
+     * bounds a *tick* now is a byte budget the engine applies, and the honest
+     * `culledCount` that goes with it; both are tested where they live.
      */
     World world;
     std::vector<ShipId> ids;
-    BuildFlyingWorld(world, static_cast<int>(MAX_SHIPS_PER_SNAPSHOT), ids, 10);
+    BuildFlyingWorld(world, 60, ids, 10);
 
-    std::array<std::uint8_t, 2048> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer), L"a snapshot at exactly the cap must be written, not refused");
-    Assert::IsTrue(writer.BytesWritten() <= Neuron::MAX_DATAGRAM_BYTES - sizeof(std::uint16_t),
-                   L"the cap must fit one datagram once the type word is paid for");
+    const WireFrame frame = FrameOf(world);
+    Assert::AreEqual<std::size_t>(60, frame.entities.size(), L"a grid past the old cap lost records");
 
-    SnapshotHeader header;
-    std::vector<Neuron::EntityRecord> ships;
-    std::vector<OrderStateRecord> orders;
-    Neuron::ByteReader reader{writer.Written()};
-    Assert::IsTrue(ReadSnapshot(reader, header, ships, orders), L"a snapshot at the cap must decode");
-    Assert::AreEqual<std::uint16_t>(MAX_SHIPS_PER_SNAPSHOT, header.shipCount);
-    Assert::AreEqual<std::size_t>(MAX_SHIPS_PER_SNAPSHOT, ships.size());
-
-    // Every id survives, so "it fit" cannot be true because something was
-    // quietly dropped on the way in.
     for (const ShipId id : ids)
     {
-      const auto found = std::find_if(ships.begin(), ships.end(),
+      const auto found = std::find_if(frame.entities.begin(), frame.entities.end(),
                                       [id](const Neuron::EntityRecord& _record) { return _record.id == id; });
-      Assert::IsTrue(found != ships.end(), L"a ship inside the cap did not survive the round trip");
+      Assert::IsTrue(found != frame.entities.end(), L"a ship past the old cap did not survive");
     }
 
-    // And one past it is refused, so this is the boundary rather than a number
-    // that happens to work.
-    World over;
-    std::vector<ShipId> overIds;
-    BuildFlyingWorld(over, static_cast<int>(MAX_SHIPS_PER_SNAPSHOT) + 1, overIds, 10);
-    std::array<std::uint8_t, 4096> overBuffer{};
-    Neuron::ByteWriter overWriter{overBuffer};
-    Assert::IsFalse(WriteSnapshot(over, overWriter), L"one ship past the cap must be refused");
+    // And it reaches a client's view intact, which is the property that
+    // actually matters: 60 hulls drawn where 44 used to be nothing at all.
+    ReplicatedView view;
+    Assert::IsTrue(ApplyWorld(view, world));
+    Assert::AreEqual<std::uint16_t>(60, view.LatestShipCount());
   }
 
-  TEST_METHOD(AFleetTooBigForOneDatagramIsRefusedRatherThanTruncated)
-  {
-    // The growth path is deltas plus interest management, not a bigger
-    // datagram (ADR-004 §6). Until then the honest failure is to send nothing:
-    // a truncated snapshot would read as a mass despawn followed by a mass
-    // respawn on the next tick.
-    World world;
-    world.Reset(1);
-    for (std::uint16_t i = 0; i < MAX_SHIPS_PER_SNAPSHOT + 5; ++i)
-    {
-      ShipSpawn spawn;
-      spawn.hullClass = HullClass::Interceptor;
-      (void)world.Spawn(spawn, NextShipId(world));
-    }
-
-    std::array<std::uint8_t, 4096> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsFalse(WriteSnapshot(world, writer));
-    Assert::AreEqual<std::size_t>(0, writer.BytesWritten(), L"a refused snapshot must write nothing");
-  }
-
-  TEST_METHOD(ATruncatedPayloadIsRejectedRatherThanGuessed)
+  TEST_METHOD(ATruncatedTailIsRejectedRatherThanGuessed)
   {
     World world;
     std::vector<ShipId> ids;
     BuildFlyingWorld(world, 8, ids, 5);
 
-    std::array<std::uint8_t, 512> buffer{};
+    std::array<std::uint8_t, MAX_TICK_TAIL_BYTES> buffer{};
     Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
+    Assert::IsTrue(WriteTickTail(world, writer, 5));
 
     const std::span<const std::uint8_t> whole = writer.Written();
-    for (const std::size_t length : {std::size_t{0}, std::size_t{4}, std::size_t{15}, whole.size() - 1})
+    for (const std::size_t length : {std::size_t{1}, std::size_t{4}, whole.size() - 1})
     {
       Neuron::ByteReader reader{whole.subspan(0, length)};
-      SnapshotHeader header;
-      std::vector<Neuron::EntityRecord> ships;
-      Assert::IsFalse(ReadSnapshot(reader, header, ships), L"a truncated payload must not read as a snapshot");
+      std::uint32_t seq = 0;
+      std::vector<OrderStateRecord> orders;
+      Assert::IsFalse(ReadTickTail(reader, seq, orders), L"a truncated tail must not read as a tail");
     }
+  }
+
+  TEST_METHOD(TheRelationshipRidesInTheStatusByteForFree)
+  {
+    /*
+     * ADR-022 §8b: the icon sheet's colour channel, two bits of a byte that was
+     * already on the wire. An owner id per record would have cost four bytes on
+     * every entity every tick to answer a question a player asks once a session.
+     *
+     * The other bits must survive it, which is the half a mask gets wrong:
+     * undock protection is bit 0 and shares the byte.
+     */
+    World world;
+    std::vector<ShipId> ids;
+    BuildFlyingWorld(world, 4, ids, 2);
+
+    for (const Relationship relationship : {Relationship::Own, Relationship::Allied, Relationship::Neutral, Relationship::Hostile})
+    {
+      const WireFrame frame = FrameOf(world, 0, relationship);
+      for (const Neuron::EntityRecord& record : frame.entities)
+      {
+        Assert::IsTrue(RelationshipFrom(record.statusBits) == relationship, L"the relationship did not survive the byte");
+      }
+    }
+
+    // And the record is still 23 bytes, which is the whole point of spending
+    // bits rather than a field.
+    Assert::AreEqual<std::size_t>(23, Neuron::ENTITY_RECORD_BYTES);
+
+    // Packing a relationship must not disturb a bit somebody else owns.
+    Assert::AreEqual<std::uint8_t>(SHIP_STATUS_PROTECTED,
+                                   static_cast<std::uint8_t>(WithRelationship(SHIP_STATUS_PROTECTED, Relationship::Own)));
+    const std::uint8_t hostileAndProtected = WithRelationship(SHIP_STATUS_PROTECTED, Relationship::Hostile);
+    Assert::IsTrue((hostileAndProtected & SHIP_STATUS_PROTECTED) != 0, L"the relationship trod on bit 0");
+    Assert::IsTrue(RelationshipFrom(hostileAndProtected) == Relationship::Hostile);
   }
 
   TEST_METHOD(TheSchemaHashCoversTheQuantisationConstants)
@@ -310,8 +400,8 @@ public:
      * a number to update on every intended change, which trains whoever does
      * it to update the number without reading what changed.
      */
-    for (const std::string_view fragment : {std::string_view{"SnapshotHeader{"}, std::string_view{"ShipRecord="},
-                                            std::string_view{"OrderStateRecord{"}, std::string_view{"OrderSubmit{"}})
+    for (const std::string_view fragment : {std::string_view{"TickTail{"}, std::string_view{"OrderStateRecord{"},
+                                            std::string_view{"OrderSubmit{"}, std::string_view{"statusBits.bit1_2="}})
     {
       Assert::IsTrue(GAME_SCHEMA_TEXT.find(fragment) != std::string_view::npos, L"a wire message is not in the schema");
     }
@@ -384,9 +474,7 @@ public:
     {
       world.Tick(tick);
 
-      Neuron::ByteWriter writer{buffer};
-      Assert::IsTrue(WriteSnapshot(world, writer));
-      Assert::IsTrue(view.ApplySnapshot(writer.Written()));
+      Assert::IsTrue(ApplyWorld(view, world));
 
       for (int frame = 0; frame < FRAMES_PER_TICK; ++frame)
       {
@@ -434,9 +522,7 @@ public:
     for (std::uint32_t tick = 1; tick <= 80; ++tick)
     {
       world.Tick(tick);
-      Neuron::ByteWriter writer{buffer};
-      Assert::IsTrue(WriteSnapshot(world, writer));
-      Assert::IsTrue(view.ApplySnapshot(writer.Written()));
+      Assert::IsTrue(ApplyWorld(view, world));
     }
 
     const auto lastTick = static_cast<double>(view.LatestTick());
@@ -479,9 +565,7 @@ public:
     std::array<std::uint8_t, 256> buffer{};
 
     world.Tick(10);
-    Neuron::ByteWriter first{buffer};
-    Assert::IsTrue(WriteSnapshot(world, first));
-    Assert::IsTrue(view.ApplySnapshot(first.Written()));
+    Assert::IsTrue(ApplyWorld(view, world));
 
     // Rebuild the world with the far-side heading and emit a later tick.
     World turned;
@@ -491,10 +575,7 @@ public:
     (void)turned.Spawn(turnedSpawn, NextShipId(turned));
     turned.Tick(11);
 
-    std::array<std::uint8_t, 256> secondBuffer{};
-    Neuron::ByteWriter second{secondBuffer};
-    Assert::IsTrue(WriteSnapshot(turned, second));
-    Assert::IsTrue(view.ApplySnapshot(second.Written()));
+    Assert::IsTrue(ApplyWorld(view, turned));
 
     std::vector<ReplicatedShip> sampled;
     view.SampleAt(10.5, sampled);
@@ -535,23 +616,15 @@ public:
     Assert::AreEqual<std::uint32_t>(1, alpha.Spawn(west, 1));
     Assert::AreEqual<std::uint32_t>(1, beta.Spawn(east, 1));
 
-    const auto snapshotOf = [](World& _world)
-    {
-      std::array<std::uint8_t, 2048> buffer{};
-      Neuron::ByteWriter writer{buffer};
-      Assert::IsTrue(WriteSnapshot(_world, writer));
-      return std::vector<std::uint8_t>{writer.Written().begin(), writer.Written().end()};
-    };
-
     ReplicatedView view;
     Assert::IsTrue(view.Grid() == INVALID_ID, L"a fresh view is on no grid");
 
     // Enough frames that the view has a pair to interpolate between.
-    Assert::IsTrue(view.ApplySnapshot(snapshotOf(alpha)));
+    Assert::IsTrue(ApplyWorld(view, alpha));
     for (std::uint32_t tick = 1; tick <= 3; ++tick)
     {
       alpha.Tick(tick);
-      Assert::IsTrue(view.ApplySnapshot(snapshotOf(alpha)));
+      Assert::IsTrue(ApplyWorld(view, alpha));
     }
     Assert::AreEqual<std::uint32_t>(11, view.Grid());
     Assert::IsTrue(view.SnapshotCount() > 1, L"history to smear through, if it were going to");
@@ -562,7 +635,7 @@ public:
      * switch would be dropped as old news and the player would keep watching
      * the world they left.
      */
-    Assert::IsTrue(view.ApplySnapshot(snapshotOf(beta)));
+    Assert::IsTrue(ApplyWorld(view, beta));
     Assert::AreEqual<std::uint32_t>(42, view.Grid());
     Assert::AreEqual<std::size_t>(1, view.SnapshotCount(), L"the old grid's history was dropped, not extended");
 
@@ -583,23 +656,19 @@ public:
     std::vector<ShipId> ids;
     BuildFlyingWorld(world, 4, ids, 20);
 
-    std::array<std::uint8_t, 512> older{};
-    Neuron::ByteWriter olderWriter{older};
-    Assert::IsTrue(WriteSnapshot(world, olderWriter));
+    const CapturedFrame older = CaptureFrame(world);
 
     for (std::uint32_t tick = 21; tick <= 30; ++tick)
     {
       world.Tick(tick);
     }
-    std::array<std::uint8_t, 512> newer{};
-    Neuron::ByteWriter newerWriter{newer};
-    Assert::IsTrue(WriteSnapshot(world, newerWriter));
+    const CapturedFrame newer = CaptureFrame(world);
 
     ReplicatedView view;
-    Assert::IsTrue(view.ApplySnapshot(newerWriter.Written()));
+    Assert::IsTrue(Apply(view, newer));
     Assert::AreEqual<std::uint32_t>(30, view.LatestTick());
 
-    Assert::IsTrue(view.ApplySnapshot(olderWriter.Written()), L"a reordered snapshot is not an error");
+    Assert::IsTrue(Apply(view, older), L"a reordered frame is not an error");
     Assert::AreEqual<std::uint32_t>(30, view.LatestTick(), L"but it must not overwrite newer state");
     Assert::AreEqual<std::size_t>(1, view.SnapshotCount(), L"and must not take a history slot");
   }
@@ -611,18 +680,12 @@ public:
     BuildFlyingWorld(world, 6, ids, 10);
 
     ReplicatedView view;
-    std::array<std::uint8_t, 512> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
-    Assert::IsTrue(view.ApplySnapshot(writer.Written()));
+    Assert::IsTrue(ApplyWorld(view, world));
 
     Assert::IsTrue(world.Despawn(ids[2]));
     world.Tick(11);
 
-    std::array<std::uint8_t, 512> second{};
-    Neuron::ByteWriter secondWriter{second};
-    Assert::IsTrue(WriteSnapshot(world, secondWriter));
-    Assert::IsTrue(view.ApplySnapshot(secondWriter.Written()));
+    Assert::IsTrue(ApplyWorld(view, world));
 
     std::vector<ReplicatedShip> sampled;
     view.SampleAt(10.5, sampled);
@@ -667,10 +730,7 @@ public:
     world.Tick(1);
 
     ReplicatedView view;
-    std::array<std::uint8_t, 512> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
-    Assert::IsTrue(view.ApplySnapshot(writer.Written()));
+    Assert::IsTrue(ApplyWorld(view, world));
 
     std::vector<ReplicatedShip> sampled;
     view.SampleAt(1.0, sampled);
@@ -703,12 +763,9 @@ public:
     BuildFlyingWorld(world, 4, ids, 10);
 
     ReplicatedView view;
-    std::array<std::uint8_t, 512> buffer{};
-    Neuron::ByteWriter writer{buffer};
     // The high-water mark is the session's as of U3d-a (ADR-022 §7), so a test
     // about what the *client* reads has to supply what a session would.
-    Assert::IsTrue(WriteSnapshot(world, writer, 1));
-    Assert::IsTrue(view.ApplySnapshot(writer.Written()));
+    Assert::IsTrue(ApplyWorld(view, world, 1));
 
     Assert::AreEqual<std::size_t>(1, view.LatestOrders().size(), L"the move BuildFlyingWorld gave is still running");
     Assert::AreEqual<std::uint32_t>(1, view.LatestOrders()[0].clientOrderSeq, L"and it is the one that was submitted");
@@ -728,10 +785,8 @@ public:
     std::vector<ShipId> ids;
     BuildFlyingWorld(world, 3, ids, 10);
 
-    std::array<std::uint8_t, 512> older{};
-    Neuron::ByteWriter olderWriter{older};
-    // What the session had acknowledged when this snapshot was made: one order.
-    Assert::IsTrue(WriteSnapshot(world, olderWriter, 1));
+    // What the session had acknowledged when this frame was made: one order.
+    const CapturedFrame older = CaptureFrame(world, 1);
 
     OrderSubmit second;
     second.orderSeq = 2;
@@ -744,23 +799,21 @@ public:
       world.Tick(tick);
     }
 
-    std::array<std::uint8_t, 512> newer{};
-    Neuron::ByteWriter newerWriter{newer};
     // And two by the time this one was.
-    Assert::IsTrue(WriteSnapshot(world, newerWriter, 2));
+    const CapturedFrame newer = CaptureFrame(world, 2);
 
     ReplicatedView view;
-    Assert::IsTrue(view.ApplySnapshot(newerWriter.Written()));
-    Assert::IsTrue(HasOrder(view, 2), L"the newest snapshot is running the second order");
+    Assert::IsTrue(Apply(view, newer));
+    Assert::IsTrue(HasOrder(view, 2), L"the newest frame is running the second order");
     Assert::AreEqual<std::uint32_t>(2, view.LastOrderSeqProcessed(), L"and has seen both");
 
-    // The assertion has to be about the *records*, not the header: the header
-    // is protected by the frame ring, so a version that replaced the order area
-    // before the staleness check would pass a high-water-mark test and still
-    // show a ghost a leg behind. That mutation was written and did survive an
-    // earlier draft of this test.
-    Assert::IsTrue(view.ApplySnapshot(olderWriter.Written()), L"a reordered snapshot is not an error");
-    Assert::IsTrue(HasOrder(view, 2), L"and must not put the older snapshot's orders back");
+    // The assertion has to be about the *records*, not the high-water mark: the
+    // mark is protected by the frame ring, so a version that replaced the order
+    // area before the staleness check would pass a mark test and still show a
+    // ghost a leg behind. That mutation was written and did survive an earlier
+    // draft of this test.
+    Assert::IsTrue(Apply(view, older), L"a reordered frame is not an error");
+    Assert::IsTrue(HasOrder(view, 2), L"and must not put the older frame's orders back");
     Assert::AreEqual<std::uint32_t>(2, view.LastOrderSeqProcessed(), L"nor rewind the high-water mark");
   }
 
@@ -774,10 +827,7 @@ public:
     world.Tick(1);
 
     ReplicatedView view;
-    std::array<std::uint8_t, 512> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
-    Assert::IsTrue(view.ApplySnapshot(writer.Written()));
+    Assert::IsTrue(ApplyWorld(view, world));
 
     Assert::IsTrue(view.LatestOrders().empty(), L"nothing ordered, nothing reported");
     Assert::AreEqual<std::uint32_t>(0, view.LastOrderSeqProcessed(), L"and no sequence has been processed");
@@ -793,15 +843,17 @@ public:
     BuildFlyingWorld(world, 4, ids, 10);
 
     ReplicatedView view;
-    std::array<std::uint8_t, 512> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
-    Assert::IsTrue(view.ApplySnapshot(writer.Written()));
+    Assert::IsTrue(ApplyWorld(view, world));
     const std::uint32_t goodTick = view.LatestTick();
 
+    /*
+     * A tail that is not a tail: an order count past the cap, which the reader
+     * refuses before it allocates. The entities beside it are perfectly good --
+     * which is the point, because a frame is rejected as a whole or not at all.
+     */
     const std::array<std::uint8_t, 6> garbage{0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-    Assert::IsFalse(view.ApplySnapshot(garbage));
-    Assert::AreEqual<std::uint32_t>(goodTick, view.LatestTick(), L"a rejected payload must leave the view alone");
+    Assert::IsFalse(view.ApplyFrame(goodTick + 1, world.Anchor(), 0, {}, garbage));
+    Assert::AreEqual<std::uint32_t>(goodTick, view.LatestTick(), L"a rejected frame must leave the view alone");
     Assert::AreEqual<std::size_t>(1, view.SnapshotCount());
   }
 };
@@ -843,28 +895,16 @@ public:
     }
 
     ReplicatedView view;
-    std::array<std::uint8_t, 512> firstBuffer{};
-    Neuron::ByteWriter firstWriter{firstBuffer};
-    Assert::IsTrue(WriteSnapshot(world, firstWriter));
-    Assert::IsTrue(view.ApplySnapshot(firstWriter.Written()));
+    Assert::IsTrue(ApplyWorld(view, world));
 
     // The two quantised headings, straight off the wire: the rate the view
     // reports has to be *their* difference, because those are what it holds.
-    Neuron::ByteReader firstReader{firstWriter.Written()};
-    SnapshotHeader firstHeader;
-    std::vector<Neuron::EntityRecord> firstShips;
-    Assert::IsTrue(ReadSnapshot(firstReader, firstHeader, firstShips));
+    const std::vector<Neuron::EntityRecord> firstShips = FrameOf(world).entities;
 
     world.Tick(11);
-    std::array<std::uint8_t, 512> secondBuffer{};
-    Neuron::ByteWriter secondWriter{secondBuffer};
-    Assert::IsTrue(WriteSnapshot(world, secondWriter));
-    Assert::IsTrue(view.ApplySnapshot(secondWriter.Written()));
+    Assert::IsTrue(ApplyWorld(view, world));
 
-    Neuron::ByteReader secondReader{secondWriter.Written()};
-    SnapshotHeader secondHeader;
-    std::vector<Neuron::EntityRecord> secondShips;
-    Assert::IsTrue(ReadSnapshot(secondReader, secondHeader, secondShips));
+    const std::vector<Neuron::EntityRecord> secondShips = FrameOf(world).entities;
 
     std::vector<ReplicatedShip> sampled;
     view.SampleAt(10.5, sampled);
@@ -887,10 +927,7 @@ public:
     BuildFlyingWorld(world, 1, ids, 10);
 
     ReplicatedView view;
-    std::array<std::uint8_t, 512> buffer{};
-    Neuron::ByteWriter writer{buffer};
-    Assert::IsTrue(WriteSnapshot(world, writer));
-    Assert::IsTrue(view.ApplySnapshot(writer.Written()));
+    Assert::IsTrue(ApplyWorld(view, world));
 
     std::vector<ReplicatedShip> sampled;
     view.SampleAt(static_cast<double>(view.LatestTick()) + 2.0, sampled);

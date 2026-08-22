@@ -1706,13 +1706,21 @@ public:
     Assert::IsTrue(static_cast<std::uint8_t>(received.verb) == 200);
   }
 
-  TEST_METHOD(AShipIdBeyondThisBuildsRangeBecomesInvalidRatherThanSomeoneElse)
+  TEST_METHOD(AShipIdPastTheOldWindowIsItselfRatherThanSomebodyElse)
   {
     /*
-     * The ids are u32 on the wire and u16 in the sim until the delta cluster
-     * widens the record. A truncating cast would turn id 65,537 into ship 1 --
-     * a validated command against the wrong hull. Invalid is a value the
-     * validator already refuses with a reason.
+     * **The narrowing this used to assert is gone, and its absence is the
+     * claim** (ADR-018 D6, ADR-022 §8a, U3d-b).
+     *
+     * These messages spoke u32 while the sim's `ShipId` was u16, so a reader
+     * had to refuse an id past the window rather than cast it: 65,537 truncated
+     * is ship 1, and that is a validated command against the wrong hull. The
+     * two widths agree now, so the honest assertion is the opposite one -- an
+     * id past the old window arrives **as itself**.
+     *
+     * Worth keeping rather than deleting, because it is the test that would
+     * fail loudly if the widths ever diverged again, which is when the range
+     * check has to come back.
      */
     std::uint8_t buffer[MAX_STATION_COMMAND_BYTES];
     Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
@@ -1732,7 +1740,8 @@ public:
     Neuron::ByteReader reader{std::span<const std::uint8_t>{buffer, writer.BytesWritten()}};
     StationCommand received;
     Assert::IsTrue(ReadStationCommand(reader, received));
-    Assert::AreEqual<std::uint32_t>(INVALID_SHIP_ID, received.shipIds[0], L"not ship 1");
+    Assert::AreEqual<std::uint32_t>(65537, received.shipIds[0], L"an id past the old u16 window was not itself");
+    Assert::AreNotEqual<std::uint32_t>(1, received.shipIds[0], L"and above all, not ship 1");
   }
 
   TEST_METHOD(ACountPastTheCapIsRefusedBeforeAnythingIsRead)

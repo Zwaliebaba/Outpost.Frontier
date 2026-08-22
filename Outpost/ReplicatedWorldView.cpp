@@ -246,17 +246,27 @@ ReplicatedWorldView::ReplicatedWorldView(Desc _desc)
   m_mintedWingNames.reserve(Neuron::MAX_ROSTER_ROWS);
 }
 
-std::uint32_t ReplicatedWorldView::ApplySnapshot(std::span<const std::uint8_t> _payload)
+bool ReplicatedWorldView::ApplyFrame(const Neuron::ReplicatedFrame& _frame)
 {
-  if (!m_view.ApplySnapshot(_payload))
+  /*
+   * Wiring, and the shape of it is the point (ADR-022 §1).
+   *
+   * The engine did the reassembly, held the baseline and decided the tick was
+   * worth applying; the game is handed the finished picture and the one part of
+   * it that is still its own -- the tail. Everything this function used to do
+   * with a `ByteReader` now happens one library out, which is what "the session
+   * host owns interest and delta" means at the client end.
+   */
+  if (!m_view.ApplyFrame(_frame.tick, static_cast<Game::AnchorId>(_frame.gridId), _frame.culledCount, _frame.entities,
+                         _frame.tail))
   {
-    // Malformed or truncated. Counted rather than logged per occurrence: on a
-    // lossy link this would be the noisiest line in the file, and the number
-    // is what actually says whether it is happening.
+    // A malformed tail. Counted rather than logged per occurrence: on a lossy
+    // link this would be the noisiest line in the file, and the number is what
+    // actually says whether it is happening.
     ++m_rejectedSnapshots;
-    return 0;
+    return false;
   }
-  return m_view.LatestTick();
+  return true;
 }
 
 void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
@@ -492,7 +502,7 @@ void ReplicatedWorldView::FillHoldRoom(std::vector<std::uint32_t>& _outFree) con
 }
 
 Game::OrderVerdict ReplicatedWorldView::SelectionOnlyVerdict(Game::OrderKind _kind,
-                                                             std::span<const std::uint16_t> _selectedIds) const noexcept
+                                                             std::span<const Neuron::EntityId> _selectedIds) const noexcept
 {
   Game::OrderSubmit order;
   order.kind = _kind;
@@ -760,7 +770,7 @@ std::uint32_t ReplicatedWorldView::OrderOptions(std::uint16_t _kind, std::span<O
   return 0;
 }
 
-std::uint32_t ReplicatedWorldView::OrderKinds(std::span<const std::uint16_t> _selectedIds,
+std::uint32_t ReplicatedWorldView::OrderKinds(std::span<const Neuron::EntityId> _selectedIds,
                                               std::span<OrderKindOption> _outKinds) const
 {
   // Every kind the game has a value for, including the three with no content.
@@ -852,7 +862,7 @@ std::uint32_t ReplicatedWorldView::OrderKinds(std::span<const std::uint16_t> _se
   return count;
 }
 
-std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const std::uint16_t> _selectedIds,
+std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const Neuron::EntityId> _selectedIds,
                                               std::span<RosterRow> _outRows) const
 {
   /*
@@ -1024,7 +1034,7 @@ std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const std::uint16_t> _s
  * arrive. Greying the action out at distance would remove the affordance
  * exactly where it is most useful.
  */
-bool ReplicatedWorldView::ContextActionFor(std::uint16_t _entityId, std::span<const std::uint16_t> _selectedIds,
+bool ReplicatedWorldView::ContextActionFor(Neuron::EntityId _entityId, std::span<const Neuron::EntityId> _selectedIds,
                                            ContextAction& _outAction) const
 {
   _outAction = ContextAction{};
@@ -1783,7 +1793,7 @@ Neuron::StationRosterCounts ReplicatedWorldView::BuildStationRoster(std::uint16_
  * here either; a group id no wing carries answers zero, which the caller reads
  * as "nothing to select".
  */
-std::uint32_t ReplicatedWorldView::BuildGroupMembers(std::uint16_t _groupId, std::span<std::uint16_t> _outIds) const
+std::uint32_t ReplicatedWorldView::BuildGroupMembers(std::uint16_t _groupId, std::span<Neuron::EntityId> _outIds) const
 {
   if (_groupId == Game::INVALID_WING_ID)
   {

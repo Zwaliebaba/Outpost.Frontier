@@ -254,7 +254,12 @@ where in-warp and combat-flagged will live, which is why a byte and not a widene
 goes 20 → 21, and `MAX_SHIPS_PER_SNAPSHOT` is derived from it: with the 1,150-byte budget,
 the 16-byte header and the reserved 224-byte order area, the 910 bytes left hold **43 ships
 instead of 45**. The MVP fleet is 41 and `Snapshot.h`'s floor asserts ≥ 41, so the cap still
-clears it — on a margin of two rather than four. That is the honest cost of the shimmer, and
+clears it — on a margin of two rather than four. *(**The cap itself went with U3d-b**,
+2026-08-22: a tick's records are bounded by a bandwidth budget and packed into as many datagrams
+as they take, so there is no per-snapshot ship count left to shrink. The arithmetic below is
+kept because it is the record of what the shimmer cost when the cap was real, and because the
+*rule* it justifies did not go away — the per-tick record is still multiplied by the population
+twenty times a second.)* That is the honest cost of the shimmer, and
 it is recorded here for the same reason `ORDER_STATE_RECORD_BYTES` records its own ("a field
 added here costs ships"): the next person to want a status bit should find the price already
 on the page. Two consumers of that shrinking margin are already designed — ADR-016 §6's
@@ -576,7 +581,8 @@ dense order with no RNG draw; parking is as replayable as steering.
   cluster in T2, riding the fail-closed hash.
 - **The snapshot ship cap falls 45 → 43** (§5), still above `Snapshot.h`'s asserted floor of
   41 but on half the margin. T2 updates the constant's comment with the new arithmetic, and
-  the static asserts catch it if the number is ever wrong.
+  the static asserts catch it if the number is ever wrong. *(Superseded 2026-08-22: U3d-b
+  removed the cap along with the full-snapshot format — see §5's note.)*
 - **U1's spec is amended before it builds** (Universe-Build-Order): Station anchors carry
   the undock point and facing; new bake invariants — warp-in point inside the dock radius,
   undock point clear of the structure's contact radius, parking rings inside the grid.

@@ -1,8 +1,18 @@
 # ADR-022 — Interest and Delta Replication: Acked Baselines, One Culling Authority, One Guarantee
 
 **Status:** Accepted · 2026-08-19 (design deliverable [ADR-018](ADR-018-scaling-baseline.md)
-A14 — drafted during the station phase; **its implementation slice follows U3c and gates
-shared grids and any per-grid population above the full-snapshot cap**)
+A14 — drafted during the station phase) · **Implemented 2026-08-22 as U3d**
+([Universe-Build-Order.md](../Universe-Build-Order.md)): **U3d-a** the ranking and §7's
+subtraction from the world hash, **U3d-b** the wire cluster — `SnapshotAck`, `DeltaHeader`,
+the keyframe on the new `Bulk` channel, u32 ids, the relationship bits, the sent-view baseline
+ring and priority truncation. Two readings this ADR left open were taken by the slice and are
+recorded with it rather than here: **tier 1** reads as "inside the camera's extent" rather than
+§4's literal "a visible relationship **and** inside the extent", because the first conjunct has
+no producer until the combat phase gives `Allied`/`Hostile` a meaning; and §4's `InterestQuery`
+needed a **`ViewFocus` message** the ADR does not name, because a server cannot keep §5a's
+selection guarantee for a selection nobody told it about — which amends ADR-016 §7's "the
+server has no business holding this". **R19 is retired**; the shared-grid gate (ADR-018 D3) is
+lifted
 **Depends on:** ADR-002 (tick, interpolation, STALE), ADR-003 (channels, the 1,152 B client
 datagram cap), ADR-004 (wire, the reserved `baselineTick`, the schema hash), ADR-005
 (determinism, the world hash), ADR-014 (the engine/game seam and its named relevance hook),

@@ -2,6 +2,7 @@
 #include "CppUnitTest.h"
 
 #include "ByteReader.h"
+#include "EntityRecord.h"
 #include "ByteWriter.h"
 #include "Clock.h"
 #include "ServerConfig.h"
@@ -33,6 +34,134 @@ namespace NeuronServerTests
 namespace
 {
 
+/*
+ * What a client makes of one state message (ADR-022 §2, §3).
+ *
+ * A test at this level drives a raw transport, so it has to do the two things a
+ * real client's `DeltaReceiver` does: read whichever form arrived, and **ack
+ * the tick**. The ack is not optional decoration -- without one the server has
+ * no baseline for this viewer and answers every tick with a keyframe (§2c), so
+ * a suite that never acked would test one code path forever and never see a
+ * delta at all.
+ *
+ * The tail is the game's opaque bytes, which `CountingSimulation` fills with a
+ * marker, the viewer and the tick's high-water mark -- so the assertions below
+ * read the same fields they always did, one layer further in.
+ */
+struct FrameFacts
+{
+  bool ok = false;
+  bool keyframe = false;
+  std::uint32_t tick = 0;
+  std::uint16_t gridId = 0;
+  std::uint16_t culledCount = 0;
+  std::uint32_t recordCount = 0;
+  std::uint8_t partIndex = 0;
+  std::uint8_t partCount = 1;
+
+  /// The game's tail, decoded. `hasTail` is false on the parts that do not
+  /// carry one, which is every part but the first.
+  bool hasTail = false;
+  std::uint32_t tailTick = 0;
+  std::uint32_t marker = 0;
+  std::uint32_t sequence = 0;
+  std::uint32_t viewer = 0;
+  std::uint32_t grid = 0;
+};
+
+[[nodiscard]] FrameFacts ReadFrame(WireType _type, ByteReader& _reader)
+{
+  FrameFacts facts;
+  std::vector<std::uint8_t> tail;
+
+  if (_type == WireType::Keyframe)
+  {
+    KeyframeHeader header;
+    if (!Read(_reader, header))
+    {
+      return facts;
+    }
+    facts.keyframe = true;
+    facts.tick = header.tick;
+    facts.gridId = header.gridId;
+    facts.culledCount = header.culledCount;
+    facts.recordCount = header.recordCount;
+    for (std::uint32_t index = 0; index < header.recordCount; ++index)
+    {
+      (void)ReadEntityRecord(_reader);
+    }
+  }
+  else
+  {
+    DeltaHeader header;
+    if (!Read(_reader, header))
+    {
+      return facts;
+    }
+    facts.tick = header.tick;
+    facts.gridId = header.gridId;
+    facts.culledCount = header.culledCount;
+    facts.recordCount = header.recordCount;
+    facts.partIndex = header.partIndex;
+    facts.partCount = header.partCount;
+    for (std::uint16_t index = 0; index < header.recordCount; ++index)
+    {
+      (void)ReadEntityRecord(_reader);
+    }
+    if (header.partIndex == 0)
+    {
+      // The departures trailer, which this suite does not otherwise care about.
+      const std::uint16_t leftCount = _reader.ReadUInt16();
+      for (std::uint16_t index = 0; index < leftCount && _reader.Ok(); ++index)
+      {
+        (void)_reader.ReadUInt32();
+      }
+    }
+  }
+
+  if (facts.partIndex == 0)
+  {
+    const std::uint16_t tailBytes = _reader.ReadUInt16();
+    if (_reader.Ok() && tailBytes > 0)
+    {
+      facts.tailTick = _reader.ReadUInt32();
+      facts.marker = _reader.ReadUInt32();
+      facts.sequence = _reader.ReadUInt32();
+      facts.viewer = _reader.ReadUInt32();
+      facts.grid = _reader.ReadUInt32();
+      facts.hasTail = _reader.Ok();
+    }
+  }
+
+  facts.ok = _reader.Ok();
+  return facts;
+}
+
+/*
+ * Acks a tick the moment it is whole (§2d).
+ *
+ * `CountingSimulation`'s grid is twelve records, so a tick is always one part
+ * and "whole" is "arrived". A test whose fixture grew past a datagram would
+ * need the part bookkeeping `DeltaReceiver` does; asserting the single-part
+ * assumption here is what makes that a failing test rather than a silent
+ * change of what this suite covers.
+ */
+void AckFrame(QuicTransport& _client, ConnectionId _link, const FrameFacts& _facts)
+{
+  if (!_facts.ok || _facts.partCount != 1)
+  {
+    return;
+  }
+  std::array<std::uint8_t, 32> buffer{};
+  ByteWriter writer{buffer};
+  WriteWireType(writer, WireType::SnapshotAck);
+  Write(writer, SnapshotAck{_facts.gridId, _facts.tick});
+  if (writer.Ok())
+  {
+    (void)_client.Send(_link, TransportChannel::State, writer.Written());
+  }
+}
+
 /// A simulation that only counts, so a test can assert the loop ran without
 /// caring what a world is.
 class CountingSimulation final : public Simulation
@@ -45,26 +174,46 @@ public:
   }
 
   /*
-   * Writes a tiny recognisable payload so a test can prove the datagram
-   * carried the simulation's bytes and not the engine's idea of them. The
-   * last accepted order rides along, which is what "state in the next
-   * snapshot" means for a simulation with no world.
+   * A grid of `ENTITY_COUNT` entities that never move (ADR-022 §4).
    *
-   * The viewer is written into the payload rather than ignored: it is what
-   * lets a test prove the *sender* knew which client it was serialising for
-   * (ADR-018 A13), which is a claim no amount of identical bytes can make.
-   *
-   * **The sequence written is the request's and not this class's** (ADR-022
-   * §7, U3d-a). It used to be `m_lastAcceptedSeq` -- simulation state, global
-   * across every submitter, which is exactly the shape §7 moved out of the
-   * world. Reading it off the `SnapshotRequest` is what makes the order-loop
-   * test below a claim about the *session's* per-viewer high-water mark rather
-   * than about a counter the simulation happened to keep.
-   *
-   * `RefuseSnapshots` makes every write fail the way a grid past the datagram
-   * cap does -- the loud refusal ADR-022 §6 keeps until the delta slice.
+   * **The ranking is the seam now**, and this simulation implements it the
+   * simplest honest way: every entity, in id order, all of them guaranteed. All
+   * guaranteed is a deliberate choice rather than laziness -- it makes §5c's
+   * "when the guaranteed prefix alone exceeds the budget, the budget loses"
+   * reachable from a test by setting a small budget, which is the one branch
+   * that cannot be reached any other way.
    */
-  [[nodiscard]] bool WriteSnapshot(const SnapshotRequest& _request, ByteWriter& _writer) override
+  static constexpr std::uint32_t ENTITY_COUNT = 12;
+  static constexpr std::uint32_t FIRST_ENTITY_ID = 100;
+
+  [[nodiscard]] std::uint32_t RankRelevance(const InterestQuery& _query, std::vector<std::uint32_t>& _outRanked) override
+  {
+    m_lastGrid.store(_query.grid, std::memory_order_relaxed);
+    ++m_rankCalls;
+    _outRanked.clear();
+    for (std::uint32_t index = 0; index < ENTITY_COUNT; ++index)
+    {
+      _outRanked.push_back(FIRST_ENTITY_ID + index);
+    }
+    return m_guaranteeAll.load(std::memory_order_relaxed) ? ENTITY_COUNT : 0;
+  }
+
+  /*
+   * Records for whatever the engine chose, with the viewer written into a field
+   * a test can read.
+   *
+   * `gaugeA` carries the viewer and `gaugeB` the tick's low byte, which is what
+   * lets a test prove the *sender* knew which client it was serialising for
+   * (ADR-018 A13) -- a claim no amount of identical bytes can make -- and that
+   * the record it got is this tick's rather than a cached one.
+   *
+   * `RefuseSnapshots` makes the grid empty, which is what a torn-down world
+   * looks like from here. It no longer stands in for "the fleet outgrew a
+   * datagram", because ADR-022 §6 retired that outcome: a grid over budget is
+   * partial and honest, never silent.
+   */
+  void WriteEntities(const SnapshotRequest& _request, std::span<const std::uint32_t> _ids,
+                     std::vector<EntityRecord>& _outRecords) override
   {
     const PlayerId viewer = _request.viewer;
     m_lastViewer.store(viewer, std::memory_order_relaxed);
@@ -88,6 +237,40 @@ public:
       m_viewersSeen.fetch_or(std::uint64_t{1} << viewer, std::memory_order_relaxed);
     }
     m_lastGrid.store(_request.grid, std::memory_order_relaxed);
+
+    _outRecords.clear();
+    if (m_refuseSnapshots.load(std::memory_order_relaxed))
+    {
+      return;
+    }
+    for (const std::uint32_t id : _ids)
+    {
+      EntityRecord record;
+      record.id = id;
+      record.typeId = 1;
+      // Moves every tick, so a delta always has something to say and a test can
+      // tell a fresh record from a repeated one.
+      record.posXCm = static_cast<std::int32_t>(_request.tick * 100 + id);
+      record.gaugeA = static_cast<std::uint8_t>(viewer);
+      record.gaugeB = static_cast<std::uint8_t>(_request.tick & 0xffu);
+      _outRecords.push_back(record);
+    }
+    ++m_snapshotsWritten;
+  }
+
+  /*
+   * A tiny recognisable tail, so a test can prove the game's opaque bytes
+   * reached the client unread.
+   *
+   * **The sequence written is the request's and not this class's** (ADR-022
+   * §7, U3d-a). It used to be `m_lastAcceptedSeq` -- simulation state, global
+   * across every submitter, which is exactly the shape §7 moved out of the
+   * world. Reading it off the `SnapshotRequest` is what makes the order-loop
+   * test below a claim about the *session's* per-viewer high-water mark rather
+   * than about a counter the simulation happened to keep.
+   */
+  [[nodiscard]] bool WriteTickTail(const SnapshotRequest& _request, ByteWriter& _writer) override
+  {
     if (m_refuseSnapshots.load(std::memory_order_relaxed))
     {
       return false;
@@ -95,11 +278,16 @@ public:
     _writer.WriteUInt32(_request.tick);
     _writer.WriteUInt32(SNAPSHOT_MARKER);
     _writer.WriteUInt32(_request.lastOrderSeqProcessed);
-    _writer.WriteUInt32(viewer);
+    _writer.WriteUInt32(_request.viewer);
     _writer.WriteUInt32(_request.grid);
-    ++m_snapshotsWritten;
     return _writer.Ok();
   }
+
+  /// Whether the ranking claims every entity is guaranteed. Off is what lets a
+  /// test watch the budget actually truncate (§6); on is what lets it watch the
+  /// budget lose to the guarantee (§5c).
+  void GuaranteeAll(bool _guarantee) noexcept { m_guaranteeAll.store(_guarantee, std::memory_order_relaxed); }
+  [[nodiscard]] std::uint32_t RankCalls() const noexcept { return m_rankCalls.load(std::memory_order_relaxed); }
 
   /*
    * One grid is viewable and everything else is not, which is the smallest
@@ -140,7 +328,8 @@ public:
   static constexpr std::uint32_t SUMMARY_MARKER = 0xd0cca5e5u;
   [[nodiscard]] std::uint32_t SummariesWritten() const noexcept { return m_summariesWritten.load(std::memory_order_relaxed); }
 
-  /// Makes the simulation behave like a grid that outgrew one datagram.
+  /// Makes the simulation behave like a grid that has torn down under its
+  /// viewer: nothing to rank, nothing to say.
   void RefuseSnapshots(bool _refuse) noexcept { m_refuseSnapshots.store(_refuse, std::memory_order_relaxed); }
   [[nodiscard]] PlayerId LastViewer() const noexcept { return m_lastViewer.load(std::memory_order_relaxed); }
 
@@ -219,6 +408,8 @@ private:
   std::atomic<std::uint32_t> m_ordersSeen{0};
   std::atomic<std::uint32_t> m_lastOrderClientId{0};
   std::atomic<std::uint32_t> m_lastAcceptedSeq{0};
+  std::atomic<std::uint32_t> m_rankCalls{0};
+  std::atomic<bool> m_guaranteeAll{true};
   std::atomic<std::uint32_t> m_nextOrderId{0};
   std::atomic<std::uint32_t> m_summariesWritten{0};
   std::atomic<PlayerId> m_lastViewer{INVALID_PLAYER_ID};
@@ -533,21 +724,22 @@ public:
                                               }
                                               joined = true;
                                             }
-                                            else if (type == WireType::Snapshot)
+                                            else if (type == WireType::Snapshot || type == WireType::Keyframe)
                                             {
                                               // Recorded only once the whole
                                               // payload has been read, so a
                                               // truncated datagram cannot
-                                              // overwrite a good one.
-                                              const std::uint32_t tick = reader.ReadUInt32();
-                                              const std::uint32_t payloadMarker = reader.ReadUInt32();
-                                              (void)reader.ReadUInt32(); // the last accepted order
-                                              const std::uint32_t viewer = reader.ReadUInt32();
-                                              if (reader.Ok())
+                                              // overwrite a good one. Acked, so
+                                              // the server gets a baseline and
+                                              // the feed reaches its steady
+                                              // state (ADR-022 §2c).
+                                              const FrameFacts facts = ReadFrame(type, reader);
+                                              AckFrame(client, link, facts);
+                                              if (facts.hasTail)
                                               {
-                                                snapshotTick = tick;
-                                                marker = payloadMarker;
-                                                snapshotViewer = viewer;
+                                                snapshotTick = facts.tick;
+                                                marker = facts.marker;
+                                                snapshotViewer = facts.viewer;
                                                 ++snapshotsSeen;
                                               }
                                             }
@@ -648,8 +840,9 @@ public:
                                               }
                                               joined = true;
                                             }
-                                            else if (type == WireType::Snapshot)
+                                            else if (type == WireType::Snapshot || type == WireType::Keyframe)
                                             {
+                                              AckFrame(client, link, ReadFrame(type, reader));
                                               ++snapshotsSeen;
                                             }
                                             else if (type == WireType::Summary)
@@ -742,16 +935,13 @@ public:
             answers.push_back(changed);
           }
         }
-        else if (type == WireType::Snapshot)
+        else if (type == WireType::Snapshot || type == WireType::Keyframe)
         {
-          (void)reader.ReadUInt32(); // tick
-          (void)reader.ReadUInt32(); // marker
-          (void)reader.ReadUInt32(); // last accepted order
-          (void)reader.ReadUInt32(); // viewer
-          const std::uint32_t grid = reader.ReadUInt32();
-          if (reader.Ok())
+          const FrameFacts facts = ReadFrame(type, reader);
+          AckFrame(client, link, facts);
+          if (facts.hasTail)
           {
-            snapshotGrid = grid;
+            snapshotGrid = facts.grid;
           }
         }
       }
@@ -798,28 +988,117 @@ public:
   }
 
   /*
-   * A grid that will not fit one datagram refuses **loudly**, and recovers
-   * (ADR-018 A13, ADR-022 §6).
+   * **A grid over budget is partial and honest, never silent** (ADR-022 §6).
    *
-   * The designed behaviour until the interest/delta slice lands is exactly
-   * this: nothing is sent, the tick is counted, and a line names the client.
-   * The two halves are both worth pinning. *Nothing sent*, because a truncated
-   * snapshot is worse than a missing one -- the client reads the absent ships
-   * as despawned and resurrects them next tick. *Counted*, because a server
-   * that has quietly stopped replicating looks from the outside exactly like a
-   * world where nothing is moving, and `SnapshotFailureCount` is what the debug
-   * strip reads to tell those apart.
+   * This replaces `AGridPastTheDatagramCapRefusesLoudlyAndRecovers`, and the
+   * test it replaces is worth naming because its behaviour was *correct* and is
+   * now wrong. Until U3d-b a grid that would not fit one datagram sent nothing
+   * at all, counted the tick, and logged a line naming the client -- the honest
+   * failure, because a truncated snapshot reads as a mass despawn followed by a
+   * mass respawn. It is also R19: two commanders meeting at the starter station
+   * is 83 records against a 43-record cap, and the designed response was to
+   * show nobody anything.
    *
-   * It is driven from the refusal outwards rather than by building a fleet past
-   * the cap, because the cap is GameLogic's arithmetic and this suite has no
-   * GameLogic in it (ADR-014). `SnapshotTests` owns the other side: that a
-   * world of `MAX_SHIPS_PER_SNAPSHOT + 5` ships is what makes the game refuse.
+   * §6 replaces refusal with **priority truncation**. A tick fills its byte
+   * budget from the ranked list, what does not fit keeps its place for the next
+   * tick, and the header carries an honest `culledCount` so the player is told
+   * *how many* they are not being shown rather than being shown an empty grid.
+   *
+   * The budget here is set small enough that the simulation's twelve entities
+   * cannot all fit, which is the only way to reach the truncation branch from a
+   * suite with no GameLogic in it (ADR-014).
    */
-  TEST_METHOD(AGridPastTheDatagramCapRefusesLoudlyAndRecovers)
+  TEST_METHOD(AGridOverBudgetIsTruncatedAndCounted)
   {
     CountingSimulation simulation;
-    simulation.RefuseSnapshots(true);
+    // Nothing guaranteed, so the budget is what decides -- §5c's "the budget
+    // loses to the guarantee" is the *other* test.
+    simulation.GuaranteeAll(false);
 
+    ServerHost host;
+    ServerConfig config;
+    config.port = 0;
+    // Room for five of the twelve records, so seven are culled every tick.
+    config.tickBudgetBytes = 5 * static_cast<std::uint32_t>(ENTITY_RECORD_BYTES);
+    Assert::IsTrue(host.Start(config, simulation));
+
+    QuicTransport client;
+    const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
+    Assert::IsTrue(link != INVALID_CONNECTION);
+
+    std::array<std::uint8_t, 256> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::Hello);
+    Write(writer, Hello{PROTOCOL_VERSION, simulation.SchemaHash(), simulation.ContentHash(), "harness"});
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, writer.Written()));
+
+    bool joined = false;
+    std::uint32_t framesSeen = 0;
+    std::uint32_t recordsSeen = 0;
+    std::uint16_t culled = 0;
+    const auto drain = [&]
+    {
+      TransportEvent event;
+      while (client.NextEvent(event))
+      {
+        if (event.type != TransportEvent::Type::Message)
+        {
+          continue;
+        }
+        ByteReader reader{event.payload};
+        const WireType type = ReadWireType(reader);
+        if (type == WireType::Welcome)
+        {
+          joined = true;
+        }
+        else if (type == WireType::Snapshot || type == WireType::Keyframe)
+        {
+          const FrameFacts facts = ReadFrame(type, reader);
+          AckFrame(client, link, facts);
+          if (facts.ok)
+          {
+            ++framesSeen;
+            recordsSeen += facts.recordCount;
+            culled = facts.culledCount;
+          }
+        }
+      }
+    };
+
+    const bool sent = WaitUntil(client,
+                                [&]
+                                {
+                                  drain();
+                                  return joined && framesSeen >= 3;
+                                });
+
+    Assert::IsTrue(sent, L"a grid over budget sent nothing at all; §6 says partial, never silent");
+    Assert::IsTrue(recordsSeen > 0, L"a partial view still has to carry records");
+    Assert::AreEqual<std::uint16_t>(static_cast<std::uint16_t>(CountingSimulation::ENTITY_COUNT - 5), culled,
+                                    L"the client was not told how many it is not being shown");
+    Assert::AreEqual<std::uint32_t>(0, host.SnapshotFailureCount(), L"truncation is not a failure");
+
+    host.Stop();
+    host.Join();
+  }
+
+  /*
+   * **A client that stops acking is resynced with a keyframe** (ADR-022 §2c).
+   *
+   * The ring holds `BASELINE_RING_TICKS` (32, 1.6 s) views as sent. Past that
+   * the acked tick has fallen out and there is nothing to encode a delta
+   * against, so the server sends a keyframe and starts again -- unconditionally,
+   * because a partial-resync mode is a thing to get subtly wrong and this design
+   * deliberately does not have one.
+   *
+   * The stall is simulated by simply not acking, which is what a client with a
+   * dead uplink looks like from the server. What is asserted is that a *second*
+   * keyframe arrives: the first is the join, and a test that counted one would
+   * pass against a server that never recovered at all.
+   */
+  TEST_METHOD(AClientThatStopsAckingIsResyncedWithAKeyframe)
+  {
+    CountingSimulation simulation;
     ServerHost host;
     ServerConfig config;
     config.port = 0;
@@ -836,7 +1115,9 @@ public:
     Assert::IsTrue(client.Send(link, TransportChannel::Control, writer.Written()));
 
     bool joined = false;
-    std::uint32_t snapshotsSeen = 0;
+    bool acking = true;
+    std::uint32_t keyframes = 0;
+    std::uint32_t deltas = 0;
     const auto drain = [&]
     {
       TransportEvent event;
@@ -852,39 +1133,251 @@ public:
         {
           joined = true;
         }
+        else if (type == WireType::Keyframe)
+        {
+          const FrameFacts facts = ReadFrame(type, reader);
+          ++keyframes;
+          if (acking)
+          {
+            AckFrame(client, link, facts);
+          }
+        }
         else if (type == WireType::Snapshot)
         {
-          ++snapshotsSeen;
+          const FrameFacts facts = ReadFrame(type, reader);
+          ++deltas;
+          if (acking)
+          {
+            AckFrame(client, link, facts);
+          }
         }
       }
     };
 
-    // Several refused ticks, so this cannot pass on one that merely had not
-    // happened yet.
-    const bool refused = WaitUntil(client,
+    // First the steady state, so the run below is a *stall* and not a join.
+    const bool settled = WaitUntil(client,
                                    [&]
                                    {
                                      drain();
-                                     return joined && host.SnapshotFailureCount() >= 3;
+                                     return joined && keyframes >= 1 && deltas >= 3;
                                    });
+    Assert::IsTrue(settled, L"the feed never reached its steady state");
+    Assert::AreEqual<std::uint32_t>(1, keyframes, L"a healthy feed sends one keyframe and then deltas");
 
-    Assert::IsTrue(refused, L"a simulation refusing every snapshot was never counted as failing");
-    Assert::AreEqual<std::uint32_t>(0, snapshotsSeen, L"a refused snapshot still put bytes on the wire");
+    // Now go quiet. The ring is 32 ticks, so at 20 Hz this takes about 1.6 s.
+    acking = false;
+    const bool resynced = WaitUntil(
+      client,
+      [&]
+      {
+        drain();
+        return keyframes >= 2;
+      },
+      6000.0);
 
-    // And it is per tick, not a latch: the moment the grid fits again the feed
-    // resumes without the session being rebuilt.
-    const std::uint32_t failuresWhileRefusing = host.SnapshotFailureCount();
-    simulation.RefuseSnapshots(false);
+    Assert::IsTrue(resynced, L"a client whose ack fell out of the ring was never sent a keyframe");
 
-    const bool recovered = WaitUntil(client,
-                                     [&]
-                                     {
-                                       drain();
-                                       return snapshotsSeen >= 2;
-                                     });
+    host.Stop();
+    host.Join();
+  }
 
-    Assert::IsTrue(recovered, L"the feed never resumed once the simulation could write again");
-    Assert::IsTrue(host.SnapshotFailureCount() >= failuresWhileRefusing, L"the failure count went backwards");
+  /*
+   * **An ack older than the highest is ignored** (ADR-022 §2a).
+   *
+   * The acks ride the unreliable channel, so they arrive out of order as a
+   * matter of course. Taking the highest per (client, grid) is what makes that
+   * a non-event -- and taking the *latest* instead would let a reordered
+   * datagram walk the server's baseline backwards, which costs a larger delta
+   * every time and, worse, is invisible.
+   *
+   * Watched through `baselineTick`, which is the server saying out loud which
+   * sent view it encoded against.
+   */
+  TEST_METHOD(AnAckOlderThanTheHighestIsIgnored)
+  {
+    CountingSimulation simulation;
+    ServerHost host;
+    ServerConfig config;
+    config.port = 0;
+    Assert::IsTrue(host.Start(config, simulation));
+
+    QuicTransport client;
+    const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
+    Assert::IsTrue(link != INVALID_CONNECTION);
+
+    std::array<std::uint8_t, 256> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::Hello);
+    Write(writer, Hello{PROTOCOL_VERSION, simulation.SchemaHash(), simulation.ContentHash(), "harness"});
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, writer.Written()));
+
+    bool joined = false;
+    std::uint16_t grid = 0;
+    std::uint32_t firstAcked = 0;
+    std::uint32_t highestBaseline = 0;
+    std::uint32_t lowestBaselineAfterStale = 0xffffffffu;
+    bool sentStaleAck = false;
+    std::uint32_t deltasAfterStale = 0;
+
+    const auto drain = [&]
+    {
+      TransportEvent event;
+      while (client.NextEvent(event))
+      {
+        if (event.type != TransportEvent::Type::Message)
+        {
+          continue;
+        }
+        ByteReader reader{event.payload};
+        const WireType type = ReadWireType(reader);
+        if (type == WireType::Welcome)
+        {
+          joined = true;
+        }
+        else if (type == WireType::Keyframe || type == WireType::Snapshot)
+        {
+          const FrameFacts facts = ReadFrame(type, reader);
+          if (!facts.ok)
+          {
+            continue;
+          }
+          grid = facts.gridId;
+          AckFrame(client, link, facts);
+          if (firstAcked == 0)
+          {
+            firstAcked = facts.tick;
+          }
+          if (type == WireType::Snapshot)
+          {
+            highestBaseline = std::max(highestBaseline, facts.tick);
+            if (sentStaleAck)
+            {
+              ++deltasAfterStale;
+              lowestBaselineAfterStale = std::min(lowestBaselineAfterStale, static_cast<std::uint32_t>(facts.tick));
+            }
+          }
+        }
+      }
+    };
+
+    // Let the feed run so the server's acked tick is well past the join.
+    const bool settled = WaitUntil(client,
+                                   [&]
+                                   {
+                                     drain();
+                                     return joined && highestBaseline > firstAcked + 10;
+                                   });
+    Assert::IsTrue(settled, L"the feed never got far enough past the join to have a stale ack to send");
+
+    /*
+     * Now a flood of stale acks naming the *join* tick, which is far behind.
+     * A server that took the latest rather than the highest would start
+     * encoding against it -- and, once it fell out of the ring, would answer
+     * with keyframes forever.
+     */
+    const std::uint32_t staleTick = firstAcked;
+    sentStaleAck = true;
+    for (int attempt = 0; attempt < 20; ++attempt)
+    {
+      ByteWriter stale{buffer};
+      WriteWireType(stale, WireType::SnapshotAck);
+      Write(stale, SnapshotAck{grid, staleTick});
+      Assert::IsTrue(stale.Ok());
+      (void)client.Send(link, TransportChannel::State, stale.Written());
+    }
+
+    const bool sawMore = WaitUntil(client,
+                                   [&]
+                                   {
+                                     drain();
+                                     return deltasAfterStale >= 5;
+                                   });
+    Assert::IsTrue(sawMore, L"the feed stopped after the stale acks, which is itself the failure");
+    Assert::IsTrue(lowestBaselineAfterStale > staleTick,
+                   L"a stale ack walked the server's baseline backwards; §2a says highest wins");
+
+    host.Stop();
+    host.Join();
+  }
+
+  /*
+   * **When the guaranteed prefix alone exceeds the budget, the budget loses**
+   * (ADR-022 §5c).
+   *
+   * The one outcome the whole ADR is written to prevent is culling a player's
+   * own fleet to hit a bandwidth number, so the rule is stated as an
+   * asymmetry: the budget truncates tier 1 and 2 and is simply overridden by
+   * tier 0. The overrun is *counted* rather than swallowed, because a
+   * deployment whose budget is smaller than its fleet envelope is a decision
+   * for a person and not a thing the server should quietly absorb.
+   *
+   * Every entity is guaranteed here and the budget holds five, so the overrun
+   * is unavoidable and the count is what proves it was noticed.
+   */
+  TEST_METHOD(TheGuaranteedPrefixOverridesTheBudgetAndIsCounted)
+  {
+    CountingSimulation simulation;
+    simulation.GuaranteeAll(true);
+
+    ServerHost host;
+    ServerConfig config;
+    config.port = 0;
+    config.tickBudgetBytes = 5 * static_cast<std::uint32_t>(ENTITY_RECORD_BYTES);
+    Assert::IsTrue(host.Start(config, simulation));
+
+    QuicTransport client;
+    const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
+    Assert::IsTrue(link != INVALID_CONNECTION);
+
+    std::array<std::uint8_t, 256> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::Hello);
+    Write(writer, Hello{PROTOCOL_VERSION, simulation.SchemaHash(), simulation.ContentHash(), "harness"});
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, writer.Written()));
+
+    bool joined = false;
+    std::uint32_t everyRecord = 0;
+    std::uint16_t culled = 0xffffu;
+    const auto drain = [&]
+    {
+      TransportEvent event;
+      while (client.NextEvent(event))
+      {
+        if (event.type != TransportEvent::Type::Message)
+        {
+          continue;
+        }
+        ByteReader reader{event.payload};
+        const WireType type = ReadWireType(reader);
+        if (type == WireType::Welcome)
+        {
+          joined = true;
+        }
+        else if (type == WireType::Keyframe)
+        {
+          const FrameFacts facts = ReadFrame(type, reader);
+          AckFrame(client, link, facts);
+          if (facts.ok)
+          {
+            everyRecord = facts.recordCount;
+            culled = facts.culledCount;
+          }
+        }
+      }
+    };
+
+    const bool sent = WaitUntil(client,
+                                [&]
+                                {
+                                  drain();
+                                  return joined && everyRecord > 0;
+                                });
+
+    Assert::IsTrue(sent, L"the guaranteed fleet never went out");
+    Assert::AreEqual<std::uint32_t>(CountingSimulation::ENTITY_COUNT, everyRecord,
+                                    L"a guaranteed entity was culled to hit a bandwidth number");
+    Assert::AreEqual<std::uint16_t>(0, culled, L"nothing was culled, so nothing should be claimed as culled");
+    Assert::AreEqual<std::uint32_t>(0, host.SnapshotFailureCount());
 
     host.Stop();
     host.Join();
@@ -955,7 +1448,7 @@ public:
             _player = welcome.playerId;
           }
         }
-        else if (type == WireType::Snapshot)
+        else if (type == WireType::Snapshot || type == WireType::Keyframe)
         {
           ++_snapshots;
         }
@@ -1080,15 +1573,15 @@ public:
                                       {
                                         acked = true;
                                       }
-                                      else if (type == WireType::Snapshot)
+                                      else if (type == WireType::Snapshot || type == WireType::Keyframe)
                                       {
-                                        const std::uint32_t tick = reader.ReadUInt32();
-                                        const std::uint32_t marker = reader.ReadUInt32();
-                                        const std::uint32_t sequence = reader.ReadUInt32();
-                                        if (reader.Ok() && marker == CountingSimulation::SNAPSHOT_MARKER && tick > 0)
+                                        const FrameFacts facts = ReadFrame(type, reader);
+                                        AckFrame(client, link, facts);
+                                        if (facts.hasTail && facts.marker == CountingSimulation::SNAPSHOT_MARKER &&
+                                            facts.tailTick > 0)
                                         {
-                                          seenSeq = sequence;
-                                          seenInSnapshot = seenInSnapshot || sequence == ORDER_SEQ;
+                                          seenSeq = facts.sequence;
+                                          seenInSnapshot = seenInSnapshot || facts.sequence == ORDER_SEQ;
                                         }
                                       }
                                     }
@@ -1249,15 +1742,15 @@ public:
                                        {
                                          ++acks;
                                        }
-                                       else if (type == WireType::Snapshot)
+                                       else if (type == WireType::Snapshot || type == WireType::Keyframe)
                                        {
-                                         const std::uint32_t tick = reader.ReadUInt32();
-                                         const std::uint32_t marker = reader.ReadUInt32();
-                                         const std::uint32_t sequence = reader.ReadUInt32();
-                                         if (reader.Ok() && marker == CountingSimulation::SNAPSHOT_MARKER && tick > 0)
+                                         const FrameFacts facts = ReadFrame(type, reader);
+                                         AckFrame(client, link, facts);
+                                         if (facts.hasTail && facts.marker == CountingSimulation::SNAPSHOT_MARKER &&
+                                             facts.tailTick > 0)
                                          {
-                                           highest = std::max(highest, sequence);
-                                           sawTheAcceptedOne = sawTheAcceptedOne || sequence == GOOD_SEQ;
+                                           highest = std::max(highest, facts.sequence);
+                                           sawTheAcceptedOne = sawTheAcceptedOne || facts.sequence == GOOD_SEQ;
                                          }
                                        }
                                      }

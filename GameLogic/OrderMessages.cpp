@@ -52,7 +52,9 @@ bool WriteOrderSubmit(const OrderSubmit& _order, Neuron::ByteWriter& _writer) no
   _writer.WriteUInt16(_order.shipCount);
   for (std::uint16_t index = 0; index < _order.shipCount; ++index)
   {
-    _writer.WriteUInt16(_order.shipIds[index]);
+    // u32 as of U3d-b: these are the ids the client read off a snapshot,
+    // and the record's id widened with ADR-022 §8a.
+    _writer.WriteUInt32(_order.shipIds[index]);
   }
   _writer.WriteInt32(_order.target.xCm);
   _writer.WriteInt32(_order.target.yCm);
@@ -88,7 +90,7 @@ bool ReadOrderSubmit(Neuron::ByteReader& _reader, OrderSubmit& _outOrder) noexce
   _outOrder.shipCount = shipCount;
   for (std::uint16_t index = 0; index < shipCount; ++index)
   {
-    _outOrder.shipIds[index] = _reader.ReadUInt16();
+    _outOrder.shipIds[index] = _reader.ReadUInt32();
   }
 
   _outOrder.target.xCm = _reader.ReadInt32();

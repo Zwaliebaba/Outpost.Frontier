@@ -156,7 +156,7 @@ public:
 
   explicit ReplicatedWorldView(Desc _desc);
 
-  [[nodiscard]] std::uint32_t ApplySnapshot(std::span<const std::uint8_t> _payload) override;
+  [[nodiscard]] bool ApplyFrame(const Neuron::ReplicatedFrame& _frame) override;
   void BuildScene(double _renderTick, Neuron::RenderScene& _outScene) override;
 
   [[nodiscard]] Neuron::OrderVerdict PreCheck(const Neuron::OrderIntent& _intent) override;
@@ -164,11 +164,11 @@ public:
   [[nodiscard]] bool EncodeOrder(const Neuron::OrderIntent& _intent, Neuron::ByteWriter& _writer) override;
   [[nodiscard]] Neuron::OrderDefaults DefaultOrder() const override;
   [[nodiscard]] std::uint32_t OrderOptions(std::uint16_t _kind, std::span<Neuron::OrderOption> _outOptions) const override;
-  [[nodiscard]] std::uint32_t OrderKinds(std::span<const std::uint16_t> _selectedIds,
+  [[nodiscard]] std::uint32_t OrderKinds(std::span<const EntityId> _selectedIds,
                                          std::span<Neuron::OrderKindOption> _outKinds) const override;
-  [[nodiscard]] std::uint32_t BuildRoster(std::span<const std::uint16_t> _selectedIds,
+  [[nodiscard]] std::uint32_t BuildRoster(std::span<const EntityId> _selectedIds,
                                           std::span<Neuron::RosterRow> _outRows) const override;
-  [[nodiscard]] bool ContextActionFor(std::uint16_t _entityId, std::span<const std::uint16_t> _selectedIds,
+  [[nodiscard]] bool ContextActionFor(Neuron::EntityId _entityId, std::span<const Neuron::EntityId> _selectedIds,
                                       Neuron::ContextAction& _outAction) const override;
   [[nodiscard]] bool ApplySummary(std::span<const std::uint8_t> _payload) override;
   [[nodiscard]] std::uint32_t BuildLocationBlocks(std::span<Neuron::LocationBlock> _outBlocks) const override;
@@ -184,7 +184,7 @@ public:
                                                                std::span<Neuron::StationGroup> _outGroups,
                                                                std::span<Neuron::StationChip> _outChips) const override;
   [[nodiscard]] std::uint32_t BuildGroupMembers(std::uint16_t _groupId,
-                                                std::span<std::uint16_t> _outIds) const override;
+                                                std::span<Neuron::EntityId> _outIds) const override;
   [[nodiscard]] std::uint32_t BuildStationActions(std::uint16_t _anchor,
                                                   std::span<Neuron::StationAction> _outActions) const override;
   [[nodiscard]] std::uint32_t StationActionOptions(std::uint16_t _verb,
@@ -305,7 +305,7 @@ private:
    * already on screen.
    */
   [[nodiscard]] Game::OrderVerdict SelectionOnlyVerdict(Game::OrderKind _kind,
-                                                        std::span<const std::uint16_t> _selectedIds) const noexcept;
+                                                        std::span<const Neuron::EntityId> _selectedIds) const noexcept;
 
   /// Free ore-hold litres per ship, parallel to `m_validationIds`, from the
   /// cargo summary and the authored hold sizes. Empty when either is missing,

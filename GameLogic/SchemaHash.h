@@ -27,10 +27,18 @@ namespace Game
 {
 
 /*
- * `Snapshot` is `Header + ShipRecord[] + OrderStateRecord[]`, where `ShipRecord`
- * is deliberately `Neuron::EntityRecord` rather than a type of ours (ADR-004 §6,
- * ADR-014 §4). The string names it as the engine spells it, because that is what
- * is on the wire; what it *means* is GameLogic's and is written beside it.
+ * **The snapshot's envelope left this string with U3d-b** (ADR-022). The game
+ * used to own the whole payload -- a header, the ship records and the order area
+ * -- and now owns only the *tail*: the order records and the session's order
+ * high-water mark. The header, the entity records and the delta framing are the
+ * engine's (`CORE_SCHEMA_TEXT`), because interest and delta are the session
+ * host's job (§1) and `EntityRecord` was always NeuronCore's type.
+ *
+ * What stays here is the meaning, which is the half that was always the game's:
+ * `typeId` is a `HullClass`, the gauges are hull and shield, and `statusBits`
+ * carries undock protection and the viewer-relative relationship (§8b). Two
+ * builds that agreed about every byte and disagreed about what a gauge *is*
+ * would draw different bars, which is what `meaning{}` refuses at the door.
  *
  * **The order messages are described as they are written, not as they are
  * declared.** `OrderSubmit` is a struct with a fixed `shipIds[64]`, and what
@@ -42,12 +50,13 @@ namespace Game
  * a percentage would refuse each other here instead of drawing different bars.
  */
 inline constexpr std::string_view GAME_SCHEMA_TEXT =
-    "SnapshotHeader{u32 tick,u32 baselineTick,u16 gridAnchor,u16 shipCount,u16 orderCount,u32 lastOrderSeqProcessed}"
-    "ShipRecord=EntityRecord{u16 id,u8 typeId,u8 groupId,i32 posXCm,i32 posYCm,"
-    "i16 velXCmPerSec,i16 velYCmPerSec,u16 headingTurns16,u8 gaugeA,u8 gaugeB,u8 statusBits}"
+    // The game's per-tick tail (ADR-022 §3b), which is all that is left of what
+    // used to be a whole snapshot payload. It rides in part zero of the tick's
+    // update, opaque to the engine, exactly as a summary frame does.
+    "TickTail{u16 orderCount,u32 lastOrderSeqProcessed,OrderStateRecord[orderCount]}"
     "OrderStateRecord{u32 serverOrderId,u32 clientOrderSeq,u16 etaSeconds,u8 state,u8 legIndex,u8 legCount,"
     "u8 memberCount}"
-    "OrderSubmit{u32 orderSeq,u8 kind,u8 formation,u8 queueMode,u16 shipCount,u16 shipIds[shipCount],"
+    "OrderSubmit{u32 orderSeq,u8 kind,u8 formation,u8 queueMode,u16 shipCount,u32 shipIds[shipCount],"
     "i32 targetXCm,i32 targetYCm,u16 targetFacingTurns16,u16 anchor,u8 oreFilter}"
     "StationCommand{u32 orderSeq,u8 verb,u16 station,u8 formation,u8 wing,u8 ore,u32 units,u16 shipCount,"
     "u32 shipIds[shipCount]}"
@@ -75,6 +84,11 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     "BayStatus{u16 station,u32 oreUnits[3]}"
     "meaning{typeId=HullClass,groupId=WingId,gaugeA=hull255,gaugeB=shield255,state=OrderState,etaSeconds=s|65535=none,"
     "anchor=AnchorId|0=none,statusBits.bit0=undockProtected,"
+    // ADR-022 §8b: the icon sheet's colour channel, two bits wide, viewer-
+    // relative and costing no byte of its own. The *numbering* is a wire fact --
+    // a build that reordered the enum would paint hostiles as neutrals -- so it
+    // belongs in the hash even though the bits live in the engine's record.
+    "statusBits.bit1_2=relationship{Own=0,Allied=1,Neutral=2,Hostile=3},"
     "summary.anchor=whereItIsOrWhereItIsGoing,summary.etaSeconds=s|65535=none}"
     "quantisation{position=cm,velocity=cm/s,heading=turns/65536}"
     "hull{12 classes,Fighter+Cruiser reserved,Gate=11}"

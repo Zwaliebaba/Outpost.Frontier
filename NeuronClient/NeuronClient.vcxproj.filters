@@ -29,6 +29,9 @@
     <ClCompile Include="ClientConnection.cpp">
       <Filter>App</Filter>
     </ClCompile>
+    <ClCompile Include="DeltaReceiver.cpp">
+      <Filter>App</Filter>
+    </ClCompile>
     <ClCompile Include="ClientApp.cpp">
       <Filter>App</Filter>
     </ClCompile>
@@ -159,6 +162,9 @@
       <Filter>App</Filter>
     </ClInclude>
     <ClInclude Include="ClientConnection.h">
+      <Filter>App</Filter>
+    </ClInclude>
+    <ClInclude Include="DeltaReceiver.h">
       <Filter>App</Filter>
     </ClInclude>
     <ClInclude Include="ClientApp.h">

@@ -46,9 +46,13 @@ makes those libraries worth having.
    implements it, the composition root injects it. Two interfaces, both engine-owned:
    - `Neuron::Simulation` (NeuronServer) — `AdvanceTick()`,
      `ApplyOrderBytes(span<const byte>) → verdict`, `WriteSnapshot(ByteWriter&)`,
-     `SchemaHash()`, `ContentHash()`. `ServerHost` drives the tick loop, sessions, fan-out and
+     `SchemaHash()`, `ContentHash()`. *(The serialising half became three methods with U3d-b —
+     `RankRelevance`, `WriteEntities`, `WriteTickTail` — when [ADR-022](ADR-022-interest-and-delta.md) §1
+     moved interest and delta to the session role. The **shape** is unchanged and is the point:
+     the game states policy and serialises meaning, the engine decides budget and framing.)* `ServerHost` drives the tick loop, sessions, fan-out and
      transport, and never learns what a ship is.
-   - `Neuron::WorldView` (NeuronClient) — `ApplySnapshot(bytes, tick)`,
+   - `Neuron::WorldView` (NeuronClient) — `ApplySnapshot(bytes, tick)` (`ApplyFrame(ReplicatedFrame)` since U3d-b, the
+     engine having taken over reassembly and the baseline),
      `BuildScene(renderTick, RenderScene&)`, `PreCheck(const OrderIntent&) → verdict`,
      `SolvePreview(const OrderIntent&, FormationPreview&)`, `EncodeOrder(const OrderIntent&,
      ByteWriter&)`. `ClientApp` owns window, device, passes, camera, picking and HUD; the game

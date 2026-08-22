@@ -3,6 +3,8 @@
 #include "Relevance.h"
 
 #include "ShipClass.h"
+#include "World.h"
+#include "WorldRegistry.h"
 
 #include <algorithm>
 
@@ -82,8 +84,8 @@ Relationship RelationshipOf(const WorldRegistry& _registry, Neuron::PlayerId _vi
   return _registry.OwnerOf(_shipId) == _viewer ? Relationship::Own : Relationship::Neutral;
 }
 
-void RankRelevance(const WorldRegistry& _registry, const World& _world, const RelevanceQuery& _query,
-                   std::vector<ShipId>& _outRanked)
+std::uint32_t RankRelevance(const WorldRegistry& _registry, const World& _world, const RelevanceQuery& _query,
+                            std::vector<ShipId>& _outRanked)
 {
   const std::span<const ShipId> ids = _world.Ids();
   const std::span<const std::uint8_t> classes = _world.Classes();
@@ -92,7 +94,7 @@ void RankRelevance(const WorldRegistry& _registry, const World& _world, const Re
   _outRanked.clear();
   if (ids.empty())
   {
-    return;
+    return 0;
   }
 
   std::vector<Ranked> ranked;
@@ -164,10 +166,19 @@ void RankRelevance(const WorldRegistry& _registry, const World& _world, const Re
   }
 
   _outRanked.reserve(ranked.size());
+  std::uint32_t guaranteed = 0;
   for (const Ranked& entry : ranked)
   {
     _outRanked.push_back(entry.shipId);
+    if (entry.tier == Tier::Owned)
+    {
+      ++guaranteed;
+    }
   }
+  // Tier 0 sorts first, so counting it is counting a prefix -- which is the
+  // form the engine needs, because "never truncate inside the first N" is a
+  // rule about a list and not about a set it would have to test membership in.
+  return guaranteed;
 }
 
 } // namespace Game

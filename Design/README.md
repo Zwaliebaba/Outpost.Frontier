@@ -115,7 +115,7 @@ and delta, this is why.
 | [001](ADR/ADR-001-spatial-model.md) | Spatial model | **2D authoritative plane, 3D presentation**; cosmetic-only vertical offsets; 40 km float32 grid, grid-graph universe later |
 | [002](ADR/ADR-002-server-tick-and-time.md) | Tick model | **Fixed 20 Hz** (50 ms, `u32` tick); snapshot per tick; client interpolates at −100 ms, extrapolates ≤ 250 ms → STALE |
 | [003](ADR/ADR-003-transport.md) | Transport | **QUIC-shaped `Transport` now, UDP loopback impl first**, msquic spike slice pre-MVP; 1,152 B datagram cap everywhere |
-| [004](ADR/ADR-004-wire-protocol.md) | Wire protocol | **Hand-rolled little-endian, full snapshots every tick** (delta field reserved), acked order stream with shared reason codes, fail-closed schema hash |
+| [004](ADR/ADR-004-wire-protocol.md) | Wire protocol | **Hand-rolled little-endian**, acked order stream with shared reason codes, fail-closed schema hash. Full snapshots every tick from S7 to U3c; **per-viewer deltas against an acked baseline since U3d-b** ([ADR-022](ADR/ADR-022-interest-and-delta.md)), with a keyframe on a reliable `Bulk` stream as the one recovery path |
 | [005](ADR/ADR-005-gamelogic-entities-orders-determinism.md) | Entity/state | **Fixed-schema SoA tables, no ECS**; group orders w/ 4-leg queues; pure shared formation-solve + validation; **same-binary replay determinism only** |
 | [006](ADR/ADR-006-renderer.md) | Renderer | **Fixed forward pass list (no frame graph), ortho at 30°** (the 2:1 ring spec), instanced flat-shading, DWrite glyph atlas, plane-picking |
 | [007](ADR/ADR-007-threading-model.md) | Threading | **Two owning threads (Main, Sim)**; single-writer worlds; transport-only crossings; lane registry + Extract seam from day one |
@@ -491,7 +491,10 @@ verbs, an ore byte and a count on the command, an 18-byte roster row, and three 
 kinds — `SiteStatus`, `CargoStatus`, `BayStatus` — in a new `EconomyMessages.h`. **`EntityRecord`
 is untouched and a test asserts the arithmetic**: one cargo byte would take the record 21 → 22
 and the ship cap 43 → 41, exactly onto `Snapshot.h`'s floor, which is what ADR-024 §4d refused in
-advance.
+advance. *(The cliff that arithmetic was guarding went with U3d-b — there is no ship cap now, and
+the record is 23 bytes for the u32 id. The rule it enforced did not go: the per-tick record is
+still multiplied by the population twenty times a second, so it is still where the economy does
+not go, and the test now says that in the terms that are true.)*
 
 *One change fell outside the economy: `Simulation::ApplyOrderBytes` now carries a `PlayerId`
 beside the client id. A command that moves a commander's property has to say whose, and a

@@ -174,6 +174,17 @@ and each viewer gets a different subset. Summaries are untouched — they were a
 and already cheap. §7's presence rules gain one affordance: `culledCount` states how many
 entities the player is **not** being sent, through the icon ladder's counted-chip rung.)*
 
+*(Amended again 2026-08-22 by U3d-b, and this one contradicts §7 rather than extending it.
+**§7 says "everything else about a view — where the camera is, what is selected, how far it is
+zoomed — is client state the server has no business holding".** ADR-022 §1 requires the
+opposite: relevance is a property of a viewer, so §4's ranking takes a focus, an extent and a
+selection, and §5a's guarantee — that a commander's owned **and selected** ships are never
+culled — cannot be kept by a server that does not know the selection. The client therefore
+sends a `ViewFocus` message when its camera or selection changes, and the session holds the
+latest. What §7's sentence still buys, and what the implementation keeps, is that none of it
+reaches the **simulation**: the focus lives on the session's `SnapshotSender` and `World` gains
+nothing, which is ADR-022 §1's "the sim tier has no viewers" stated as a data flow.)*
+
 Snapshots become **per-grid**: the header carries the grid's identity, and a client is
 subscribed to exactly one grid's stream — its **view** (§7). Three additions, all under the
 existing schema hash: a **view request** (client → server: point my view at this grid of
