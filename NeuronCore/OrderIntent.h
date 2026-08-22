@@ -292,6 +292,26 @@ struct OrderKindOption
   bool available = false;
 
   /*
+   * Whether this command still needs a gesture to say *where*.
+   *
+   * True for a Move, which goes to a place the player chooses. **False for a
+   * command the game can decide from the selection alone**, and the engine uses
+   * that one bit for both halves of the same thing: such a command is greyed or
+   * lit *before* any gesture, and its button **issues it on the press** rather
+   * than arming the puck -- because there is nothing a second gesture could
+   * add, and a lit button that then waited would be asking the player for
+   * something they have nothing left to say.
+   *
+   * Which commands those are is entirely the game's answer. The engine never
+   * learns *why* one needs pointing at and another does not; it reads the bit
+   * and lays out a different kind of button.
+   *
+   * Defaults to true, which is the safe direction: a view that does not answer
+   * leaves every verb armed-then-gestured rather than firing one on a press.
+   */
+  bool namesDestination = true;
+
+  /*
    * Why not, when `available` is false -- the game's own reason code, the same
    * number a refused order comes back with, and null-meaning zero when the
    * command is simply offerable.

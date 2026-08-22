@@ -45,7 +45,21 @@ enum class CommandAction : std::uint8_t
 
   /// Step the selected command's parameter to its next value. `payload` is the
   /// kind the parameter belongs to.
-  CycleParameter = 1
+  CycleParameter = 1,
+
+  /*
+   * Issue this command now, on the press. `payload` is the kind.
+   *
+   * For a command the game says **names no destination**
+   * (`OrderKindOption::namesDestination`). Arming the puck for one would be
+   * asking the player to point at something when there is nothing left to
+   * name -- the game has already told the row, this frame, that it would take
+   * the order, which is the same bit that lit the button.
+   *
+   * The row does not decide which commands these are and could not: whether a
+   * verb needs a target is a rule about the verb, and this pass reads a bool.
+   */
+  IssueNow = 2
 };
 
 /// One laid-out button.

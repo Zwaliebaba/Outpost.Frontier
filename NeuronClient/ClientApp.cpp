@@ -795,6 +795,38 @@ void ClientApp::UpdateHud()
     m_selectedKind = pressed->payload;
     break;
 
+  case CommandAction::IssueNow:
+  {
+    /*
+     * A verb that names no destination, issued by the press that lit it.
+     *
+     * The button was enabled because the *game* said, this frame, that it would
+     * take this order for this selection -- `OrderKinds` ran `ValidateOrder`
+     * over it. So the press has nothing left to ask for, and asking anyway
+     * would be the puck waiting for a point that changes no answer.
+     *
+     * Selected as well as issued, and that is not a side effect: the parameter
+     * chip belongs to the selected command, so a DOCK that could never be
+     * selected would be a DOCK whose formation could never be chosen. Pressing
+     * it docks the fleet *and* leaves its FORMATION on the row to change before
+     * the next press.
+     */
+    m_selectedKind = pressed->payload;
+
+    /*
+     * Aimed at the fleet's own centre rather than at nothing.
+     *
+     * The target is not read for these verbs -- that is what makes them
+     * destination-free -- but it is still what a refused ghost bounces from and
+     * to, and a zeroed one would send that ghost to the map origin. The
+     * selection's centre is the honest answer: this order acts *here*.
+     */
+    PuckSample here;
+    (void)SelectionCentre(m_scene.entities, m_selection.Ids(), here.targetMetres);
+    CommitOrder(here, Clock::SecondsSinceStart());
+    break;
+  }
+
   case CommandAction::CycleParameter:
     // The same step the `F` binding makes, through the same index, because a
     // button and a key that did the same thing by two routes would drift.

@@ -257,6 +257,11 @@ private:
    * leaves empty, and the validator's optional-field rules turn that into "the
    * authority decides" rather than into a wrong answer.
    */
+  /// This grid's station, or `INVALID_ID` before one has been drawn. One
+  /// function because the validation view, the submit and the command row's
+  /// availability must all mean the same station or none.
+  [[nodiscard]] Game::AnchorId StationAnchor() const noexcept;
+
   [[nodiscard]] Game::ValidationView MakeValidationView() const noexcept;
 
   /*

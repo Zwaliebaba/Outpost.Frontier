@@ -43,7 +43,8 @@ namespace
  * *different valid* value. Both reuse `ValidateOrder`'s own reason codes, so a
  * client refusal here and a server refusal there still say the same thing.
  */
-[[nodiscard]] bool MakeSubmit(const OrderIntent& _intent, Game::OrderSubmit& _outOrder, Game::OrderReason& _outReason) noexcept
+[[nodiscard]] bool MakeSubmit(const OrderIntent& _intent, Game::AnchorId _stationAnchor,
+                              Game::OrderSubmit& _outOrder, Game::OrderReason& _outReason) noexcept
 {
   if (_intent.entityCount > Game::MAX_SHIPS_PER_ORDER)
   {
@@ -99,6 +100,25 @@ namespace
   // translation is explicit here rather than a shared constant that would tie
   // the two vocabularies together (ADR-014).
   _outOrder.anchor = _intent.anchor == Neuron::INVALID_ANCHOR ? Game::INVALID_ID : static_cast<Game::AnchorId>(_intent.anchor);
+
+  /*
+   * A Dock that names no anchor means **this grid's station**, and filling it
+   * here is what lets the command row issue one without a gesture.
+   *
+   * Not a guess and not a convenience: `ValidationView::stationAnchor` is
+   * singular because "a grid is anchored on one thing, so there is at most one
+   * station to dock at". Pointing at it was never how the player chose *which*
+   * station -- there is no which -- it was only how the anchor reached the
+   * order. So the grid supplies it, and a gesture that named the same station
+   * still works unchanged.
+   *
+   * Left `INVALID_ID` on a grid with no station, which `ValidateOrder` refuses
+   * `UnknownStation` -- the same answer the pre-check greys the button with.
+   */
+  if (_outOrder.kind == Game::OrderKind::Dock && _outOrder.anchor == Game::INVALID_ID)
+  {
+    _outOrder.anchor = _stationAnchor;
+  }
 
   // Quantised once, here, and never again. Everything downstream -- the bounds
   // check, the wire, the server's own validation -- sees these integers.
@@ -290,18 +310,25 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
  * into a refusal the client invents. `stationAnchor` was that field, and it
  * refused every Dock this side ever pre-checked.
  */
+Game::AnchorId ReplicatedWorldView::StationAnchor() const noexcept
+{
+  // Only nameable once a station has actually been drawn -- a `Welcome` naming
+  // an anchor whose structure has not arrived in a snapshot yet is a station
+  // with no position to measure against. One function because the validation
+  // view, the submit and the row's availability must all mean the same station
+  // or none.
+  return m_stationEntityId != Game::INVALID_SHIP_ID ? m_desc.gridAnchor : Game::INVALID_ID;
+}
+
 Game::ValidationView ReplicatedWorldView::MakeValidationView() const noexcept
 {
   Game::ValidationView view;
   view.shipIds = m_validationIds;
   view.shipMarks = m_validationMarks;
 
-  // The station is this grid's, and it is only nameable once one has actually
-  // been drawn -- a `Welcome` naming an anchor whose structure has not arrived
-  // in a snapshot yet is a station with no position to measure against.
-  if (m_stationEntityId != Game::INVALID_SHIP_ID)
+  if (StationAnchor() != Game::INVALID_ID)
   {
-    view.stationAnchor = m_desc.gridAnchor;
+    view.stationAnchor = StationAnchor();
     view.stationXCm = m_stationXCm;
     view.stationYCm = m_stationYCm;
   }
@@ -398,6 +425,16 @@ Game::OrderVerdict ReplicatedWorldView::SelectionOnlyVerdict(Game::OrderKind _ki
   }
 
   const Game::ValidationView view = MakeValidationView();
+
+  // The same defaulting `MakeSubmit` does, for the same reason: the row is
+  // asking "would this be taken *right now*", and an answer computed against a
+  // command missing the anchor the send will carry is an answer about a
+  // different command. Without it a Dock greys `UnknownStation` from anywhere.
+  if (_kind == Game::OrderKind::Dock)
+  {
+    order.anchor = view.stationAnchor;
+  }
+
   return Game::ValidateOrder(view, order);
 }
 
@@ -405,7 +442,7 @@ OrderVerdict ReplicatedWorldView::PreCheck(const OrderIntent& _intent)
 {
   Game::OrderSubmit order;
   Game::OrderReason reason = Game::OrderReason::Accepted;
-  if (!MakeSubmit(_intent, order, reason))
+  if (!MakeSubmit(_intent, StationAnchor(), order, reason))
   {
     return ToSeam(Game::OrderVerdict{false, reason}, _intent.orderSeq);
   }
@@ -456,7 +493,7 @@ void ReplicatedWorldView::SolvePreview(const OrderIntent& _intent, OrderPreview&
 
   Game::OrderSubmit order;
   Game::OrderReason reason = Game::OrderReason::Accepted;
-  if (!MakeSubmit(_intent, order, reason) || order.shipCount == 0)
+  if (!MakeSubmit(_intent, StationAnchor(), order, reason) || order.shipCount == 0)
   {
     return;
   }
@@ -547,7 +584,7 @@ bool ReplicatedWorldView::EncodeOrder(const OrderIntent& _intent, ByteWriter& _w
 {
   Game::OrderSubmit order;
   Game::OrderReason reason = Game::OrderReason::Accepted;
-  if (!MakeSubmit(_intent, order, reason))
+  if (!MakeSubmit(_intent, StationAnchor(), order, reason))
   {
     return false; // Not sent, rather than sent malformed.
   }
@@ -660,24 +697,30 @@ std::uint32_t ReplicatedWorldView::OrderKinds(std::span<const std::uint16_t> _se
     _outKinds[count].name = Game::OrderKindName(kind);
     _outKinds[count].parameterName = Game::OrderKindParameterName(kind);
     _outKinds[count].available = Game::OrderKindHasContent(kind);
+    _outKinds[count].namesDestination = Game::OrderKindNamesDestination(kind);
     _outKinds[count].reasonCode = 0;
 
     /*
      * And then the part that is about *now* rather than about this build.
      *
-     * Asked only of the kinds that name no destination, which today is Mine
-     * alone: everything that decides a Mine is already on screen -- the field
-     * the grid stands on, and what is in the selection -- so the row can say
-     * before the gesture what the authority would say after it. A Move or a
-     * Dock is judged partly on where it points, and pre-judging one without a
-     * point would grey a verb the authority would have taken.
+     * Asked of every kind that names no destination, because everything that
+     * decides one is already on screen -- so the row can say before the gesture
+     * what the authority would say after it. A Move or a Warp is judged partly
+     * on where it points, and pre-judging one without a point would grey a verb
+     * the authority would have taken.
+     *
+     * **Dock belongs here and did not used to.** It reads like a targeted verb
+     * because a player points at a station to issue one, but the validator
+     * never consults where they pointed: it asks whether the named anchor is
+     * this grid's, and a grid is anchored on one thing. The gesture was
+     * supplying the anchor, which `MakeSubmit` now takes from the grid.
      *
      * The answer comes from `ValidateOrder` rather than from three checks
      * written here, which is the whole of the parity claim: the button greys
      * for the reason the bounce would have carried, in the same words, because
      * it is the same function (ADR-014 3).
      */
-    if (_outKinds[count].available && kind == Game::OrderKind::Mine)
+    if (_outKinds[count].available && !_outKinds[count].namesDestination)
     {
       if (_selectedIds.empty())
       {
