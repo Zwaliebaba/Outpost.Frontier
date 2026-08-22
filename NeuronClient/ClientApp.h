@@ -578,6 +578,10 @@ private:
    */
   std::vector<std::uint16_t> m_groupMembers;
 
+  /// Where the selected ships are, for the camera to frame. A member for
+  /// `m_groupMembers`' reason: a press should not allocate.
+  std::vector<DirectX::XMFLOAT2> m_focusPoints;
+
   /*
    * Where the ELSEWHERE blocks landed this frame.
    *

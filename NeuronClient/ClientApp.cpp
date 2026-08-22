@@ -58,6 +58,15 @@ constexpr const char* MENU_CHIP_LABEL = "\xE2\x96\xA5 MENU";
 constexpr const char* BACK_CHIP_LABEL = "\xE2\x97\x80 TACTICAL";
 
 /*
+ * Air left around a fleet when a roster press frames it, on top of whatever the
+ * HUD is already covering.
+ *
+ * A framing that put the outermost hull exactly on the edge would read as the
+ * fleet being clipped rather than as it being shown.
+ */
+constexpr float FLEET_FRAME_AIR = 0.12f;
+
+/*
  * Emissive strength per canonical material (ADR-006 §6).
  *
  * Not content: the .mtl files carry albedo, and which of the five materials
@@ -818,25 +827,39 @@ void ClientApp::UpdateHud()
       }
 
       /*
-       * And put the camera on what was just selected.
+       * And frame what was just selected.
        *
-       * The *selection's* centre rather than the wing's, which is the same
+       * The whole *selection* rather than the wing pressed, which is the same
        * thing on a plain press and the honest answer on an additive one: a
-       * player who has just taken a second wing wants to see both, not the one
-       * they pressed last.
+       * player who has just taken a second wing wants to see both.
        *
        * A snap rather than a glide, which is `ResetView`'s idiom -- the one
-       * other thing in this client that puts the camera somewhere. `SetFocus`
-       * clamps to the play area, so a fleet at the edge cannot pan the view
-       * into empty float space. The zoom is left alone deliberately: it is a
-       * setting the player chose, and a control that quietly changed it would
-       * cost them the framing they were working at.
+       * other thing in this client that puts the camera somewhere.
+       *
+       * **The margin is the client's to supply because the chrome is.** The
+       * camera fits to its viewport and cannot see that a roster column and a
+       * command row are standing on part of it, so the fraction below is the
+       * larger of the two dimensions the HUD eats, plus air. A known limit
+       * this does not close: the fleet ends up centred on the *viewport*
+       * rather than on the world zone, so it sits a little toward the roster
+       * -- closing that means the camera taking a frame rect rather than a
+       * fraction, which is a bigger change than this control earns.
        */
-      DirectX::XMFLOAT2 centre{};
-      if (SelectionCentre(m_scene.entities, m_selection.Ids(), centre))
+      m_focusPoints.clear();
+      for (const SceneEntity& entity : m_scene.entities)
       {
-        m_camera.SetFocus(centre);
+        if (m_selection.Contains(entity.id))
+        {
+          m_focusPoints.push_back(entity.planeMetres);
+        }
       }
+
+      const UiRect& world = m_uiLayout.world;
+      const float chromeWidth =
+          world.width > 0.0f ? 1.0f - world.width / std::max(1.0f, m_uiLayout.viewport.width) : 0.0f;
+      const float chromeHeight =
+          world.height > 0.0f ? 1.0f - world.height / std::max(1.0f, m_uiLayout.viewport.height) : 0.0f;
+      m_camera.FocusOn(m_focusPoints, std::max(chromeWidth, chromeHeight) + FLEET_FRAME_AIR);
     }
     return;
   }

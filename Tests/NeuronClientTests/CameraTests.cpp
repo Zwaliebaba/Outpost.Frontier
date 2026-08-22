@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <span>
 #include <string>
 
 using namespace Microsoft::VisualStudio::CppUnitTestFramework;
@@ -256,6 +257,192 @@ public:
     camera.SetViewport(1600, 900);
     camera.SetViewport(0, 0);
     Assert::AreEqual(1600.0f / 900.0f, camera.AspectRatio(), 1e-5f);
+  }
+};
+
+TEST_CLASS(CameraFitTests)
+{
+public:
+  /// The camera at the size the prints are drawn, so the aspect is a known
+  /// 16:9 and the numbers below are arithmetic rather than approximately right.
+  [[nodiscard]] static IsoCamera Framed()
+  {
+    IsoCamera camera;
+    camera.SetViewport(1600, 900);
+    camera.SetYawRadians(0.0f);
+    return camera;
+  }
+
+  TEST_METHOD(TheViewCentresOnTheBoxRatherThanOnTheCentreOfMass)
+  {
+    /*
+     * Three ships, two of them piled on the origin and one a kilometre east.
+     * The centre of *mass* is 333 m out; the middle of what has to fit is 500.
+     * Framing on the centroid would push the straggler toward the edge for no
+     * reason other than that its wingmates are bunched up.
+     */
+    IsoCamera camera = Framed();
+    const XMFLOAT2 fleet[] = {XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{0.0f, 0.0f}, XMFLOAT2{1000.0f, 0.0f}};
+    camera.FocusOn(fleet, 0.0f);
+
+    Assert::AreEqual(500.0f, camera.Focus().x, 0.01f);
+    Assert::AreEqual(0.0f, camera.Focus().y, 0.01f);
+  }
+
+  TEST_METHOD(ASpreadAcrossTheScreenAndOneIntoItCostDifferentZooms)
+  {
+    /*
+     * The reason the box is measured along the *screen* axes. Twenty kilometres
+     * of fleet needs a different zoom depending on which way it lies, and the
+     * two constants that decide it pull opposite ways: the view is wider than
+     * it is tall (16:9), and the plane is foreshortened into the screen by
+     * sin(30 degrees).
+     *
+     * East-west: half of 20 km over the aspect -> 5,625.
+     * North-south: half of 20 km times the elevation sine -> 5,000.
+     */
+    IsoCamera eastWest = Framed();
+    const XMFLOAT2 abreast[] = {XMFLOAT2{-10000.0f, 0.0f}, XMFLOAT2{10000.0f, 0.0f}};
+    eastWest.FocusOn(abreast, 0.0f);
+    Assert::AreEqual(5625.0f, eastWest.ZoomMetres(), 0.5f, L"the aspect decides when the fleet lies across");
+
+    IsoCamera intoIt = Framed();
+    const XMFLOAT2 inLine[] = {XMFLOAT2{0.0f, -10000.0f}, XMFLOAT2{0.0f, 10000.0f}};
+    intoIt.FocusOn(inLine, 0.0f);
+    Assert::AreEqual(5000.0f, intoIt.ZoomMetres(), 0.5f, L"and the foreshortening decides when it lies away");
+  }
+
+  TEST_METHOD(WhicheverAxisNeedsMoreZoomIsTheOneThatDecides)
+  {
+    // Fitting one axis and overflowing the other is not fitting.
+    IsoCamera camera = Framed();
+    const XMFLOAT2 box[] = {XMFLOAT2{-10000.0f, -10000.0f}, XMFLOAT2{10000.0f, 10000.0f}};
+    camera.FocusOn(box, 0.0f);
+    Assert::AreEqual(5625.0f, camera.ZoomMetres(), 0.5f, L"the wider requirement wins");
+  }
+
+  TEST_METHOD(OrbitingChangesWhichWayTheFleetIsSpread)
+  {
+    /*
+     * The same fleet, the camera turned a quarter turn: what was across the
+     * screen is now into it. A fit computed in world axes would not notice, and
+     * would frame one of the two wrongly.
+     */
+    const XMFLOAT2 fleet[] = {XMFLOAT2{-10000.0f, 0.0f}, XMFLOAT2{10000.0f, 0.0f}};
+
+    IsoCamera facingNorth = Framed();
+    facingNorth.FocusOn(fleet, 0.0f);
+
+    IsoCamera turned = Framed();
+    turned.SetYawRadians(1.5707963f);
+    turned.FocusOn(fleet, 0.0f);
+
+    Assert::AreEqual(5625.0f, facingNorth.ZoomMetres(), 0.5f);
+    Assert::AreEqual(5000.0f, turned.ZoomMetres(), 0.5f, L"a quarter turn makes it the other constraint");
+  }
+
+  TEST_METHOD(TheMarginBuysAirAroundTheOutermostHull)
+  {
+    // A framing that put the last ship exactly on the edge would read as the
+    // fleet being clipped rather than as it being shown.
+    IsoCamera tight = Framed();
+    IsoCamera roomy = Framed();
+    const XMFLOAT2 fleet[] = {XMFLOAT2{-10000.0f, 0.0f}, XMFLOAT2{10000.0f, 0.0f}};
+
+    tight.FocusOn(fleet, 0.0f);
+    roomy.FocusOn(fleet, 0.2f);
+
+    Assert::AreEqual(6750.0f, roomy.ZoomMetres(), 0.5f, L"a fifth more box is a fifth more zoom");
+    Assert::IsTrue(roomy.ZoomMetres() > tight.ZoomMetres());
+    Assert::AreEqual(tight.Focus().x, roomy.Focus().x, 0.01f, L"and the margin does not move the middle");
+  }
+
+  TEST_METHOD(ANegativeMarginIsReadAsNone)
+  {
+    // Rather than as a crop. A caller doing arithmetic on chrome fractions can
+    // land slightly under zero, and cropping the fleet is not what they meant.
+    IsoCamera camera = Framed();
+    IsoCamera none = Framed();
+    const XMFLOAT2 fleet[] = {XMFLOAT2{-10000.0f, 0.0f}, XMFLOAT2{10000.0f, 0.0f}};
+
+    camera.FocusOn(fleet, -0.5f);
+    none.FocusOn(fleet, 0.0f);
+    Assert::AreEqual(none.ZoomMetres(), camera.ZoomMetres(), 0.5f);
+  }
+
+  TEST_METHOD(AnAutomaticFramingNeverGoesCloserThanItsOwnFloor)
+  {
+    /*
+     * A one-ship wing fits at any zoom, so the fit alone would slam the view
+     * from a sixteen-kilometre field to the camera's minimum -- and pressing
+     * two rows in turn would swing between them. The floor is on *this control*
+     * and not on the camera: the wheel still reaches `MIN_ZOOM_METRES`.
+     */
+    IsoCamera camera = Framed();
+    const XMFLOAT2 alone[] = {XMFLOAT2{4000.0f, -2000.0f}};
+    camera.FocusOn(alone, 0.12f);
+
+    Assert::AreEqual(IsoCamera::MIN_FIT_ZOOM_METRES, camera.ZoomMetres(), 0.5f);
+    Assert::AreEqual(4000.0f, camera.Focus().x, 0.01f, L"but it still looks at the ship");
+    Assert::AreEqual(-2000.0f, camera.Focus().y, 0.01f);
+
+    Assert::IsTrue(IsoCamera::MIN_FIT_ZOOM_METRES > IsoCamera::MIN_ZOOM_METRES, L"the floor is above the camera's");
+    camera.SetZoomMetres(IsoCamera::MIN_ZOOM_METRES);
+    Assert::AreEqual(IsoCamera::MIN_ZOOM_METRES, camera.ZoomMetres(), 0.5f, L"which the wheel can still reach");
+  }
+
+  TEST_METHOD(FramingNothingLeavesTheViewWhereThePlayerPutIt)
+  {
+    IsoCamera camera = Framed();
+    camera.SetFocus(XMFLOAT2{1234.0f, -567.0f});
+    camera.SetZoomMetres(9000.0f);
+
+    camera.FocusOn(std::span<const XMFLOAT2>{}, 0.12f);
+
+    Assert::AreEqual(1234.0f, camera.Focus().x, 0.01f);
+    Assert::AreEqual(-567.0f, camera.Focus().y, 0.01f);
+    Assert::AreEqual(9000.0f, camera.ZoomMetres(), 0.5f);
+  }
+
+  TEST_METHOD(AFleetAtTheEdgeCannotPanTheViewOffThePlayArea)
+  {
+    // `SetFocus`' clamp still applies -- a framing is not an exemption from the
+    // rule that keeps the camera out of empty float space.
+    IsoCamera camera = Framed();
+    const XMFLOAT2 farOut[] = {XMFLOAT2{500000.0f, 500000.0f}};
+    camera.FocusOn(farOut, 0.0f);
+
+    Assert::AreEqual(IsoCamera::PLAY_AREA_HALF_EXTENT_METRES, camera.Focus().x, 0.5f);
+    Assert::AreEqual(IsoCamera::PLAY_AREA_HALF_EXTENT_METRES, camera.Focus().y, 0.5f);
+  }
+
+  TEST_METHOD(TheWholePlayAreaStillFitsInsideTheCamerasRange)
+  {
+    /*
+     * The largest framing that can legitimately be asked for: two ships at
+     * opposite corners of the play area. It has to come out *under* the
+     * camera's ceiling, or the widest real fleet in this game would be one the
+     * fit silently could not show.
+     */
+    IsoCamera camera = Framed();
+    constexpr float EDGE = IsoCamera::PLAY_AREA_HALF_EXTENT_METRES;
+    const XMFLOAT2 corners[] = {XMFLOAT2{-EDGE, -EDGE}, XMFLOAT2{EDGE, EDGE}};
+    camera.FocusOn(corners, 0.12f);
+
+    Assert::IsTrue(camera.ZoomMetres() < IsoCamera::MAX_ZOOM_METRES, L"and with room to spare");
+    Assert::AreEqual(0.0f, camera.Focus().x, 0.5f, L"centred, because the corners are symmetric");
+  }
+
+  TEST_METHOD(CoordinatesThePlayAreaDoesNotAllowClampRatherThanBreakTheProjection)
+  {
+    // Not a fleet this game can have -- a robustness assertion. A zoom past the
+    // ceiling would put the near and far planes somewhere the projection cannot
+    // hold, which is a broken frame rather than a wide one.
+    IsoCamera camera = Framed();
+    const XMFLOAT2 nonsense[] = {XMFLOAT2{-200000.0f, 0.0f}, XMFLOAT2{200000.0f, 0.0f}};
+    camera.FocusOn(nonsense, 0.0f);
+
+    Assert::AreEqual(IsoCamera::MAX_ZOOM_METRES, camera.ZoomMetres(), 0.5f);
   }
 };
 
