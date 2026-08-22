@@ -794,7 +794,7 @@ public:
      * Five hulls is enough for every claim U3c makes -- they are owned, they
      * are somewhere, and they are not the other commander's.
      */
-    SpawnFleetFor(_player, home, false, 1);
+    SpawnFleetFor(_player, home, 1);
     NEURON_LOG_INFO("player %u joined: starting fleet on anchor %u", _player, static_cast<unsigned>(home));
   }
 
