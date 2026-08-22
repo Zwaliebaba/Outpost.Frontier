@@ -303,6 +303,32 @@ for any station holding your ships, viewed or not, because the roster it reads i
 replicated regardless (§8). Undocking remotely spawns the fleet under its summary; the
 roster block offers VIEW as usual.
 
+> **Note, 2026-08-22 — the MARKET stub has a forward-design print, and it stays FUTURE.**
+> §6 above requires "visible stubs for the station's future (repair pricing, refit, market)",
+> and the seventh tab has carried that stub since P1's row was re-captured.
+> [market-tab.png](../ScreenPrints/market-tab.png) (D-P4) draws what opening it looks like —
+> **the tab's status does not change**: the plate wears its posture in an amber banner, because
+> **the market phase has no ADR in this corpus** and this print is the UI half of one that has
+> not been written. It is recorded here so the stub is not mistaken for unplanned, and so the
+> future ADR starts from a screen rather than from a blank page.
+>
+> Two things it settles are the tab row's, not the market's, and belong on this page. **The
+> forward print did not cost a tab or a pixel of the hangar** — the second test of §6's
+> "a service costs a tab and nothing else" claim, now run against a service two phases out.
+> And the tab is a **station** service in the strict sense the row implies: an order lives where
+> its escrow lives, so books are per-station and listing requires your Bay at *that* station,
+> while browsing is free everywhere (the refinery's remote rule). A region-wide book would
+> teleport goods past the transfer bus §4 exists to be.
+>
+> **What it does not settle is four rulings the market ADR must make**, listed on the plate and
+> tracked in [README.md](../README.md)'s open-rulings register: the **currency** — name,
+> denomination and faucet (the print says `{{ curName }}` through a tweak, because the word is
+> not designable on a screen); the **fee point and rate**, the phase's currency sink, proposed
+> on fills against proceeds so a listing that never fills costs nothing; **order lifetime**,
+> until-cancelled as drawn versus an N-day expiry with escrow return; and **who seeds the first
+> book**, player-to-player from zero or an NPC bootstrap vendor. Until those are answered the
+> tab stays exactly what §6 made it: a stub with a drawing behind it.
+
 ### 6a. The four the print left open *(owner rulings, 2026-08-20)*
 
 P1 landed on 2026-08-19 and its §3 marked four questions **OPEN — FOR THE PRINT REVIEW**:

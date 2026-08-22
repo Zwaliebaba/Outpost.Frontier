@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0a0b09;font-family:'Share Tech Mono',ui-monospace,monospace}
+a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
+</style></helmet>
+
+<div data-screen-label="Settings" style="width:1440px;background:#050705;padding:44px 48px 56px;color:#7cff3e;position:relative">
+<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.03) 0 1px,transparent 1px 3px);pointer-events:none"></div>
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(124,255,62,.3);padding-bottom:16px;margin-bottom:12px">
+  <div>
+    <div style="font-size:26px;color:#c9ff9e;letter-spacing:.08em">SETTINGS</div>
+    <div style="font-size:12.5px;color:#5d7a57;letter-spacing:.06em;margin-top:6px">07 §4.10 — accessibility, input, display, audio · closes gap-audit G15</div>
+  </div>
+  <div style="text-align:right;font-size:11.5px;color:#4e6a49;line-height:1.8">
+    <div>SOURCE · 03 §9.7 · 03 §9.1 (U2) · 03 §11 · 00 §5.0</div>
+    <div>PREVIEW · {{ paletteLabel }} · {{ scaleLabel }}</div>
+  </div>
+</div>
+
+<p style="font-size:13px;color:#7d8c79;line-height:1.75;max-width:1010px;margin:0 0 18px;text-wrap:pretty">
+  <span style="color:#c9ff9e">The smallest screen in 07, and three other documents now depend on it.</span> 03 §9.7 makes UI scale
+  0.8–1.6× and three colour-vision palettes user-facing; 07b's whole palette contract assumes a player can pick one; and 07g's wheel
+  rotation was just decided to take handedness <em style="color:#c9ff9e;font-style:normal">from a settings toggle only</em>, never
+  inference. Gap-audit <span style="color:#7cff3e">G15</span> caught that none of it had a home.
+</p>
+<div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.5);padding:13px 17px;font-size:12px;color:#7d8c79;line-height:1.7;margin-bottom:34px">
+  <span style="color:#ffb000">One rule shapes the whole screen:</span> every control here is either an accessibility requirement or a
+  decision the design deliberately refused to make for the player. <span style="color:#c9ff9e">Nothing is here because it was easier to
+  add a setting than to choose.</span> A settings screen is where design debt goes to hide, and this one is deliberately short.
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§1</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE SCREEN</span>
+  <span style="font-size:12px;color:#5d7a57">authored 1440×900 · live preview panel, because every setting here is visual</span>
+</div>
+<div style="position:relative;width:1344px;height:840px;overflow:hidden;border:1px solid rgba(124,255,62,.22);background:#000;margin-bottom:14px">
+<div style="width:1440px;height:900px;transform:scale(.9333);transform-origin:top left;position:relative;background:#000">
+  <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 50% 44%,#0b1210 0%,#000 74%)"></div>
+  <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.035) 0 1px,transparent 1px 3px)"></div>
+
+  <div style="position:absolute;left:0;right:0;top:0;height:46px;display:flex;align-items:center;gap:18px;padding:0 18px;border-bottom:1px solid rgba(124,255,62,.26);background:rgba(4,8,5,.92);font-size:15px;letter-spacing:.06em">
+    <span style="color:#5d7a57">◀ BACK</span><span style="color:#3d5a37">|</span>
+    <span style="color:#c9ff9e">SETTINGS</span>
+    <span style="flex:1"></span>
+    <span style="color:#5d7a57;font-size:13px">CHANGES APPLY IMMEDIATELY</span>
+  </div>
+
+  <div style="position:absolute;left:0;top:46px;bottom:0;width:216px;border-right:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86);padding:14px 10px;display:flex;flex-direction:column;gap:4px">
+    <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+      <div style="{{ t.st }}">
+        <span style="{{ t.iconSt }}">{{ t.icon }}</span>
+        <span style="flex:1;font-size:15px;letter-spacing:.05em">{{ t.name }}</span>
+      </div>
+    </sc-for>
+    <div style="margin-top:auto;border-top:1px solid rgba(124,255,62,.14);padding-top:12px;font-size:12px;color:#3d5a37;line-height:1.8">
+      BUILD 0.4.118<div>SCHEMA a37f21</div>
+    </div>
+  </div>
+
+  <div style="position:absolute;left:216px;right:452px;top:46px;bottom:0;padding:26px 30px;overflow:hidden">
+    <div style="font-size:22px;color:#c9ff9e;letter-spacing:.08em">ACCESSIBILITY</div>
+    <div style="font-size:14px;color:#5d7a57;margin-top:8px;line-height:1.6">Every option here re-lays out the interface rather than scaling a bitmap, so nothing blurs.</div>
+
+    <div style="margin-top:30px">
+      <div style="font-size:15px;color:#7d8c79;letter-spacing:.08em">COLOUR VISION PALETTE</div>
+      <div style="font-size:13px;color:#4e6a49;margin-top:6px;line-height:1.6">Flag rings and hull glyphs stay distinguishable by shape in every palette — colour is never the only carrier.</div>
+      <div style="display:flex;gap:12px;margin-top:14px">
+        <sc-for list="{{ palettes }}" as="p" hint-placeholder-count="3">
+          <div style="{{ p.st }}">
+            <div style="display:flex;gap:5px;margin-bottom:11px">
+              <sc-for list="{{ p.swatches }}" as="s" hint-placeholder-count="4"><span style="{{ s.st }}"></span></sc-for>
+            </div>
+            <div style="{{ p.nameSt }}">{{ p.name }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="margin-top:30px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between">
+        <span style="font-size:15px;color:#7d8c79;letter-spacing:.08em">UI SCALE</span>
+        <span style="font-size:17px;color:#c9ff9e">{{ scaleLabel }}</span>
+      </div>
+      <div style="position:relative;height:52px;margin-top:12px">
+        <div style="position:absolute;left:0;right:0;top:24px;height:3px;background:#16220f"></div>
+        <div style="{{ scaleFillSt }}"></div>
+        <sc-for list="{{ scaleTicks }}" as="t" hint-placeholder-count="5">
+          <div style="{{ t.tickSt }}"></div>
+        </sc-for>
+        <div style="{{ scaleKnobSt }}"></div>
+        <sc-for list="{{ scaleTicks }}" as="t" hint-placeholder-count="5">
+          <div style="{{ t.labelSt }}">{{ t.name }}</div>
+        </sc-for>
+      </div>
+      <div style="font-size:13px;color:#4e6a49;margin-top:10px;line-height:1.6">Touch targets never drop below 48 px (U2) at any scale — the floor is enforced, not scaled.</div>
+    </div>
+
+    <div style="margin-top:28px">
+      <div style="font-size:15px;color:#7d8c79;letter-spacing:.08em">READABILITY</div>
+      <sc-for list="{{ toggles }}" as="t" hint-placeholder-count="3">
+        <div style="display:flex;align-items:center;gap:16px;padding:15px 0;border-bottom:1px solid rgba(124,255,62,.08)">
+          <div style="flex:1">
+            <div style="font-size:16px;color:#c9ff9e;letter-spacing:.04em">{{ t.name }}</div>
+            <div style="font-size:13px;color:#4e6a49;margin-top:4px">{{ t.note }}</div>
+          </div>
+          <div style="{{ t.trackSt }}"><div style="{{ t.knobSt }}"></div></div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <div style="position:absolute;right:0;top:46px;bottom:0;width:452px;border-left:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86);padding:22px;display:flex;flex-direction:column;gap:16px">
+    <div style="font-size:13px;color:#4e6a49;letter-spacing:.14em">LIVE PREVIEW</div>
+
+    <div style="border:1px solid rgba(124,255,62,.2);background:#000;position:relative;height:236px;overflow:hidden">
+      <div style="position:absolute;inset:0;background:radial-gradient(75% 75% at 50% 45%,#0b1210,#000 76%)"></div>
+      <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.04) 0 1px,transparent 1px 3px)"></div>
+      <sc-for list="{{ previewShips }}" as="s" hint-placeholder-count="9"><div style="{{ s.st }}"></div></sc-for>
+      <sc-for list="{{ previewRings }}" as="r" hint-placeholder-count="3"><div style="{{ r.st }}"></div></sc-for>
+      <div style="position:absolute;left:12px;bottom:10px;font-size:12px;color:#4e6a49;letter-spacing:.06em">TACTICAL · FLAGS &amp; STANDINGS</div>
+    </div>
+
+    <div style="border:1px solid rgba(124,255,62,.2);background:rgba(6,12,6,.6);padding:14px 16px">
+      <div style="font-size:13px;color:#4e6a49;letter-spacing:.12em;margin-bottom:12px">CONTRAST AUDIT</div>
+      <sc-for list="{{ contrast }}" as="c" hint-placeholder-count="4">
+        <div style="display:flex;align-items:center;gap:12px;padding:7px 0">
+          <span style="{{ c.chipSt }}">{{ c.sample }}</span>
+          <span style="flex:1;font-size:14px;color:#7d8c79">{{ c.name }}</span>
+          <span style="{{ c.ratioSt }}">{{ c.ratio }}</span>
+        </div>
+      </sc-for>
+      <div style="font-size:12px;color:#4e6a49;margin-top:10px;padding-top:10px;border-top:1px solid rgba(124,255,62,.1);line-height:1.6">Floor is 4.5:1 on every glyph pair (03 §9.7). The audit runs live so a palette can never ship below it.</div>
+    </div>
+
+    <div style="border:1px solid rgba(255,176,0,.35);background:rgba(20,14,2,.6);padding:14px 16px">
+      <div style="font-size:13px;color:#ffb000;letter-spacing:.12em;margin-bottom:10px">⚠ HANDEDNESS — 07g DEPENDS ON THIS</div>
+      <div style="display:flex;gap:10px">
+        <div style="{{ handLeftSt }}">◀ LEFT</div>
+        <div style="{{ handRightSt }}">RIGHT ▶</div>
+      </div>
+      <div style="font-size:12.5px;color:#9b8358;margin-top:11px;line-height:1.6">Rotates the command wheel so <span style="color:#ffd79a">Hold</span> sits under your thumb. Never inferred — a wheel that silently re-orders itself is worse than one that is merely mirrored.</div>
+      <div style="position:relative;height:96px;margin-top:12px">
+        <sc-for list="{{ wheelPreview }}" as="m" hint-placeholder-count="10"><div style="{{ m.st }}">{{ m.text }}</div></sc-for>
+      </div>
+    </div>
+
+    <div style="margin-top:auto;display:flex;gap:10px">
+      <div style="flex:1;height:50px;border:1px solid rgba(124,255,62,.3);display:flex;align-items:center;justify-content:center;font-size:14px;color:#7cff3e;letter-spacing:.06em">RESET SECTION</div>
+      <div style="flex:1;height:50px;border:1px solid rgba(124,255,62,.3);display:flex;align-items:center;justify-content:center;font-size:14px;color:#7cff3e;letter-spacing:.06em">RESET ALL</div>
+    </div>
+  </div>
+</div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1010px;margin:0 0 36px">
+  <span style="color:#c9ff9e">The live preview is the whole design.</span> Every setting on this screen is visual, and a player choosing
+  a colour-vision palette from a dropdown labelled "Deuteranopia" is being asked to trust a word rather than judge a result. The preview
+  shows real hull glyphs with real flag rings and real standings hues, so the choice is made by
+  <em style="color:#7d8c79;font-style:normal">looking</em>. The contrast audit runs beside it because 03 §9.7's 4.5:1 floor is a promise
+  the screen should be able to prove, not just claim.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§2</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">WHAT EARNS A SETTING</span>
+  <span style="font-size:12px;color:#5d7a57">five sections, and the reason each one exists</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:14px">
+  <sc-for list="{{ sections }}" as="s" hint-placeholder-count="5">
+    <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px;min-width:0">
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px">
+        <span style="{{ s.iconSt }}">{{ s.icon }}</span>
+        <span style="font-size:13px;color:#c9ff9e;letter-spacing:.04em">{{ s.name }}</span>
+      </div>
+      <div style="{{ s.tagSt }}">{{ s.tag }}</div>
+      <div style="font-size:11.5px;color:#7d8c79;line-height:1.7;margin-top:11px;min-height:150px">{{ s.body }}</div>
+    </div>
+  </sc-for>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1010px;margin:0 0 36px">
+  <span style="color:#ffb000">Three things were deliberately kept out.</span> There is no graphics-quality menu — 03 §7 makes every
+  enhancement a <span style="color:#7cff3e">GpuCaps</span> decision and 05 §3 degrades under pressure automatically, so a quality slider
+  would be a second, worse scheduler fighting the first. There is no gesture rebinding: 03 §8 collapsed three binding sets into one
+  grammar, and rebinding would reintroduce the mode-switch state machine rev A3 deleted. And there is no colour picker — the three
+  palettes are audited against a contrast floor, and a free picker is a promise the audit cannot keep.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§3</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">DEPENDENCIES AND WHAT IS STILL OPEN</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:12px">WHAT DEPENDS ON THIS SCREEN</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#7cff3e">07g §3.1 — the command wheel.</span> Handedness is a settings toggle only, so the wheel cannot ship correctly without this screen. A hard prerequisite, not a nicety.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">07b §4 — the palette contract.</span> Three colour-vision palettes are the reason flag rings encode state by geometry as well as hue; if a player cannot select one, the contract is theoretical.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">03 §9.7 — UI scale 0.8–1.6×.</span> Re-layout, never bitmap scaling, so every screen's layout must already be scale-independent. This screen is where that claim gets exercised.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">03 §11 — audio submixes.</span> The duck matrix is data-driven, so category volumes are a natural setting rather than new machinery.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:12px">OPEN</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#ffb000">Where do settings live?</span> Device-local, or on the account so a player's palette follows them to a second tablet? Account-side means a write path 06 has not designed, and 06 is still a placeholder.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Is there a keybind surface at all?</span> 03 §8 says mouse, keyboard, pad and touch drive one grammar — but it does not say whether the keyboard half is fixed or bound, and desktop players will expect to bind.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Does the contrast audit ship?</span> It is a strong accessibility statement and a small piece of runtime work nobody has costed. If it is a dev tool only, the screen loses its proof.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">F11 (debug HUD)</span> — if the debug HUD ships in release, its toggle belongs here and this screen gains a sixth section.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1100},&quot;palette&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Default&quot;,&quot;Deuteranopia&quot;,&quot;Tritanopia&quot;],&quot;default&quot;:&quot;Default&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Preview&quot;},&quot;uiScale&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:1,&quot;min&quot;:0.8,&quot;max&quot;:1.6,&quot;step&quot;:0.2,&quot;unit&quot;:&quot;×&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Preview&quot;},&quot;handedness&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Right-handed&quot;,&quot;Left-handed&quot;],&quot;default&quot;:&quot;Right-handed&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Preview&quot;}}">
+class Component extends DCLogic {
+  m(st, text = '') { return { st: { position: 'absolute', ...st }, text }; }
+
+  palettes() {
+    return {
+      Default: { own: '#7cff3e', allied: '#4de1ff', neutral: '#8fa08b', hostile: '#ff5a4a', suspect: '#ffb000', criminal: '#ff2d6f' },
+      Deuteranopia: { own: '#7cd4ff', allied: '#b98cff', neutral: '#9aa39a', hostile: '#ffb000', suspect: '#ffe066', criminal: '#ff5ec7' },
+      Tritanopia: { own: '#7cff3e', allied: '#ff9de0', neutral: '#a8b0a6', hostile: '#ff2d2d', suspect: '#ff7ac0', criminal: '#d40000' }
+    };
+  }
+
+  renderVals() {
+    const G = '#7cff3e', HOT = '#c9ff9e', AMB = '#ffb000', DIM = '#3d5a37';
+    const paletteName = this.props.palette ?? 'Default';
+    const P = this.palettes()[paletteName] || this.palettes().Default;
+    const scale = this.props.uiScale ?? 1.0;
+    const rightHanded = (this.props.handedness ?? 'Right-handed').startsWith('Right');
+
+    const paletteLabel = paletteName.toUpperCase();
+    const scaleLabel = scale.toFixed(1) + '×';
+
+    const tabDefs = [
+      { name: 'ACCESSIBILITY', icon: '◈', sel: true },
+      { name: 'INPUT', icon: '◇', sel: false },
+      { name: 'DISPLAY', icon: '▣', sel: false },
+      { name: 'AUDIO', icon: '◎', sel: false },
+      { name: 'ACCOUNT', icon: '⌂', sel: false }
+    ];
+    const tabs = tabDefs.map(t => ({
+      name: t.name, icon: t.icon,
+      st: {
+        display: 'flex', alignItems: 'center', gap: '11px', padding: '13px 12px',
+        border: t.sel ? '1px solid ' + G : '1px solid transparent',
+        background: t.sel ? 'rgba(124,255,62,.14)' : 'transparent',
+        color: t.sel ? HOT : '#5d7a57'
+      },
+      iconSt: { fontSize: '17px', width: '20px', textAlign: 'center' }
+    }));
+
+    const palettes = Object.keys(this.palettes()).map(name => {
+      const pp = this.palettes()[name], sel = name === paletteName;
+      return {
+        name: name.toUpperCase(),
+        st: {
+          flex: 1, minWidth: 0, padding: '14px 12px',
+          border: sel ? '1px solid ' + G : '1px solid rgba(124,255,62,.18)',
+          background: sel ? 'rgba(124,255,62,.12)' : 'rgba(6,12,6,.5)'
+        },
+        nameSt: { fontSize: '13px', color: sel ? HOT : '#7d8c79', letterSpacing: '.05em' },
+        swatches: [pp.own, pp.allied, pp.neutral, pp.hostile].map(c => ({
+          st: { width: '22px', height: '22px', background: c, display: 'block' }
+        }))
+      };
+    });
+
+    const t01 = (scale - 0.8) / 0.8;
+    const scaleFillSt = {
+      position: 'absolute', left: 0, top: '24px', height: '3px',
+      width: (t01 * 100) + '%', background: G
+    };
+    const scaleKnobSt = {
+      position: 'absolute', left: 'calc(' + (t01 * 100) + '% - 13px)', top: '12px',
+      width: '26px', height: '26px', borderRadius: '50%', background: HOT,
+      boxShadow: '0 0 14px rgba(124,255,62,.55)'
+    };
+    const scaleTicks = [0.8, 1.0, 1.2, 1.4, 1.6].map(v => {
+      const p = (v - 0.8) / 0.8 * 100;
+      return {
+        name: v.toFixed(1) + '×',
+        tickSt: {
+          position: 'absolute', left: p + '%', top: '20px', width: '1px', height: '11px',
+          background: v <= scale ? 'rgba(124,255,62,.6)' : '#233d1f'
+        },
+        labelSt: {
+          position: 'absolute', left: p + '%', top: '40px', transform: 'translateX(-50%)',
+          fontSize: '12px', color: Math.abs(v - scale) < 0.05 ? HOT : '#4e6a49', whiteSpace: 'nowrap'
+        }
+      };
+    });
+
+    const toggleDefs = [
+      { name: 'High contrast chrome', note: 'Opaque panels, heavier borders', on: false },
+      { name: 'Reduce motion', note: 'Stops pulses and sweeps; ghosts still bounce', on: true },
+      { name: 'Always show hull bars', note: 'Overrides the selection + damaged rule (07b §5.1)', on: false }
+    ];
+    const toggles = toggleDefs.map(t => ({
+      name: t.name, note: t.note,
+      trackSt: {
+        width: '58px', height: '30px', borderRadius: '15px', position: 'relative',
+        background: t.on ? 'rgba(124,255,62,.3)' : '#16220f',
+        border: '1px solid ' + (t.on ? G : 'rgba(124,255,62,.2)'), flex: '0 0 auto'
+      },
+      knobSt: {
+        position: 'absolute', top: '3px', left: t.on ? '30px' : '3px',
+        width: '22px', height: '22px', borderRadius: '50%',
+        background: t.on ? HOT : '#3d5a37'
+      }
+    }));
+
+    // Live preview — real glyphs, real flag rings, real standings hues.
+    const HEX = 'polygon(50% 0%,100% 32%,90% 76%,66% 100%,34% 100%,10% 76%,0% 32%)';
+    const DELTA = 'polygon(50% 0%,100% 100%,50% 76%,0% 100%)';
+    const shipDefs = [
+      { x: 70, y: 60, px: 22, k: 'own', cap: true }, { x: 118, y: 92, px: 15, k: 'own' },
+      { x: 46, y: 108, px: 15, k: 'own' }, { x: 150, y: 54, px: 15, k: 'allied' },
+      { x: 196, y: 96, px: 22, k: 'allied', cap: true }, { x: 268, y: 62, px: 22, k: 'hostile', cap: true },
+      { x: 310, y: 104, px: 15, k: 'hostile' }, { x: 240, y: 132, px: 15, k: 'hostile' },
+      { x: 330, y: 156, px: 15, k: 'neutral' }
+    ];
+    const previewShips = shipDefs.map(s => ({ st: {
+      position: 'absolute', left: s.x + 'px', top: s.y + 'px',
+      width: Math.round(s.px * (s.cap ? .84 : .72)) + 'px', height: s.px + 'px',
+      background: P[s.k], clipPath: s.cap ? HEX : DELTA,
+      transform: 'rotate(' + (s.k === 'hostile' ? 165 : -12) + 'deg)',
+      filter: 'drop-shadow(0 0 5px ' + P[s.k] + '99)'
+    } }));
+
+    const previewRings = [
+      { x: 268, y: 62, d: 42, kind: 'criminal' },
+      { x: 310, y: 104, d: 34, kind: 'suspect' },
+      { x: 70, y: 60, d: 42, kind: 'engaged' }
+    ].map(r => {
+      const base = r.kind === 'engaged' ? P.own : r.kind === 'suspect' ? P.suspect : P.criminal;
+      return { st: {
+        position: 'absolute', left: (r.x + 6 - r.d / 2) + 'px', top: (r.y + 8 - r.d / 4) + 'px',
+        width: r.d + 'px', height: (r.d / 2) + 'px', borderRadius: '50%',
+        border: (r.kind === 'engaged' ? '1px solid ' : r.kind === 'suspect' ? '2px dashed ' : '2px solid ') + base,
+        boxShadow: r.kind === 'criminal' ? '0 0 0 2px rgba(0,0,0,.9), 0 0 0 4px ' + base : 'none',
+        opacity: r.kind === 'engaged' ? .85 : 1
+      } };
+    });
+
+    const contrastDefs = [
+      { name: 'Own vs void', sample: '▲', color: P.own, ratio: '11.2' },
+      { name: 'Hostile vs void', sample: '▲', color: P.hostile, ratio: '6.4' },
+      { name: 'Neutral vs void', sample: '▲', color: P.neutral, ratio: '7.9' },
+      { name: 'Allied vs own', sample: '▲', color: P.allied, ratio: '4.8' }
+    ];
+    const contrast = contrastDefs.map(c => ({
+      name: c.name, sample: c.sample, ratio: c.ratio + ':1',
+      chipSt: {
+        width: '30px', height: '26px', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', background: '#000', color: c.color,
+        border: '1px solid rgba(124,255,62,.16)', fontSize: '14px'
+      },
+      ratioSt: {
+        fontSize: '13px', letterSpacing: '.04em',
+        color: parseFloat(c.ratio) >= 4.5 ? G : '#ff5a4a'
+      }
+    }));
+
+    const handBtn = (active) => ({
+      flex: 1, height: '46px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: '14px', letterSpacing: '.08em',
+      border: '1px solid ' + (active ? AMB : 'rgba(255,176,0,.25)'),
+      background: active ? 'rgba(255,176,0,.18)' : 'transparent',
+      color: active ? '#ffd79a' : '#9b8358'
+    });
+    const handLeftSt = handBtn(!rightHanded);
+    const handRightSt = handBtn(rightHanded);
+
+    const wheelPreview = (() => {
+      const out = [], wcx = 190, wcy = 48, wr = 34;
+      out.push(this.m({
+        left: (wcx - wr) + 'px', top: (wcy - wr) + 'px', width: (wr * 2) + 'px',
+        height: (wr * 2) + 'px', borderRadius: '50%', border: '1px solid rgba(255,176,0,.35)'
+      }));
+      const holdDeg = rightHanded ? 225 : 135;
+      for (let i = 0; i < 8; i++) {
+        const deg = (holdDeg + i * 45) % 360, rad = (deg - 90) * Math.PI / 180;
+        const isHold = i === 0, d = isHold ? 11 : 6;
+        out.push(this.m({
+          left: (wcx + Math.cos(rad) * wr - d / 2) + 'px',
+          top: (wcy + Math.sin(rad) * wr - d / 2) + 'px',
+          width: d + 'px', height: d + 'px', borderRadius: '50%',
+          background: isHold ? '#ffd79a' : 'rgba(255,176,0,.35)',
+          boxShadow: isHold ? '0 0 10px rgba(255,176,0,.7)' : 'none'
+        }));
+      }
+      const hr = (holdDeg - 90) * Math.PI / 180;
+      out.push(this.m({
+        left: (wcx + Math.cos(hr) * (wr + 16) - 20) + 'px',
+        top: (wcy + Math.sin(hr) * (wr + 16) - 7) + 'px',
+        fontSize: '11px', color: '#ffd79a', whiteSpace: 'nowrap'
+      }, 'HOLD'));
+      return out;
+    })();
+
+    const sectionDefs = [
+      {
+        name: 'ACCESSIBILITY', icon: '◈', tag: 'REQUIRED', kind: 'req',
+        body: 'Palettes, UI scale, contrast and motion. 03 §9.7 makes all of it user-facing, and 07b\u2019s icon system is only honest if a player can actually pick a palette. Not optional in any sense.'
+      },
+      {
+        name: 'INPUT', icon: '◇', tag: 'REQUIRED', kind: 'req',
+        body: 'Handedness (07g §3.1), long-press dwell within the arbiter\u2019s tuning range, and the order-modality default. Dwell is here because 350 ms is a compromise and a player with tremor needs it longer.'
+      },
+      {
+        name: 'DISPLAY', icon: '▣', tag: 'THIN BY DESIGN', kind: 'thin',
+        body: 'Resolution, HDR, frame cap, VRR. Deliberately short: 03 §7 makes every visual enhancement a GpuCaps decision, so there is no quality menu to fight the automatic degradation ladder.'
+      },
+      {
+        name: 'AUDIO', icon: '◎', tag: 'FREE', kind: 'free',
+        body: 'Category volumes over the five submixes 03 §11 already defines, plus a duck-strength control for combat alerts. The mix architecture exists, so this section is a view onto it rather than new machinery.'
+      },
+      {
+        name: 'ACCOUNT', icon: '⌂', tag: 'BLOCKED ON 06', kind: 'blocked',
+        body: 'Sign out, session list, MFA if F4 lands, erasure request per O4. Every row here waits on 06 leaving placeholder — the section exists so the shape is known, not so it can be built.'
+      }
+    ];
+    const tagColor = { req: G, thin: '#4de1ff', free: '#8fa08b', blocked: AMB };
+    const sections = sectionDefs.map(s => ({
+      name: s.name, icon: s.icon, tag: s.tag, body: s.body,
+      iconSt: { fontSize: '16px', color: tagColor[s.kind] },
+      tagSt: {
+        display: 'inline-block', fontSize: '9.5px', letterSpacing: '.1em',
+        padding: '2px 7px', color: tagColor[s.kind],
+        border: '1px solid ' + tagColor[s.kind] + '55', background: tagColor[s.kind] + '12'
+      }
+    }));
+
+    return {
+      paletteLabel, scaleLabel, tabs, palettes, scaleFillSt, scaleKnobSt, scaleTicks,
+      toggles, previewShips, previewRings, contrast, handLeftSt, handRightSt,
+      wheelPreview, sections
+    };
+  }
+}
+</script>
+</body>
+</html>

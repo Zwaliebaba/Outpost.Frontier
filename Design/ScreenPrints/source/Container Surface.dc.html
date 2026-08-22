@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0a0b09;font-family:'Share Tech Mono',ui-monospace,monospace}
+a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
+</style></helmet>
+
+<div data-screen-label="Container Surface" style="width:1440px;background:#050705;padding:44px 48px 56px;color:#7cff3e;position:relative">
+<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.03) 0 1px,transparent 1px 3px);pointer-events:none"></div>
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(124,255,62,.3);padding-bottom:16px;margin-bottom:12px">
+  <div>
+    <div style="font-size:26px;color:#c9ff9e;letter-spacing:.08em">CONTAINER SURFACE — D-P6</div>
+    <div style="font-size:12.5px;color:#5d7a57;letter-spacing:.06em;margin-top:6px">the screen with no row in any inventory — one panel for every container kind · wreck, escrow, Deploying first</div>
+  </div>
+  <div style="text-align:right;font-size:11.5px;color:#4e6a49;line-height:1.8">
+    <div>SOURCE · 08c (upstream) · ADR-024 §5b · ADR-020 · 07c §1 · D-C1 · D-P2/D-P4</div>
+    <div>KIND · {{ kindLabel }}</div>
+  </div>
+</div>
+
+<div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.5);padding:13px 17px;font-size:12px;color:#7d8c79;line-height:1.7;margin-bottom:18px">
+  <span style="color:#ffb000">FORWARD DESIGN, STATED:</span> the container taxonomy (ItemTypeId, six kinds + Deploying) is
+  <span style="color:#c9ff9e">upstream with no ADR here</span> — the same standing gap D-P2 and D-P4 record. What this corpus does
+  own: the wreck is fully ruled (ADR-024 §5b — half drops floored, finders-keepers, SCOOP as a context action, 900 s, non-durable),
+  escrow is drawn on D-P4's order cards, and E3's own defect history supplies the third kind's reason to exist. The panel invents
+  no kind; it gives the ruled ones their one shared surface.
+</div>
+<p style="font-size:13px;color:#7d8c79;line-height:1.75;max-width:1010px;margin:0 0 34px;text-wrap:pretty">
+  The claim the whole surface rests on: <span style="color:#c9ff9e">cargo is never nowhere.</span> Every unit of property sits in
+  exactly one container at all times — a hold, a Bay, a wreck, an escrow, an assembly in motion — and E3 proved what happens when
+  a transition forgets that (`ApplyTransit` spawned arrivals with empty holds; a fleet that warped lost its cargo silently). This
+  panel is that invariant made visible: one component, instantiated by kind, showing the same (item, units, litres) stacks
+  everywhere property can be.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§1</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE SCREEN</span>
+  <span style="font-size:12px;color:#5d7a57">authored 1440×900 · the panel on the tactical HUD, wreck kind · overlay rules per 07c §1</span>
+</div>
+<div data-plate="container-surface" style="position:relative;width:1344px;height:840px;overflow:hidden;border:1px solid rgba(124,255,62,.22);background:#000;margin-bottom:14px">
+<div style="width:1440px;height:900px;transform:scale(.9333);transform-origin:top left;position:relative;background:#000">
+  <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 46% 44%,#0b1210 0%,#000 74%)"></div>
+  <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.035) 0 1px,transparent 1px 3px)"></div>
+
+  <div style="position:absolute;left:0;right:0;top:0;height:46px;display:flex;align-items:center;gap:16px;padding:0 18px;border-bottom:1px solid rgba(124,255,62,.26);background:rgba(4,8,5,.92);font-size:15px;letter-spacing:.06em">
+    <span style="color:#c9ff9e;white-space:nowrap">◈ TALIS-7</span>
+    <span style="color:#3d5a37">▸</span>
+    <span style="color:#5d7a57">IRRADIATED BELT · SITE GRID</span>
+    <span style="flex:1"></span>
+    <span style="color:#7cff3e">⌖ 10 SHIPS</span>
+    <span style="color:#3d5a37">|</span>
+    <span style="border:1px solid rgba(124,255,62,.3);padding:2px 9px;font-size:13px;color:#7cff3e">▥ MENU</span>
+  </div>
+
+  <div style="position:absolute;left:0;top:46px;bottom:104px;width:132px;border-right:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86);padding:8px">
+    <div style="font-size:10px;color:#4e6a49;letter-spacing:.12em;margin-bottom:8px">FLEET ROSTER</div>
+    <div style="border:1px solid #7cff3e;background:rgba(124,255,62,.12);padding:7px 8px;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:#c9ff9e"><span>DIG WING</span><span>3/5</span></div>
+    </div>
+    <div style="border:1px solid rgba(124,255,62,.25);background:rgba(6,12,6,.55);padding:7px 8px;margin-bottom:6px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:#7cff3e"><span>LANCE</span><span>4</span></div>
+    </div>
+    <div style="border:1px solid rgba(124,255,62,.25);background:rgba(6,12,6,.55);padding:7px 8px">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:#7cff3e"><span>HAUL</span><span>1</span></div>
+    </div>
+  </div>
+
+  <div style="position:absolute;left:400px;top:330px;width:34px;height:34px">
+    <div style="position:absolute;left:2px;top:15px;width:30px;height:2.5px;background:#8fa08b;transform:rotate(34deg)"></div>
+    <div style="position:absolute;left:2px;top:15px;width:30px;height:2.5px;background:#8fa08b;transform:rotate(-34deg)"></div>
+    <div style="position:absolute;left:-24px;top:40px;font-size:11px;color:#8fa08b;white-space:nowrap">WRECK — HLG-04</div>
+  </div>
+  <div style="position:absolute;left:388px;top:318px;width:58px;height:58px;border:1px dashed rgba(143,160,139,.5);border-radius:50%"></div>
+  <div style="position:absolute;left:300px;top:420px;width:13px;height:14px;background:#7cff3e;clip-path:polygon(50% 0%,100% 100%,50% 76%,0% 100%)"></div>
+  <div style="position:absolute;left:340px;top:460px;width:13px;height:14px;background:#7cff3e;clip-path:polygon(50% 0%,100% 100%,50% 76%,0% 100%)"></div>
+  <div style="position:absolute;left:265px;top:465px;width:13px;height:14px;background:#7cff3e;clip-path:polygon(50% 0%,100% 100%,50% 76%,0% 100%)"></div>
+
+  <div style="position:absolute;right:20px;top:66px;bottom:124px;width:412px;border:1px solid rgba(124,255,62,.3);background:rgba(4,8,5,.94);padding:16px 18px;display:flex;flex-direction:column;gap:12px">
+    <div>
+      <div style="display:flex;align-items:baseline;gap:10px">
+        <span style="font-size:11px;color:#4e6a49;letter-spacing:.14em">{{ kindTag }}</span>
+        <span style="flex:1"></span>
+        <sc-if value="{{ timer }}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:#ffb000;letter-spacing:.06em">{{ timer }}</span></sc-if>
+      </div>
+      <div style="font-size:19px;color:#c9ff9e;letter-spacing:.06em;margin-top:6px">{{ title }}</div>
+      <div style="font-size:11px;color:#5d7a57;margin-top:5px;line-height:1.6">{{ claim }}</div>
+    </div>
+    <div style="border-top:1px solid rgba(124,255,62,.14);padding-top:10px">
+      <div style="display:grid;grid-template-columns:22px 1fr 74px 92px;gap:8px;padding:0 8px 6px;border-bottom:1px solid rgba(124,255,62,.14);font-size:9.5px;color:#4e6a49;letter-spacing:.1em">
+        <span></span><span>ITEM</span><span style="text-align:right">UNITS</span><span style="text-align:right">LITRES</span>
+      </div>
+      <sc-for list="{{ stacks }}" as="s" hint-placeholder-count="3">
+        <div style="display:grid;grid-template-columns:22px 1fr 74px 92px;gap:8px;align-items:center;padding:8px;border-bottom:1px solid rgba(124,255,62,.08)">
+          <span style="position:relative;width:20px;height:20px;display:inline-block"><span style="{{ s.g1 }}"></span><span style="{{ s.g2 }}"></span><span style="{{ s.g3 }}"></span></span>
+          <span style="font-size:12px;color:#c9ff9e;letter-spacing:.03em">{{ s.name }}</span>
+          <span style="font-size:12.5px;color:#7cff3e;text-align:right">{{ s.units }}</span>
+          <span style="font-size:10.5px;color:#5d7a57;text-align:right">{{ s.litres }}</span>
+        </div>
+      </sc-for>
+      <sc-if value="{{ stackNote }}" hint-placeholder-val="{{ false }}">
+        <div style="font-size:10.5px;color:#4e6a49;line-height:1.6;padding:8px 8px 0">{{ stackNote }}</div>
+      </sc-if>
+    </div>
+    <sc-if value="{{ capLine }}" hint-placeholder-val="{{ false }}">
+      <div style="border:1px solid rgba(124,255,62,.16);background:rgba(6,12,6,.5);padding:9px 11px;font-size:11px;color:#7d8c79;line-height:1.6">{{ capLine }}</div>
+    </sc-if>
+    <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
+      <sc-if value="{{ verbLabel }}" hint-placeholder-val="{{ true }}"><div style="{{ verbSt }}">{{ verbLabel }}</div></sc-if>
+      <div style="font-size:10.5px;color:#4e6a49;line-height:1.65">{{ footNote }}</div>
+    </div>
+  </div>
+
+  <div style="position:absolute;left:0;right:0;bottom:64px;height:40px;display:flex;align-items:center;gap:14px;padding:0 16px;border-top:1px solid rgba(124,255,62,.26);background:rgba(4,8,5,.92);font-size:13px;letter-spacing:.05em">
+    <span style="color:#c9ff9e;white-space:nowrap">▣ 3 SHIPS</span>
+    <span style="color:#3d5a37">:</span>
+    <span style="color:#7cff3e;white-space:nowrap">DIG WING</span>
+    <span style="color:#3d5a37">▸</span>
+    <span style="color:#5d7a57;white-space:nowrap">FORMATION</span>
+    <span style="color:#7cff3e;white-space:nowrap">ECHELON</span>
+    <span style="flex:1"></span>
+    <sc-if value="{{ approachChip }}" hint-placeholder-val="{{ false }}"><span style="color:#ffb000;white-space:nowrap">{{ approachChip }}</span></sc-if>
+  </div>
+  <div style="position:absolute;left:0;right:0;bottom:0;height:64px;display:flex;align-items:center;gap:8px;padding:8px 18px;background:rgba(4,8,5,.92)">
+    <div style="width:132px;height:48px;border:1px solid rgba(124,255,62,.35);display:flex;align-items:center;justify-content:center;font-size:13px;color:#7cff3e">MOVE</div>
+    <div style="width:132px;height:48px;border:1px solid rgba(124,255,62,.14);display:flex;align-items:center;justify-content:center;font-size:13px;color:#2f4a2a">ATTACK</div>
+    <div style="width:132px;height:48px;border:1px solid rgba(124,255,62,.35);display:flex;align-items:center;justify-content:center;font-size:13px;color:#7cff3e">FORMATION ▾</div>
+    <div style="width:132px;height:48px;border:1px solid rgba(124,255,62,.35);display:flex;align-items:center;justify-content:center;font-size:13px;color:#7cff3e">STANCE ▾</div>
+    <span style="flex:1"></span>
+    <div style="height:48px;border:1px solid rgba(255,176,0,.5);display:flex;align-items:center;justify-content:center;font-size:13px;color:#ffb000;padding:0 18px;white-space:nowrap">+ QUEUE</div>
+  </div>
+</div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1010px;margin:0 0 36px">
+  <span style="color:#c9ff9e">The panel floats in the world zone and never covers the context bar or command row</span> — 07c §1's
+  compositing rule, obeyed rather than restated. It opens from a tap on the container's world glyph (the wreck's broken cross),
+  and SCOOP rides the approach-chip pattern DOCK and MINE settled: the fleet flies, the amber chip promises, the authority
+  confirms.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§2</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">DESIGN CALLS</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:14px">
+  <div style="grid-column:1/-1;border:1px solid rgba(124,255,62,.28);background:rgba(6,16,6,.65);padding:16px 18px">
+    <div style="font-size:13px;color:#7cff3e;letter-spacing:.06em;margin-bottom:10px">ONE COMPONENT, EVERY KIND</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">The panel is a single surface every container kind instantiates: an identity header (kind, claim rule, lifetime), the same (item, units, litres) stack list D-P2's vocabulary fixed with D-C1's glyphs, and <span style="color:#c9ff9e">at most one verb</span>. Kinds differ by chrome — a wreck has a countdown, an escrow has an order reference, a Deploying container has an assembly timer — never by layout. When the taxonomy's remaining kinds land, each is a header and a verb, not a screen.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">CARGO IS NEVER NOWHERE</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">Deploying exists as a visible kind because E3's accept found the invisible version: `ApplyTransit` spawning arrivals with empty holds, cargo lost with no surface to notice on. Property in motion is still property — the panel shows it read-only with the assembly's own timer, and it resolves itself.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">ONE VERB PER KIND — SOME HAVE NONE</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">Wreck: SCOOP. Escrow: nothing here — release is CANCEL on the market tab, and a second cancel button would be a second home for one verb. Deploying: nothing — it resolves itself. A panel with a verb rack would invent interactions the kinds do not have.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">THE COUNTDOWN IS THE CLAIM RULE</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">A wreck's header states both halves of §5b in one breath: finders-keepers (nobody owns a wreck, so there is no yours/theirs chrome to design) and the 900 s scatter in caution amber — the same amber that means "will stop being true on its own" everywhere else. Worlds forget: a teardown takes the wreck, and the panel never promises otherwise.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">CAPACITY BEFORE THE VERB</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">SCOOP previews the fill against the selection's free litres by the same pure pre-check every transfer runs — an enabled SCOOP is a promise, and a selection that cannot lift the stacks says which stacks fit, in litres, before anything flies. Bounce parity, extended to salvage.</div>
+  </div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:34px 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§3</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">DELIBERATELY ABSENT · OPEN</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="border:1px solid rgba(124,255,62,.3);background:rgba(6,16,6,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#7cff3e;letter-spacing:.06em;margin-bottom:12px">ABSENT BECAUSE THE DESIGN SAYS SO</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#c9ff9e">No loot splitting</span> — finders-keepers means first scoop wins; a split UI would invent ownership where §5b ruled there is none.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No jettison</span> — player-made containers are a combat-era question; drawing the hook now would invent a mechanic (D-P2's own rule).</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No Bay here</span> — the Bay is D-P2's whole screen; this panel covers what has no station under it.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No wreck contents at range</span> — you read a wreck by being on grid; remote wreck intel is the intel game's, not this panel's.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:12px">OPEN — RULINGS OWED</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#ffb000">The taxonomy ADR itself</span> — the standing gap, third print to cite it. Until it lands here, the six-kind claim rests on an uncitable document.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Wreck stack visibility</span> — proposed public to everyone on grid (finders-keepers implies it); the alternative (scan-to-reveal) is future intel gameplay.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Partial scoop order</span> — when not everything fits: value density or stack order? The CARGO fill's ore-order question, third appearance; one ruling should close all three.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Deploying visibility to others</span> — the assembly is announced; whether its manifest is too (a scout reading what a forming fleet carries) is a real intel decision.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1200},&quot;kind&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Wreck&quot;,&quot;Market escrow&quot;,&quot;Deploying&quot;],&quot;default&quot;:&quot;Wreck&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Mockup&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const G = '#7cff3e', HOT = '#c9ff9e', AMB = '#ffb000';
+    const kind = this.props.kind ?? 'Wreck';
+    const k = kind.startsWith('Wreck') ? 'wreck' : kind.startsWith('Market') ? 'escrow' : 'deploying';
+    const kindLabel = k.toUpperCase();
+
+    const BR = '#c08a52', VI = '#b99cff', TE = '#4fd6c0', NONE = { display: 'none' };
+    const A = s => ({ position: 'absolute', ...s });
+    const G20 = {
+      'FERRO-CHROMA': [A({ left: 0, top: '1px', width: '20px', height: '18px', background: BR, clipPath: 'polygon(22% 0,88% 10%,100% 58%,72% 100%,8% 90%,0 34%)' }),
+        A({ left: 0, top: '1px', width: '20px', height: '18px', background: 'rgba(0,0,0,.28)', clipPath: 'polygon(22% 0,60% 46%,8% 90%,0 34%)' }), NONE],
+      'ASTRACITE': [A({ left: '6px', top: 0, width: '9px', height: '20px', background: VI, clipPath: 'polygon(50% 0,100% 74%,50% 100%,0 74%)' }),
+        A({ left: 0, top: '6px', width: '6px', height: '12px', background: 'rgba(185,156,255,.6)', clipPath: 'polygon(50% 0,100% 76%,50% 100%,0 76%)' }), NONE],
+      'NEBULITE': [A({ inset: 0, border: '1px dashed rgba(79,214,192,.5)', borderRadius: '50%' }),
+        A({ left: '4px', top: '4px', width: '12px', height: '12px', background: TE, borderRadius: '50% 44% 52% 40%' }), NONE],
+      'FERROCITE PLATES': [A({ left: '2px', top: '2px', width: '16px', height: '3px', border: '1.5px solid ' + BR }),
+        A({ left: '2px', top: '8px', width: '16px', height: '3px', border: '1.5px solid ' + BR }),
+        A({ left: '2px', top: '14px', width: '16px', height: '3px', border: '1.5px solid ' + BR })]
+    };
+    const mk = (name, units, litres) => {
+      const gl = G20[name];
+      return { name, units, litres, g1: gl[0], g2: gl[1], g3: gl[2] };
+    };
+
+    let kindTag, title, claim, timer = false, stacks, stackNote = false, capLine = false,
+      verbLabel = false, verbOn = false, footNote, approachChip = false;
+    if (k === 'wreck') {
+      kindTag = 'CONTAINER — WRECK';
+      title = 'WRECK — HLG-04';
+      claim = 'FINDERS-KEEPERS — NOBODY OWNS A WRECK. First scoop wins.';
+      timer = 'SCATTERS IN 11:32';
+      stacks = [mk('FERRO-CHROMA', '610', '183,000 L'), mk('ASTRACITE', '96', '19,200 L'), mk('NEBULITE', '120', '30,000 L')];
+      stackNote = 'Half of what she carried, floored per stack — the other half burned (ADR-024 §5b). The sink is the point.';
+      capLine = 'SELECTION — DIG WING · 3 SHIPS · 246,000 L FREE. SCOOP ALL fits: 232,200 L into 3 holds.';
+      verbLabel = 'SCOOP ALL — 826 UNITS';
+      verbOn = true;
+      footNote = 'A context action on a sadder target (§5b\u2019s own words): the fleet flies to the wreck, then lifts. Worlds forget — a teardown takes the wreck, and the timer never lies about that.';
+      approachChip = '⟡ SCOOP — HLG-04…';
+    } else if (k === 'escrow') {
+      kindTag = 'CONTAINER — MARKET ESCROW';
+      title = 'ESCROW — SELL #4471';
+      claim = 'YOURS, COMMITTED — these units back your sell order at Vesta-3 and left your Bay at listing.';
+      stacks = [mk('FERROCITE PLATES', '380', '152,000 L')];
+      stackNote = '120 of the original 500 have filled and are settled — settled units are not in this container or any other of yours.';
+      verbLabel = false;
+      footNote = 'No verb here: release is CANCEL on the MARKET tab — one verb, one home. This panel only ever answers "where is my property", and the answer is: backing your order, until you say otherwise.';
+    } else {
+      kindTag = 'CONTAINER — DEPLOYING';
+      title = 'DEPLOYING — DIG WING';
+      claim = 'IN MOTION — manifests crossing with the assembly. Read-only; it resolves itself.';
+      timer = 'ASSEMBLY 0:11';
+      stacks = [mk('FERRO-CHROMA', '722', '216,600 L'), mk('ASTRACITE', '96', '19,200 L')];
+      stackNote = 'The kind exists because E3 found its absence: cargo in transit with no container is cargo that can vanish silently.';
+      verbLabel = false;
+      footNote = 'When the assembly completes these stacks are the ships\u2019 holds again, and this panel is gone. A Deploying container that outlives its assembly is a defect, not a state.';
+    }
+    const verbSt = { height: '52px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: '14px', letterSpacing: '.08em',
+      border: '1px solid ' + (verbOn ? G : 'rgba(124,255,62,.14)'),
+      background: verbOn ? 'rgba(124,255,62,.16)' : 'transparent',
+      color: verbOn ? HOT : '#2f4a2a',
+      boxShadow: verbOn ? '0 0 18px rgba(124,255,62,.15)' : 'none' };
+
+    return { kindLabel, kindTag, title, claim, timer, stacks, stackNote, capLine,
+      verbLabel, verbSt, footNote, approachChip };
+  }
+}
+
+</script>
+</body>
+</html>

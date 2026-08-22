@@ -248,9 +248,11 @@ closes, not here.
   not exist yet, which the print itself anticipates ("depends on content that does not
   exist").
 - **System view** — the screen the corpus names (pinch level: SYSTEM) **and drew on
-  2026-08-21**: [System View.dc.html](../ScreenPrints/source/System%20View.dc.html), D1 in the
-  build order. Six calls came out of drawing it, and three of them are decisions this section
-  had left implicit:
+  2026-08-21** as D1 in the build order. *(Its source is no longer in `ScreenPrints/`; D1 is
+  tracked upstream, where the plate is still owed. That costs this section nothing, because the
+  calls it produced were lifted here the day it was drawn — which is what "the calls end up in
+  the ADRs" is for, and this list is now their home rather than their copy.)* Six calls came out
+  of drawing it, and three of them are decisions this section had left implicit:
 
   **Anchors are targets and everything else is backdrop.** §3 already ruled that ships warp to
   anchors and never to coordinates; the print makes that visible rather than teaching it by

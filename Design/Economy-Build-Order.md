@@ -1162,8 +1162,18 @@ artefacts**, and they are listed with each print above: four from D-P2, all owed
 four from D-P3, of which **job cancel was owed before E4b and is answered** (2026-08-21). The
 seven that remain can be answered any time before the screens build, which is the sequencing
 consequence worth carrying forward: nothing left in this phase is gated on a ruling.
-- **D-C1 — Ore and alloy icons**, in the tactical icon system's families, plus the three
-  archetype glyphs the strategic and system maps need.
+- ~~**D-C1 — Ore and alloy icons**~~, in the tactical icon system's families, plus the three
+  archetype glyphs the strategic and system maps need. **Delivered 2026-08-22:**
+  [item-icon-system.png](ScreenPrints/item-icon-system.png), with its source beside it — three
+  ores, five alloys, three site archetypes, and **four form rules written for the item families
+  that do not exist yet**: raw filled / refined outlined (the family channel, read before
+  identity), silhouette carries identity so grayscale must pass, the 20 px floor with the
+  `FC` · `AC` · `NB` letter codes below it, and **hue by majority input** — an alloy wears its
+  majority ore's hue and a tie wears refined silver, so §6a's recipe table *is* the hue table
+  and a new recipe needs arithmetic rather than a colour meeting. Both economy plates were
+  re-captured the same day to adopt the glyphs, and the strategic map's new site layer takes
+  the ore hues without a redesign. The ruleset is recorded in
+  [ADR-024 §5d](ADR/ADR-024-mining-economy.md); it raises no ruling of its own.
 - **D-C2 — The site field's visual treatment**: the Nebula pass parameter set for pockets, and
   rock meshes or impostors for fields — the first content since `Stargate.obj`, and the one
   that has to look like a place rather than a number.

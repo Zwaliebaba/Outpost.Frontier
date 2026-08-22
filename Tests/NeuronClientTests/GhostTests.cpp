@@ -107,6 +107,38 @@ const std::uint16_t OTHER_SHIPS[] = {21, 22};
   return feedback;
 }
 
+/*
+ * The authority reporting a group that has spent its last leg and is still
+ * running -- what a Mine order looks like once the fleet is at the cluster
+ * (ADR-024 4b). `Running` above is the travelling case; this is the other one.
+ */
+[[nodiscard]] OrderFeedback Workingfeedback(std::uint32_t _seq, std::uint32_t _serverId, std::uint32_t _highWater,
+                                            float _etaSeconds)
+{
+  OrderFeedback feedback;
+  feedback.lastOrderSeqProcessed = _highWater;
+
+  OrderProgress progress;
+  progress.serverOrderId = _serverId;
+  progress.clientOrderSeq = _seq;
+  progress.state = 0; // Underway, in the game's own enum. Copied, never read.
+  progress.legIndex = 1;
+  progress.legCount = 1; // Spent: the fleet arrived and stayed.
+  progress.memberCount = 4;
+  progress.etaSeconds = _etaSeconds;
+  Assert::IsTrue(feedback.Add(progress), L"one order fits");
+  return feedback;
+}
+
+/// A preview the game has written a working word into -- what `SolvePreview`
+/// produces for a Mine order and for nothing else.
+[[nodiscard]] OrderPreview MiningPreview(std::uint32_t _count)
+{
+  OrderPreview preview = Preview(_count);
+  std::snprintf(preview.workingLabel, sizeof(preview.workingLabel), "MINING");
+  return preview;
+}
+
 [[nodiscard]] const OrderGhost* FindGhost(const OrderGhostList& _list, std::uint32_t _seq)
 {
   for (const OrderGhost& ghost : _list.Ghosts())
@@ -476,6 +508,84 @@ public:
     // in the wrong place.
     Assert::AreEqual<std::size_t>(1, ghosts.Ghosts().size());
     Assert::AreEqual<std::size_t>(1, ghosts.PendingCount());
+  }
+
+  TEST_METHOD(AWorkingOrderDrawsNoDestinationBecauseItIsStandingOnIt)
+  {
+    /*
+     * A group that has spent its last leg and is still running is *at* the
+     * place its footprint promised, so ringing it and ticking one station per
+     * ship promises an arrival that has already happened -- the same defect as
+     * a ghost retired late, one state further along.
+     *
+     * The lane pass draws `MINING - 4M 12S` at the fleet instead; see
+     * `LaneWorkingTests`.
+     */
+    OrderGhostList ghosts;
+    Assert::IsTrue(ghosts.Add(Intent(1), MiningPreview(4), XMFLOAT2{0.0f, 0.0f}, 10.0));
+    ghosts.OnVerdict(Accept(1, 77), 10.0);
+    ghosts.OnFeedback(Workingfeedback(1, 77, 1, 252.0f), 11.0);
+
+    const OrderGhost* ghost = FindGhost(ghosts, 1);
+    Assert::IsNotNull(ghost);
+    Assert::IsTrue(ghost->Working(), L"under way, no leg left, and the game named the state");
+
+    OverlayMarkList marks;
+    const OverlayTuning tuning;
+    BuildGhostMarks(ghosts.Ghosts(), tuning, 1.0f, 12.0, marks);
+    Assert::AreEqual<std::size_t>(0, marks.marks.size(), L"no footprint, no ticks: the fleet is already there");
+
+    // And the promise itself survives. Dropping the ghost would take the ETA
+    // with it, which is the one number the player is watching.
+    Assert::AreEqual<std::size_t>(1, ghosts.Ghosts().size());
+  }
+
+  TEST_METHOD(ATravellingMineOrderStillDrawsWhereItIsGoing)
+  {
+    /*
+     * The other side of the same branch, and the reason it is not simply "Mine
+     * orders draw nothing": a Mine has a real leg to the cluster the authority
+     * chose, and the fleet flying it wants its footprint exactly as a Move
+     * does. Only the arrival changes what is drawn.
+     */
+    OrderGhostList ghosts;
+    Assert::IsTrue(ghosts.Add(Intent(1), MiningPreview(4), XMFLOAT2{0.0f, 0.0f}, 10.0));
+    ghosts.OnVerdict(Accept(1, 77), 10.0);
+    ghosts.OnFeedback(Running(1, 77, 1), 11.0);
+
+    const OrderGhost* ghost = FindGhost(ghosts, 1);
+    Assert::IsNotNull(ghost);
+    Assert::IsFalse(ghost->Working(), L"a leg is still to fly");
+
+    OverlayMarkList marks;
+    const OverlayTuning tuning;
+    BuildGhostMarks(ghosts.Ghosts(), tuning, 1.0f, 12.0, marks);
+    Assert::AreEqual<std::size_t>(5, marks.marks.size(), L"one footprint and four ticks, like any order");
+  }
+
+  TEST_METHOD(NothingIsWorkingUntilTheAuthorityAndTheGameBothSayItIs)
+  {
+    /*
+     * Three conditions, and each removes a different way of being wrong.
+     *
+     * A **pending** ghost carries the authority's zeroed counts, so `0 >= 0`
+     * would read as "no leg left" on the very frame the order was given -- and
+     * the footprint the player is watching bounce would vanish instead.
+     *
+     * A ghost whose game wrote **no working word** has run out of legs because
+     * it is finishing, not because it is doing something. That distinction is a
+     * game rule, which is why it arrives as a word rather than as arithmetic
+     * the engine could have done itself.
+     */
+    OrderGhostList pending;
+    Assert::IsTrue(pending.Add(Intent(1), MiningPreview(4), XMFLOAT2{0.0f, 0.0f}, 10.0));
+    Assert::IsFalse(pending.Ghosts()[0].Working(), L"the authority has not answered yet");
+
+    OrderGhostList travelling;
+    Assert::IsTrue(travelling.Add(Intent(2), Preview(4), XMFLOAT2{0.0f, 0.0f}, 10.0));
+    travelling.OnVerdict(Accept(2, 78), 10.0);
+    travelling.OnFeedback(Workingfeedback(2, 78, 2, 252.0f), 11.0);
+    Assert::IsFalse(travelling.Ghosts()[0].Working(), L"the game named no state, so this one is simply finishing");
   }
 
   TEST_METHOD(AGhostIsAFootprintAndOneTickPerShip)

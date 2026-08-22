@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0a0b09;font-family:'Share Tech Mono',ui-monospace,monospace}
+a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
+@keyframes pulse{0%,100%{opacity:.9}50%{opacity:.35}}
+@keyframes crawl{to{background-position:24px 0}}
+</style></helmet>
+
+<div data-screen-label="Strategic Map" style="width:1440px;background:#050705;padding:44px 48px 56px;color:#7cff3e;position:relative">
+<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.03) 0 1px,transparent 1px 3px);pointer-events:none"></div>
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(124,255,62,.3);padding-bottom:16px;margin-bottom:12px">
+  <div>
+    <div style="font-size:26px;color:#c9ff9e;letter-spacing:.08em">STRATEGIC MAP</div>
+    <div style="font-size:12.5px;color:#5d7a57;letter-spacing:.06em;margin-top:6px">07 §4.2 — hierarchy, sovereignty and intel overlays, history scrubber, route planner, site layer (ADR-024)</div>
+  </div>
+  <div style="text-align:right;font-size:11.5px;color:#4e6a49;line-height:1.8">
+    <div>SOURCE · 03 §9.6 · 04 §7.4 · 02 §8.1 · 02 §8.3 · 08 F13/F15 · ADR-024</div>
+    <div>OVERLAY · {{ layerName }}</div>
+  </div>
+</div>
+
+<p style="font-size:13px;color:#7d8c79;line-height:1.75;max-width:1010px;margin:0 0 20px;text-wrap:pretty">
+  The 4X surface, and the only screen that shows the world rather than a fight. Three decided answers shape it more than any
+  aesthetic choice: <span style="color:#7cff3e">F15</span> — the client holds a <em style="color:#c9ff9e;font-style:normal">complete</em>
+  universe copy, so the route planner works everywhere on day one and the map never has to render an unknown;
+  <span style="color:#7cff3e">F13</span> — launch is ~300 systems across ~6 regions, not 1,200 across 24, so a whole region fits on
+  one screen without merging; and the <span style="color:#7cff3e">three-level hierarchy</span> where constellation is
+  <em style="color:#c9ff9e;font-style:normal">UI grouping carrying no mechanics</em> — which makes it a layout and labelling device
+  here, never a thing you can own or fight over.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:22px 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§1</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE SCREEN</span>
+  <span style="font-size:12px;color:#5d7a57">region view · sovereignty overlay · route planned · scrubber parked at now · authored 1440×900</span>
+</div>
+<div data-plate="strategic-map" style="position:relative;width:1344px;height:840px;overflow:hidden;border:1px solid rgba(124,255,62,.22);background:#000;margin-bottom:14px">
+<div style="width:1440px;height:900px;transform:scale(.9333);transform-origin:top left;position:relative;background:#000">
+  <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 46% 44%,#0b1210 0%,#000 74%)"></div>
+  <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.035) 0 1px,transparent 1px 3px)"></div>
+
+  <div style="position:absolute;left:0;right:0;top:0;height:46px;display:flex;align-items:center;gap:18px;padding:0 18px;border-bottom:1px solid rgba(124,255,62,.26);background:rgba(4,8,5,.92);font-size:15px;letter-spacing:.06em">
+    <span style="color:#5d7a57">◀ TACTICAL</span>
+    <span style="color:#3d5a37">|</span>
+    <span style="color:#c9ff9e">KESTREL REACH</span>
+    <span style="color:#4e6a49;font-size:13px">REGION · 7 CONSTELLATIONS · 48 SYSTEMS</span>
+    <span style="border:1px solid rgba(124,255,62,.4);color:#7cff3e;padding:2px 9px;font-size:13px">FRONTIER</span>
+    <span style="flex:1"></span>
+    <span style="color:#5d7a57;font-size:13px">SEARCH ⌕</span>
+    <span style="border:1px solid rgba(124,255,62,.3);padding:2px 9px;font-size:13px;color:#7cff3e">▥ MENU</span>
+  </div>
+
+  <div style="position:absolute;left:0;top:46px;bottom:120px;width:240px;border-right:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86);padding:14px 12px;display:flex;flex-direction:column;gap:16px">
+    <div>
+      <div style="font-size:12px;color:#4e6a49;letter-spacing:.14em;margin-bottom:9px">OVERLAY</div>
+      <sc-for list="{{ layers }}" as="l" hint-placeholder-count="4">
+        <div style="{{ l.st }}">
+          <span style="{{ l.dotSt }}"></span>
+          <span style="flex:1;font-size:14px;letter-spacing:.04em">{{ l.name }}</span>
+          <span style="font-size:12px;color:#4e6a49">{{ l.key }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div>
+      <div style="font-size:12px;color:#4e6a49;letter-spacing:.14em;margin-bottom:9px">SOVEREIGNTY</div>
+      <sc-for list="{{ legend }}" as="g" hint-placeholder-count="4">
+        <div style="display:flex;align-items:center;gap:9px;padding:5px 6px">
+          <span style="{{ g.swatchSt }}"></span>
+          <span style="flex:1;font-size:13px;color:#7d8c79">{{ g.name }}</span>
+          <span style="font-size:12px;color:#4e6a49">{{ g.count }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="margin-top:auto;border-top:1px solid rgba(124,255,62,.14);padding-top:12px">
+      <div style="font-size:12px;color:#4e6a49;letter-spacing:.14em;margin-bottom:8px">SHOW</div>
+      <div style="display:flex;flex-direction:column;gap:7px;font-size:13px;color:#7d8c79">
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:13px;height:13px;border:1px solid #7cff3e;background:rgba(124,255,62,.5)"></span>Gate links</div>
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:13px;height:13px;border:1px solid #7cff3e;background:rgba(124,255,62,.5)"></span>System names</div>
+        <div style="display:flex;align-items:center;gap:9px"><span style="width:13px;height:13px;border:1px solid rgba(124,255,62,.3)"></span>Constellation hulls</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="position:absolute;left:240px;right:280px;top:46px;bottom:120px;overflow:hidden">
+    <sc-for list="{{ heat }}" as="h" hint-placeholder-count="6"><div style="{{ h.st }}"></div></sc-for>
+    <sc-for list="{{ hulls }}" as="c" hint-placeholder-count="7"><div style="{{ c.st }}"></div></sc-for>
+    <sc-for list="{{ edges }}" as="e" hint-placeholder-count="60"><div style="{{ e.st }}"></div></sc-for>
+    <sc-for list="{{ routeEdges }}" as="e" hint-placeholder-count="6"><div style="{{ e.st }}"></div></sc-for>
+    <sc-for list="{{ systems }}" as="s" hint-placeholder-count="48"><div style="{{ s.st }}"></div></sc-for>
+    <sc-for list="{{ sysLabels }}" as="s" hint-placeholder-count="10"><div style="{{ s.st }}">{{ s.name }}</div></sc-for>
+    <sc-for list="{{ conLabels }}" as="c" hint-placeholder-count="7"><div style="{{ c.st }}">{{ c.name }}</div></sc-for>
+    <sc-for list="{{ pings }}" as="p" hint-placeholder-count="3"><div style="{{ p.st }}"></div></sc-for>
+
+    <div style="position:absolute;right:14px;top:14px;border:1px solid rgba(124,255,62,.22);background:rgba(4,8,5,.9);padding:9px 12px;font-size:12px;color:#7cff3e;line-height:1.8;letter-spacing:.05em">
+      REGION · KESTREL REACH
+      <div style="color:#4e6a49">pinch in ▸ CONSTELLATION ▸ SYSTEM</div>
+    </div>
+    <div style="position:absolute;left:14px;bottom:14px;font-size:12px;color:#3d5a37;letter-spacing:.08em">48 SYSTEMS · 61 GATE LINKS · COMPLETE DEFINITION (F15)</div>
+  </div>
+
+  <div style="position:absolute;right:0;top:46px;bottom:120px;width:280px;border-left:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86);padding:14px 14px;display:flex;flex-direction:column;gap:14px">
+    <div>
+      <div style="font-size:12px;color:#4e6a49;letter-spacing:.14em">SELECTED SYSTEM</div>
+      <div style="font-size:24px;color:#c9ff9e;letter-spacing:.06em;margin-top:8px">TALIS-7</div>
+      <div style="display:flex;align-items:center;gap:9px;margin-top:8px">
+        <span style="border:1px solid rgba(255,90,74,.5);color:#ff5a4a;font-size:12px;padding:2px 8px;white-space:nowrap">SEC 0.2</span>
+        <span style="font-size:12px;color:#5d7a57">VEIL CONSTELLATION</span>
+      </div>
+    </div>
+    <div style="border-top:1px solid rgba(124,255,62,.14);padding-top:12px;font-size:13px;color:#7d8c79;line-height:2">
+      <div style="display:flex;justify-content:space-between"><span style="color:#5d7a57">SOVEREIGNTY</span><span style="color:#ff5a4a">KESTREL PACT</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:#5d7a57">HELD SINCE</span><span>41 days</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:#5d7a57">VULNERABLE</span><span style="color:#ffb000">19:00–21:00</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:#5d7a57">STATIONS</span><span>2</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:#5d7a57">GATES</span><span>4</span></div>
+    </div>
+    <div style="border-top:1px solid rgba(124,255,62,.14);padding-top:12px">
+      <div style="font-size:12px;color:#4e6a49;letter-spacing:.14em;margin-bottom:9px">ROUTE — {{ routeJumps }} JUMPS</div>
+      <sc-for list="{{ routeLegs }}" as="r" hint-placeholder-count="6">
+        <div style="display:flex;align-items:center;gap:9px;padding:5px 0;font-size:13px">
+          <span style="{{ r.dotSt }}"></span>
+          <span style="flex:1;color:#c9ff9e">{{ r.name }}</span>
+          <span style="{{ r.secSt }}">{{ r.sec }}</span>
+        </div>
+      </sc-for>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#5d7a57;margin-top:9px;padding-top:9px;border-top:1px solid rgba(124,255,62,.1)">
+        <span>SAFEST · +2 JUMPS</span><span style="color:#ffb000">ETA 4m 10s</span>
+      </div>
+    </div>
+    <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px">
+      <div style="height:52px;border:1px solid #7cff3e;background:rgba(124,255,62,.16);display:flex;align-items:center;justify-content:center;font-size:16px;color:#c9ff9e;letter-spacing:.08em">SET DESTINATION</div>
+      <div style="height:46px;border:1px solid rgba(124,255,62,.3);display:flex;align-items:center;justify-content:center;font-size:14px;color:#7cff3e;letter-spacing:.06em">ADD WAYPOINT</div>
+    </div>
+  </div>
+
+  <div style="position:absolute;left:0;right:0;bottom:0;height:120px;border-top:1px solid rgba(124,255,62,.26);background:rgba(4,8,5,.94);padding:12px 18px;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;align-items:center;gap:14px;font-size:13px;letter-spacing:.06em">
+      <span style="color:#c9ff9e">HISTORY</span>
+      <span style="color:#5d7a57">04 §7.4 STRATEGIC STREAM</span>
+      <span style="flex:1"></span>
+      <sc-for list="{{ spans }}" as="s" hint-placeholder-count="5"><span style="{{ s.st }}">{{ s.name }}</span></sc-for>
+    </div>
+    <div style="position:relative;height:44px;border:1px solid rgba(124,255,62,.18);background:rgba(6,12,6,.7)">
+      <sc-for list="{{ activity }}" as="a" hint-placeholder-count="60"><div style="{{ a.st }}"></div></sc-for>
+      <sc-for list="{{ marks }}" as="m" hint-placeholder-count="4"><div style="{{ m.st }}"></div></sc-for>
+      <div style="position:absolute;left:78%;top:-4px;bottom:-4px;width:2px;background:#c9ff9e;box-shadow:0 0 10px rgba(124,255,62,.8)"></div>
+      <div style="position:absolute;left:78%;top:-22px;transform:translateX(-50%);font-size:11px;color:#c9ff9e;white-space:nowrap">14 DAYS AGO</div>
+      <div style="position:absolute;right:0;top:0;bottom:0;width:1px;background:rgba(124,255,62,.5)"></div>
+      <div style="position:absolute;right:6px;top:-22px;font-size:11px;color:#5d7a57">NOW</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;font-size:12px;color:#5d7a57;letter-spacing:.05em">
+      <span style="color:#c9ff9e">▶ PLAY</span>
+      <span>◀◀ ▶▶</span>
+      <span style="color:#3d5a37">|</span>
+      <span>Sovereignty flipped 3× in this window</span>
+      <span style="flex:1"></span>
+      <span style="color:#ffb000">⚑ VEIL CAMPAIGN · DAY 12 OF 19</span>
+    </div>
+  </div>
+</div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1010px;margin:0 0 36px">
+  <span style="color:#c9ff9e">The scrubber is not a chrome afterthought — it is the screen's second axis.</span> 04 §7.4 calls the
+  strategic stream "the 4X layer's memory: wars leave visible scars," so time gets the same standing as space: a permanent bottom rail
+  rather than a mode you enter. Dragging the playhead re-renders sovereignty and heat at that moment; every other panel follows.
+  <span style="color:#ffb000">Parked at NOW it must be visually inert</span>, or a live map looks like a replay.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§2</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">OVERLAYS ARE EXCLUSIVE</span>
+  <span style="font-size:12px;color:#5d7a57">one at a time — five answers to five different questions</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:14px">
+  <sc-for list="{{ modes }}" as="m" hint-placeholder-count="4">
+    <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px;min-width:0">
+      <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:5px">
+        <span style="{{ m.tagSt }}">{{ m.tag }}</span>
+        <span style="font-size:13px;color:#c9ff9e;letter-spacing:.05em">{{ m.title }}</span>
+      </div>
+      <div style="font-size:11px;color:#4e6a49;margin-bottom:12px">{{ m.q }}</div>
+      <div style="position:relative;height:132px;border:1px solid rgba(124,255,62,.12);background:#000;overflow:hidden">
+        <sc-for list="{{ m.marks }}" as="k" hint-placeholder-count="20"><div style="{{ k.st }}"></div></sc-for>
+      </div>
+      <div style="font-size:11.5px;color:#7d8c79;line-height:1.65;margin-top:11px;min-height:92px">{{ m.body }}</div>
+    </div>
+  </sc-for>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1010px;margin:0 0 36px">
+  Stacking them was the obvious move and it is wrong. Sovereignty is a <em style="color:#7d8c79;font-style:normal">categorical</em>
+  fill, activity is a <em style="color:#7d8c79;font-style:normal">continuous</em> one, and superimposing them makes a contested
+  high-traffic system indistinguishable from a quiet one under a different owner — the two facts a commander most needs to separate.
+  One overlay at a time, switched by a key or a tap, keeps every colour on the screen answering exactly one question.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§3</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE ROUTE PLANNER'S PROBLEM</span>
+  <span style="font-size:12px;color:#5d7a57">R3's finding, in the one screen where it bites</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:36px">
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:12px">A 14-JUMP ROUTE INTO A 4-SLOT QUEUE</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>03 §9.6 promises a route planner and 03 §9.3 promises waypoint chains with per-leg ETAs. But 02 §5.1's
+      <span style="color:#7cff3e">OrderQueue</span> holds <span style="color:#c9ff9e">four slots</span>. A fourteen-jump route has nowhere to live.</div>
+      <div style="margin-top:10px">Three ways out, and they are not equivalent: widen the queue (touches the hot replication path and 02 §3.3's capacity maths);
+      make a route a <span style="color:#c9ff9e">single order</span> the server expands; or keep the route
+      <span style="color:#c9ff9e">client-side</span> and feed the queue one jump at a time.</div>
+      <div style="margin-top:10px;color:#ffb000"><span style="color:#c9ff9e">Decided: the third</span> — the map plans, the client feeds. No schema change, no server work. The consequence is accepted rather than hidden: a disconnected player stops at the next gate, so 02 §8's AI commander inherits a fleet mid-route with no further waypoints, and 07e's reconnect screen must say so — "held at TAL-4, 9 jumps remaining" is the difference between a bug and a rule.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:12px">WHAT THE PLANNER OFFERS</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#7cff3e">Three routes, always</span> — fastest, safest, and the one avoiding hostile sovereignty. Presenting one route hides the only interesting decision on the screen.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">Per-leg security</span>, not a route average. A single 0.1 system in an otherwise safe chain is the whole risk, and an average erases it.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">Avoid-list is persistent</span> and survives re-planning — a system you refuse to fly today you refuse next week.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">F15 makes this honest</span>: with a complete universe copy the planner never shows a route through space the client has not seen, so there is no "unknown" state to design.</div>
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§4</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">OPEN</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:12px">NEEDS A DECISION</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#ffb000">Scrubber depth.</span> R5's cut list puts the history stream in tier 4 at 0.75–1.25 ey. If it is cut, this rail goes and the screen loses its second axis — worth knowing before it is built, not after. <span style="color:#4e6a49">The only thing still open on this screen.</span></div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,176,0,.2);color:#7cff3e;letter-spacing:.06em;font-size:12.5px">DECIDED 2026-08-08</div>
+      <div style="margin-top:9px">✅ <span style="color:#c9ff9e">Route execution is client-side</span> — see left.</div>
+      <div style="margin-top:9px">✅ <span style="color:#c9ff9e">Intel pings carry timestamp and reporter identity.</span> Anonymous intel an ally can inject is a griefing surface with no counter-play; attribution is what makes a false report cost the reporter something.</div>
+      <div style="margin-top:9px">✅ <span style="color:#c9ff9e">Portrait-capable</span>, alongside the market and the session surfaces.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:12px">DEPENDS ON CONTENT THAT DOES NOT EXIST</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#7cff3e">Constellation layout is a legibility problem, not a physics one</span> — the universe proposal says content may lay systems out for legibility. This map assumes clustered constellations with clear gaps; if the bake produces even scatter, the hulls and labels here stop working.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">System naming</span> is <span style="color:#7cff3e">root-index</span>, so labels are short and dense by construction — the map is designed against that, and a switch to long proper names would need a different label strategy.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">Two security values</span> (region band, per-system number) both appear here and must stay distinguishable: the band is a badge, the number is per-system.</div>
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:44px 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§5</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE SITE LAYER</span>
+  <span style="font-size:12px;color:#5d7a57">ADR-024's sites on the 4X surface · fifth overlay · added 2026-08-21</span>
+</div>
+<p style="font-size:13px;color:#7d8c79;line-height:1.75;max-width:1010px;margin:0 0 20px;text-wrap:pretty">
+  ADR-024 gave every system 2–3 mining sites and split their truth in two: <span style="color:#7cff3e">archetype and grade are
+  bake content</span> — public and stable, showable to everyone exactly like security — while the
+  <span style="color:#7cff3e">remaining pool is presence-gated</span>: you know how eaten a field is only because a ship of yours
+  stood in it this epoch (§3d: "seeing without presence is intel's territory"). The layer draws that split instead of papering
+  over it, and the daily epoch — pools refill, bearings rotate, layouts reshuffle — is the expiry rule for everything the player
+  once knew.
+</p>
+
+<div data-plate="strategic-map-sites" style="position:relative;width:1344px;height:840px;overflow:hidden;border:1px solid rgba(124,255,62,.22);background:#000;margin-bottom:14px">
+<div style="width:1440px;height:900px;transform:scale(.9333);transform-origin:top left;position:relative;background:#000">
+  <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 46% 44%,#0b1210 0%,#000 74%)"></div>
+  <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.035) 0 1px,transparent 1px 3px)"></div>
+
+  <div style="position:absolute;left:0;right:0;top:0;height:46px;display:flex;align-items:center;gap:18px;padding:0 18px;border-bottom:1px solid rgba(124,255,62,.26);background:rgba(4,8,5,.92);font-size:15px;letter-spacing:.06em">
+    <span style="color:#5d7a57">◀ TACTICAL</span>
+    <span style="color:#3d5a37">|</span>
+    <span style="color:#c9ff9e">KESTREL REACH</span>
+    <span style="color:#4e6a49;font-size:13px">REGION · 7 CONSTELLATIONS · 48 SYSTEMS</span>
+    <span style="border:1px solid rgba(124,255,62,.4);color:#7cff3e;padding:2px 9px;font-size:13px">FRONTIER</span>
+    <span style="flex:1"></span>
+    <span style="color:#5d7a57;font-size:13px">SEARCH ⌕</span>
+    <span style="border:1px solid rgba(124,255,62,.3);padding:2px 9px;font-size:13px;color:#7cff3e">▥ MENU</span>
+  </div>
+
+  <div style="position:absolute;left:0;top:46px;bottom:120px;width:240px;border-right:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86);padding:14px 12px;display:flex;flex-direction:column;gap:16px">
+    <div>
+      <div style="font-size:12px;color:#4e6a49;letter-spacing:.14em;margin-bottom:9px">OVERLAY</div>
+      <sc-for list="{{ layersRes }}" as="l" hint-placeholder-count="5">
+        <div style="{{ l.st }}">
+          <span style="{{ l.dotSt }}"></span>
+          <span style="flex:1;font-size:14px;letter-spacing:.04em">{{ l.name }}</span>
+          <span style="font-size:12px;color:#4e6a49">{{ l.key }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div>
+      <div style="font-size:12px;color:#4e6a49;letter-spacing:.14em;margin-bottom:9px">SITE KEY</div>
+      <div style="display:flex;flex-direction:column;gap:9px;font-size:12.5px;color:#7d8c79">
+        <div style="display:flex;align-items:center;gap:11px"><span style="width:9px;height:9px;transform:rotate(45deg);background:#7cff3e"></span>Ferrous Field — FC</div>
+        <div style="display:flex;align-items:center;gap:11px"><span style="width:9px;height:9px;transform:rotate(45deg);border:1px solid #7cff3e;display:flex;align-items:center;justify-content:center"><span style="width:3px;height:3px;background:#7cff3e"></span></span>Irradiated Belt — AC</div>
+        <div style="display:flex;align-items:center;gap:11px"><span style="width:9px;height:9px;transform:rotate(45deg);border:1px dashed #7cff3e"></span>Nebula Pocket — NB</div>
+      </div>
+      <div style="font-size:10.5px;color:#4e6a49;margin-top:9px;line-height:1.6">Geometry at ≥20 px (07b floor). Region zoom: count + brightness only. Ore hue joins with D-C1.</div>
+    </div>
+    <div>
+      <div style="font-size:12px;color:#4e6a49;letter-spacing:.14em;margin-bottom:9px">GRADE</div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:11px;color:#5d7a57">I</span>
+        <span style="width:8px;height:8px;transform:rotate(45deg);background:rgba(124,255,62,.44)"></span>
+        <span style="width:8px;height:8px;transform:rotate(45deg);background:rgba(124,255,62,.58)"></span>
+        <span style="width:8px;height:8px;transform:rotate(45deg);background:rgba(124,255,62,.72)"></span>
+        <span style="width:8px;height:8px;transform:rotate(45deg);background:rgba(124,255,62,.86)"></span>
+        <span style="width:8px;height:8px;transform:rotate(45deg);background:#7cff3e"></span>
+        <span style="font-size:11px;color:#5d7a57">V</span>
+      </div>
+    </div>
+    <div style="margin-top:auto;border-top:1px solid rgba(124,255,62,.14);padding-top:12px;font-size:11px;color:#4e6a49;line-height:1.7">
+      POOL — your ships' receipts, this epoch only. No presence, no number.
+    </div>
+  </div>
+
+  <div style="position:absolute;left:240px;right:280px;top:46px;bottom:120px;overflow:hidden">
+    <sc-for list="{{ prizeGlows }}" as="g" hint-placeholder-count="6"><div style="{{ g.st }}"></div></sc-for>
+    <sc-for list="{{ resHulls }}" as="c" hint-placeholder-count="7"><div style="{{ c.st }}"></div></sc-for>
+    <sc-for list="{{ edges }}" as="e" hint-placeholder-count="60"><div style="{{ e.st }}"></div></sc-for>
+    <sc-for list="{{ resSystems }}" as="s" hint-placeholder-count="48"><div style="{{ s.st }}"></div></sc-for>
+    <sc-for list="{{ sitePips }}" as="p" hint-placeholder-count="110"><div style="{{ p.st }}"></div></sc-for>
+    <sc-for list="{{ sysLabels }}" as="s" hint-placeholder-count="10"><div style="{{ s.st }}">{{ s.name }}</div></sc-for>
+    <sc-for list="{{ conLabelsRes }}" as="c" hint-placeholder-count="7"><div style="{{ c.st }}">{{ c.name }}</div></sc-for>
+
+    <div style="position:absolute;right:14px;top:14px;border:1px solid rgba(124,255,62,.22);background:rgba(4,8,5,.9);padding:9px 12px;font-size:12px;color:#7cff3e;line-height:1.8;letter-spacing:.05em">
+      RESOURCES · BAKE + YOUR PRESENCE
+      <div style="color:#4e6a49">pool data expires with the epoch</div>
+    </div>
+    <div style="position:absolute;left:14px;bottom:14px;font-size:12px;color:#3d5a37;letter-spacing:.08em">118 SITES · ARCHETYPE + GRADE PUBLIC (BAKE) · POOLS PRESENCE-GATED (ADR-024 §3d)</div>
+  </div>
+
+  <div style="position:absolute;right:0;top:46px;bottom:120px;width:280px;border-left:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86);padding:14px 14px;display:flex;flex-direction:column;gap:12px">
+    <div>
+      <div style="font-size:12px;color:#4e6a49;letter-spacing:.14em">SELECTED SYSTEM</div>
+      <div style="font-size:24px;color:#c9ff9e;letter-spacing:.06em;margin-top:8px">TALIS-7</div>
+      <div style="display:flex;align-items:center;gap:9px;margin-top:8px">
+        <span style="border:1px solid rgba(255,90,74,.5);color:#ff5a4a;font-size:12px;padding:2px 8px;white-space:nowrap">SEC 0.2</span>
+        <span style="font-size:12px;color:#5d7a57">VEIL CONSTELLATION</span>
+      </div>
+    </div>
+    <div style="border-top:1px solid rgba(124,255,62,.14);padding-top:12px;flex:1;min-height:0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+        <span style="font-size:12px;color:#4e6a49;letter-spacing:.14em">SITES — 3</span>
+        <span style="font-size:11px;color:#7cff3e">NULL TRIPLE · PRIZE</span>
+      </div>
+      <div style="border:1px solid rgba(124,255,62,.18);background:rgba(6,12,6,.55);padding:9px 10px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <span style="font-size:13px;color:#c9ff9e">IRRADIATED BELT</span>
+          <span style="font-size:12px;color:#7cff3e">GRADE IV</span>
+        </div>
+        <div style="font-size:11px;color:#5d7a57;margin-top:3px">RADIATION ×2.0 · ASTRACITE-RICH</div>
+        <div style="height:4px;background:#16220f;margin-top:8px"><div style="width:41%;height:4px;background:#7cff3e"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:10.5px;margin-top:5px">
+          <span style="color:#7d8c79">POOL 41% · SEEN 3H AGO · TK-9</span>
+          <span style="color:#4e6a49">EPOCH ≥ 07:41</span>
+        </div>
+      </div>
+      <div style="border:1px solid rgba(124,255,62,.18);background:rgba(6,12,6,.55);padding:9px 10px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <span style="font-size:13px;color:#c9ff9e">NEBULA POCKET</span>
+          <span style="font-size:12px;color:#7cff3e">GRADE V</span>
+        </div>
+        <div style="font-size:11px;color:#5d7a57;margin-top:3px">SENSOR ×0.2 · HEAT · NEBULITE-RICH</div>
+        <div style="font-size:11px;color:#8fa08b;margin-top:8px">◌ NO PRESENCE THIS EPOCH — POOL UNKNOWN</div>
+        <div style="display:flex;justify-content:flex-end;font-size:10.5px;margin-top:5px">
+          <span style="color:#4e6a49">EPOCH ≥ 16:05</span>
+        </div>
+      </div>
+      <div style="border:1px solid rgba(124,255,62,.18);background:rgba(6,12,6,.55);padding:9px 10px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline">
+          <span style="font-size:13px;color:#c9ff9e">FERROUS FIELD</span>
+          <span style="font-size:12px;color:#7cff3e">GRADE III</span>
+        </div>
+        <div style="font-size:11px;color:#5d7a57;margin-top:3px">NO HAZARD · FERRO-CHROMA-RICH</div>
+        <div style="font-size:11px;color:#ffb000;margin-top:8px">RE-FORMED SINCE SCOUTED — DATA DROPPED</div>
+        <div style="display:flex;justify-content:flex-end;font-size:10.5px;margin-top:5px">
+          <span style="color:#4e6a49;white-space:nowrap">RE-FORMED 02:12 AGO</span>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="height:52px;border:1px solid #7cff3e;background:rgba(124,255,62,.16);display:flex;align-items:center;justify-content:center;font-size:16px;color:#c9ff9e;letter-spacing:.08em">SET DESTINATION</div>
+    </div>
+  </div>
+
+  <div style="position:absolute;left:0;right:0;bottom:0;height:120px;border-top:1px solid rgba(124,255,62,.26);background:rgba(4,8,5,.94);padding:12px 18px;display:flex;flex-direction:column;gap:10px">
+    <div style="display:flex;align-items:center;gap:14px;font-size:13px;letter-spacing:.06em">
+      <span style="color:#c9ff9e">HISTORY</span>
+      <span style="color:#5d7a57">04 §7.4 STRATEGIC STREAM</span>
+      <span style="flex:1"></span>
+      <sc-for list="{{ spans }}" as="s" hint-placeholder-count="5"><span style="{{ s.st }}">{{ s.name }}</span></sc-for>
+    </div>
+    <div style="position:relative;height:44px;border:1px solid rgba(124,255,62,.18);background:rgba(6,12,6,.7)">
+      <sc-for list="{{ activity }}" as="a" hint-placeholder-count="60"><div style="{{ a.st }}"></div></sc-for>
+      <div style="position:absolute;right:0;top:-4px;bottom:-4px;width:2px;background:#c9ff9e;box-shadow:0 0 10px rgba(124,255,62,.8)"></div>
+      <div style="position:absolute;right:6px;top:-22px;font-size:11px;color:#c9ff9e">NOW</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;font-size:12px;color:#5d7a57;letter-spacing:.05em">
+      <span>▶ PLAY</span>
+      <span>◀◀ ▶▶</span>
+      <span style="color:#3d5a37">|</span>
+      <span>Parked at NOW — the resource layer has no history to scrub: pools are receipts, not a stream</span>
+    </div>
+  </div>
+</div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1010px;margin:0 0 36px">
+  <span style="color:#c9ff9e">Unknown is not full.</span> A system with no pool data draws no depletion state and the panel says
+  so — the map never guesses a ledger (the CARGO tab's ◌ rule, applied to geology). And when a site's epoch turns, yesterday's
+  number is <span style="color:#ffb000">dropped rather than greyed</span>: a re-formed field contains none of the ore the stale
+  reading described, and a map that kept it would be drawing yesterday's rocks.
+</p>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:12px">TWO TRUTHS, TWO TREATMENTS</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">Archetype and grade render for all 48 systems from the client's complete bake copy — F15 again: no unknown state to design. The pool renders only from your own <span style="color:#7cff3e">SiteStatus</span> receipts, per epoch, and is dropped — not greyed — at re-form. A dropped number beats a wrong one, and the split teaches the intel game: anyone can see where the grade-V pocket is; knowing how much is <em style="color:#c9ff9e;font-style:normal">left</em> costs a ship standing in it.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:12px">GEOMETRY NOW, HUE WITH D-C1</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">One phosphor family carries the layer: grade is brightness, archetype is diamond geometry — filled, centre-dot, dashed — appearing only at ≥20 px per 07b's legibility floor. Region zoom shows count and brightness alone, because a 6 px pip cannot honestly say which ore it is. When D-C1 authors the ore hues they join the pips without a redesign — and colour was never the only signal, so the colour-vision palettes inherit the layer for free.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:12px">THE MAP SELLS THE SYSTEM, NEVER THE SPOT</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">A site's bearing is the epoch's to derive and rotates daily (§3d) — drawing it here would promise a warp-in the next epoch moves. The layer marks <em style="color:#c9ff9e;font-style:normal">presence-in-system</em> only; the system view owns today's position. Countdowns read <span style="color:#7cff3e">EPOCH ≥</span> rather than a schedule: an occupied world holds its epoch (R27), so the clock is a floor, not a promise.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:12px">FIFTH OVERLAY, STILL EXCLUSIVE</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">A grade-V triple under hostile sovereignty is the most interesting object on this map precisely because it is two facts. §2's rule holds: ore is a magnitude, ownership a category, and stacked they hide each other — the miner's question and the fleet commander's question get one keypress between them, not one screen. Ownership mutes to dim chrome under this layer so nothing borrows the standings hues.</div>
+  </div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:12px">NEEDS A DECISION</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#ffb000">Whose presence counts?</span> v1 proposes your own ships only. Corp-shared scouting is intel design pulled forward — attribution, spoofing, staleness — and this screen already ruled intel pings carry reporter identity for exactly that reason.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Faded High-Sec pockets</span> (ruling 1b): tagged FADED in the panel as proposed, or their own pip state? The tag teaches the geography lesson only after a click.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Where the scouting journal persists</span> — device-local or account-side. The same question 07h left open for settings, now with gameplay stakes: a second tablet that forgot your scouting is a real loss.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:12px">GROUNDED — ZERO NEW WIRE</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#7cff3e">SiteStatus already carries it</span> — per-ore remaining, per-cluster fractions, the epoch, ~1 Hz to viewers of that grid. The journal is client-side memory of messages already sent.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">The epoch countdown is derived</span> from (anchorId, epochIndex) — the same pure function both halves already evaluate. Zero bytes.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">Archetype, grade, orbit ring are baked</span> — in the complete copy every client holds (F15). The layer's only new data is what the player's own ships saw.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1100},&quot;overlay&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Sovereignty&quot;,&quot;Activity heat&quot;,&quot;Intel pings&quot;,&quot;Security band&quot;,&quot;Resources&quot;],&quot;default&quot;:&quot;Sovereignty&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Map&quot;}}">
+class Component extends DCLogic {
+  rnd(seed) { let s = seed; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
+
+  buildUniverse() {
+    const r = this.rnd(1337);
+    const W = 920, H = 734;
+    // Seven constellations laid out with deliberate gaps — content lays systems out for
+    // legibility (universe proposal §3), so the map may assume clusters, not even scatter.
+    const cons = [
+      { name: 'VEIL', cx: .30, cy: .30, n: 8, owner: 'hostile' },
+      { name: 'KILN', cx: .60, cy: .20, n: 7, owner: 'own' },
+      { name: 'MARROW', cx: .82, cy: .40, n: 6, owner: 'own' },
+      { name: 'SPUR', cx: .17, cy: .64, n: 7, owner: 'unclaimed' },
+      { name: 'LANTERN', cx: .45, cy: .56, n: 8, owner: 'allied' },
+      { name: 'ANVIL', cx: .72, cy: .74, n: 6, owner: 'hostile' },
+      { name: 'DRIFT', cx: .30, cy: .88, n: 6, owner: 'unclaimed' }
+    ];
+    const systems = [], byCon = [];
+    cons.forEach((c, ci) => {
+      const group = [];
+      for (let i = 0; i < c.n; i++) {
+        const ang = r() * Math.PI * 2, rad = (0.25 + r() * 0.75) * 62;
+        const x = c.cx * W + Math.cos(ang) * rad, y = c.cy * H + Math.sin(ang) * rad * 0.85;
+        const hub = i === 0;
+        const owner = r() < 0.16 ? 'unclaimed' : c.owner;
+        const sec = c.owner === 'unclaimed' ? 0.1 + r() * 0.3 : 0.2 + r() * 0.7;
+        const s = {
+          x: Math.max(24, Math.min(W - 24, x)), y: Math.max(24, Math.min(H - 24, y)),
+          hub, owner, sec, con: ci, name: c.name.slice(0, 3) + '-' + (i + 1)
+        };
+        systems.push(s); group.push(systems.length - 1);
+      }
+      byCon.push(group);
+    });
+
+    // Gate graph: a chain within each constellation, plus one bridge to the next.
+    const edges = [];
+    byCon.forEach((g, ci) => {
+      for (let i = 1; i < g.length; i++) edges.push([g[i - 1], g[i]]);
+      for (let i = 2; i < g.length; i += 2) edges.push([g[0], g[i]]);
+      const next = byCon[(ci + 1) % byCon.length];
+      edges.push([g[g.length - 1], next[0]]);
+    });
+    return { W, H, cons, systems, byCon, edges };
+  }
+
+  // §5 — sites per system, deterministic like the bake's own rolls (ADR-024 §3c).
+  buildSites(U) {
+    const r = this.rnd(2024);
+    return U.systems.map(s => {
+      const b = s.sec >= 0.6 ? 'high' : s.sec >= 0.25 ? 'low' : 'null';
+      const three = b === 'null' ? r() < .7 : b === 'low' ? r() < .5 : r() < .3;
+      const sites = [];
+      for (let i = 0, n = three ? 3 : 2; i < n; i++) {
+        const roll = r();
+        const t = b === 'high' ? (i === 0 ? 0 : roll < .72 ? 0 : roll < .9 ? 1 : 2)
+          : b === 'low' ? (roll < .4 ? 0 : roll < .75 ? 1 : 2)
+          : (roll < .25 ? 0 : roll < .65 ? 1 : 2);
+        const g = b === 'high' ? 1 + (r() < .5 ? 1 : 0)
+          : b === 'low' ? 2 + Math.floor(r() * 3) : 3 + Math.floor(r() * 3);
+        sites.push({ t, g: Math.min(5, g) });
+      }
+      return sites;
+    });
+  }
+
+  line(x1, y1, x2, y2, style) {
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    return {
+      position: 'absolute', left: x1 + 'px', top: y1 + 'px', width: len + 'px', height: '0px',
+      transform: `rotate(${Math.atan2(dy, dx) * 180 / Math.PI}deg)`, transformOrigin: '0 0', ...style
+    };
+  }
+
+  renderVals() {
+    const OWN = '#7cff3e', ALLY = '#4de1ff', HOSTILE = '#ff5a4a', NONE = '#8fa08b';
+    const HOT = '#c9ff9e', AMB = '#ffb000';
+    const ownerColor = { own: OWN, allied: ALLY, hostile: HOSTILE, unclaimed: NONE };
+
+    const layerName = this.props.overlay ?? 'Sovereignty';
+    const U = this.buildUniverse();
+
+    const layerDefs = [
+      { name: 'SOVEREIGNTY', key: '1' }, { name: 'ACTIVITY HEAT', key: '2' },
+      { name: 'INTEL PINGS', key: '3' }, { name: 'SECURITY BAND', key: '4' },
+      { name: 'RESOURCES', key: '5' }
+    ];
+    const mkLayers = (isSel) => layerDefs.map(l => {
+      const sel = isSel(l);
+      return {
+        name: l.name, key: l.key,
+        st: {
+          display: 'flex', alignItems: 'center', gap: '9px', padding: '8px 8px', marginBottom: '4px',
+          border: sel ? '1px solid ' + OWN : '1px solid transparent',
+          background: sel ? 'rgba(124,255,62,.14)' : 'transparent',
+          color: sel ? HOT : '#5d7a57'
+        },
+        dotSt: {
+          width: '7px', height: '7px', borderRadius: '50%',
+          background: sel ? OWN : 'transparent', border: sel ? 'none' : '1px solid #3d5a37'
+        }
+      };
+    });
+    const layers = mkLayers(l => l.name.toLowerCase().startsWith(layerName.toLowerCase().slice(0, 4)));
+    const layersRes = mkLayers(l => l.name === 'RESOURCES');
+
+    const counts = { own: 0, allied: 0, hostile: 0, unclaimed: 0 };
+    U.systems.forEach(s => counts[s.owner]++);
+    const legend = [
+      { name: 'Vex Salvage (you)', k: 'own' }, { name: 'Lantern Compact', k: 'allied' },
+      { name: 'Kestrel Pact', k: 'hostile' }, { name: 'Unclaimed', k: 'unclaimed' }
+    ].map(g => ({
+      name: g.name, count: counts[g.k],
+      swatchSt: {
+        width: '13px', height: '13px', background: ownerColor[g.k] + '55',
+        border: '1px solid ' + ownerColor[g.k]
+      }
+    }));
+
+    const hulls = U.cons.map((c, ci) => {
+      const g = U.byCon[ci];
+      const xs = g.map(i => U.systems[i].x), ys = g.map(i => U.systems[i].y);
+      const pad = 26;
+      const x0 = Math.min(...xs) - pad, x1 = Math.max(...xs) + pad;
+      const y0 = Math.min(...ys) - pad, y1 = Math.max(...ys) + pad;
+      return { st: {
+        position: 'absolute', left: x0 + 'px', top: y0 + 'px',
+        width: (x1 - x0) + 'px', height: (y1 - y0) + 'px',
+        border: '1px solid ' + ownerColor[c.owner] + '2e',
+        background: ownerColor[c.owner] + '0d', borderRadius: '38%'
+      } };
+    });
+
+    const heat = U.cons.map((c, ci) => {
+      const g = U.byCon[ci];
+      const cx = g.reduce((a, i) => a + U.systems[i].x, 0) / g.length;
+      const cy = g.reduce((a, i) => a + U.systems[i].y, 0) / g.length;
+      const intensity = [0.9, 0.35, 0.2, 0.15, 0.55, 0.75, 0.1][ci];
+      const d = 190 + intensity * 130;
+      return { st: {
+        position: 'absolute', left: (cx - d / 2) + 'px', top: (cy - d / 2) + 'px',
+        width: d + 'px', height: d + 'px', borderRadius: '50%',
+        background: `radial-gradient(circle, rgba(255,176,0,${0.16 * intensity}) 0%, transparent 70%)`
+      } };
+    });
+
+    // Travel is gates-only, so the route must be a walk on the real gate graph — never a
+    // straight line between clusters. BFS from a Spur system to a Veil system.
+    const adj = U.systems.map(() => []);
+    U.edges.forEach(([a, b]) => { adj[a].push(b); adj[b].push(a); });
+    const bfs = (from, to) => {
+      const prev = new Map([[from, -1]]), q = [from];
+      while (q.length) {
+        const n = q.shift();
+        if (n === to) break;
+        for (const m of adj[n]) if (!prev.has(m)) { prev.set(m, n); q.push(m); }
+      }
+      if (!prev.has(to)) return [from];
+      const path = [];
+      for (let n = to; n !== -1; n = prev.get(n)) path.unshift(n);
+      return path;
+    };
+    const routeIdx = bfs(U.byCon[3][2], U.byCon[0][3]);
+    const routeJumps = Math.max(0, routeIdx.length - 1);
+
+    const edges = U.edges.map(([a, b]) => {
+      const s1 = U.systems[a], s2 = U.systems[b];
+      const cross = s1.con !== s2.con;
+      return { st: this.line(s1.x, s1.y, s2.x, s2.y, {
+        borderTop: (cross ? '1px dashed ' : '1px solid ') + 'rgba(124,255,62,' + (cross ? '.20' : '.30') + ')'
+      }) };
+    });
+
+    const routeEdges = [];
+    for (let i = 1; i < routeIdx.length; i++) {
+      const s1 = U.systems[routeIdx[i - 1]], s2 = U.systems[routeIdx[i]];
+      routeEdges.push({ st: this.line(s1.x, s1.y, s2.x, s2.y, {
+        borderTop: '2px solid ' + AMB, filter: 'drop-shadow(0 0 5px rgba(255,176,0,.6))'
+      }) });
+    }
+
+    const selected = routeIdx[routeIdx.length - 1];
+    const systems = U.systems.map((s, i) => {
+      const onRoute = routeIdx.includes(i);
+      const d = s.hub ? 13 : 8;
+      const col = ownerColor[s.owner];
+      return { st: {
+        position: 'absolute', left: (s.x - d / 2) + 'px', top: (s.y - d / 2) + 'px',
+        width: d + 'px', height: d + 'px', borderRadius: '50%',
+        background: col, boxShadow: i === selected
+          ? '0 0 0 3px rgba(0,0,0,.9), 0 0 0 5px ' + HOT + ', 0 0 18px ' + HOT
+          : onRoute ? '0 0 0 2px rgba(0,0,0,.9), 0 0 0 3.5px ' + AMB
+          : s.hub ? '0 0 12px ' + col + 'aa' : '0 0 6px ' + col + '77'
+      } };
+    });
+
+    // Labels are placed with collision avoidance: try right, then left, then above/below.
+    // Seeded positions can put two labelled systems within one label box of each other.
+    const LW = 34, LH = 13;
+    const placed = [];
+    const hits = (x, y) => placed.some(p => x < p.x + LW && x + LW > p.x && y < p.y + LH && y + LH > p.y);
+    const sysLabels = U.systems.filter(s => s.hub).concat(
+      routeIdx.map(i => U.systems[i]).filter(s => !s.hub)
+    ).map(s => {
+      const cands = [
+        [s.x + 11, s.y - 7], [s.x - LW - 9, s.y - 7],
+        [s.x - LW / 2, s.y - 20], [s.x - LW / 2, s.y + 10]
+      ];
+      const spot = cands.find(([x, y]) => !hits(x, y)) || cands[0];
+      placed.push({ x: spot[0], y: spot[1] });
+      return { name: s.name, st: {
+        position: 'absolute', left: spot[0] + 'px', top: spot[1] + 'px',
+        width: LW + 'px', fontSize: '11px', color: '#8fa08b',
+        letterSpacing: '.05em', whiteSpace: 'nowrap'
+      } };
+    });
+
+    const conLabels = U.cons.map((c, ci) => {
+      const g = U.byCon[ci];
+      const cx = g.reduce((a, i) => a + U.systems[i].x, 0) / g.length;
+      const ys = g.map(i => U.systems[i].y);
+      return { name: c.name, st: {
+        position: 'absolute', left: cx + 'px', top: (Math.min(...ys) - 40) + 'px',
+        transform: 'translateX(-50%)', fontSize: '12.5px', letterSpacing: '.18em',
+        color: ownerColor[c.owner] + 'cc', whiteSpace: 'nowrap'
+      } };
+    });
+
+    const pings = [U.byCon[0][2], U.byCon[5][1], U.byCon[4][4]].map((i, k) => {
+      const s = U.systems[i], d = 30 + k * 8;
+      return { st: {
+        position: 'absolute', left: (s.x - d / 2) + 'px', top: (s.y - d / 2) + 'px',
+        width: d + 'px', height: d + 'px', borderRadius: '50%',
+        border: '1px solid ' + HOSTILE, opacity: .6, animation: 'pulse 2s infinite'
+      } };
+    });
+
+    const routeLegs = routeIdx.map((i, k) => {
+      const s = U.systems[i];
+      const sec = s.sec.toFixed(1);
+      return {
+        name: s.name, sec,
+        dotSt: {
+          width: '7px', height: '7px', borderRadius: '50%',
+          background: k === routeIdx.length - 1 ? HOT : AMB
+        },
+        secSt: { color: +sec >= 0.5 ? OWN : HOSTILE, fontSize: '12px' }
+      };
+    });
+
+    const spanDefs = ['24H', '7D', '30D', '90D', 'ALL'];
+    const spans = spanDefs.map(s => ({
+      name: s,
+      st: {
+        fontSize: '12px', padding: '3px 9px', letterSpacing: '.06em',
+        border: '1px solid ' + (s === '30D' ? OWN : 'rgba(124,255,62,.18)'),
+        background: s === '30D' ? 'rgba(124,255,62,.14)' : 'transparent',
+        color: s === '30D' ? HOT : '#5d7a57'
+      }
+    }));
+
+    const ar = this.rnd(88), activity = [];
+    for (let i = 0; i < 60; i++) {
+      const t = i / 59;
+      const base = 0.18 + 0.5 * Math.pow(Math.sin(t * 3.1), 2) + ar() * 0.28;
+      const h = Math.min(1, base) * 100;
+      activity.push({ st: {
+        position: 'absolute', left: (i / 60 * 100) + '%', bottom: 0,
+        width: '1.2%', height: h + '%',
+        background: t > 0.78 ? 'rgba(124,255,62,.22)' : 'rgba(124,255,62,.4)'
+      } });
+    }
+
+    const markDefs = [
+      { at: 22, col: HOSTILE }, { at: 47, col: AMB }, { at: 63, col: HOSTILE }, { at: 71, col: OWN }
+    ];
+    const marks = markDefs.map(m => ({ st: {
+      position: 'absolute', left: m.at + '%', top: 0, bottom: 0, width: '2px',
+      background: m.col, opacity: .8
+    } }));
+
+    // Overlay comparison tiles — same eight systems, four questions.
+    const tileSpots = [[22, 28], [44, 18], [66, 34], [80, 62], [30, 58], [52, 46], [70, 78], [16, 76]];
+    const tileOwners = ['hostile', 'own', 'own', 'hostile', 'unclaimed', 'allied', 'hostile', 'unclaimed'];
+    const tileHeat = [0.95, 0.2, 0.35, 0.15, 0.55, 0.85, 0.7, 0.1];
+    const tileSec = [0.2, 0.8, 0.7, 0.3, 0.1, 0.9, 0.2, 0.4];
+
+    const dot = (x, y, d, bg, extra = {}) => ({ st: {
+      position: 'absolute', left: x + '%', top: y + '%', transform: 'translate(-50%,-50%)',
+      width: d + 'px', height: d + 'px', borderRadius: '50%', background: bg, ...extra
+    } });
+
+    const tileEdges = (colorFn) => {
+      const out = [];
+      const chain = [0, 1, 2, 3, 6, 4, 5, 7];
+      for (let i = 1; i < chain.length; i++) {
+        const a = tileSpots[chain[i - 1]], b = tileSpots[chain[i]];
+        const x1 = a[0] / 100 * 240, y1 = a[1] / 100 * 132;
+        const x2 = b[0] / 100 * 240, y2 = b[1] / 100 * 132;
+        out.push({ st: this.line(x1, y1, x2, y2, { borderTop: '1px solid rgba(124,255,62,.18)' }) });
+      }
+      return out;
+    };
+
+    const modes = [
+      {
+        tag: '1', title: 'SOVEREIGNTY', q: 'Whose space is this?',
+        tagSt: { fontSize: '9.5px', padding: '2px 7px', background: 'rgba(124,255,62,.18)', color: OWN, letterSpacing: '.1em' },
+        marks: tileEdges().concat(tileSpots.map((s, i) =>
+          dot(s[0], s[1], 11, ownerColor[tileOwners[i]], { boxShadow: '0 0 8px ' + ownerColor[tileOwners[i]] + '99' }))),
+        body: 'A categorical fill: four owners, four hues, hard edges. The only overlay that answers a question with a name rather than a magnitude.'
+      },
+      {
+        tag: '2', title: 'ACTIVITY HEAT', q: 'Where is it happening?',
+        tagSt: { fontSize: '9.5px', padding: '2px 7px', background: 'rgba(255,176,0,.18)', color: AMB, letterSpacing: '.1em' },
+        marks: tileEdges().concat(tileSpots.map((s, i) => ({ st: {
+          position: 'absolute', left: s[0] + '%', top: s[1] + '%', transform: 'translate(-50%,-50%)',
+          width: (26 + tileHeat[i] * 46) + 'px', height: (26 + tileHeat[i] * 46) + 'px', borderRadius: '50%',
+          background: `radial-gradient(circle, rgba(255,176,0,${0.1 + tileHeat[i] * 0.5}) 0%, transparent 70%)`
+        } }))).concat(tileSpots.map(s => dot(s[0], s[1], 7, 'rgba(255,214,150,.9)'))),
+        body: 'Continuous, and deliberately blurred — a heat field reads as a gradient, not as a set of owned things. Fed by the same strategic stream the scrubber replays.'
+      },
+      {
+        tag: '3', title: 'INTEL PINGS', q: 'What has been seen?',
+        tagSt: { fontSize: '9.5px', padding: '2px 7px', background: 'rgba(255,90,74,.18)', color: HOSTILE, letterSpacing: '.1em' },
+        marks: tileEdges().concat(tileSpots.map(s => dot(s[0], s[1], 7, 'rgba(143,160,139,.6)')))
+          .concat([0, 3, 6].map(i => ({ st: {
+            position: 'absolute', left: tileSpots[i][0] + '%', top: tileSpots[i][1] + '%',
+            transform: 'translate(-50%,-50%)', width: '30px', height: '30px', borderRadius: '50%',
+            border: '1px solid ' + HOSTILE, opacity: .75
+          } }))),
+        body: 'Sparse and timestamped. Everything not pinged goes grey, so the overlay shows the shape of your ignorance as much as your knowledge.'
+      },
+      {
+        tag: '4', title: 'SECURITY BAND', q: 'What are the rules here?',
+        tagSt: { fontSize: '9.5px', padding: '2px 7px', background: 'rgba(77,225,255,.18)', color: ALLY, letterSpacing: '.1em' },
+        marks: tileEdges().concat(tileSpots.map((s, i) => {
+          const c = tileSec[i] >= 0.5 ? OWN : tileSec[i] >= 0.3 ? AMB : HOSTILE;
+          return dot(s[0], s[1], 11, c, { boxShadow: '0 0 8px ' + c + '88' });
+        })),
+        body: 'The one overlay that never changes with the scrubber — bands are content-authored, and only sovereignty can flip Frontier ↔ Lawless. Stable ground under three moving layers.'
+      },
+      {
+        tag: '5', title: 'RESOURCES', q: 'What can I mine here?',
+        tagSt: { fontSize: '9.5px', padding: '2px 7px', background: 'rgba(201,255,158,.16)', color: HOT, letterSpacing: '.1em' },
+        marks: tileEdges().concat(tileSpots.map(s => dot(s[0], s[1], 7, '#5d7a57'))).concat(
+          tileSpots.flatMap((s, i) => {
+            const n = 2 + (i % 2);
+            return Array.from({ length: n }, (_, k) => ({ st: {
+              position: 'absolute', left: `calc(${s[0]}% + ${(k - (n - 1) / 2) * 8}px)`,
+              top: `calc(${s[1]}% - 12px)`, width: '5px', height: '5px',
+              transform: 'translate(-50%,-50%) rotate(45deg)',
+              background: `rgba(124,255,62,${0.3 + tileHeat[i] * 0.6})`
+            } }));
+          })),
+        body: 'Bake truth — archetype and grade — drawn everywhere like security; the remaining pool only where your ships have stood this epoch. The one overlay that admits what you do not know.'
+      }
+    ];
+
+    // §5 — the resource layer's own render lists. Ownership mutes to dim chrome
+    // (the exclusivity rule §2 states); pips are plain diamonds at region zoom,
+    // grade carried by brightness alone (07b's 20 px floor forbids more here).
+    const siteSets = this.buildSites(U);
+    const resHulls = hulls.map(h => ({ st: { ...h.st, border: '1px solid rgba(124,255,62,.10)', background: 'rgba(124,255,62,.03)' } }));
+    const conLabelsRes = conLabels.map(c => ({ name: c.name, st: { ...c.st, color: '#4e6a49' } }));
+    const resSystems = U.systems.map((s, i) => {
+      const d = s.hub ? 11 : 7;
+      return { st: {
+        position: 'absolute', left: (s.x - d / 2) + 'px', top: (s.y - d / 2) + 'px',
+        width: d + 'px', height: d + 'px', borderRadius: '50%',
+        background: i === selected ? HOT : '#5d7a57',
+        boxShadow: i === selected ? '0 0 0 3px rgba(0,0,0,.9), 0 0 0 5px ' + HOT + ', 0 0 18px ' + HOT : 'none'
+      } };
+    });
+    const sitePips = [], prizeGlows = [];
+    U.systems.forEach((s, i) => {
+      const sites = siteSets[i];
+      if (Math.max(...sites.map(x => x.g)) >= 4) {
+        prizeGlows.push({ st: {
+          position: 'absolute', left: (s.x - 45) + 'px', top: (s.y - 45) + 'px',
+          width: '90px', height: '90px', borderRadius: '50%',
+          background: 'radial-gradient(circle, rgba(124,255,62,.12) 0%, transparent 70%)'
+        } });
+      }
+      sites.forEach((x, k) => {
+        sitePips.push({ st: {
+          position: 'absolute', left: (s.x + (k - (sites.length - 1) / 2) * 9 - 3) + 'px',
+          top: (s.y - 16) + 'px', width: '6px', height: '6px', transform: 'rotate(45deg)',
+          background: 'rgba(124,255,62,' + (0.3 + x.g * 0.14) + ')'
+        } });
+      });
+    });
+
+    return {
+      layerName, routeJumps, layers, legend, hulls, heat, edges, routeEdges, systems, sysLabels,
+      conLabels, pings, routeLegs, spans, activity, marks, modes,
+      layersRes, resHulls, resSystems, sitePips, prizeGlows, conLabelsRes
+    };
+  }
+}
+</script>
+</body>
+</html>

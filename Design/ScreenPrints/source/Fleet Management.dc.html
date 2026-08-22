@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0a0b09;font-family:'Share Tech Mono',ui-monospace,monospace}
+a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
+</style></helmet>
+
+<div data-screen-label="Fleet Management" style="width:1440px;background:#050705;padding:44px 48px 56px;color:#7cff3e;position:relative">
+<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.03) 0 1px,transparent 1px 3px);pointer-events:none"></div>
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(124,255,62,.3);padding-bottom:16px;margin-bottom:12px">
+  <div>
+    <div style="font-size:26px;color:#c9ff9e;letter-spacing:.08em">FLEET MANAGEMENT — D-P5</div>
+    <div style="font-size:12.5px;color:#5d7a57;letter-spacing:.06em;margin-top:6px">07 §4.5 — the doctrine layer above P1's hangar · templates, ≤16 squadrons, the all-or-nothing deploy</div>
+  </div>
+  <div style="text-align:right;font-size:11.5px;color:#4e6a49;line-height:1.8">
+    <div>SOURCE · 02a (upstream) · ADR-017 §6 · ADR-005 · ADR-020 · 07b §1</div>
+    <div>STATE · {{ stateLabel }}</div>
+  </div>
+</div>
+
+<div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.5);padding:13px 17px;font-size:12px;color:#7d8c79;line-height:1.7;margin-bottom:18px">
+  <span style="color:#ffb000">FORWARD DESIGN, STATED:</span> the fleet-template design (FleetTemplateRow, the FleetDeploy RPC,
+  FleetAssembly) lives <span style="color:#c9ff9e">upstream of this corpus with no ADR here</span> — Design/README's inventory
+  records exactly that, and 02a §9 said "the interaction design stays owed." This print is that owed half: it invents no rule the
+  upstream design did not state (≤16 squadrons, all-or-nothing, announced-not-silent) and grounds everything else in ADRs this
+  corpus does have — wings and client-side names (ADR-017), the 64-ship command ceiling (ADR-005), the surface stack (ADR-020),
+  hull-class glyph families (07b).
+</div>
+<p style="font-size:13px;color:#7d8c79;line-height:1.75;max-width:1010px;margin:0 0 34px;text-wrap:pretty">
+  P1 answers <em style="color:#c9ff9e;font-style:normal">"what do I undock right now"</em>; this screen answers
+  <em style="color:#c9ff9e;font-style:normal">"what does a fleet of mine look like, anywhere, forever."</em> A template is
+  doctrine — hull classes and counts, never ship ids — and deploying one binds real docked hulls at one station in roster order,
+  whole or not at all. The screen's whole job is making that one hard rule legible before the button, not after it.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§1</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE SCREEN</span>
+  <span style="font-size:12px;color:#5d7a57">authored 1440×900 · full-screen FLEET surface (ADR-020 stack) · deploy target Vesta-3</span>
+</div>
+<div data-plate="fleet-management" style="position:relative;width:1344px;height:840px;overflow:hidden;border:1px solid rgba(124,255,62,.22);background:#000;margin-bottom:14px">
+<div style="width:1440px;height:900px;transform:scale(.9333);transform-origin:top left;position:relative;background:#000">
+  <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 50% 44%,#0b1210 0%,#000 74%)"></div>
+  <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.035) 0 1px,transparent 1px 3px)"></div>
+
+  <div style="position:absolute;left:0;right:0;top:0;height:46px;display:flex;align-items:center;gap:16px;padding:0 18px;border-bottom:1px solid rgba(124,255,62,.3);background:rgba(4,8,5,.88);font-size:15px;letter-spacing:.06em">
+    <span style="color:#5d7a57">◀ TACTICAL</span><span style="color:#3d5a37">|</span>
+    <span style="color:#c9ff9e">FLEET DOCTRINE</span>
+    <span style="flex:1"></span>
+    <span style="font-size:13px;color:#5d7a57">TEMPLATES FOLLOW THE ACCOUNT</span>
+    <span style="border:1px solid rgba(124,255,62,.3);padding:2px 9px;font-size:13px;color:#7cff3e">▥ MENU</span>
+  </div>
+  <div style="position:absolute;left:0;right:0;top:46px;height:44px;display:flex;align-items:center;gap:14px;padding:0 26px;border-bottom:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86);font-size:12px;letter-spacing:.06em">
+    <span style="color:#4e6a49">DEPLOY TARGET</span>
+    <span style="color:#c9ff9e">VESTA-3 ANCHORAGE ▾</span>
+    <span style="color:#5d7a57">47 HULLS DOCKED</span>
+    <span style="flex:1"></span>
+    <span style="color:#4e6a49">A TEMPLATE DEPLOYS FROM ONE STATION — HAULING GETS THE HULLS THERE</span>
+  </div>
+
+  <div style="position:absolute;left:0;top:90px;bottom:0;width:352px;border-right:1px solid rgba(124,255,62,.2);padding:18px 20px;display:flex;flex-direction:column;gap:9px;overflow:hidden">
+    <div style="font-size:12px;color:#4e6a49;letter-spacing:.14em;margin-bottom:4px">TEMPLATE LIBRARY</div>
+    <sc-for list="{{ templates }}" as="t" hint-placeholder-count="3">
+      <div style="{{ t.st }}">
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <span style="font-size:13px;letter-spacing:.05em">{{ t.name }}</span>
+          <span style="flex:1"></span>
+          <span style="{{ t.badgeSt }}">{{ t.badge }}</span>
+        </div>
+        <div style="display:flex;gap:14px;font-size:10.5px;color:#5d7a57;margin-top:6px">
+          <span>{{ t.squads }}</span><span>{{ t.hulls }}</span>
+        </div>
+      </div>
+    </sc-for>
+    <div style="border:1px dashed rgba(124,255,62,.25);padding:12px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#5d7a57;letter-spacing:.06em">+ NEW TEMPLATE</div>
+    <div style="margin-top:auto;padding-top:12px;border-top:1px solid rgba(124,255,62,.14);font-size:11px;color:#4e6a49;line-height:1.65">A template is doctrine — classes and counts, never ship ids. The badge is computed against the deploy target's docked roster and moves when the roster does.</div>
+  </div>
+
+  <div style="position:absolute;left:352px;top:90px;bottom:0;right:408px;padding:18px 22px;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:baseline;gap:14px;margin-bottom:6px">
+      <span style="font-size:20px;color:#c9ff9e;letter-spacing:.07em">NULL-SEC MINING OP</span>
+      <span style="font-size:11px;color:#4e6a49">✎ YOURS TO NAME — LIKE A WING</span>
+      <span style="flex:1"></span>
+      <span style="font-size:12px;color:#7cff3e">13 / 64 SHIPS</span>
+    </div>
+    <div style="height:6px;border:1px solid rgba(124,255,62,.25);background:rgba(6,12,6,.6);margin-bottom:14px"><div style="width:20.3%;height:100%;background:rgba(124,255,62,.55)"></div></div>
+    <div style="display:grid;grid-template-columns:26px 150px 122px 1fr 1fr 78px;gap:8px;padding:0 12px 7px;border-bottom:1px solid rgba(124,255,62,.2);font-size:10px;color:#4e6a49;letter-spacing:.1em">
+      <span></span><span>SQUADRON</span><span>COMPOSITION</span><span>FORMATION</span><span>STANCE</span><span style="text-align:right">DOCKED</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+      <sc-for list="{{ squads }}" as="s" hint-placeholder-count="5">
+        <div style="{{ s.st }}">
+          <span style="{{ s.glyphSt }}"></span>
+          <span style="font-size:12.5px;letter-spacing:.04em">{{ s.name }}</span>
+          <span style="display:flex;align-items:center;gap:7px;font-size:12px;color:#7d8c79"><span style="color:#3d5a37">−</span><span style="color:#c9ff9e">{{ s.count }}</span><span style="color:#3d5a37">+</span><span>{{ s.cls }}</span></span>
+          <span style="{{ s.formSt }}">{{ s.formation }} ▾</span>
+          <span style="{{ s.stanceSt }}">{{ s.stance }} ▾</span>
+          <span style="{{ s.haveSt }}">{{ s.have }}</span>
+        </div>
+      </sc-for>
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px dashed rgba(124,255,62,.2);font-size:11px;color:#5d7a57;letter-spacing:.06em">+ ADD SQUADRON<span style="flex:1"></span><span style="color:#3d5a37">11 OF 16 SLOTS FREE — A SQUADRON IS A ROSTER ROW</span></div>
+    </div>
+    <div style="margin-top:auto;padding-top:12px;font-size:11px;color:#4e6a49;line-height:1.65;max-width:600px">Formation and stance are the squadron's standing defaults — the same parameters the command row cycles in flight, seeded here so a deployed fleet arrives already postured. Escorts around a dig wing are ADR-024 §4a's escorted-mining, falling out of the formation solve for free.</div>
+  </div>
+
+  <div style="position:absolute;right:0;top:90px;bottom:0;width:408px;border-left:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86);padding:18px 22px;display:flex;flex-direction:column;gap:13px;overflow:hidden">
+    <div>
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:9px">
+        <span style="font-size:13px;color:#4e6a49;letter-spacing:.14em">DEPLOY — VESTA-3</span>
+        <span style="flex:1"></span>
+        <span style="font-size:10px;color:#3d5a37;letter-spacing:.08em">ALL OR NONE</span>
+      </div>
+      <sc-for list="{{ availRows }}" as="a" hint-placeholder-count="5">
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 10px;border:1px solid rgba(124,255,62,.12);background:rgba(6,12,6,.5);margin-bottom:5px">
+          <span style="font-size:11.5px;color:#7d8c79;flex:1">{{ a.name }}</span>
+          <span style="{{ a.st }}">{{ a.v }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <sc-if value="{{ shortNote }}" hint-placeholder-val="{{ false }}">
+      <div style="border:1px solid rgba(255,176,0,.35);background:rgba(20,14,2,.55);padding:10px 12px;font-size:11px;color:#7d8c79;line-height:1.65"><span style="color:#ffb000">{{ shortNote }}</span> — the deploy is whole or nothing, so the screen names the exact gap instead of greying a button. Closing it means undocking less doctrine, hauling a hull here, or — one phase on — the market.</div>
+    </sc-if>
+    <sc-if value="{{ assembling }}" hint-placeholder-val="{{ false }}">
+      <div style="border:1px solid rgba(255,176,0,.4);background:rgba(20,14,2,.6);padding:12px 14px">
+        <div style="display:flex;align-items:baseline;gap:10px">
+          <span style="font-size:12px;color:#ffb000;letter-spacing:.08em">FLEET ASSEMBLY — ANNOUNCED</span>
+          <span style="flex:1"></span>
+          <span style="font-size:12px;color:#ffb000">0:11</span>
+        </div>
+        <div style="font-size:11px;color:#7d8c79;line-height:1.65;margin-top:7px">Announced, not silent: everyone on this grid can see 13 hulls forming up, and the undock protection window (15 s, command-broken) is running. An assembly is a fact about the world, not a private animation.</div>
+      </div>
+    </sc-if>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="{{ goBtnSt }}">{{ goBtnLabel }}</div>
+    </div>
+    <div style="margin-top:auto;font-size:11px;color:#7d8c79;line-height:1.65;border-top:1px solid rgba(124,255,62,.14);padding-top:11px">Deploy binds real hulls in roster order — the CARGO fill rule's sibling: the outcome is a function of the world, never of click order. The deployed fleet lands on the tactical roster as these squadrons, <span style="color:#c9ff9e">row for row</span> — ≤16 squadrons because the roster holds 16 rows, and a mapping layer between them would be a second truth.</div>
+  </div>
+</div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1010px;margin:0 0 36px">
+  <span style="color:#c9ff9e">Hull glyphs are 07b's, unmodified</span> — open deltas for strike craft, closed hexes for the line,
+  blunt rectangles for support — because a doctrine row and a tactical contact must read as the same thing. Shortfalls are amber,
+  not red: a missing hull is acquirable (progress), never geography.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§2</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">DESIGN CALLS</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:14px">
+  <div style="grid-column:1/-1;border:1px solid rgba(124,255,62,.28);background:rgba(6,16,6,.65);padding:16px 18px">
+    <div style="font-size:13px;color:#7cff3e;letter-spacing:.06em;margin-bottom:10px">DOCTRINE IS CLASSES, NEVER SHIPS</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">A template row is (hull class, count, formation, stance) and nothing else — no ship ids, so a template survives every ship in it dying and deploys at any station with the inventory. Binding to real hulls happens at deploy, in roster order, by the same one-answer rule CARGO's fill uses. Squadron names are client-side, exactly as ADR-017 ruled for wing names: the server never learns what LANCE means.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">ALL-OR-NOTHING, MADE LEGIBLE</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">The rule is upstream's; the screen's job is its cost. DEPLOY disabled names the exact shortfall per squadron (disabled-with-a-reason, the armed-verb rule again), and no partial-deploy affordance is drawn — offering "deploy 12 of 13" would be the screen overruling the design it implements.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">SQUADRON = ROSTER ROW, 1 : 1</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">≤16 squadrons is not an arbitrary cap — MAX_ROSTER_ROWS is 16, and a deployed template lands on the tactical roster row for row, names and all. One number, two surfaces, no mapping layer; the doctrine you wrote is the fleet you fly.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">ANNOUNCED, NOT SILENT</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">FleetAssembly's rule, drawn: assembly is a grid-visible state with the 15 s undock-protection window running, shown to the deployer exactly as others see it. A screen that hid the announcement would train players to believe deploys are private, and the first ambush would teach them otherwise.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">THE CAP IS PERMANENT CHROME</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">13/64 sits beside the template name at all times — ADR-005's command ceiling is a fact a doctrine author designs against, not an error to discover at the button. The bar fills as squadrons grow; a template over the cap cannot be saved, and the row that breaks it says so.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">A FULL-SCREEN SURFACE, NOT A TAB</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">Doctrine is not a station service — a template exists everywhere, so this is a surface on ADR-020's stack (TACTICAL ⇄ FLEET, ◀ back is the one mechanism), with the deploy target chosen inside it. The hangar keeps composition-now; entry points are the hangar header and the menu.</div>
+  </div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:34px 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§3</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">DELIBERATELY ABSENT · OPEN</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="border:1px solid rgba(124,255,62,.3);background:rgba(6,16,6,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#7cff3e;letter-spacing:.06em;margin-bottom:12px">ABSENT BECAUSE THE DESIGN SAYS SO</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#c9ff9e">No ship-level assignment</span> — roster order binds hulls to squadrons; hand-picking ships would make the deploy a function of clicks, and every one-answer rule in this corpus refuses that.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No partial deploy</span> — the all-or-nothing rule is the design, not a limitation to soften.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No reserved hulls drawn</span> — Fighter and Cruiser have hasContent false; a doctrine row for a hull that cannot exist would be the screen inventing content.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No cross-station union</span> — a template deploys from one station's roster. Pooling two stations' hangars would teleport the hauling game away.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:12px">OPEN — RULINGS THE FLEET ADR NEEDS</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#ffb000">Template storage</span> — account-side (shown: "templates follow the account") or device-local. The third screen to ask 07h's question; it deserves one answer.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Deploy while ships are damaged</span> — does a hull with a worn gauge count against NEED? Proposed: yes, with the row noting it — repair-by-absence makes it moot at a station, but remote deploys will ask.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Corp doctrine sharing</span> — a shared template library is the obvious corp feature and a real design (permissions, versioning). Named so it is staged, not discovered.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Defaults vs the wheel</span> — squadron stance/formation seeds must use the same option lists OrderKinds reports, or a template could author a posture no order can carry. Wants a test, not just agreement.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1200},&quot;state&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Short 1 hull&quot;,&quot;Deployable&quot;,&quot;Assembling&quot;],&quot;default&quot;:&quot;Short 1 hull&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Mockup&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const G = '#7cff3e', HOT = '#c9ff9e', AMB = '#ffb000';
+    const state = this.props.state ?? 'Short 1 hull';
+    const mode = state.startsWith('Short') ? 'short' : state.startsWith('Deploy') ? 'ready' : 'assembling';
+    const stateLabel = mode === 'short' ? 'BLOCKED — MISSING 1 BATTLESHIP' : mode === 'ready' ? 'DEPLOYABLE — 13/13 DOCKED' : 'ASSEMBLING — ANNOUNCED';
+
+    const badge = (txt, kind) => ({
+      badge: txt,
+      badgeSt: { fontSize: '9px', letterSpacing: '.1em', padding: '1.5px 6px', whiteSpace: 'nowrap',
+        color: kind === 'ok' ? G : kind === 'amb' ? AMB : '#5d7a57',
+        border: '1px solid ' + (kind === 'ok' ? 'rgba(124,255,62,.4)' : kind === 'amb' ? 'rgba(255,176,0,.5)' : 'rgba(124,255,62,.18)') }
+    });
+    const templates = [
+      { name: 'NULL-SEC MINING OP', squads: '5 SQUADRONS', hulls: '13 HULLS', sel: true,
+        ...badge(mode === 'ready' || mode === 'assembling' ? 'CAN DEPLOY' : 'SHORT 1', mode === 'short' ? 'amb' : 'ok') },
+      { name: 'STRIKE DOCTRINE III', squads: '9 SQUADRONS', hulls: '38 HULLS', ...badge('SHORT 12', 'amb') },
+      { name: 'CONVOY — 3 HAULERS', squads: '4 SQUADRONS', hulls: '11 HULLS', ...badge('CAN DEPLOY', 'ok') }
+    ].map(t => ({ ...t,
+      st: { border: '1px solid ' + (t.sel ? G : 'rgba(124,255,62,.14)'),
+        background: t.sel ? 'rgba(124,255,62,.12)' : 'rgba(6,12,6,.5)', padding: '11px 13px',
+        color: t.sel ? HOT : '#7d8c79' }
+    }));
+
+    // 07b glyph families: strike = open delta, line = closed hex, support = blunt rect.
+    const DELTA = 'polygon(50% 0%,100% 100%,50% 76%,0% 100%)';
+    const HEXC = 'polygon(50% 0%,100% 32%,90% 76%,66% 100%,34% 100%,10% 76%,0% 32%)';
+    const glyph = (family, big) => ({
+      width: big ? '15px' : '12px', height: big ? '17px' : '13px', flex: '0 0 auto', display: 'inline-block',
+      background: G,
+      clipPath: family === 'strike' ? DELTA : family === 'line' ? HEXC : 'none'
+    });
+
+    const bbsHave = mode === 'short' ? '0 / 1' : '1 / 1';
+    // [name, count, cls, family, formation, stance, have, short?]
+    const squadDefs = [
+      ['LANCE', 4, 'INTERCEPTOR', 'strike', 'SCREEN', 'AGGRESSIVE', '6 / 4'],
+      ['PICKET', 2, 'FRIGATE', 'line', 'LINE', 'DEFENSIVE', '5 / 2'],
+      ['DIG WING', 5, 'MINER', 'support', 'ECHELON', 'EVASIVE', '9 / 5'],
+      ['HAUL', 1, 'HAULER', 'support', 'LINE', 'EVASIVE', '2 / 1'],
+      ['OVERWATCH', 1, 'BATTLESHIP', 'line', 'WEDGE', 'AGGRESSIVE', bbsHave, mode === 'short']
+    ];
+    const chip = () => ({ fontSize: '11px', color: '#5d7a57', border: '1px solid rgba(124,255,62,.18)', padding: '3px 9px', letterSpacing: '.05em', whiteSpace: 'nowrap', justifySelf: 'start' });
+    const squads = squadDefs.map(([name, count, cls, family, formation, stance, have, short]) => ({
+      name, count, cls, formation, stance, have,
+      glyphSt: glyph(family, cls === 'BATTLESHIP' || cls === 'HAULER'),
+      formSt: chip(), stanceSt: chip(),
+      haveSt: { fontSize: '12px', textAlign: 'right', color: short ? AMB : '#8fa08b' },
+      st: { display: 'grid', gridTemplateColumns: '26px 150px 122px 1fr 1fr 78px', gap: '8px', alignItems: 'center',
+        padding: '9px 12px',
+        border: '1px solid ' + (short ? 'rgba(255,176,0,.45)' : 'rgba(124,255,62,.14)'),
+        background: short ? 'rgba(255,176,0,.05)' : 'rgba(6,12,6,.55)',
+        color: short ? '#c9b98a' : '#7d8c79' }
+    }));
+
+    const availRows = squadDefs.map(([name, count, cls, , , , have, short]) => {
+      const [docked, need] = have.split(' / ');
+      return {
+        name: name + ' — ' + count + '× ' + cls,
+        v: need + ' NEED · ' + docked + ' DOCKED',
+        st: { fontSize: '11.5px', color: short ? AMB : G, whiteSpace: 'nowrap' }
+      };
+    });
+
+    const shortNote = mode === 'short' ? 'MISSING 1 BATTLESHIP — OVERWATCH NEEDS 1, VESTA-3 HOLDS 0' : false;
+    const assembling = mode === 'assembling';
+
+    let goBtnLabel, on;
+    if (mode === 'short') { goBtnLabel = 'DEPLOY — BLOCKED: MISSING 1 BATTLESHIP'; on = false; }
+    else if (mode === 'ready') { goBtnLabel = 'DEPLOY 13 SHIPS — ALL OR NONE'; on = true; }
+    else { goBtnLabel = 'ASSEMBLING — 13 SHIPS · 0:11'; on = false; }
+    const goBtnSt = { height: '52px', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center',
+      fontSize: '14px', letterSpacing: '.08em', padding: '0 12px',
+      border: '1px solid ' + (on ? G : (assembling ? 'rgba(255,176,0,.5)' : 'rgba(124,255,62,.14)')),
+      background: on ? 'rgba(124,255,62,.16)' : (assembling ? 'rgba(255,176,0,.08)' : 'transparent'),
+      color: on ? HOT : (assembling ? AMB : '#2f4a2a'),
+      boxShadow: on ? '0 0 18px rgba(124,255,62,.15)' : 'none' };
+
+    return { stateLabel, templates, squads, availRows, shortNote, assembling, goBtnLabel, goBtnSt };
+  }
+}
+
+</script>
+</body>
+</html>

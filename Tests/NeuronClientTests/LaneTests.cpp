@@ -4,6 +4,7 @@
 #include "GhostLane.h"
 #include "IsoCamera.h"
 #include "OrderGhost.h"
+#include "Picking.h"
 #include "UiDrawList.h"
 
 #include <algorithm>
@@ -162,7 +163,118 @@ constexpr std::uint32_t VIEWPORT_HEIGHT = 900;
   return found;
 }
 
+/*
+ * A ghost whose order has stopped travelling and started working -- the state
+ * `OrderGhost::Working` names (ADR-024 4b).
+ *
+ * Built by hand rather than driven through `OrderGhostList`, which is what
+ * `GhostTests` does: this file is about what comes out of the draw, and the
+ * lifecycle that gets a ghost into this state is pinned there.
+ */
+[[nodiscard]] OrderGhost MakeWorking(const XMFLOAT2& _at, float _authorityEtaSeconds)
+{
+  OrderGhost ghost = MakeGhost(GhostState::UnderWay, _at, XMFLOAT2{_at.x + 4000.0f, _at.y});
+  std::snprintf(ghost.preview.workingLabel, sizeof(ghost.preview.workingLabel), "MINING");
+  ghost.legIndex = 1;
+  ghost.legCount = 1;
+  ghost.authorityEtaSeconds = _authorityEtaSeconds;
+  return ghost;
+}
+
 } // namespace
+
+TEST_CLASS(LaneWorkingTests)
+{
+public:
+  TEST_METHOD(AWorkingOrderIsOneLabelAtTheFleetAndNoLaneAtAll)
+  {
+    /*
+     * `MINING - 4M 12S`, and nothing else. There is no journey left, so a lane
+     * from the fleet to where it already is would be dashes pointing at the
+     * hulls that drew them, and the two-line destination label would report a
+     * distance nobody is covering.
+     */
+    const GhostLaneView view = MakeView(MakeMapping());
+    const OrderGhost ghosts[] = {MakeWorking(XMFLOAT2{0.0f, 0.0f}, 252.0f)};
+
+    UiDrawList list;
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list, list);
+
+    Assert::AreEqual<std::size_t>(0, Segments(list).size(), L"no lane: nothing is travelling");
+
+    const std::vector<std::string> texts = Texts(list);
+    Assert::AreEqual<std::size_t>(1, texts.size(), L"one line, not the name-and-numbers pair");
+    Assert::AreEqual(std::string{"MINING \xC2\xB7 4M 12S"}, texts[0]);
+  }
+
+  TEST_METHOD(TheWordIsTheGamesAndTheSecondsAreTheAuthoritys)
+  {
+    /*
+     * Both halves cross the seam rather than being computed here. The word came
+     * with the preview (`OrderPreview::workingLabel`), and the seconds are the
+     * authority's own `etaSeconds` for a group with no leg left -- which the
+     * game answers with the cluster's remaining life, not with a distance.
+     * `preview.etaSeconds` is the pre-send *prediction* about a journey, and
+     * using it here would report how long the fleet took to arrive.
+     */
+    const GhostLaneView view = MakeView(MakeMapping());
+    OrderGhost ghost = MakeWorking(XMFLOAT2{0.0f, 0.0f}, 30.0f);
+    ghost.preview.etaSeconds = 92.0f; // The journey's, and wrong for this label.
+    const OrderGhost ghosts[] = {ghost};
+
+    UiDrawList list;
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list, list);
+
+    const std::vector<std::string> texts = Texts(list);
+    Assert::AreEqual<std::size_t>(1, texts.size());
+    Assert::AreEqual(std::string{"MINING \xC2\xB7 30S"}, texts[0], L"the authority's number, not the preview's");
+  }
+
+  TEST_METHOD(NoEtaIsStillALabelBecauseTheFleetIsStillWorking)
+  {
+    // A game that will not say how long the work has left still has a fleet
+    // doing it, and the word alone is the honest readout. Dropping the whole
+    // label would leave a working fleet indistinguishable from an idle one.
+    const GhostLaneView view = MakeView(MakeMapping());
+    const OrderGhost ghosts[] = {MakeWorking(XMFLOAT2{0.0f, 0.0f}, -1.0f)};
+
+    UiDrawList list;
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list, list);
+
+    const std::vector<std::string> texts = Texts(list);
+    Assert::AreEqual<std::size_t>(1, texts.size());
+    Assert::AreEqual(std::string{"MINING"}, texts[0]);
+  }
+
+  TEST_METHOD(TheLabelSitsOnTheFleetAndNotOnTheOrdersOwnTarget)
+  {
+    /*
+     * At `plane[0]`, which tracks the group's first ship, rather than at the
+     * last waypoint. For a Mine the waypoint is the cluster the *authority*
+     * chose and the client never learned -- the ghost's copy is wherever the
+     * press aimed it -- so drawing there would put the readout at the client's
+     * guess. Centred, and above the fleet rather than below it: the ships are
+     * here, and a line under them would sit on the hulls it describes.
+     */
+    const GhostLaneView view = MakeView(MakeMapping());
+    const OrderGhost ghosts[] = {MakeWorking(XMFLOAT2{0.0f, 0.0f}, 252.0f)};
+
+    UiDrawList list;
+    BuildGhostLanes(ghosts, {}, view, OverlayTuning{}, GhostLaneTuning{}, 0.0, list, list);
+
+    const std::vector<std::string> texts = Texts(list);
+    Assert::AreEqual<std::size_t>(1, texts.size());
+
+    XMFLOAT2 ndc{};
+    Assert::IsTrue(PlaneToNdc(view.mapping, XMFLOAT2{0.0f, 0.0f}, ndc));
+    const XMFLOAT2 fleet = NdcToPixels(ndc, view.viewportWidth, view.viewportHeight);
+
+    const UiTextRun& run = list.Runs()[0];
+    const float centre = run.x + static_cast<float>(TextCellCount(texts[0])) * view.cellPixels * 0.5f;
+    Assert::AreEqual(fleet.x, centre, 0.01f, L"centred on the fleet");
+    Assert::IsTrue(run.y < fleet.y, L"and above it, clear of the hulls");
+  }
+};
 
 TEST_CLASS(SegmentClipTests)
 {

@@ -80,15 +80,15 @@ a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
       <span style="flex:1"></span>
       <span style="font-size:13px;color:#4e6a49;letter-spacing:.06em">TAP A RECIPE = COMPOSE A JOB</span>
     </div>
-    <div style="display:grid;grid-template-columns:180px 40px 240px 100px 100px 1fr;gap:10px;padding:0 12px 8px;border-bottom:1px solid rgba(124,255,62,.2);font-size:10.5px;color:#4e6a49;letter-spacing:.1em">
+    <div style="display:grid;grid-template-columns:212px 40px 208px 100px 100px 1fr;gap:10px;padding:0 12px 8px;border-bottom:1px solid rgba(124,255,62,.2);font-size:10.5px;color:#4e6a49;letter-spacing:.1em">
       <span>ALLOY</span><span>TIER</span><span>INPUTS / UNIT</span><span style="text-align:right">OUT / UNIT</span><span style="text-align:right">TIME / UNIT</span><span style="text-align:right">STATUS</span>
     </div>
     <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
       <sc-for list="{{ recipeRows }}" as="r" hint-placeholder-count="5">
         <div style="{{ r.st }}">
-          <span style="font-size:12.5px;letter-spacing:.04em">{{ r.name }}</span>
+          <span style="display:flex;align-items:center;gap:9px;min-width:0"><span style="{{ r.gWrap }}"><span style="{{ r.g1 }}"></span><span style="{{ r.g2 }}"></span><span style="{{ r.g3 }}"></span></span><span style="font-size:12.5px;letter-spacing:.04em">{{ r.name }}</span></span>
           <span style="{{ r.tierSt }}">{{ r.tier }}</span>
-          <span style="font-size:11.5px;color:#5d7a57">{{ r.inputs }}</span>
+          <span style="font-size:11.5px;color:#5d7a57;display:flex;gap:4px;flex-wrap:wrap"><sc-for list="{{ r.inParts }}" as="ip" hint-placeholder-count="3"><span style="{{ ip.st }}">{{ ip.t }}</span></sc-for></span>
           <span style="font-size:11.5px;color:#5d7a57;text-align:right">{{ r.out }}</span>
           <span style="font-size:11.5px;color:#5d7a57;text-align:right">{{ r.time }}</span>
           <span style="{{ r.statusSt }}">{{ r.status }}</span>
@@ -100,7 +100,7 @@ a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
         <div style="display:flex;align-items:baseline;gap:10px">
           <span style="font-size:12px;color:#4e6a49;letter-spacing:.14em">JOB COMPOSER</span>
           <span style="flex:1"></span>
-          <span style="font-size:11px;color:#c9ff9e;letter-spacing:.06em">FERROCITE PLATES</span>
+          <span style="display:flex;align-items:center;gap:7px"><span style="display:flex;flex-direction:column;gap:2px"><span style="width:14px;height:3px;border:1px solid #c08a52"></span><span style="width:14px;height:3px;border:1px solid #c08a52"></span><span style="width:14px;height:3px;border:1px solid #c08a52"></span></span><span style="font-size:11px;color:#c9ff9e;letter-spacing:.06em">FERROCITE PLATES</span></span>
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           <span style="font-size:11px;color:#5d7a57;letter-spacing:.08em">BATCH</span>
@@ -285,7 +285,7 @@ class Component extends DCLogic {
       ? 'STATION TIER 2 · HIGH-SEC BAND CAPS AT TIER 2 — THIS STATION IS MAXED'
       : 'STATION TIER 1 · HIGH-SEC BAND CAPS AT TIER 2';
 
-    const rowGrid = { display: 'grid', gridTemplateColumns: '180px 40px 240px 100px 100px 1fr', gap: '10px', alignItems: 'center', padding: '9px 12px' };
+    const rowGrid = { display: 'grid', gridTemplateColumns: '212px 40px 208px 100px 100px 1fr', gap: '10px', alignItems: 'center', padding: '9px 12px' };
     // [name, tier, inputs, outL, time, kind] kind: sel|running|tierlock|bandlock
     const recipeDefs = [
       ['FERROCITE PLATES', 1, '2 F-C', '400 L', '0:30', 'sel'],
@@ -296,11 +296,41 @@ class Component extends DCLogic {
     ];
     const recipeRows = recipeDefs.map(([name, tier, inputs, out, time, kind]) => {
       const locked = kind === 'tierlock' || kind === 'bandlock';
+      // D-C1 alloy glyphs at 22 px — hue by majority input, tie silver. A locked
+      // row's glyph fades with it: the icon must not outshine the lock sentence.
+      const AG = {
+        'FERROCITE PLATES': [
+          { position: 'absolute', left: '2px', top: '2px', width: '18px', height: '4px', border: '1.5px solid #c08a52' },
+          { position: 'absolute', left: '2px', top: '9px', width: '18px', height: '4px', border: '1.5px solid #c08a52' },
+          { position: 'absolute', left: '2px', top: '16px', width: '18px', height: '4px', border: '1.5px solid #c08a52' }],
+        'ASTRA-GLASS': [
+          { position: 'absolute', left: '3px', top: '3px', width: '15px', height: '15px', border: '1.5px solid #cfe0d2', transform: 'rotate(45deg)' },
+          { position: 'absolute', left: '6px', top: '10px', width: '10px', height: '2px', background: 'rgba(207,224,210,.55)', transform: 'rotate(-45deg)' },
+          { display: 'none' }],
+        'CHROMITE CONDUIT': [
+          { position: 'absolute', left: 0, top: '4px', width: '22px', height: '14px', border: '1.5px solid #4fd6c0', borderRadius: '7px' },
+          { position: 'absolute', left: '8px', top: '8px', width: '6px', height: '6px', border: '1.5px solid #4fd6c0', borderRadius: '50%' },
+          { display: 'none' }],
+        'QUANTUM MATRIX': [
+          { position: 'absolute', left: '2px', top: '2px', width: '18px', height: '18px', border: '1.5px solid #b99cff' },
+          { position: 'absolute', left: '6px', top: '6px', width: '11px', height: '11px', backgroundImage: 'radial-gradient(#b99cff 1.2px, transparent 1.4px)', backgroundSize: '5px 5px' },
+          { display: 'none' }],
+        'NOVA-STEEL': [
+          { position: 'absolute', inset: 0, background: '#cfe0d2', clipPath: 'polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)' },
+          { position: 'absolute', left: '2px', top: '2px', width: '18px', height: '18px', background: '#0a0e0a', clipPath: 'polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)' },
+          { position: 'absolute', left: '8px', top: '8px', width: '6px', height: '6px', background: '#cfe0d2', transform: 'rotate(45deg)' }]
+      }[name];
+      const gWrap = { position: 'relative', width: '22px', height: '22px', flex: '0 0 auto', opacity: locked ? .35 : 1 };
+      const IN_HUES = { 'F-C': '#c08a52', 'AST': '#b99cff', 'NEB': '#4fd6c0' };
+      const inParts = inputs.split(' ').map(w => ({
+        t: w,
+        st: { color: !locked && IN_HUES[w] ? IN_HUES[w] : (w === '+' ? '#3d5a37' : '#5d7a57') }
+      }));
       const sel = kind === 'sel';
       const status = kind === 'sel' ? 'COMPOSING ▸' : kind === 'running' ? 'RUNNING ×50'
         : kind === 'open' ? 'AVAILABLE' : kind === 'tierlock' ? 'TIER 2 — THE PROJECT BELOW' : 'NEVER IN HIGH-SEC — LOW / NULL ONLY';
       return {
-        name, inputs, out, time, status,
+        name, inputs, out, time, status, gWrap, g1: AG[0], g2: AG[1], g3: AG[2], inParts,
         tier: 'T' + tier,
         tierSt: { fontSize: '10px', letterSpacing: '.08em', textAlign: 'center', padding: '2px 0',
           color: locked ? '#3d5a37' : G,

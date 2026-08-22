@@ -1953,6 +1953,210 @@ void ClientApp::BuildHud()
   const float bodyPx = BASE_FONT_SIZES_PIXELS[m_uiTuning.bodySizeIndex] * layout.scale;
   const float smallPx = BASE_FONT_SIZES_PIXELS[m_uiTuning.smallSizeIndex] * layout.scale;
 
+  char buffer[96] = {};
+  char upper[48] = {};
+
+  /*
+   * --- the surface ----------------------------------------------------------
+   *
+   * One or the other, never both: screens are mutually exclusive and the debug
+   * strip is the only layer allowed to compose over one (ADR-020 1). A
+   * full-screen surface is opaque across the viewport, so building the tactical
+   * chrome underneath it was a fill nobody ever saw -- T3a named that as owed
+   * and this is the early return it asked for, now that the tactical half is a
+   * function of its own.
+   *
+   * The toast layer below is deliberately outside the branch: toasts are a
+   * cross-surface layer and are drawn above whichever of the two ran.
+   */
+  if (SurfaceRecordsWorld(m_surfaces.Active()))
+  {
+    BuildTacticalHud(nowSeconds);
+  }
+  else
+  {
+    BuildStationSurface();
+  }
+
+  // --- the toast stack ----------------------------------------------------
+  //
+  // Criticals lead the visible list and go centre-top on their own surface;
+  // the rest stack bottom-right, clear of the context bar (§2).
+  const std::span<const Toast> toasts = m_toasts.Visible();
+  const std::size_t criticals = m_toasts.CriticalCount();
+  m_toastActionCount = 0;
+  for (UiRect& rect : m_toastActionRects)
+  {
+    rect = UiRect{};
+  }
+
+  for (std::size_t index = 0; index < toasts.size(); ++index)
+  {
+    const Toast& toast = toasts[index];
+    const bool isCritical = index < criticals;
+    const UiRect rect = isCritical ? layout.criticalToast : layout.ToastSlot(index - criticals, m_uiTuning);
+    if (!isCritical && index - criticals >= ToastStack::MAX_VISIBLE)
+    {
+      break; // The stack showed what it can; the rest are already dropped.
+    }
+
+    /*
+     * The frame is `border` like every chip on this HUD; the priority speaks
+     * through the head's colour and, for a critical, the alert triangle --
+     * the accent is never the frame, because a five-colour stack of frames
+     * would be the palette shouting over its own hierarchy. Urgent keeps the
+     * amber the old TOAST_URGENT_COLOUR intended; below urgent the head is
+     * ordinary chrome, because a market fill is not a warning.
+     */
+    std::uint32_t accent = m_palette.phosphor;
+    if (isCritical)
+    {
+      accent = m_palette.critical;
+    }
+    else if (toast.priority == ToastPriority::Urgent)
+    {
+      accent = m_palette.caution;
+    }
+    m_ui.AddQuad(rect, m_palette.panel);
+    m_ui.AddBorder(rect, 1.0f * layout.scale, m_palette.border);
+
+    // A count only when there is one to report -- the sheet draws the coalesced
+    // form as a suffix, and "x1" on every row would be noise. The critical head
+    // leads with U+25B2, the sheet's alert triangle: colour is never the only
+    // signal.
+    const char* lead = isCritical ? "\xE2\x96\xB2 " : "";
+    if (toast.count > 1)
+    {
+      std::snprintf(buffer, sizeof(buffer), "%s%s x%u", lead, toast.head.c_str(), toast.count);
+    }
+    else
+    {
+      std::snprintf(buffer, sizeof(buffer), "%s%s", lead, toast.head.c_str());
+    }
+    m_ui.AddText(rect.x + pad, rect.y + pad * 0.5f, m_uiTuning.bodySizeIndex, accent, buffer);
+    m_ui.AddText(rect.x + pad, rect.y + pad * 0.5f + bodyPx + 2.0f * layout.scale, m_uiTuning.smallSizeIndex,
+                 m_palette.phosphorBody, toast.detail);
+
+    /*
+     * The action chip, on the row's right (`alerts-and-toasts.png` 2).
+     *
+     * A critical is the one level that waits for the player, so it is the one
+     * level with somewhere for the player to press. The word is the game's --
+     * this file draws it and never compares it -- and the key it hands back is
+     * the game's too.
+     *
+     * **48 px square at 1.0x**, the same U2 touch floor the command verbs clamp
+     * to. An action nobody can hit on a tablet is an action that does not
+     * exist, and a critical is exactly the row where that matters.
+     *
+     * An acted chip stays drawn and goes dead. Removing it would take the
+     * confirmation away at the instant the player looked for it; leaving it
+     * live would invite a second press that does nothing.
+     */
+    if (toast.HasAction())
+    {
+      const float chipHeightPx = std::max(m_commandTuning.buttonHeight * layout.scale, 48.0f * layout.scale);
+      UpperCaseInto(toast.actionLabel, upper);
+      const float labelWidth = static_cast<float>(TextCellCount(upper)) * cell;
+      const float chipWidth = labelWidth + 2.0f * pad;
+      const UiRect chip{rect.Right() - pad - chipWidth, rect.y + (rect.height - chipHeightPx) * 0.5f, chipWidth,
+                        chipHeightPx};
+
+      const bool live = !toast.Acted();
+      m_ui.AddBorder(chip, 1.0f * layout.scale, live ? accent : AtHalfAlpha(m_palette.border));
+      m_ui.AddText(chip.x + (chip.width - labelWidth) * 0.5f, chip.y + (chip.height - bodyPx) * 0.5f,
+                   m_uiTuning.bodySizeIndex, live ? accent : m_palette.phosphorDead, upper);
+      m_toastActionRects[index] = chip;
+      m_toastActionCount = index + 1;
+    }
+  }
+
+  /*
+   * --- the menu list ------------------------------------------------------
+   *
+   * The `▥ MENU` chip's stub: RESUME · SETTINGS · EXIT, from the same rects
+   * `UpdateHud` hit-tests. Drawn after everything else so the list covers
+   * whatever it floats over -- build order is draw order in this pass.
+   * SETTINGS is dead until 07h's sheet lands; a menu entry that exists and is
+   * visibly not ready beats one that appears later in a spot the player never
+   * learned.
+   */
+  if (m_menuOpen)
+  {
+    const UiRect menuPanel = UiRect::FromCorners(m_menuItemRects[0].x - pad * 0.5f, m_menuItemRects[0].y - pad * 0.5f,
+                                                 m_menuItemRects[MENU_ITEM_COUNT - 1].Right() + pad * 0.5f,
+                                                 m_menuItemRects[MENU_ITEM_COUNT - 1].Bottom() + pad * 0.5f);
+    // Opaque, unlike every other panel on this HUD. The 12% that reads through
+    // a panel is what keeps the chrome a border on a *view*; this list floats
+    // over the ability rack, and a menu you can read the panel behind is a menu
+    // with two sets of words in the same pixels.
+    m_ui.AddQuad(menuPanel, WithAlpha(m_palette.panel, 0xFF));
+    m_ui.AddBorder(menuPanel, 1.0f * layout.scale, m_palette.borderStrong);
+
+    const char* menuLabels[MENU_ITEM_COUNT] = {"RESUME", "SETTINGS", "EXIT"};
+    for (std::uint32_t item = 0; item < MENU_ITEM_COUNT; ++item)
+    {
+      const bool dead = item == MENU_SETTINGS;
+      const UiRect& itemRect = m_menuItemRects[item];
+      m_ui.AddBorder(itemRect, 1.0f * layout.scale, dead ? AtHalfAlpha(m_palette.border) : m_palette.border);
+      const float itemWidth = static_cast<float>(TextCellCount(menuLabels[item])) * cell;
+      m_ui.AddText(itemRect.x + (itemRect.width - itemWidth) * 0.5f, itemRect.y + (itemRect.height - bodyPx) * 0.5f,
+                   m_uiTuning.bodySizeIndex, dead ? m_palette.phosphorDead : m_palette.phosphor, menuLabels[item]);
+    }
+  }
+
+  // --- the Tier-1 diagnostics strip (S14) ---------------------------------
+  //
+  // Collection always, drawing behind the toggle: the drain is what keeps the
+  // lanes from overflowing whether or not anyone is looking. Cost is measured
+  // around both halves and displayed by the strip itself next frame -- the
+  // observer effect cannot be removed, so it is reported (debug-hud.png §4).
+  {
+    const std::int64_t stripStart = Clock::Counter();
+    CollectDiagnostics(nowSeconds);
+    if (m_diagnosticsVisible)
+    {
+      DebugStripStyle style;
+      style.x = layout.world.x + pad;
+      style.y = layout.world.y + pad;
+      style.scale = layout.scale;
+      style.cellPixels = cell;
+      style.smallLinePixels = smallPx;
+      style.smallSizeIndex = m_uiTuning.smallSizeIndex;
+      style.bodySizeIndex = m_uiTuning.bodySizeIndex;
+      (void)BuildDebugStrip(m_stripReadout, style, m_palette, m_ui);
+    }
+    m_stripCostMs = Clock::MillisecondsBetween(stripStart, Clock::Counter());
+  }
+}
+
+void ClientApp::BuildTacticalHud(double _nowSeconds)
+{
+  /*
+   * The tactical HUD, built only when the tactical surface is live.
+   *
+   * A function of its own because it has to be skippable, which is what T3a
+   * left owed: the chrome below used to be built underneath a full-screen
+   * surface and then covered by it, a `UiDrawList` fill of a screen nobody was
+   * looking at. `BuildHud` chooses between this and the surface now, so the
+   * cost of a screen is the screen.
+   *
+   * The zone metrics are re-derived rather than passed in: every one of them is
+   * a function of `m_uiLayout` and `m_uiTuning`, which `UpdateHud` resolved
+   * before this frame drew anything, and a parameter list of five numbers that
+   * are all already members is a second place for them to be computed
+   * differently. The clock is the exception and is the one parameter.
+   */
+  const UiLayout& layout = m_uiLayout;
+  const float pad = m_uiTuning.padding * layout.scale;
+  const float cell = 8.0f * layout.scale;
+  const float bodyPx = BASE_FONT_SIZES_PIXELS[m_uiTuning.bodySizeIndex] * layout.scale;
+  const float smallPx = BASE_FONT_SIZES_PIXELS[m_uiTuning.smallSizeIndex] * layout.scale;
+
+  // The one thing that is *not* a member: reading the clock a second time would
+  // animate the lanes off a different instant than the toasts advanced on.
+  const double nowSeconds = _nowSeconds;
+
   /*
    * --- world-space marks, first so the panels cover them -------------------
    *
@@ -2871,176 +3075,6 @@ void ClientApp::BuildHud()
       m_ui.AddText(chipRect.x + (chipRect.width - labelWidth) * 0.5f,
                    chipRect.y + (chipRect.height - bodyPx) * 0.5f, m_uiTuning.bodySizeIndex, queueColour, queueLabel);
     }
-  }
-
-  /*
-   * --- a full-screen surface ------------------------------------------------
-   *
-   * Drawn last of the surface content and opaque across the viewport, so it
-   * covers rather than composes: screens are mutually exclusive, and the debug
-   * strip is the only layer allowed to compose over one (ADR-020 §1).
-   *
-   * **Owed:** the tactical chrome above is still *built* underneath this, and
-   * its quads are then covered. It costs a `UiDrawList` fill on a screen that
-   * does not show it, which is a slice of waste rather than a defect -- the fix
-   * is an early return once the tactical half is a function of its own, and
-   * that extraction belongs with the hangar's own content rather than with the
-   * navigation that reaches it.
-   */
-  if (!SurfaceRecordsWorld(m_surfaces.Active()))
-  {
-    BuildStationSurface();
-  }
-
-  // --- the toast stack ----------------------------------------------------
-  //
-  // Criticals lead the visible list and go centre-top on their own surface;
-  // the rest stack bottom-right, clear of the context bar (§2).
-  const std::span<const Toast> toasts = m_toasts.Visible();
-  const std::size_t criticals = m_toasts.CriticalCount();
-  m_toastActionCount = 0;
-  for (UiRect& rect : m_toastActionRects)
-  {
-    rect = UiRect{};
-  }
-
-  for (std::size_t index = 0; index < toasts.size(); ++index)
-  {
-    const Toast& toast = toasts[index];
-    const bool isCritical = index < criticals;
-    const UiRect rect = isCritical ? layout.criticalToast : layout.ToastSlot(index - criticals, m_uiTuning);
-    if (!isCritical && index - criticals >= ToastStack::MAX_VISIBLE)
-    {
-      break; // The stack showed what it can; the rest are already dropped.
-    }
-
-    /*
-     * The frame is `border` like every chip on this HUD; the priority speaks
-     * through the head's colour and, for a critical, the alert triangle --
-     * the accent is never the frame, because a five-colour stack of frames
-     * would be the palette shouting over its own hierarchy. Urgent keeps the
-     * amber the old TOAST_URGENT_COLOUR intended; below urgent the head is
-     * ordinary chrome, because a market fill is not a warning.
-     */
-    std::uint32_t accent = m_palette.phosphor;
-    if (isCritical)
-    {
-      accent = m_palette.critical;
-    }
-    else if (toast.priority == ToastPriority::Urgent)
-    {
-      accent = m_palette.caution;
-    }
-    m_ui.AddQuad(rect, m_palette.panel);
-    m_ui.AddBorder(rect, 1.0f * layout.scale, m_palette.border);
-
-    // A count only when there is one to report -- the sheet draws the coalesced
-    // form as a suffix, and "x1" on every row would be noise. The critical head
-    // leads with U+25B2, the sheet's alert triangle: colour is never the only
-    // signal.
-    const char* lead = isCritical ? "\xE2\x96\xB2 " : "";
-    if (toast.count > 1)
-    {
-      std::snprintf(buffer, sizeof(buffer), "%s%s x%u", lead, toast.head.c_str(), toast.count);
-    }
-    else
-    {
-      std::snprintf(buffer, sizeof(buffer), "%s%s", lead, toast.head.c_str());
-    }
-    m_ui.AddText(rect.x + pad, rect.y + pad * 0.5f, m_uiTuning.bodySizeIndex, accent, buffer);
-    m_ui.AddText(rect.x + pad, rect.y + pad * 0.5f + bodyPx + 2.0f * layout.scale, m_uiTuning.smallSizeIndex,
-                 m_palette.phosphorBody, toast.detail);
-
-    /*
-     * The action chip, on the row's right (`alerts-and-toasts.png` 2).
-     *
-     * A critical is the one level that waits for the player, so it is the one
-     * level with somewhere for the player to press. The word is the game's --
-     * this file draws it and never compares it -- and the key it hands back is
-     * the game's too.
-     *
-     * **48 px square at 1.0x**, the same U2 touch floor the command verbs clamp
-     * to. An action nobody can hit on a tablet is an action that does not
-     * exist, and a critical is exactly the row where that matters.
-     *
-     * An acted chip stays drawn and goes dead. Removing it would take the
-     * confirmation away at the instant the player looked for it; leaving it
-     * live would invite a second press that does nothing.
-     */
-    if (toast.HasAction())
-    {
-      const float chipHeightPx = std::max(m_commandTuning.buttonHeight * layout.scale, 48.0f * layout.scale);
-      UpperCaseInto(toast.actionLabel, upper);
-      const float labelWidth = static_cast<float>(TextCellCount(upper)) * cell;
-      const float chipWidth = labelWidth + 2.0f * pad;
-      const UiRect chip{rect.Right() - pad - chipWidth, rect.y + (rect.height - chipHeightPx) * 0.5f, chipWidth,
-                        chipHeightPx};
-
-      const bool live = !toast.Acted();
-      m_ui.AddBorder(chip, 1.0f * layout.scale, live ? accent : AtHalfAlpha(m_palette.border));
-      m_ui.AddText(chip.x + (chip.width - labelWidth) * 0.5f, chip.y + (chip.height - bodyPx) * 0.5f,
-                   m_uiTuning.bodySizeIndex, live ? accent : m_palette.phosphorDead, upper);
-      m_toastActionRects[index] = chip;
-      m_toastActionCount = index + 1;
-    }
-  }
-
-  /*
-   * --- the menu list ------------------------------------------------------
-   *
-   * The `▥ MENU` chip's stub: RESUME · SETTINGS · EXIT, from the same rects
-   * `UpdateHud` hit-tests. Drawn after everything else so the list covers
-   * whatever it floats over -- build order is draw order in this pass.
-   * SETTINGS is dead until 07h's sheet lands; a menu entry that exists and is
-   * visibly not ready beats one that appears later in a spot the player never
-   * learned.
-   */
-  if (m_menuOpen)
-  {
-    const UiRect menuPanel = UiRect::FromCorners(m_menuItemRects[0].x - pad * 0.5f, m_menuItemRects[0].y - pad * 0.5f,
-                                                 m_menuItemRects[MENU_ITEM_COUNT - 1].Right() + pad * 0.5f,
-                                                 m_menuItemRects[MENU_ITEM_COUNT - 1].Bottom() + pad * 0.5f);
-    // Opaque, unlike every other panel on this HUD. The 12% that reads through
-    // a panel is what keeps the chrome a border on a *view*; this list floats
-    // over the ability rack, and a menu you can read the panel behind is a menu
-    // with two sets of words in the same pixels.
-    m_ui.AddQuad(menuPanel, WithAlpha(m_palette.panel, 0xFF));
-    m_ui.AddBorder(menuPanel, 1.0f * layout.scale, m_palette.borderStrong);
-
-    const char* menuLabels[MENU_ITEM_COUNT] = {"RESUME", "SETTINGS", "EXIT"};
-    for (std::uint32_t item = 0; item < MENU_ITEM_COUNT; ++item)
-    {
-      const bool dead = item == MENU_SETTINGS;
-      const UiRect& itemRect = m_menuItemRects[item];
-      m_ui.AddBorder(itemRect, 1.0f * layout.scale, dead ? AtHalfAlpha(m_palette.border) : m_palette.border);
-      const float itemWidth = static_cast<float>(TextCellCount(menuLabels[item])) * cell;
-      m_ui.AddText(itemRect.x + (itemRect.width - itemWidth) * 0.5f, itemRect.y + (itemRect.height - bodyPx) * 0.5f,
-                   m_uiTuning.bodySizeIndex, dead ? m_palette.phosphorDead : m_palette.phosphor, menuLabels[item]);
-    }
-  }
-
-  // --- the Tier-1 diagnostics strip (S14) ---------------------------------
-  //
-  // Collection always, drawing behind the toggle: the drain is what keeps the
-  // lanes from overflowing whether or not anyone is looking. Cost is measured
-  // around both halves and displayed by the strip itself next frame -- the
-  // observer effect cannot be removed, so it is reported (debug-hud.png §4).
-  {
-    const std::int64_t stripStart = Clock::Counter();
-    CollectDiagnostics(nowSeconds);
-    if (m_diagnosticsVisible)
-    {
-      DebugStripStyle style;
-      style.x = layout.world.x + pad;
-      style.y = layout.world.y + pad;
-      style.scale = layout.scale;
-      style.cellPixels = cell;
-      style.smallLinePixels = smallPx;
-      style.smallSizeIndex = m_uiTuning.smallSizeIndex;
-      style.bodySizeIndex = m_uiTuning.bodySizeIndex;
-      (void)BuildDebugStrip(m_stripReadout, style, m_palette, m_ui);
-    }
-    m_stripCostMs = Clock::MillisecondsBetween(stripStart, Clock::Counter());
   }
 }
 

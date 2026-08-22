@@ -98,6 +98,32 @@ working Mine order (earlier of cluster-dry and last-Miner-full; that arithmetic 
 do not recompute it). Chip text: `MINING · <eta>`. A ship that exits `Hold` (hold full) keeps its
 station per R5 — no client-side movement or regroup.
 
+**Built 2026-08-22, and it took a word rather than a byte.** The seam already carried everything
+numeric: the server's `LegEtaSeconds` answers with `MiningEtaSeconds` once `legIndex >= legCount`,
+and `OrderStateRecord` replicates the two counts and the seconds. What was missing was the *word*
+— `OrderStateRecord` carries no kind, so the client cannot tell a group that has run out of legs
+because it is working from one that has run out because it is finishing, and that distinction is a
+game rule rather than arithmetic.
+
+So `OrderWorkingName(OrderKind)` is the game's answer (`Mining`, and **null for every other
+kind**), it rides across in `OrderPreview::workingLabel` beside the existing `label`, and the ghost
+keeps it for the order's life the same way it keeps the label. `OrderGhost::Working()` is the
+predicate the two draw passes share: **under way, no leg left by the authority's own count, and the
+game named the state.** No wire change, no schema-hash bump, and the engine still concludes nothing
+about mining from two numbers it can already read.
+
+The chip is drawn **on the group** rather than in the chrome rack, which is what the print's own
+rule asks for — every order draws its promise where it will happen, and a mining fleet is *there*.
+So a working order draws no lane, no footprint and no station ticks (all three promise an arrival
+that has already happened), and one centred label above the fleet reading `MINING · 4M 12S`. No ETA
+is still a label: a game that will not say how long the work has left still has a fleet doing it.
+
+Gates: **`LaneWorkingTests`** (four — the label, the authority's ETA over the preview's prediction,
+the no-ETA case, and the label's position on the fleet rather than on the client's guess at the
+cluster) and three in **`GhostMarkTests`** (a working order draws no destination, a *travelling*
+Mine order still does, and nothing is working until the authority and the game both say so).
+Mutation-tested: forcing `Working()` false kills five of them.
+
 ## 3 — HOLD FULL on the roster strip
 From `CargoStatus` (owner-only, ~1 Hz, rows capped at `MAX_CARGO_STATUS_ROWS`): per-ship litres =
 Σ `oreUnits[i] × unitVolumeLitres[i]` (from `EconomyDef` — the parsed content, never re-authored

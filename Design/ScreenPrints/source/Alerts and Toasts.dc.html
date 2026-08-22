@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0a0b09;font-family:'Share Tech Mono',ui-monospace,monospace}
+a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
+@keyframes pulse{0%,100%{opacity:.9}50%{opacity:.35}}
+</style></helmet>
+
+<div data-screen-label="Alerts" style="width:1440px;background:#050705;padding:44px 48px 56px;color:#7cff3e;position:relative">
+<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.03) 0 1px,transparent 1px 3px);pointer-events:none"></div>
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(124,255,62,.3);padding-bottom:16px;margin-bottom:12px">
+  <div>
+    <div style="font-size:26px;color:#c9ff9e;letter-spacing:.08em">ALERTS, TOASTS &amp; THE NOTIFICATION PATH</div>
+    <div style="font-size:12.5px;color:#5d7a57;letter-spacing:.06em;margin-top:6px">07 §4.7 — priority taxonomy, combat suppression, placement, the F8 push question</div>
+  </div>
+  <div style="text-align:right;font-size:11.5px;color:#4e6a49;line-height:1.8">
+    <div>SOURCE · 03 §9.5 · 03 §9.6 · 04 §5.2 · 02 §8.2 · 00 §2.3</div>
+    <div>STATE · {{ stateName }}</div>
+  </div>
+</div>
+
+<p style="font-size:13px;color:#7d8c79;line-height:1.75;max-width:1000px;margin:0 0 34px;text-wrap:pretty">
+  03 §9.6 asserts a <span style="color:#c9ff9e">priority toast stack</span> with
+  <span style="color:#c9ff9e">combat suppressing all but critical</span>, and 07 §5 already owes a suppression test — against a
+  taxonomy that does not exist. Everything below exists to make that sentence testable: five priorities, one suppression rule keyed on
+  a flag that already replicates, and a placement that keeps the viewport clear.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§1</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">PRIORITY TAXONOMY</span>
+  <span style="font-size:12px;color:#5d7a57">five levels — the only axis that decides placement, dwell, and suppression</span>
+</div>
+<div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:20px 22px;margin-bottom:14px">
+  <div style="display:grid;grid-template-columns:132px 92px 92px 1fr 210px;gap:14px;font-size:10.5px;color:#4e6a49;letter-spacing:.1em;padding-bottom:10px;border-bottom:1px solid rgba(124,255,62,.16)">
+    <div>PRIORITY</div><div>DWELL</div><div>IN COMBAT</div><div>WHAT QUALIFIES</div><div>SURFACE</div>
+  </div>
+  <sc-for list="{{ priorities }}" as="p" hint-placeholder-count="5">
+    <div style="display:grid;grid-template-columns:132px 92px 92px 1fr 210px;gap:14px;align-items:center;padding:13px 0;border-bottom:1px solid rgba(124,255,62,.07)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="{{ p.dotSt }}"></div>
+        <span style="{{ p.nameSt }}">{{ p.name }}</span>
+      </div>
+      <div style="font-size:12px;color:#7d8c79">{{ p.dwell }}</div>
+      <div style="{{ p.combatSt }}">{{ p.combat }}</div>
+      <div style="font-size:11.5px;color:#7d8c79;line-height:1.6">{{ p.what }}</div>
+      <div style="font-size:11px;color:#5d7a57;line-height:1.6">{{ p.surface }}</div>
+    </div>
+  </sc-for>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1000px;margin:0 0 36px">
+  <span style="color:#c9ff9e">Suppression keys on the combat flag that already replicates</span> — <span style="color:#7cff3e">PvpFlags.engagedUntilTick</span>
+  (02 §8.2), the same 60-second flag that blocks docking and safe log-off. That matters for the 07 §5 test: "in combat" is not a UI
+  heuristic to be tuned, it is a replicated field, so the suppression rule is a pure function of state and can be asserted rather than
+  eyeballed. Suppressed toasts are <em style="color:#7d8c79;font-style:normal">queued, not dropped</em>, and drain when the flag clears.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§2</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">PLACEMENT — IN SITU</span>
+  <span style="font-size:12px;color:#5d7a57">the HUD at 1440×900, three priorities live at once</span>
+</div>
+<div style="border:1px solid rgba(124,255,62,.18);background:#000;position:relative;width:100%;height:620px;overflow:hidden;margin-bottom:14px">
+  <div style="position:absolute;inset:0;background:radial-gradient(120% 100% at 50% 40%,#0d1310 0%,#000 70%)"></div>
+  <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.04) 0 1px,transparent 1px 3px)"></div>
+  <sc-for list="{{ dust }}" as="d" hint-placeholder-count="40"><i style="{{ d.st }}"></i></sc-for>
+  <sc-for list="{{ ships }}" as="s" hint-placeholder-count="22"><div style="{{ s.st }}"></div></sc-for>
+
+  <div style="position:absolute;left:0;right:0;top:0;height:42px;display:flex;align-items:center;gap:18px;padding:0 16px;border-bottom:1px solid rgba(124,255,62,.25);background:rgba(4,8,5,.9);font-size:14px;letter-spacing:.06em">
+    <span style="color:#c9ff9e">◈ VESTA-3</span>
+    <div style="display:flex;align-items:center;gap:7px;border:1px solid rgba(255,45,111,.6);background:rgba(255,45,111,.12);padding:3px 9px;animation:pulse 1.2s infinite">
+      <span style="color:#ff2d6f;font-size:13px">⚠ 1 CRITICAL</span>
+    </div>
+    <span style="color:#ffb000;font-size:13px">⚑ 3 UNREAD</span>
+    <span style="flex:1"></span><span style="color:#5d7a57">41 SHIPS · 38ms</span>
+  </div>
+
+  <div style="position:absolute;left:50%;top:64px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;width:520px">
+    <div style="width:100%;border:1px solid #ff2d6f;background:rgba(30,2,12,.95);padding:13px 16px;display:flex;align-items:center;gap:13px;box-shadow:0 0 26px rgba(255,45,111,.28)">
+      <span style="font-size:20px;color:#ff2d6f;line-height:1">⚠</span>
+      <div style="flex:1">
+        <div style="font-size:14px;color:#ffd7e4;letter-spacing:.05em">HULL CRITICAL — ANVIL 3</div>
+        <div style="font-size:11.5px;color:#c77a92;margin-top:3px">Armor breached · 18% hull · under fire from 4</div>
+      </div>
+      <div style="border:1px solid rgba(255,45,111,.6);color:#ff2d6f;font-size:11.5px;padding:6px 11px;letter-spacing:.06em">JUMP TO</div>
+    </div>
+  </div>
+
+  <div style="position:absolute;right:16px;bottom:120px;display:flex;flex-direction:column;gap:8px;width:308px">
+    <div style="border:1px solid rgba(255,176,0,.5);background:rgba(16,11,2,.94);padding:11px 13px;display:flex;align-items:flex-start;gap:11px">
+      <span style="font-size:15px;color:#ffb000;line-height:1.2">⚑</span>
+      <div style="flex:1">
+        <div style="font-size:12.5px;color:#ffd79a;letter-spacing:.04em">ORDER REJECTED</div>
+        <div style="font-size:11px;color:#9b8358;margin-top:3px;line-height:1.5">Docking denied: aggression flag · 47s</div>
+      </div>
+    </div>
+    <div style="border:1px solid rgba(124,255,62,.35);background:rgba(6,14,6,.94);padding:11px 13px;display:flex;align-items:flex-start;gap:11px;opacity:.9">
+      <span style="font-size:15px;color:#7cff3e;line-height:1.2">◈</span>
+      <div style="flex:1">
+        <div style="font-size:12.5px;color:#c9ff9e;letter-spacing:.04em">SELL ORDER FILLED</div>
+        <div style="font-size:11px;color:#7d8c79;margin-top:3px;line-height:1.5">2,400 × Tritanite @ 41.20 · Vesta-3</div>
+      </div>
+    </div>
+    <div style="border:1px solid rgba(124,255,62,.22);background:rgba(4,8,5,.8);padding:9px 13px;font-size:11.5px;color:#8fa08b;letter-spacing:.08em;text-align:center">
+      ⏳ 6 SUPPRESSED — DRAIN WHEN COMBAT CLEARS
+    </div>
+  </div>
+
+  <div style="position:absolute;left:0;right:0;bottom:0;height:88px;border-top:1px solid rgba(124,255,62,.25);background:rgba(4,8,5,.94);padding:10px 16px;display:flex;align-items:center;gap:9px">
+    <span style="font-size:13px;color:#c9ff9e;letter-spacing:.05em">▣ 12 SHIPS : TALON WING</span>
+    <span style="flex:1"></span>
+    <span style="font-size:11px;color:#3d5a37;letter-spacing:.08em">CRITICAL CENTRE-TOP · EVERYTHING ELSE BOTTOM-RIGHT · NEITHER OVER THE CONTEXT BAR</span>
+  </div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1000px;margin:0 0 36px">
+  Two zones, and the split is deliberate. <span style="color:#c9ff9e">Critical takes centre-top</span> because it is the one class that
+  may interrupt — it is near the eye's resting point during a fight and carries a single action. Everything else stacks
+  <span style="color:#c9ff9e">bottom-right</span>, inside thumb reach on a landscape tablet (U5) and clear of both the roster drawer and
+  the order puck's working area. <span style="color:#ffb000">No toast ever overlaps the context bar</span>: the bar is where orders are
+  issued, and a toast that covers `ATTACK` mid-fight is a lost engagement.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§3</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">ANATOMY &amp; STATES</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px">
+  <sc-for list="{{ states }}" as="s" hint-placeholder-count="4">
+    <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px">
+      <div style="font-size:12.5px;color:#c9ff9e;letter-spacing:.05em;margin-bottom:12px">{{ s.title }}</div>
+      <div style="height:74px;display:flex;align-items:center;margin-bottom:12px">
+        <div style="{{ s.toastSt }}">
+          <span style="{{ s.iconSt }}">{{ s.icon }}</span>
+          <div style="flex:1">
+            <div style="{{ s.headSt }}">{{ s.head }}</div>
+            <div style="{{ s.bodySt }}">{{ s.body }}</div>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:11.5px;color:#7d8c79;line-height:1.65;min-height:80px">{{ s.note }}</div>
+    </div>
+  </sc-for>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1000px;margin:0 0 36px">
+  The <span style="color:#c9ff9e">bounce</span> state is not a new component — it is 03 §9.5's authority bounce, and every rejected order
+  already owes one. Reusing the toast for it means the reason text has exactly one home, whether it came from the client pre-check
+  (02 §10, instant) or the server's rejection (round trip). <span style="color:#ffb000">Coalescing is mandatory, not an optimisation</span>:
+  forty fills from one market order are one toast with a count, or the stack becomes the thing suppressing the game.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§4</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE PUSH NOTIFICATION PATH — F8</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:12px">THE CONTRADICTION</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>03 §9.6 asserts the feature outright: <span style="color:#c9ff9e">"wall-time jobs surface as push notifications."</span> Industry queues and skill training both run on wall-clock time, so a player who is not in the client needs telling.</div>
+      <div style="margin-top:10px">But <span style="color:#7cff3e">00 §2.3's allow-list has no row for the Windows notification platform</span>, and the policy is that nothing enters without one. The feature is asserted by one document and denied by another.</div>
+      <div style="margin-top:10px;color:#ffb000">This design cannot resolve that — it is an owner's call about scope and the allow-list, not a UX question.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:12px">WHAT THE DESIGN DOES ABOUT IT</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#7cff3e">Wall-time completion is a priority level</span> in §1 regardless of transport. In-client it is a toast; out-of-client it is whatever F8 decides, or nothing.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">The taxonomy is transport-agnostic</span>, so accepting or rejecting F8 changes one delivery adapter and no part of this design.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">If F8 is rejected</span>, the fallback is a job-completion digest on next login — which the Industry and Character screens need anyway, so it is not wasted work.</div>
+      <div style="margin-top:9px;color:#4e6a49">Recommendation: <span style="color:#c9ff9e">defer F8 past Slice A′</span>. It is an OS integration with a security and privacy surface, and A′ ships the tactical HUD alone (F9).</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1100},&quot;combatState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;In combat — suppressing&quot;,&quot;Peace — full stack&quot;],&quot;default&quot;:&quot;In combat — suppressing&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Alert rules&quot;}}">
+class Component extends DCLogic {
+  rnd(seed) { let s = seed; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
+
+  renderVals() {
+    const G = '#7cff3e', HOT = '#c9ff9e', RED = '#ff5a4a', CRIT = '#ff2d6f', AMB = '#ffb000', CY = '#4de1ff';
+    const stateName = (this.props.combatState ?? 'In combat — suppressing');
+
+    const defs = [
+      {
+        name: 'CRITICAL', color: CRIT, dwell: 'until acted', combat: 'ALWAYS', pass: true,
+        what: 'Hull critical on an owned ship · flagship destroyed · station under attack · account security',
+        surface: 'Centre-top, one action, blocks nothing else from stacking below'
+      },
+      {
+        name: 'URGENT', color: RED, dwell: '12 s', combat: 'ALWAYS', pass: true,
+        what: 'Ship lost · order rejected by authority · criminal flag acquired · docking denied',
+        surface: 'Bottom-right stack, top slot, reason text mandatory'
+      },
+      {
+        name: 'ROUTINE', color: AMB, dwell: '8 s', combat: 'QUEUED', pass: false,
+        what: 'Market fill · contract accepted · refine batch complete · hold full at the cluster (R5) · probe resolved',
+        surface: 'Bottom-right stack, coalesced by source'
+      },
+      {
+        name: 'AMBIENT', color: G, dwell: '5 s', combat: 'QUEUED', pass: false,
+        what: 'Corp member online · sovereignty tick · intel ping outside the interest set',
+        surface: 'Bottom-right stack, coalesced, drops oldest first at 5 visible'
+      },
+      {
+        name: 'WALL-TIME', color: CY, dwell: '8 s', combat: 'QUEUED', pass: false,
+        what: 'Skill training complete · long industry job finished while away',
+        surface: 'Toast in-client; out-of-client path is F8 (§4)'
+      }
+    ];
+
+    const priorities = defs.map(d => ({
+      name: d.name, dwell: d.dwell, combat: d.combat, what: d.what, surface: d.surface,
+      dotSt: {
+        width: '9px', height: '9px', flex: '0 0 auto', background: d.color,
+        boxShadow: '0 0 8px ' + d.color + '99', clipPath: d.pass ? 'polygon(50% 0%,100% 50%,50% 100%,0% 50%)' : 'none'
+      },
+      nameSt: { fontSize: '13px', color: d.color, letterSpacing: '.06em' },
+      combatSt: {
+        fontSize: '10.5px', letterSpacing: '.08em', padding: '3px 7px', textAlign: 'center',
+        color: d.pass ? d.color : '#5d7a57',
+        border: '1px solid ' + (d.pass ? d.color + '77' : 'rgba(124,255,62,.16)'),
+        background: d.pass ? d.color + '18' : 'transparent'
+      }
+    }));
+
+    const toastBase = (border, bg) => ({
+      width: '100%', border: '1px solid ' + border, background: bg,
+      padding: '11px 12px', display: 'flex', alignItems: 'flex-start', gap: '10px'
+    });
+
+    const states = [
+      {
+        title: 'DEFAULT', icon: '◈', head: 'SELL ORDER FILLED', body: '2,400 × Tritanite @ 41.20',
+        toastSt: toastBase('rgba(124,255,62,.35)', 'rgba(6,14,6,.94)'),
+        iconSt: { fontSize: '15px', color: G, lineHeight: 1.2 },
+        headSt: { fontSize: '12px', color: HOT, letterSpacing: '.04em' },
+        bodySt: { fontSize: '10.5px', color: '#7d8c79', marginTop: '3px', lineHeight: 1.5 },
+        note: 'Icon, one-line head, one-line detail. No timestamp — the stack is chronological and a clock reads as data nobody uses mid-fight.'
+      },
+      {
+        title: 'COALESCED', icon: '◈', head: 'SELL ORDER FILLED ×40', body: '96,000 × Tritanite · 6 prices',
+        toastSt: toastBase('rgba(124,255,62,.35)', 'rgba(6,14,6,.94)'),
+        iconSt: { fontSize: '15px', color: G, lineHeight: 1.2 },
+        headSt: { fontSize: '12px', color: HOT, letterSpacing: '.04em' },
+        bodySt: { fontSize: '10.5px', color: '#7d8c79', marginTop: '3px', lineHeight: 1.5 },
+        note: 'Same source within a window collapses to a count and an aggregate. Mandatory: one market order can fill forty times and the stack must not become the thing suppressing the game.'
+      },
+      {
+        title: 'BOUNCE — 03 §9.5', icon: '⚑', head: 'ORDER REJECTED', body: 'Out of range · 14.2 km > 12.0 km',
+        toastSt: toastBase('rgba(255,176,0,.5)', 'rgba(16,11,2,.94)'),
+        iconSt: { fontSize: '15px', color: AMB, lineHeight: 1.2 },
+        headSt: { fontSize: '12px', color: '#ffd79a', letterSpacing: '.04em' },
+        bodySt: { fontSize: '10.5px', color: '#9b8358', marginTop: '3px', lineHeight: 1.5 },
+        note: 'The reason toast every rejection already owes. Paired with the 150 ms ghost bounce — same event, two surfaces, one reason string from either the pre-check or the server.'
+      },
+      {
+        title: 'SUPPRESSED', icon: '⏳', head: '6 QUEUED', body: 'Drain when combat clears · 47s',
+        toastSt: { ...toastBase('rgba(124,255,62,.14)', 'rgba(4,8,5,.8)'), opacity: .85 },
+        iconSt: { fontSize: '15px', color: '#8fa08b', lineHeight: 1.2 },
+        headSt: { fontSize: '12px', color: '#8fa08b', letterSpacing: '.04em' },
+        bodySt: { fontSize: '10.5px', color: '#7d8c79', marginTop: '3px', lineHeight: 1.5 },
+        note: 'Suppressed is visible, not silent. One collapsed row states the backlog so the player knows the game is holding things back rather than that nothing happened.'
+      }
+    ];
+
+    const r = this.rnd(41), dust = [], ships = [];
+    for (let i = 0; i < 40; i++) {
+      const s = r() < 0.8 ? 1 : 2;
+      dust.push({ st: { position: 'absolute', left: (r() * 100) + '%', top: (r() * 100) + '%', width: s + 'px', height: s + 'px', background: '#2f4a2a', display: 'block' } });
+    }
+    const HEX = 'polygon(50% 0%,100% 32%,90% 76%,66% 100%,34% 100%,10% 76%,0% 32%)';
+    const DELTA = 'polygon(50% 0%,100% 100%,50% 76%,0% 100%)';
+    for (let i = 0; i < 22; i++) {
+      const hostile = r() < 0.42, big = r() < 0.3;
+      const col = hostile ? RED : G, px = big ? 17 : 11;
+      ships.push({ st: {
+        position: 'absolute', left: (8 + r() * 84) + '%', top: (18 + r() * 62) + '%',
+        width: px + 'px', height: Math.round(px * 0.9) + 'px', background: col,
+        clipPath: big ? HEX : DELTA, transform: `rotate(${(r() - 0.5) * 50}deg)`,
+        filter: `drop-shadow(0 0 4px ${col}88)`, opacity: .92
+      } });
+    }
+
+    return { stateName, priorities, states, dust, ships };
+  }
+}
+</script>
+</body>
+</html>

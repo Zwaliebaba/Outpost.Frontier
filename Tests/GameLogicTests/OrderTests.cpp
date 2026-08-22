@@ -2546,6 +2546,37 @@ public:
     Assert::IsFalse(OrderKindHasContent(OrderKind::Abilities));
   }
 
+  TEST_METHOD(OnlyMineHasAWordForWhatItIsDoingAfterItsLegsAreSpent)
+  {
+    /*
+     * `OrderKindName` is the verb a player presses; `OrderWorkingName` is the
+     * state the fleet is in afterwards, and they are different words about
+     * different moments (ADR-024 4b). A surface reusing MINE for MINING would
+     * report a command where the player is reading a condition.
+     *
+     * **Null for every other kind is the load-bearing half.** Every group runs
+     * out of legs eventually, and for all but one that means "about to be
+     * retired"; the client tells the two apart by whether there is a word here.
+     * A word for a kind that simply finishes would leave a readout on screen
+     * over a fleet that had stopped.
+     *
+     * It answers for the same kinds `World::LegEtaSeconds` will still give a
+     * number to once `legIndex >= legCount` -- one supplies the word and the
+     * other the seconds, and a label with no ETA or an ETA with no label is
+     * what a disagreement would look like.
+     */
+    Assert::AreEqual(std::string_view{"Mining"}, std::string_view{OrderWorkingName(OrderKind::Mine)});
+
+    for (const OrderKind kind : ORDER_KIND_IDS)
+    {
+      if (kind == OrderKind::Mine)
+      {
+        continue;
+      }
+      Assert::IsNull(OrderWorkingName(kind), L"a kind whose whole life is a journey has no working word");
+    }
+  }
+
   TEST_METHOD(AKindNamesADestinationOnlyWhenThePlayerHasSomethingToPointAt)
   {
     /*

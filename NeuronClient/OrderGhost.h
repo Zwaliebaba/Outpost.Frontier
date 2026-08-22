@@ -179,6 +179,32 @@ struct OrderGhost
   {
     return queuedLegCount > 1 ? legs[queuedLegCount - 2].targetMetres : originMetres;
   }
+
+  /*
+   * Whether this order has stopped travelling and started *working*.
+   *
+   * Three conditions, and each removes a different way of being wrong:
+   *
+   * - **The authority agreed.** A pending ghost has none of the authority's
+   *   numbers yet, and its zeroed `legCount` would read as "no leg left" on the
+   *   frame the order was given.
+   * - **No leg is left**, by the authority's own count rather than the client's
+   *   guess: `legIndex` and `legCount` are what the snapshot said, and the
+   *   client's `queuedLegCount` is what it hoped.
+   * - **The game named the state.** Every kind runs out of legs eventually, and
+   *   for all but one that means "about to be retired". The word is the game's
+   *   answer to which this is (`OrderPreview::workingLabel`), so the engine
+   *   never concludes from two numbers that a fleet is doing something in
+   *   particular.
+   *
+   * A working order draws no lane, no footprint and no destination ticks: there
+   * is no journey left to promise, and a ring over a fleet that has arrived is
+   * the same defect as a lane pointing at somewhere it already got to.
+   */
+  [[nodiscard]] bool Working() const noexcept
+  {
+    return state == GhostState::UnderWay && legIndex >= legCount && preview.workingLabel[0] != '\0';
+  }
 };
 
 class OrderGhostList

@@ -81,7 +81,7 @@ a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
       <span style="font-size:13px;color:#4e6a49;letter-spacing:.06em">TAP = TOGGLE · TAP HEADER = ALL HOLDING</span>
     </div>
     <div style="display:grid;grid-template-columns:236px 200px 84px 84px 84px 1fr;gap:10px;padding:0 12px 8px;border-bottom:1px solid rgba(124,255,62,.2);font-size:10.5px;color:#4e6a49;letter-spacing:.1em">
-      <span>HULL ALONGSIDE</span><span>LOAD</span><span style="text-align:right">F-CHROMA</span><span style="text-align:right">ASTRACITE</span><span style="text-align:right">NEBULITE</span><span style="text-align:right">LITRES</span>
+      <span>HULL ALONGSIDE</span><span>LOAD</span><span style="text-align:right;color:#c08a52">F-CHROMA</span><span style="text-align:right;color:#b99cff">ASTRACITE</span><span style="text-align:right;color:#4fd6c0">NEBULITE</span><span style="text-align:right">LITRES</span>
     </div>
     <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
       <sc-for list="{{ holdRows }}" as="r" hint-placeholder-count="6">
@@ -129,6 +129,7 @@ a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
       <div style="padding:8px 13px 0;font-size:9.5px;color:#3d5a37;letter-spacing:.14em">ORES</div>
       <sc-for list="{{ bayRows }}" as="b" hint-placeholder-count="3">
         <div style="{{ b.st }}">
+          <span style="position:relative;width:20px;height:20px;flex:0 0 auto;display:inline-block"><span style="{{ b.g1 }}"></span><span style="{{ b.g2 }}"></span></span>
           <span style="font-size:12.5px;color:#c9ff9e;letter-spacing:.05em;white-space:nowrap">{{ b.name }}</span>
           <span style="flex:1"></span>
           <div style="text-align:right">
@@ -142,7 +143,7 @@ a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
     <div style="border:1px dashed rgba(124,255,62,.2);padding:9px 12px;font-size:10.5px;color:#4e6a49;line-height:1.6">FAMILIES STACK DOWNWARD AS THEY EXIST — ALLOYS AT E4 (D-P3), FURTHER ITEM FAMILIES PER 08c. ROWS JOIN THEIR GROUP; THE PANEL NEVER RESHUFFLES</div>
     <div style="display:flex;align-items:center;gap:8px">
       <span style="font-size:11px;color:#5d7a57;letter-spacing:.08em">MOVE</span>
-      <sc-for list="{{ chips }}" as="c" hint-placeholder-count="4"><div style="{{ c.st }}">{{ c.name }}</div></sc-for>
+      <sc-for list="{{ chips }}" as="c" hint-placeholder-count="4"><div style="{{ c.st }}"><sc-for list="{{ c.pips }}" as="p" hint-placeholder-count="1"><span style="{{ p.st }}"></span></sc-for>{{ c.name }}</div></sc-for>
     </div>
     <div style="border:1px solid rgba(124,255,62,.18);background:rgba(6,12,6,.5);padding:12px 14px">
       <div style="{{ prevHeadSt }}">{{ prevHead }}</div>
@@ -338,16 +339,31 @@ class Component extends DCLogic {
     const cargoSummary = 'ALONGSIDE 47 HULLS · 4 HOLDING ORE · 1,238 UNITS ABOARD';
 
     const bay = [['FERRO-CHROMA', 1240], ['ASTRACITE', 310], ['NEBULITE', 85]];
+    // D-C1 ore glyphs at the 20 px floor — the Bay rows are the one spot on this
+    // tab tall enough to carry them; everything smaller keeps the letter codes.
+    const oreGlyphs = [
+      [{ position: 'absolute', left: 0, top: '1px', width: '20px', height: '18px', background: '#c08a52', clipPath: 'polygon(22% 0,88% 10%,100% 58%,72% 100%,8% 90%,0 34%)' },
+       { position: 'absolute', left: 0, top: '1px', width: '20px', height: '18px', background: 'rgba(0,0,0,.28)', clipPath: 'polygon(22% 0,60% 46%,8% 90%,0 34%)' }],
+      [{ position: 'absolute', left: '6px', top: 0, width: '9px', height: '20px', background: '#b99cff', clipPath: 'polygon(50% 0,100% 74%,50% 100%,0 74%)' },
+       { position: 'absolute', left: 0, top: '6px', width: '6px', height: '12px', background: 'rgba(185,156,255,.6)', clipPath: 'polygon(50% 0,100% 76%,50% 100%,0 76%)' }],
+      [{ position: 'absolute', inset: 0, border: '1px dashed rgba(79,214,192,.5)', borderRadius: '50%' },
+       { position: 'absolute', left: '4px', top: '4px', width: '12px', height: '12px', background: '#4fd6c0', borderRadius: '50% 44% 52% 40%' }]
+    ];
     const bayRows = bay.map(([name, units], i) => ({
       name, units: fmt(units),
       litres: fmt(units * VOL[i]) + ' L',
+      g1: oreGlyphs[i][0], g2: oreGlyphs[i][1],
       st: { display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 13px',
         borderBottom: i < 2 ? '1px solid rgba(124,255,62,.1)' : 'none' }
     }));
 
+    // The ANY chip shows the members it stands for (D-C1 §5); ore chips carry one pip.
+    const ORE_HUES = ['#c08a52', '#b99cff', '#4fd6c0'];
+    const pip = c => ({ st: { width: '7px', height: '7px', transform: 'rotate(45deg)', background: c, flex: '0 0 auto' } });
     const chips = ['ALL ITEMS', 'F-CHROMA', 'ASTRACITE', 'NEBULITE'].map((name, i) => ({
       name,
-      st: { padding: '5px 10px', fontSize: '10.5px', letterSpacing: '.06em', flex: '0 0 auto', whiteSpace: 'nowrap',
+      pips: i === 0 ? ORE_HUES.map(pip) : [pip(ORE_HUES[i - 1])],
+      st: { display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 10px', fontSize: '10.5px', letterSpacing: '.06em', flex: '0 0 auto', whiteSpace: 'nowrap',
         border: '1px solid ' + (i === 0 ? 'rgba(124,255,62,.5)' : 'rgba(124,255,62,.18)'),
         background: i === 0 ? 'rgba(124,255,62,.12)' : 'transparent',
         color: i === 0 ? HOT : '#5d7a57' }

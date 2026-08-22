@@ -61,6 +61,23 @@ const char* OrderKindName(OrderKind _kind) noexcept
   return "unnamed order";
 }
 
+const char* OrderWorkingName(OrderKind _kind) noexcept
+{
+  /*
+   * Written as the one exception rather than as a full switch, and the default
+   * is the safe direction: a kind with no answer here reads as a journey, which
+   * every kind but Mine is. A wrong null costs a label; a wrong word would put
+   * a fleet's state on screen for an order that had simply finished.
+   *
+   * `Mine` is the exception because §4b's cycle is the order: the group arrives,
+   * its leg is spent, and the work is what it does for the next several hours
+   * (ADR-024 §4a). `LegEtaSeconds` answers for exactly the same case, and the
+   * two agreeing is not an accident -- one supplies the number this supplies
+   * the word for.
+   */
+  return _kind == OrderKind::Mine ? "Mining" : nullptr;
+}
+
 bool OrderKindHasContent(OrderKind _kind) noexcept
 {
   // Move, Warp, Dock and Mine are simulated; the other three are numbered and

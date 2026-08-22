@@ -436,9 +436,21 @@ stack, the router's three channels and its keyboard rule, the caret's arithmetic
 the scrolling list, and the column's layout against the running total it replaced.
 
 **Owed by T3a, and it is the R1 category exactly:** nobody has looked at the station surface
-or the live block button on a screen. Also owed, and smaller: the tactical chrome is still
+or the live block button on a screen. ~~Also owed, and smaller: the tactical chrome is still
 built underneath a surface that covers it — a `UiDrawList` fill nobody sees, whose fix is an
-early return once T3b makes that half a function of its own.
+early return once T3b makes that half a function of its own.~~ **Closed 2026-08-22**, the way it
+was described: `ClientApp::BuildTacticalHud` is that half as a function of its own, and `BuildHud`
+now chooses between it and `BuildStationSurface` rather than building the first and covering it
+with the second. The cost of a screen is the screen.
+
+Two things the extraction had to keep, and both are in its comment: the toast layer stays
+**outside** the branch, because toasts are a cross-surface layer drawn over whichever ran
+(ADR-020 §1); and the clock is the one thing passed in rather than re-derived, because reading
+`SecondsSinceStart` a second time would animate the lanes off a different instant than the toasts
+advanced on. The zone metrics are re-derived, since every one is a function of `m_uiLayout` and
+`m_uiTuning` that `UpdateHud` had already resolved. The moved block writes no member state — it
+reads the layout the update pass resolved and draws — which is what makes skipping it safe rather
+than merely cheaper.
 
 **Built (T3b, 2026-08-22).** The hangar: a seam, a composer, a geometry, a draw, and a verb
 that leaves the machine.

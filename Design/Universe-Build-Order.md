@@ -810,10 +810,14 @@ one sitting.
 
 ## Content & design deliverables (not slices — tracked so they cannot be quietly dropped)
 
-- ~~**D1 — System-view print.**~~ **Drawn 2026-08-21:**
-  [System View.dc.html](ScreenPrints/source/System%20View.dc.html), in the station family's
-  format and against ADR-016 §9. **The source is in; the plate is not** — exporting the PNG
-  needs the design tool, so `ScreenPrints/system-view.png` is owed before this is closed.
+- ~~**D1 — System-view print.**~~ **Drawn 2026-08-21**, in the station family's format and
+  against ADR-016 §9. **Neither the source nor the plate is in `ScreenPrints/` any more**
+  *(2026-08-22)*: D1 is tracked upstream and the plate is owed there, which is what
+  [ScreenPrints/MANIFEST-1.0.md](ScreenPrints/MANIFEST-1.0.md) records when it lists what is
+  correctly not in this corpus. **U6 is not blocked by that** — the print's decisions were
+  lifted into [ADR-016 §9](ADR/ADR-016-procedural-universe-and-warp.md) the day it was drawn and
+  are normative there; what an artefact would still buy is a plate to check the built screen
+  against, and it buys it upstream.
 
   **What the print decided**, with the three that reach past the screen recorded in
   [ADR-016 §9](ADR/ADR-016-procedural-universe-and-warp.md): anchors are targets and

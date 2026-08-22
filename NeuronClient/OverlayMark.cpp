@@ -179,6 +179,21 @@ void BuildGhostMarks(std::span<const OrderGhost> _ghosts, const OverlayTuning& _
       continue;
     }
 
+    /*
+     * And an order that has *arrived* draws no destination either.
+     *
+     * A working group is standing where its last leg put it, so a ring and a
+     * tick per ship over the top of the hulls promise an arrival that has
+     * already happened -- the same defect as the retired-late ghost that used
+     * to leave its mark pointing at somewhere the fleet had got to, one state
+     * further along. The label the lane pass draws in its place says what is
+     * going on instead.
+     */
+    if (ghost.Working())
+    {
+      continue;
+    }
+
     const float bounce = OrderGhostList::BounceFraction(ghost, _nowSeconds);
     const bool underWay = ghost.state == GhostState::UnderWay;
 

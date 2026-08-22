@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0a0b09;font-family:'Share Tech Mono',ui-monospace,monospace}
+a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
+@keyframes pulse{0%,100%{opacity:.9}50%{opacity:.4}}
+@keyframes sweep{0%{transform:translateX(-100%)}100%{transform:translateX(400%)}}
+</style></helmet>
+
+<div data-screen-label="Session Surfaces" style="width:1440px;background:#050705;padding:44px 48px 56px;color:#7cff3e;position:relative">
+<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.03) 0 1px,transparent 1px 3px);pointer-events:none"></div>
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(124,255,62,.3);padding-bottom:16px;margin-bottom:12px">
+  <div>
+    <div style="font-size:26px;color:#c9ff9e;letter-spacing:.08em">SESSION SURFACES</div>
+    <div style="font-size:12.5px;color:#5d7a57;letter-spacing:.06em;margin-top:6px">07 §4.9 — login, update-required, character create, queue, reconnect · closes gap-audit G14</div>
+  </div>
+  <div style="text-align:right;font-size:11.5px;color:#4e6a49;line-height:1.8">
+    <div>SOURCE · 06 §1.2 · 06 §4 · 04 §3.1 · 02 §8.2 · 08 §5</div>
+    <div>DECIDED UPSTREAM · F1 standalone · F3 one character</div>
+  </div>
+</div>
+
+<p style="font-size:13px;color:#7d8c79;line-height:1.75;max-width:1010px;margin:0 0 20px;text-wrap:pretty">
+  <span style="color:#c9ff9e">This hand-off dangled on both ends.</span> 06 §7 sends the login, character-create, queue and
+  update-required screens to "the 07 placeholder's screen inventory"; 07 §4's inventory and the rescoped
+  <span style="color:#7cff3e">T-CLI-09</span> never received them — so nobody owned the first thing a player ever sees. These are
+  client surfaces only: <span style="color:#ffb000">06 remains a placeholder</span>, so nothing here invents a credential policy (F2),
+  a token lifetime, or an MFA posture. What it does fix is what the player is shown, and what each screen must be told by the service.
+</p>
+<div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.5);padding:12px 16px;font-size:12px;color:#7d8c79;line-height:1.7;margin-bottom:34px">
+  <span style="color:#ffb000">Standing on two decided answers.</span> <span style="color:#7cff3e">F1</span> — standalone accounts, own
+  email and credential store, no platform SSO — means the client owns a real credential form rather than deferring to a platform overlay.
+  <span style="color:#7cff3e">F3</span> — exactly one character per account — collapses what would be a character-select list into a
+  single resume card, and makes creation a <em style="color:#7d8c79;font-style:normal">first-run</em> event rather than a repeated one.
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§1</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE PATH TO A SESSION</span>
+  <span style="font-size:12px;color:#5d7a57">every branch out of the happy path is a screen someone must design</span>
+</div>
+<div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:22px;margin-bottom:36px">
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <sc-for list="{{ flow }}" as="f" hint-placeholder-count="11">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="{{ f.st }}">{{ f.name }}</div>
+        <span style="{{ f.arrowSt }}">{{ f.arrow }}</span>
+      </div>
+    </sc-for>
+  </div>
+  <div style="margin-top:16px;padding-top:14px;border-top:1px solid rgba(124,255,62,.14);font-size:11.5px;color:#7d8c79;line-height:1.7">
+    <span style="color:#ffb000">The schema-hash reject is not an error case — it is a guaranteed one.</span> 04 §3.1 makes
+    <span style="color:#7cff3e">Authenticate { sessionToken, schemaHash }</span> fail closed on mismatch, so every player meets
+    <span style="color:#c9ff9e">UPDATE REQUIRED</span> on the first launch after every patch. It deserves the care of a main screen,
+    not an error dialog.
+  </div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§2</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE SCREENS</span>
+  <span style="font-size:12px;color:#5d7a57">authored 1440×900, shown at 46% — landscape tablet, U2 target sizes throughout</span>
+</div>
+
+<div style="display:grid;grid-template-columns:662px 662px;gap:20px;margin-bottom:14px">
+
+  <div style="min-width:0">
+    <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:9px">
+      <span style="font-size:9.5px;padding:2px 7px;background:rgba(124,255,62,.18);color:#7cff3e;letter-spacing:.1em">01</span>
+      <span style="font-size:13px;color:#c9ff9e;letter-spacing:.05em">LOGIN</span>
+    </div>
+    <div style="position:relative;width:662px;height:414px;overflow:hidden;border:1px solid rgba(124,255,62,.2);background:#000">
+    <div style="width:1440px;height:900px;transform:scale(.4597);transform-origin:top left;position:relative;background:#000">
+      <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 50% 42%,#0e1512 0%,#000 72%)"></div>
+      <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.04) 0 1px,transparent 1px 3px)"></div>
+      <sc-for list="{{ dust }}" as="d" hint-placeholder-count="50"><i style="{{ d.st }}"></i></sc-for>
+      <div style="position:absolute;left:50%;top:150px;transform:translateX(-50%);text-align:center">
+        <div style="font-size:60px;color:#c9ff9e;letter-spacing:.22em">OUTPOST</div>
+        <div style="font-size:23px;color:#5d7a57;letter-spacing:.52em;margin-top:10px">FRONTIER</div>
+      </div>
+      <div style="position:absolute;left:50%;top:352px;transform:translateX(-50%);width:520px;display:flex;flex-direction:column;gap:16px">
+        <div>
+          <div style="font-size:15px;color:#7d8c79;letter-spacing:.1em;margin-bottom:8px">EMAIL</div>
+          <div style="height:64px;border:1px solid rgba(124,255,62,.4);background:rgba(6,14,6,.8);display:flex;align-items:center;padding:0 18px;font-size:20px;color:#c9ff9e">mira.vex@outpost.net</div>
+        </div>
+        <div>
+          <div style="font-size:15px;color:#7d8c79;letter-spacing:.1em;margin-bottom:8px">PASSPHRASE</div>
+          <div style="height:64px;border:1px solid #7cff3e;background:rgba(124,255,62,.08);display:flex;align-items:center;padding:0 18px;font-size:20px;color:#c9ff9e;letter-spacing:.3em;box-shadow:0 0 16px rgba(124,255,62,.15) inset">••••••••••••<span style="width:2px;height:26px;background:#c9ff9e;margin-left:4px;animation:pulse 1s infinite"></span></div>
+        </div>
+        <div style="height:68px;border:1px solid #7cff3e;background:rgba(124,255,62,.18);display:flex;align-items:center;justify-content:center;font-size:22px;color:#c9ff9e;letter-spacing:.14em;margin-top:6px">ENTER THE FRONTIER</div>
+        <div style="display:flex;justify-content:space-between;font-size:15px;color:#5d7a57;margin-top:4px">
+          <span>CREATE ACCOUNT</span><span>FORGOT PASSPHRASE</span>
+        </div>
+      </div>
+      <div style="position:absolute;left:0;right:0;bottom:0;height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:14px;color:#3d5a37;letter-spacing:.08em;border-top:1px solid rgba(124,255,62,.14)">
+        <span>BUILD 0.4.118 · SCHEMA a37f21</span><span>ALL SERVERS NOMINAL</span>
+      </div>
+    </div>
+    </div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.65;margin-top:10px">Credential fields only — F1 means no platform overlay to defer to. The build and schema hash sit in the footer because they are the first thing support asks for, and the server-status line pre-empts "is it me or them" before the player has typed anything.</div>
+  </div>
+
+  <div style="min-width:0">
+    <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:9px">
+      <span style="font-size:9.5px;padding:2px 7px;background:rgba(255,176,0,.18);color:#ffb000;letter-spacing:.1em">02</span>
+      <span style="font-size:13px;color:#c9ff9e;letter-spacing:.05em">UPDATE REQUIRED — schema-hash reject</span>
+    </div>
+    <div style="position:relative;width:662px;height:414px;overflow:hidden;border:1px solid rgba(255,176,0,.25);background:#000">
+    <div style="width:1440px;height:900px;transform:scale(.4597);transform-origin:top left;position:relative;background:#000">
+      <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 50% 45%,#151004 0%,#000 72%)"></div>
+      <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(255,176,0,.04) 0 1px,transparent 1px 3px)"></div>
+      <div style="position:absolute;left:50%;top:214px;transform:translateX(-50%);width:660px;text-align:center">
+        <div style="font-size:52px;color:#ffb000;line-height:1">⚠</div>
+        <div style="font-size:36px;color:#ffd79a;letter-spacing:.14em;margin-top:22px">UPDATE REQUIRED</div>
+        <div style="font-size:19px;color:#9b8358;line-height:1.7;margin-top:20px">A new build is live. Your client cannot join<br>until it matches the server's data schema.</div>
+        <div style="border:1px solid rgba(255,176,0,.3);background:rgba(16,11,2,.7);padding:18px 22px;margin-top:30px;font-size:16px;color:#9b8358;line-height:1.9;text-align:left">
+          <div style="display:flex;justify-content:space-between"><span>YOUR SCHEMA</span><span style="color:#ff5a4a">a37f21</span></div>
+          <div style="display:flex;justify-content:space-between"><span>SERVER SCHEMA</span><span style="color:#ffd79a">b04c98</span></div>
+          <div style="display:flex;justify-content:space-between;padding-top:10px;margin-top:10px;border-top:1px solid rgba(255,176,0,.2)"><span>DOWNLOAD</span><span style="color:#ffd79a">412 MB</span></div>
+        </div>
+        <div style="height:70px;border:1px solid #ffb000;background:rgba(255,176,0,.16);display:flex;align-items:center;justify-content:center;font-size:22px;color:#ffd79a;letter-spacing:.12em;margin-top:26px">UPDATE NOW</div>
+        <div style="font-size:15px;color:#6b5a3a;margin-top:18px;letter-spacing:.06em">PATCH NOTES · QUIT</div>
+      </div>
+    </div>
+    </div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.65;margin-top:10px">Guaranteed after every patch, so it is a screen and not a dialog. It states both hashes because a mismatch is the one failure a player can neither cause nor fix by retrying — and one primary action, since there is nothing else they may legitimately do.</div>
+  </div>
+
+  <div style="min-width:0">
+    <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:9px">
+      <span style="font-size:9.5px;padding:2px 7px;background:rgba(124,255,62,.18);color:#7cff3e;letter-spacing:.1em">03</span>
+      <span style="font-size:13px;color:#c9ff9e;letter-spacing:.05em">CHARACTER CREATE — first run only</span>
+    </div>
+    <div style="position:relative;width:662px;height:414px;overflow:hidden;border:1px solid rgba(124,255,62,.2);background:#000">
+    <div style="width:1440px;height:900px;transform:scale(.4597);transform-origin:top left;position:relative;background:#000">
+      <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 50% 45%,#0e1512 0%,#000 72%)"></div>
+      <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.04) 0 1px,transparent 1px 3px)"></div>
+      <div style="position:absolute;left:80px;top:70px;font-size:30px;color:#c9ff9e;letter-spacing:.14em">WHO ARE YOU?</div>
+      <div style="position:absolute;left:80px;top:120px;font-size:16px;color:#5d7a57;letter-spacing:.06em">One commander per account. This cannot be changed later.</div>
+      <div style="position:absolute;left:80px;top:186px;width:560px">
+        <div style="font-size:15px;color:#7d8c79;letter-spacing:.1em;margin-bottom:8px">COMMANDER NAME</div>
+        <div style="height:70px;border:1px solid #7cff3e;background:rgba(124,255,62,.08);display:flex;align-items:center;padding:0 18px;font-size:26px;color:#c9ff9e;letter-spacing:.06em">Mira Vex<span style="width:2px;height:30px;background:#c9ff9e;margin-left:5px;animation:pulse 1s infinite"></span></div>
+        <div style="display:flex;align-items:center;gap:9px;margin-top:11px;font-size:15px;color:#7cff3e"><span>✓</span><span>Available across the server</span></div>
+      </div>
+      <div style="position:absolute;left:80px;top:352px;width:560px">
+        <div style="font-size:15px;color:#7d8c79;letter-spacing:.1em;margin-bottom:12px">STARTING SYSTEM</div>
+        <sc-for list="{{ starters }}" as="s" hint-placeholder-count="3">
+          <div style="{{ s.st }}">
+            <div style="flex:1">
+              <div style="{{ s.nameSt }}">{{ s.name }}</div>
+              <div style="font-size:14px;color:#5d7a57;margin-top:4px">{{ s.desc }}</div>
+            </div>
+            <div style="{{ s.secSt }}">{{ s.sec }}</div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="position:absolute;right:80px;top:186px;width:600px;height:492px;border:1px solid rgba(124,255,62,.2);background:rgba(6,12,6,.6);overflow:hidden">
+        <div style="position:absolute;inset:0;background:radial-gradient(70% 70% at 50% 45%,rgba(124,255,62,.07),transparent 70%)"></div>
+        <sc-for list="{{ starMap }}" as="m" hint-placeholder-count="24"><div style="{{ m.st }}"></div></sc-for>
+        <div style="position:absolute;left:20px;bottom:18px;font-size:14px;color:#4e6a49;letter-spacing:.08em">KESTREL REACH · CORE · 14 JUMPS TO FRONTIER</div>
+      </div>
+      <div style="position:absolute;right:80px;bottom:64px;width:300px;height:74px;border:1px solid #7cff3e;background:rgba(124,255,62,.18);display:flex;align-items:center;justify-content:center;font-size:22px;color:#c9ff9e;letter-spacing:.12em">BEGIN</div>
+    </div>
+    </div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.65;margin-top:10px">F3 makes this a once-in-an-account-lifetime screen, so it says so plainly. The starting-system choice is the only consequential decision here and it couples to 08 §5 — <span style="color:#ffb000">which starter systems exist is universe content nobody has authored yet</span>.</div>
+  </div>
+
+  <div style="min-width:0">
+    <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:9px">
+      <span style="font-size:9.5px;padding:2px 7px;background:rgba(124,255,62,.18);color:#7cff3e;letter-spacing:.1em">04</span>
+      <span style="font-size:13px;color:#c9ff9e;letter-spacing:.05em">RESUME — the returning player's landing</span>
+    </div>
+    <div style="position:relative;width:662px;height:414px;overflow:hidden;border:1px solid rgba(124,255,62,.2);background:#000">
+    <div style="width:1440px;height:900px;transform:scale(.4597);transform-origin:top left;position:relative;background:#000">
+      <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 50% 45%,#0e1512 0%,#000 72%)"></div>
+      <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.04) 0 1px,transparent 1px 3px)"></div>
+      <div style="position:absolute;left:50%;top:96px;transform:translateX(-50%);width:820px">
+        <div style="font-size:17px;color:#5d7a57;letter-spacing:.14em">WELCOME BACK</div>
+        <div style="font-size:44px;color:#c9ff9e;letter-spacing:.08em;margin-top:10px">MIRA VEX</div>
+        <div style="font-size:17px;color:#7d8c79;margin-top:10px">Docked at Vesta-3 · 4 days 6 hours since last session</div>
+        <div style="border:1px solid rgba(124,255,62,.22);background:rgba(6,12,6,.7);margin-top:34px">
+          <div style="font-size:15px;color:#4e6a49;letter-spacing:.14em;padding:14px 20px;border-bottom:1px solid rgba(124,255,62,.14)">WHILE YOU WERE AWAY</div>
+          <sc-for list="{{ digest }}" as="d" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:14px;padding:15px 20px;border-bottom:1px solid rgba(124,255,62,.07)">
+              <span style="{{ d.iconSt }}">{{ d.icon }}</span>
+              <div style="flex:1;font-size:18px;color:#c9ff9e">{{ d.text }}</div>
+              <div style="font-size:15px;color:#5d7a57">{{ d.when }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="height:76px;border:1px solid #7cff3e;background:rgba(124,255,62,.18);display:flex;align-items:center;justify-content:center;font-size:24px;color:#c9ff9e;letter-spacing:.14em;margin-top:30px">ENTER WORLD</div>
+      </div>
+    </div>
+    </div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.65;margin-top:10px">With one character per account there is no list to pick from, so this slot is free — and 07d §6 already owes a job-completion digest if F8 rejects push. This is where it lives, which is why deferring F8 costs nothing.</div>
+  </div>
+
+  <div style="min-width:0">
+    <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:9px">
+      <span style="font-size:9.5px;padding:2px 7px;background:rgba(77,225,255,.18);color:#4de1ff;letter-spacing:.1em">05</span>
+      <span style="font-size:13px;color:#c9ff9e;letter-spacing:.05em">QUEUE &amp; DOWNTIME — P6 windows</span>
+    </div>
+    <div style="position:relative;width:662px;height:414px;overflow:hidden;border:1px solid rgba(77,225,255,.22);background:#000">
+    <div style="width:1440px;height:900px;transform:scale(.4597);transform-origin:top left;position:relative;background:#000">
+      <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 50% 45%,#050f13 0%,#000 72%)"></div>
+      <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(77,225,255,.035) 0 1px,transparent 1px 3px)"></div>
+      <div style="position:absolute;left:50%;top:236px;transform:translateX(-50%);width:640px;text-align:center">
+        <div style="font-size:19px;color:#4e6a49;letter-spacing:.16em">SERVER AT CAPACITY</div>
+        <div style="font-size:96px;color:#4de1ff;letter-spacing:.04em;margin-top:20px;line-height:1">247</div>
+        <div style="font-size:19px;color:#7d8c79;letter-spacing:.08em;margin-top:8px">AHEAD OF YOU</div>
+        <div style="position:relative;height:5px;background:rgba(77,225,255,.14);margin-top:38px;overflow:hidden">
+          <div style="position:absolute;left:0;top:0;bottom:0;width:26%;background:#4de1ff"></div>
+          <div style="position:absolute;top:0;bottom:0;width:22%;background:linear-gradient(90deg,transparent,rgba(77,225,255,.5),transparent);animation:sweep 2.4s linear infinite"></div>
+        </div>
+        <div style="font-size:20px;color:#c9ff9e;margin-top:26px;letter-spacing:.06em">About 6 minutes</div>
+        <div style="font-size:15px;color:#5d7a57;margin-top:12px;line-height:1.7">Moving 41 players per minute over the last 5 minutes.<br>You keep your place if your connection drops.</div>
+        <div style="border:1px solid rgba(77,225,255,.25);background:rgba(4,14,18,.6);padding:16px 20px;margin-top:34px;font-size:16px;color:#7d8c79;line-height:1.7">
+          <span style="color:#4de1ff">SCHEDULED DOWNTIME</span> · Thu 03:00–03:40 UTC<br>
+          <span style="font-size:14px;color:#5d7a57">Industry and training continue on wall-clock time.</span>
+        </div>
+        <div style="font-size:15px;color:#5d7a57;margin-top:24px;letter-spacing:.08em">LEAVE QUEUE</div>
+      </div>
+    </div>
+    </div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.65;margin-top:10px">Position, an honest rate, and the drop-safety promise — a queue that hides its rate reads as broken. The downtime note answers the question the queue creates: wall-time jobs keep running, so waiting costs nothing but access.</div>
+  </div>
+
+  <div style="min-width:0">
+    <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:9px">
+      <span style="font-size:9.5px;padding:2px 7px;background:rgba(255,45,111,.2);color:#ff2d6f;letter-spacing:.1em">06</span>
+      <span style="font-size:13px;color:#c9ff9e;letter-spacing:.05em">RECONNECT UNDER FIRE — 02 §8.2 window</span>
+    </div>
+    <div style="position:relative;width:662px;height:414px;overflow:hidden;border:1px solid rgba(255,45,111,.3);background:#000">
+    <div style="width:1440px;height:900px;transform:scale(.4597);transform-origin:top left;position:relative;background:#000">
+      <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 50% 45%,#16040c 0%,#000 72%)"></div>
+      <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(255,45,111,.04) 0 1px,transparent 1px 3px)"></div>
+      <div style="position:absolute;left:50%;top:130px;transform:translateX(-50%);width:800px">
+        <div style="display:flex;align-items:center;gap:14px">
+          <span style="font-size:34px;color:#ff2d6f;animation:pulse 1.2s infinite">⚠</span>
+          <div style="font-size:34px;color:#ffd7e4;letter-spacing:.1em">YOU WERE IN COMBAT</div>
+        </div>
+        <div style="font-size:18px;color:#c77a92;margin-top:14px;line-height:1.7">Your connection dropped 82 seconds ago. Your fleet did not leave the field —<br>a station commander held your standing orders while you were gone.</div>
+        <div style="border:1px solid rgba(255,45,111,.3);background:rgba(20,3,10,.7);margin-top:32px">
+          <div style="font-size:15px;color:#8a5266;letter-spacing:.14em;padding:14px 20px;border-bottom:1px solid rgba(255,45,111,.18)">WHAT THE COMMANDER DID</div>
+          <sc-for list="{{ awayLog }}" as="a" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid rgba(255,45,111,.09)">
+              <span style="{{ a.iconSt }}">{{ a.icon }}</span>
+              <div style="flex:1;font-size:17px;color:#ffd7e4">{{ a.text }}</div>
+              <div style="font-size:15px;color:#8a5266">{{ a.when }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display:flex;gap:14px;margin-top:30px">
+          <div style="flex:1;height:78px;border:1px solid #ff2d6f;background:rgba(255,45,111,.18);display:flex;align-items:center;justify-content:center;font-size:23px;color:#ffd7e4;letter-spacing:.12em">RESUME COMMAND</div>
+          <div style="width:280px;height:78px;border:1px solid rgba(255,45,111,.35);display:flex;align-items:center;justify-content:center;font-size:19px;color:#c77a92;letter-spacing:.08em">REVIEW LOSSES</div>
+        </div>
+        <div style="font-size:15px;color:#8a5266;text-align:center;margin-top:18px">Combat flag clears in 34s · you cannot dock or log off safely until then</div>
+      </div>
+    </div>
+    </div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.65;margin-top:10px"><span style="color:#ff2d6f">The screen nobody had specced.</span> 02 §8 gives a disconnected flagged player to a server-side AI commander, so reconnecting means inheriting decisions you did not make. Dropping straight into the HUD would be cruel; this states what happened before returning control.</div>
+  </div>
+
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:34px 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§3</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">WHAT THIS ASKS OF THE SERVICE, AND WHAT IS STILL OPEN</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:12px">REQUIRED FROM 06 / 04, OR THE SCREEN CANNOT BE BUILT</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#7cff3e">Name availability as a live check</span>, not a submit-time rejection — the create screen shows ✓ before BEGIN.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">Queue depth and drain rate</span>, not just position. An ETA without a rate is a number nobody trusts twice.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">A structured away-log</span> from the AI commander — orders it executed and losses taken, not a text blob. Screen 06 renders rows.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">Both schema hashes</span> in the <span style="color:#7cff3e">UpdateRequired</span> reject. 04 §3.1 currently returns the rejection without saying what the server expected.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">Server status</span> before authentication, so the login footer can be honest to an unauthenticated client.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:12px">OPEN</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#ffb000">06 is still a placeholder.</span> These surfaces are designed against its decided answers (F1, F3) and its binding constraints only. F2 credential policy and F4 MFA will each add a field or a step here.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Starter systems are unauthored.</span> Screen 03 shows three because a single option is not a choice — but 08 §5 owns what they are, and whether the player picks at all.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Is REVIEW LOSSES a screen or a filtered journal?</span> It implies a killmail surface no document has scoped.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Registration is out of scope here</span> — it is the project's only unauthenticated write endpoint (06 §2.1) and its abuse posture is a security design, not a layout.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1100}}">
+class Component extends DCLogic {
+  rnd(seed) { let s = seed; return () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; }
+
+  renderVals() {
+    const G = '#7cff3e', HOT = '#c9ff9e', AMB = '#ffb000', CY = '#4de1ff', CRIT = '#ff2d6f';
+
+    const flowDefs = [
+      { name: 'LAUNCH', kind: 'plain' },
+      { name: 'LOGIN', kind: 'screen' },
+      { name: 'UPDATE REQUIRED', kind: 'branch' },
+      { name: 'AUTHENTICATE', kind: 'plain' },
+      { name: 'QUEUE', kind: 'branch' },
+      { name: 'CHARACTER CREATE', kind: 'first' },
+      { name: 'RESUME', kind: 'screen' },
+      { name: 'RECONNECT UNDER FIRE', kind: 'branch' },
+      { name: 'TACTICAL HUD · 07a', kind: 'done' }
+    ];
+    const flow = flowDefs.map((f, i) => {
+      const col = f.kind === 'branch' ? AMB : f.kind === 'done' ? G : f.kind === 'first' ? CY : HOT;
+      const solid = f.kind === 'screen' || f.kind === 'first' || f.kind === 'branch';
+      return {
+        name: f.name,
+        st: {
+          fontSize: '12px', padding: '9px 13px', letterSpacing: '.05em', whiteSpace: 'nowrap',
+          border: '1px solid ' + (solid ? col : 'rgba(124,255,62,.2)'),
+          background: f.kind === 'done' ? 'rgba(124,255,62,.14)' : solid ? col + '14' : 'transparent',
+          color: f.kind === 'plain' ? '#5d7a57' : col
+        },
+        arrow: f.kind === 'branch' ? '⤷' : '▸',
+        arrowSt: {
+          color: f.kind === 'branch' ? AMB : '#233d1f', fontSize: '12px',
+          display: i === flowDefs.length - 1 ? 'none' : 'inline'
+        }
+      };
+    });
+
+    const r = this.rnd(77), dust = [];
+    for (let i = 0; i < 50; i++) {
+      const s = r() < 0.8 ? 1 : 2;
+      dust.push({ st: { position: 'absolute', left: (r() * 100) + '%', top: (r() * 100) + '%', width: s + 'px', height: s + 'px', background: '#2f4a2a', display: 'block' } });
+    }
+
+    const starterDefs = [
+      { name: 'KESTREL REACH', desc: 'Dense traffic, patrolled lanes, shallow ore', sec: '0.9', sel: true },
+      { name: 'ANVIL GATE', desc: 'Industrial core, cheap fittings, thin markets', sec: '0.7', sel: false },
+      { name: 'THE SPUR', desc: 'Frontier edge, unpatrolled, rich anomalies', sec: '0.2', sel: false }
+    ];
+    const starters = starterDefs.map(s => ({
+      name: s.name, desc: s.desc, sec: s.sec,
+      st: {
+        display: 'flex', alignItems: 'center', gap: '16px', padding: '15px 18px', marginBottom: '9px',
+        border: s.sel ? '1px solid ' + G : '1px solid rgba(124,255,62,.18)',
+        background: s.sel ? 'rgba(124,255,62,.12)' : 'rgba(6,12,6,.5)'
+      },
+      nameSt: { fontSize: '20px', color: s.sel ? HOT : G, letterSpacing: '.06em' },
+      secSt: {
+        fontSize: '17px', padding: '5px 11px', letterSpacing: '.04em',
+        color: +s.sec >= 0.5 ? G : '#ff5a4a',
+        border: '1px solid ' + (+s.sec >= 0.5 ? 'rgba(124,255,62,.4)' : 'rgba(255,90,74,.5)')
+      }
+    }));
+
+    const mapR = this.rnd(19), starMap = [];
+    for (let i = 0; i < 24; i++) {
+      const hub = i === 7;
+      const d = hub ? 13 : 4 + Math.round(mapR() * 4);
+      starMap.push({ st: {
+        position: 'absolute', left: (10 + mapR() * 80) + '%', top: (12 + mapR() * 74) + '%',
+        width: d + 'px', height: d + 'px', borderRadius: '50%',
+        background: hub ? HOT : 'rgba(124,255,62,.45)',
+        boxShadow: hub ? '0 0 18px rgba(124,255,62,.7)' : 'none'
+      } });
+    }
+
+    const digestDefs = [
+      { icon: '◈', color: G, text: 'Skill complete — Fleet Coordination IV', when: '2d ago' },
+      { icon: '▣', color: G, text: 'Refine complete — 50× Ferrocite Plates into the Vesta-3 Bay', when: '3d ago' },
+      { icon: '◆', color: CY, text: '14 market orders filled — 412,900 cr net', when: '4d ago' },
+      { icon: '⚑', color: AMB, text: 'Corp standing changed — Vex Salvage now Allied', when: '4d ago' }
+    ];
+    const digest = digestDefs.map(d => ({
+      icon: d.icon, text: d.text, when: d.when,
+      iconSt: { fontSize: '20px', color: d.color, width: '24px', textAlign: 'center' }
+    }));
+
+    const awayDefs = [
+      { icon: '✕', color: CRIT, text: 'ANVIL 3 destroyed — Cruiser, full loss', when: '71s ago' },
+      { icon: '◈', color: AMB, text: 'Held position on your last standing order', when: '68s ago' },
+      { icon: '⚑', color: AMB, text: 'Returned fire — did not pursue', when: '52s ago' },
+      { icon: '▲', color: HOT, text: '11 of 12 ships still on the field', when: 'now' }
+    ];
+    const awayLog = awayDefs.map(a => ({
+      icon: a.icon, text: a.text, when: a.when,
+      iconSt: { fontSize: '19px', color: a.color, width: '24px', textAlign: 'center' }
+    }));
+
+    return { flow, dust, starters, starMap, digest, awayLog };
+  }
+}
+</script>
+</body>
+</html>

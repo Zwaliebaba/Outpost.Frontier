@@ -200,6 +200,25 @@ void FillPreviewLabel(const Game::OrderSubmit& _order, OrderPreview& _outPreview
                                                     : Game::FormationName(_order.formation),
                 parameterUpper, sizeof(parameterUpper));
   std::snprintf(_outPreview.label, sizeof(_outPreview.label), "%s \xE2\x96\xB8 %s", kindUpper, parameterUpper);
+
+  /*
+   * And the word for what the fleet will be *doing* once the legs are spent,
+   * for the kinds that have one -- `MINING` (ADR-024 4b).
+   *
+   * Written here rather than at the moment the group starts working, because
+   * there is no such moment on this side: the client learns a group has run out
+   * of legs from the order state in a snapshot, and the order state carries no
+   * kind. The preview is the one place both the kind and a buffer the ghost
+   * will keep are in the same room, so the word is filled in advance and the
+   * client reads it when the numbers say it applies.
+   *
+   * Left empty for every other kind, which is what tells the client that "no
+   * leg left" means "finishing" rather than "working".
+   */
+  if (const char* working = Game::OrderWorkingName(_order.kind); working != nullptr)
+  {
+    UpperCaseInto(working, _outPreview.workingLabel, sizeof(_outPreview.workingLabel));
+  }
 }
 
 } // namespace

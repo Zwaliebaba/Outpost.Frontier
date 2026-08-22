@@ -271,6 +271,61 @@ void BuildGhostLanes(std::span<const OrderGhost> _ghosts, std::span<const SceneE
       continue; // A ghost with no plan is nothing to draw.
     }
 
+    /*
+     * A working order is not a journey, so it is one label and nothing else.
+     *
+     * `MINING \xc2\xb7 4M 12S` at the fleet, where a travelling group carries its
+     * lane and its `18.4 KM \xc2\xb7 ETA 41S`. Both halves are the game's: the word
+     * came across with the preview (`OrderPreview::workingLabel`), and the
+     * seconds are the authority's own `etaSeconds` for a group with no leg
+     * left, which the game answers with the cluster's remaining life rather
+     * than a distance (ADR-024 4d). **The engine recomputes neither**, which is
+     * the whole reason both are fields.
+     *
+     * At `plane[0]` rather than at the last waypoint: that point tracks the
+     * group's first ship, so the label sits on the fleet as it works. The
+     * waypoint is where the *order* was aimed, which for a Mine is the cluster
+     * the authority chose and the client never learned -- drawing there would
+     * put the readout at the client's guess.
+     *
+     * No ETA is not no label: a game that will not say how long the work has
+     * left still has a fleet doing it, and the word alone is the honest readout.
+     */
+    if (ghost.Working())
+    {
+      char eta[24] = {};
+      FormatEta(ghost.authorityEtaSeconds, eta, sizeof(eta));
+
+      char working[OrderPreview::LABEL_CAPACITY + 32] = {};
+      if (eta[0] == '\0')
+      {
+        std::snprintf(working, sizeof(working), "%s", ghost.preview.workingLabel);
+      }
+      else
+      {
+        std::snprintf(working, sizeof(working), "%s \xC2\xB7 %s", ghost.preview.workingLabel, eta);
+      }
+
+      XMFLOAT2 ndc{};
+      if (!PlaneToNdc(_view.mapping, plane[0], ndc))
+      {
+        continue; // A degenerate mapping, before the first resize.
+      }
+      const XMFLOAT2 at = NdcToPixels(ndc, _view.viewportWidth, _view.viewportHeight);
+
+      // Above the fleet rather than below it, which is where the destination
+      // label hangs: the ships are *here*, and a line under them would sit on
+      // the hulls it describes.
+      const float labelY = at.y - _colours.puckRadiusPixels - _tuning.labelLineHeightPixels * scale;
+      if (!_view.worldRect.Contains(at.x, at.y) || labelY < _view.worldRect.y)
+      {
+        continue;
+      }
+      const auto width = static_cast<float>(TextCellCount(working)) * _view.cellPixels;
+      _outLabels.AddText(at.x - width * 0.5f, labelY, _tuning.labelSizeIndex, colour, working);
+      continue;
+    }
+
     // Only the *last* waypoint retracts, and only toward the one before it:
     // a refused append takes back the leg that was refused, not the plan.
     const XMFLOAT2 home = ghost.RetractTowardMetres();

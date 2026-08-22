@@ -204,6 +204,20 @@ private:
   void BuildHud();
 
   /*
+   * The tactical HUD's own content, built only when the tactical surface is
+   * live (ADR-020 §1).
+   *
+   * Split out of `BuildHud` so it can be *skipped*, which is what T3a left
+   * owed: a full-screen surface is opaque across the viewport, so the chrome
+   * this builds used to be assembled underneath one and then covered -- a
+   * `UiDrawList` fill of a screen nobody was looking at. The clock is the one
+   * thing it cannot re-derive from `m_uiLayout` and `m_uiTuning`, so it is the
+   * one parameter: reading it again here would animate the lanes off a
+   * different instant than the toasts advanced on.
+   */
+  void BuildTacticalHud(double _nowSeconds);
+
+  /*
    * A full-screen surface's own content (ADR-020 §1).
    *
    * The hangar's, for now, and deliberately thin: the ground, the way back, and

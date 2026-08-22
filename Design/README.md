@@ -5,25 +5,42 @@ session brief are settled, in order, one ADR each; the four session deliverables
 them. ADRs 009–014 record owner directives and rulings that arrived after the session and,
 where they overturn an earlier decision, say so in their header. `ScreenPrints/` is the
 reference corpus these documents align with — originally pre-existing, and since 2026-08-19
-grown by three prints drawn *for* this corpus: `station-screen.png` (P1, the hangar),
-`cargo-tab.png` (D-P2) and `refinery-tab.png` (D-P3), which together are the station surface's
-tab family. Those three carry their **source beside them** in `ScreenPrints/source/`, so a
-print is an editable artefact rather than a flat image somebody has to redraw from scratch to
-correct a word.
+grown by eight prints drawn *for* this corpus: `station-screen.png` (P1, the hangar),
+`cargo-tab.png` (D-P2) and `refinery-tab.png` (D-P3), the station surface's tab family; and on
+2026-08-22 `market-tab.png` (D-P4), `fleet-management.png` (D-P5),
+`container-surface.png` (D-P6), `item-icon-system.png` (D-C1) and the strategic map's site
+layer, `strategic-map-sites.png`. **Every plate in the corpus now carries its source beside
+it** in `ScreenPrints/source/`, so a print is an editable artefact rather than a flat image
+somebody has to redraw from scratch to correct a word.
 
-**The plate is the screen; the argument is in the source.** As of 2026-08-21 those three
-`.png` files are the authored screen at 1440×900 and nothing else — the §1/§2/§3 annotations
-that used to ride along in the image live in the `.dc.html` beside them. So a plate is what
-you check a build against, and the reasoning is what you read; do not go looking in the PNG
-for the design calls, and do not treat a plate's silence as the design being silent. The calls
-themselves are lifted into the ADRs, which is where a decision is supposed to end up
-(ADR-017 §6a, ADR-024 §5d and §6e).
+**The plate is the screen; the argument is in the source.** A `.png` here is the authored
+screen at 1440×900 and nothing else — the §1/§2/§3 annotations that used to ride along in the
+image live in the `.dc.html` beside it. So a plate is what you check a build against, and the
+reasoning is what you read; do not go looking in the PNG for the design calls, and do not treat
+a plate's silence as the design being silent. The calls themselves are lifted into the ADRs,
+which is where a decision is supposed to end up (ADR-017 §6 and §6a, ADR-020 §1,
+ADR-024 §3d, §5b, §5d and §6e).
 
-**With D-P3 and D1 both in on 2026-08-21, no phase in this corpus is waiting on a screen print
-at all.** D1 — [System View.dc.html](ScreenPrints/source/System%20View.dc.html) — is source-in
-and plate-owed: the design calls are recorded in ADR-016 §9 and four questions wait on an owner
-ruling, but U6 no longer has a missing artefact in front of it — but several *surfaces* have no print at all yet, and
-they are inventoried below so that "not blocking anything" never quietly becomes "forgotten".
+**And as of 2026-08-22 the corpus is versioned, not just present:
+[ScreenPrints/MANIFEST-1.0.md](ScreenPrints/MANIFEST-1.0.md) is the baseline every future delta
+is tracked against.** Seventeen plates, sixteen sources (the site layer is §5 of the strategic
+map's), one runtime. Each screen carries its own version from 1.0: a **minor** bump for any
+visible change to the plate, with the PNG re-captured from the source in the same commit so a
+plate and its source can never disagree; a **major** bump when a §2 design call changes, which
+requires the corresponding ADR note in the same commit. The changelog in it is append-only.
+"Which version of that screen did we build against" stops being a question you answer by
+reading a diff — which is the whole reason to have a manifest rather than a directory.
+
+**No phase in this corpus is waiting on a screen print, and since 2026-08-22 neither is any
+*unbuilt* surface but one.** D1, the system view, was drawn on 2026-08-21 and is **tracked
+upstream from 2026-08-22** — its artefacts left `ScreenPrints/`, and the manifest records that
+as correct rather than as a loss, because the calls that mattered were lifted into ADR-016 §9
+the day it was drawn and are normative there. Four of its questions still wait on an owner
+ruling; none of them is an artefact, so U6 has nothing missing in front of it. The separate inventory of surfaces that had no print **at all** — kept
+so that "not blocking anything" never quietly becomes "forgotten" — was six rows on 2026-08-21
+and is **one** now: character and skills, still correctly blocked on a data model. The five that
+closed are listed below with their plates, because a worked-off row is the evidence that the
+mechanism works.
 
 **Supersessions to be aware of when reading older ADRs:** ADR-012 replaces ADR-008's command
 line (there is no argv) and ADR-009's line-oriented universe format (it is JSON); ADR-010
@@ -126,7 +143,8 @@ moves between the trees without a rename pass. Three things it changed in these 
   closed — it is kept as the record of what each slice put in the tree, not as a plan.
 - [Universe-Build-Order.md](Universe-Build-Order.md) — the post-MVP universe phase: U1–U6
   slices delivering ADR-016 (bake, anchors, warp, gates, strategic map, system view), plus
-  the named content deliverables (system-view print, `Gate.obj`); milestones W0 (first warp)
+  the named content deliverables (`Gate.obj`; the system-view print D1 is tracked upstream from
+  2026-08-22, its calls normative in ADR-016 §9); milestones W0 (first warp)
   / W1 (first crossing) / W2 (the universe on screen). **U1, U2, U3a, U3b's sim and wire
   halves, U4's sim half, U5's pure half and U3c are built** (U3c 2026-08-21, split into
   ownership in the simulation and the second commander on the wire). **What is left in that
@@ -136,8 +154,12 @@ moves between the trees without a rename pass. Three things it changed in these 
   the hangar screen), interleaved **after U2, before U3a**; milestones **H0 (the headless
   loop) — met 2026-08-20, every named criterion covered** / H1 (the hangar loop); deliverables P1 (station-screen print, **delivered** — its
   open questions answered as ADR-017 §6a) and P2 (dock/undock audio, **no longer gated** —
-  S15 shipped the sound bank). **T1 and T2 are built in full (2026-08-21)**; what is left of
-  the phase is T3, the hangar screen, which has no design gate left.
+  S15 shipped the sound bank). **T1 and T2 are built in full (2026-08-21), and T3 with them
+  (2026-08-22, split into T3a's navigation machinery and T3b's hangar)** — so the phase's code
+  is in the tree and what it still owes is a person looking at it: the visual checkpoints T2 and
+  T3a each recorded as owed, and the reorganisation room (wing assignment, creation and renames),
+  which is drawn disabled because a wing's *name* is client-side and there is no user settings
+  layer to put one in yet (ADR-017 §6a.4).
 - [Economy-Build-Order.md](Economy-Build-Order.md) — the mining and refining phase: E1a–E5
   slices delivering ADR-024 and ADR-025 (the economy content layer, sites in the bake and the
   epoch that moves them, the Mine order and the site ledger, cargo and the Bay and the wire
@@ -145,7 +167,10 @@ moves between the trees without a rename pass. Three things it changed in these 
   milestones G0 (the headless mining loop) / G1 (the first alloy) / G2 (the loop on screen);
   deliverables **D-P1, the persistence ADR — it blocks E2** and is where ADR-024 §7a's journal
   gets its format, implemented at E4a — plus icons, the site field's visual treatment, and
-  audio last. **Every design deliverable is closed**: D-P1 accepted 2026-08-20, D-P2
+  audio last. **Every design deliverable is closed, and the first content one with them**:
+  D-C1, the item icon system, landed 2026-08-22
+  ([item-icon-system.png](ScreenPrints/item-icon-system.png)), leaving D-C2 and D-C3 — art and
+  audio — as all this phase still owes in artefacts. D-P1 accepted 2026-08-20, D-P2
   ([cargo-tab.png](ScreenPrints/cargo-tab.png)) and D-P3
   ([refinery-tab.png](ScreenPrints/refinery-tab.png)) both delivered 2026-08-21. What the two
   prints leave behind is **eight owner rulings, not artefacts**. The one owed before E4b —
@@ -162,7 +187,7 @@ moves between the trees without a rename pass. Three things it changed in these 
   D-P3 landing after eight screens were already drawn and the tactical HUD already built. Four
   inconsistencies found and fixed in the prints (P1's pre-economy tab row; the wheel's silence
   about MINE; an away-digest row naming a system that does not exist; the alert taxonomy
-  predating mining), and — more usefully — the honest inventory of surfaces that have no print
+  predating mining), and — more usefully — the honest inventory of surfaces that had no print
   at all. Its findings are folded into the ADRs and into this file — the tab-row verdict into
   ADR-017 §6, the wheel ruling into ADR-024 §4a, the inventory into the section below — and the
   report stays as the evidence, the way the scaling review does. It also turned up one thing
@@ -181,45 +206,142 @@ moves between the trees without a rename pass. Three things it changed in these 
   `Design/` so that the build orders still at the top level are the live ones. Nothing here is
   the only home of an owed item — anything still outstanding is rehomed to a live document
   before its plan is archived.
-### Surfaces with no print yet *(inventory, 2026-08-21)*
+### Surfaces with no print — one open item *(inventory opened 2026-08-21, worked down 2026-08-22)*
 
 Kept here rather than in a build order because none of them blocks a slice — which is exactly
 why they need a home. The corpus's deliverables sections exist so nothing is quietly dropped,
-and a surface that blocks nothing is the easiest thing in the world to drop. In the audit's
-suggested order:
+and a surface that blocks nothing is the easiest thing in the world to drop. **The closed rows
+stay on the page rather than being deleted**, because a list that empties silently is
+indistinguishable from a list nobody worked. In the audit's original order:
 
-1. **Market** — unblocked by the item taxonomy; the browser's own taxonomy is still an open
-   UI question. The largest and least specified of these, and the one the economy's value
-   premia (ADR-024 §6a) are quietly waiting on.
-2. **Fleet management** — fleet template rows, ≤16 squadrons, all-or-nothing deploy. P1 handles
-   *composition at a station*; this is the doctrine layer above it.
-3. **A container surface** — and this one has no row in any inventory yet, which is the point
-   of listing it. D-P2 answers hull ⇄ Bay and nothing else; wreck loot (ADR-024 §5b), escrow,
-   deploying and the taxonomy's other container kinds each have a data model and no UI.
-4. **D-C1, the ore and alloy icons** — the tactical icon system's families plus the three
-   archetype glyphs. It feeds both economy tabs and both maps, so it is the cheapest item here
-   with the widest reach.
-5. **The site layer on the strategic map** — sites are baked anchors and the epoch placement is
-   client-callable, so a map could draw today's fields already. D1 settled this for the *system*
-   view on 2026-08-21 (sites are a fourth anchor kind, drawn from the bake and the epoch);
-   `strategic-map.png` still predates sites entirely, so what is left is a *change to a drawn
-   screen* rather than a new one, and it wants its own pass.
-6. **Character and skills** — no data model exists, so it is correctly not designable yet.
-   Listed so that "we have not designed it" stays a decision rather than an oversight.
+1. ~~**Market**~~ — **drawn 2026-08-22:** [market-tab.png](ScreenPrints/market-tab.png) (D-P4).
+   It did not cost a tab: MARKET has been the seventh stub in P1's row since that row was
+   re-captured, and this is what opening it looks like. The browser's own taxonomy question —
+   the open one — is answered flat: **three categories** (ORES · ALLOYS · COMMODITIES), with
+   the growth rule pre-authorised rather than deferred, a category past one screen of rows
+   splitting into a tree. Books are **per-station because escrow is**; the region board shows
+   every station's best price read-only with the leg's band named, which is where ADR-024 §6a's
+   value premia finally have a surface. **Forward design** — the market phase has no ADR, so the
+   print is the UI half of one, and it says so on the plate. Four rulings, below.
+2. ~~**Fleet management**~~ — **drawn 2026-08-22:**
+   [fleet-management.png](ScreenPrints/fleet-management.png) (D-P5), and it is a **full-screen
+   surface on ADR-020's stack, not a station tab**: a template exists everywhere, so doctrine is
+   not a station service. A row is (hull class, count, formation, stance) and never a ship id,
+   so a template survives every ship in it dying; **≤16 squadrons is `MAX_ROSTER_ROWS`**, one
+   number across two surfaces, and a deployed template lands on the tactical roster row for row.
+   All-or-nothing deploy is drawn as a named shortfall per squadron rather than softened into a
+   partial. **Forward design** — the fleet-template design is upstream. Four rulings, below.
+3. ~~**A container surface**~~ — **drawn 2026-08-22:**
+   [container-surface.png](ScreenPrints/container-surface.png) (D-P6): **one component every
+   container kind instantiates**, differing by header, chrome and at most one verb, never by
+   layout, so the taxonomy's remaining kinds cost a header and a verb rather than a screen.
+   Wreck (SCOOP, finders-keepers, the 900 s scatter — ADR-024 §5b), market escrow (no verb here;
+   release is CANCEL on the market tab) and **Deploying** are drawn. Deploying exists because
+   E3's accept found the invisible version — `ApplyTransit` spawning arrivals with empty holds,
+   cargo lost with no surface to notice on. **Forward design.** Four rulings, below.
+4. ~~**D-C1, the ore and alloy icons**~~ — **drawn 2026-08-22:**
+   [item-icon-system.png](ScreenPrints/item-icon-system.png): three ores, five alloys, three
+   site archetypes, and **four form rules written for the item families that do not exist yet**
+   — raw filled / refined outlined, silhouette carries identity (grayscale must pass), the 20 px
+   floor with letter codes below it, hue by majority input. It was the cheapest item here with
+   the widest reach and it paid out immediately: CARGO and REFINERY were re-captured the same day
+   to adopt the glyphs, and the map's site layer takes the ore hues without a redesign.
+5. ~~**The site layer on the strategic map**~~ — **drawn 2026-08-22:**
+   [strategic-map-sites.png](ScreenPrints/strategic-map-sites.png), authored as **§5 of the
+   map's own source** rather than as a new screen, exactly because it is a change to a drawn
+   one. A fifth, still-exclusive overlay whose whole subject is ADR-024 §3d's split: archetype
+   and grade are bake truth and public, the remaining pool is presence truth and yours only, and
+   a system with no receipts draws **no depletion state at all** — unknown is not full. Pool data
+   is dropped rather than greyed when a field re-forms, and countdowns read `EPOCH ≥` rather than
+   a schedule, which is R27 acknowledged on the plate. **Zero new wire.** Three rulings, below.
+6. **Character and skills** — **still open, and correctly so.** No data model exists, so it is
+   not designable yet. Listed so that "we have not designed it" stays a decision rather than an
+   oversight — and it is now the only row here, which is the strongest argument this section has
+   for existing.
 
 Not screens, and tracked with the economy phase instead: **D-C2** (the site field's visual
-treatment) and **D-C3** (mining and refining audio).
+treatment) and **D-C3** (mining and refining audio). D-C1 above was the third of that trio and
+is closed.
 
-**One design, not a screen, also has no home here — and it was found by writing this list.**
-The audit's source document cites an **item taxonomy** (`ItemTypeId`, six container kinds) and
-a **fleet-template design** (≤16 squadrons, all-or-nothing deploy) by numbers from a design
+**One design, not a screen, still has no home here — and its cost has grown.** The audit's
+source document cites an **item taxonomy** (`ItemTypeId`, six container kinds) and a
+**fleet-template design** (≤16 squadrons, all-or-nothing deploy) by numbers from a design
 project *upstream of this corpus*; neither has an ADR in `ADR/`, and the numbering scheme is
-not this one's. D-P2's central claim — that ore is the first item family of many — rests on
-the first of them, so the claim is currently uncitable here. Nothing is blocked: ore is the
-only family E1–E5 ships, and P1 is the only fleet surface this corpus needs. But items 1, 2
-and 3 above cannot be *designed* until that taxonomy either lands as an ADR here or is
-explicitly declared out of scope, and a reference that cannot be followed is the failure mode
+not this one's. When this note was written on 2026-08-21, one print leaned on the taxonomy and
+the fleet design had no screen at all. As of 2026-08-22 **three prints rest on the taxonomy** —
+D-P2's "ore is the first item family of many", D-P4's admission rule (fungible only, three flat
+categories, instance items explicitly excluded) and D-P6's "one component, six container kinds"
+— and **two on the fleet-template design**: P1 contextually, D-P5 directly and by its numbers.
+The earlier version of this note said items 1, 2 and 3 could not be *designed* until the
+taxonomy landed. They were designed anyway, as **declared** forward designs, because a print
+that states its posture in an amber banner is worth more than a blank — but that was a decision
+to spend the debt, not to clear it. The conclusion is unchanged and now more expensive: **the
+taxonomy ADR is owed**, and until it lands (or the upstream document is explicitly declared out
+of scope) five plates cite a document this repository cannot follow, which is the failure mode
 this file's supersession list exists to prevent.
+
+### Open rulings the 2026-08-22 prints name *(fifteen, none blocking)*
+
+The economy's eight are tracked with their prints in
+[Economy-Build-Order.md](Economy-Build-Order.md), where a build order owns them. These have no
+build order to sit in, because the phases they belong to have no ADR yet — so they are
+collected here, for the same reason the inventory above exists: a question nobody owns is a
+question a screen answers twice. **None of them blocks anything.** Every one belongs to a phase
+that is not being built, and each is named on its plate's §3 as well as here.
+
+**D-P4, the market tab — four the market ADR must make before it can be written:**
+
+1. **The currency** — name, denomination, and its **faucet** (mining bounties? refining? mission
+   pay?). The print renders `{{ curName }}` through a tweak precisely because the word is not
+   designable on a screen.
+2. **Fee point and rate.** The fee is the market phase's currency sink (ADR-024 §9 staged it)
+   and it appears as its own composer line, never folded into a total — the refinery shows its
+   refund even at zero for the same reason. Proposed **on fills, against proceeds**, so a
+   listing that never fills costs nothing and spam is bounded by escrow instead; on-listing is
+   the anti-spam alternative and charges failures.
+3. **Order lifetime** — until-cancelled, as drawn, versus an N-day expiry with escrow return.
+   Until-cancelled plus visible escrow is self-limiting; an expiry adds a timer the away log
+   then has to own.
+4. **Who seeds the first book** — pure player-to-player from zero, or an NPC vendor selling
+   Ionized Slurry as the bootstrap faucet. ADR-024 §6d names the commodity; nothing names the
+   vendor.
+
+**D-P5, fleet management — four for the fleet ADR:**
+
+5. **Where a template is stored** — account-side ("templates follow the account", as drawn) or
+   device-local. **The third screen to ask 07h's settings question**; it deserves one answer
+   rather than three.
+6. **Deploying with damaged hulls** — does a hull with a worn gauge count against NEED?
+   Proposed yes, with the row saying so. Repair-by-absence makes it moot at a station, but
+   remote deploys will ask.
+7. **Corp doctrine sharing** — a shared template library is the obvious corp feature and a real
+   design of its own (permissions, versioning). Named so it is staged rather than discovered.
+8. **Defaults versus the wheel** — squadron stance and formation seeds **must** come from the
+   same option lists `OrderKinds` reports, or a template can author a posture no order can
+   carry. This one wants a test rather than just agreement.
+
+**D-P6, the container surface — four:**
+
+9. **Wreck stack visibility** — proposed public to everyone on grid, which finders-keepers
+   (ADR-024 §5b) implies; scan-to-reveal is future intel gameplay.
+10. **Partial-scoop order** — when not everything fits, value density or stack order? This is
+    **the same question as D-P2's ore-order-on-a-fill, in its third appearance**, and one
+    ruling should close all three at once.
+11. **Deploying manifest visibility** — the assembly is announced; whether its *manifest* is
+    too (a scout reading what a forming fleet carries) is a real intel decision.
+12. **The item-taxonomy ADR itself** — the standing gap above, which this is the third print to
+    cite. Listed here as well as there because a debt named twice is a debt someone pays.
+
+**The strategic map's site layer — three:**
+
+13. **Whose presence counts.** v1 proposes your own ships only. Corp-shared scouting pulls intel
+    design forward — attribution, spoofing, staleness — and this screen already rules that intel
+    pings carry reporter identity for exactly that reason.
+14. **Faded High-Sec pockets** (ADR-024 ruling 1b) — tagged FADED in the panel as proposed, or
+    given their own pip state? The tag teaches the geography lesson only after a click.
+15. **Where the scouting journal persists** — device-local or account-side. **07h's question a
+    third time**, now with gameplay stakes: a second tablet that forgot your scouting is a real
+    loss. The same answer as #5, or a deliberate reason why not.
 
 - [Risk-Register.md](Risk-Register.md) — R1–R27 with designed-in mitigations + standing spikes.
   R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised twice —
@@ -643,13 +765,18 @@ text grew the verdict-affecting constants and the check-order sequence (ADR-018 
 chip, the DOCKED blocks, the dock/undock toasts, the protection shimmer and the ~1 s transit
 fades — with a visual checkpoint recorded as owed, because none of the four new marks has been
 on a screen (R1). Its per-client `SnapshotSender`,
-the piece U3c waited on, landed with A13. T3, the hangar screen, **has no design gate left**: the
-four questions [P1](ScreenPrints/station-screen.png) marked open for review were answered on
-2026-08-20 as [ADR-017 §6a](ADR/ADR-017-station-docking.md) — the wave-2 trigger (the point
+the piece U3c waited on, landed with A13. **T3, the hangar screen, is built (2026-08-22)** — it
+had no design gate left, because the four questions
+[P1](ScreenPrints/station-screen.png) marked open for review were answered on
+2026-08-20 as [ADR-017 §6a](ADR/ADR-017-station-docking.md): the wave-2 trigger (the point
 clears, bounded by a timeout so §4's full-ring hold cannot stall it), the composer's lifetime
 (persists, reconciled against the roster), wing colour (none — colour already means
 relationship), and the sort inside a wing (class descending, then ship id, because names are
-client-side).
+client-side). It landed in two: **T3a** the machinery ADR-020 §5a said would arrive with the
+first screen that navigates — `SurfaceStack`, `InputRouter`, `UiFocus`, `TextEditState`,
+`UiScrollState` — and **T3b** the hangar itself, its tab row and roster crossing the seam as data
+because `NeuronClient` may not learn that a tab is called REFIT. **128 device-free tests** came
+with them.
 
 **The first post-MVP feature is in the tree: ship collision (ADR-015, 2026-08-18).** Ships no
 longer fly through each other — per-class contact radii in the class table, braking and

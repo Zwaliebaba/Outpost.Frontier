@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0a0b09;font-family:'Share Tech Mono',ui-monospace,monospace}
+a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
+</style></helmet>
+
+<div data-screen-label="Item Icon System" data-plate="item-icon-system" style="width:1440px;background:#050705;padding:44px 48px 56px;color:#7cff3e;position:relative">
+<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.03) 0 1px,transparent 1px 3px);pointer-events:none"></div>
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(124,255,62,.3);padding-bottom:16px;margin-bottom:12px">
+  <div>
+    <div style="font-size:26px;color:#c9ff9e;letter-spacing:.08em">ITEM ICON SYSTEM — D-C1</div>
+    <div style="font-size:12.5px;color:#5d7a57;letter-spacing:.06em;margin-top:6px">ADR-024 §2 §3b §6 — ore, alloy and site-archetype glyphs for CARGO, REFINERY and the map's site layer</div>
+  </div>
+  <div style="text-align:right;font-size:11.5px;color:#4e6a49;line-height:1.8">
+    <div>SOURCE · ADR-024 · 07b §3 · 08c · D-P2 / D-P3</div>
+    <div>FEEDS · cargo-tab.png · refinery-tab.png · strategic map §5</div>
+  </div>
+</div>
+
+<p style="font-size:13px;color:#7d8c79;line-height:1.75;max-width:1010px;margin:0 0 34px;text-wrap:pretty">
+  07b's discipline, adapted from contacts to property: <span style="color:#c9ff9e">form language carries the family</span>
+  (raw ore is filled and irregular, refined alloy is outlined and regular), <span style="color:#c9ff9e">silhouette carries
+  identity</span>, and <span style="color:#c9ff9e">hue only assists</span> — every glyph on this sheet must pass in grayscale,
+  which is what lets the colour-vision palettes retune item hues freely without touching a single shape. Ore is the first item
+  family, not the last (08c): the form rules below are written for the families that do not exist yet.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§1</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">FORM RULES</span>
+  <span style="font-size:12px;color:#5d7a57">four, and every future item family answers to them</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:36px">
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.05em;margin-bottom:10px">RAW FILLED, REFINED OUTLINED</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.7">The family channel, read before identity: a mixed Bay sorts ore from alloy pre-attentively. Raw forms are irregular and asymmetric; manufactured forms are regular and symmetric — the same nothing-that-moves-is-symmetric logic 07b uses, inverted for things that were made.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.05em;margin-bottom:10px">SILHOUETTE CARRIES IDENTITY</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.7">Grayscale must pass — §5 proves it on this sheet. Hue is an assist, never the signal, so deutan/tritan palettes may reassign item hues as a table swap; the shapes never change. Same argument that made the flag rings colour-safe.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.05em;margin-bottom:10px">THE 20 PX FLOOR HOLDS</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.7">Below 20 px the glyph is refused (07b's floor), and the letter code stands in: <span style="color:#c9ff9e">FC · AC · NB</span>. The CARGO manifest's column headers are that fallback already shipping — this sheet names the rule the tab was already obeying.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.05em;margin-bottom:10px">HUE BY MAJORITY INPUT</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.7">An alloy wears its majority ore's hue; a tie wears refined silver. The recipe is readable off the icon — Chromite Conduit is teal because it is mostly Nebulite — and a new recipe never needs a hue meeting, only arithmetic.</div>
+  </div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§2</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE ORES</span>
+  <span style="font-size:12px;color:#5d7a57">filled, irregular — hues picked clear of every semantic token on the same surface</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px">
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="height:72px;display:flex;align-items:center;justify-content:center">
+      <div style="position:relative;width:38px;height:34px">
+        <div style="position:absolute;inset:0;background:#c08a52;clip-path:polygon(22% 0,88% 10%,100% 58%,72% 100%,8% 90%,0 34%)"></div>
+        <div style="position:absolute;inset:0;background:rgba(0,0,0,.28);clip-path:polygon(22% 0,60% 46%,8% 90%,0 34%)"></div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:10px">
+      <span style="font-size:15px;color:#c9ff9e;letter-spacing:.05em">FERRO-CHROMA</span>
+      <span style="font-size:11px;color:#0a0b09;background:#c08a52;padding:2px 7px;letter-spacing:.1em">FC</span>
+    </div>
+    <div style="font-size:11px;color:#4e6a49;margin-top:6px">itemFerroChroma · #c08a52 · 300 L/unit</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.7;margin-top:9px">A faceted chunk of shattered crust — the bulk workhorse, so its form is the heaviest. Bronze at low chroma: the cheap ore looks cheap on purpose.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="height:72px;display:flex;align-items:center;justify-content:center">
+      <div style="position:relative;width:36px;height:38px">
+        <div style="position:absolute;left:10px;top:0;width:16px;height:38px;background:#b99cff;clip-path:polygon(50% 0,100% 74%,50% 100%,0 74%)"></div>
+        <div style="position:absolute;left:0;top:12px;width:11px;height:22px;background:rgba(185,156,255,.6);clip-path:polygon(50% 0,100% 76%,50% 100%,0 76%)"></div>
+        <div style="position:absolute;right:0;top:16px;width:9px;height:18px;background:rgba(185,156,255,.4);clip-path:polygon(50% 0,100% 76%,50% 100%,0 76%)"></div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:10px">
+      <span style="font-size:15px;color:#c9ff9e;letter-spacing:.05em">ASTRACITE</span>
+      <span style="font-size:11px;color:#0a0b09;background:#b99cff;padding:2px 7px;letter-spacing:.1em">AC</span>
+    </div>
+    <div style="font-size:11px;color:#4e6a49;margin-top:6px">itemAstracite · #b99cff · 200 L/unit</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.7;margin-top:9px">A shard cluster — the only pointed silhouette in the family. Violet: the radiation ore, in the one hue band the semantic palette never uses.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="height:72px;display:flex;align-items:center;justify-content:center">
+      <div style="position:relative;width:40px;height:40px">
+        <div style="position:absolute;inset:0;border:1px dashed rgba(79,214,192,.5);border-radius:50%"></div>
+        <div style="position:absolute;left:7px;top:7px;width:26px;height:26px;background:#4fd6c0;border-radius:50% 44% 52% 40%"></div>
+        <div style="position:absolute;left:15px;top:13px;width:4px;height:4px;background:rgba(0,0,0,.45);border-radius:50%"></div>
+        <div style="position:absolute;left:23px;top:21px;width:3px;height:3px;background:rgba(0,0,0,.45);border-radius:50%"></div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:10px">
+      <span style="font-size:15px;color:#c9ff9e;letter-spacing:.05em">NEBULITE</span>
+      <span style="font-size:11px;color:#0a0b09;background:#4fd6c0;padding:2px 7px;letter-spacing:.1em">NB</span>
+    </div>
+    <div style="font-size:11px;color:#4e6a49;margin-top:6px">itemNebulite · #4fd6c0 · 250 L/unit</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.7;margin-top:9px">A porous nodule inside a dashed gas halo — the halo is the volatility, and it is the one ore glyph with a second element. Teal, kept well off the allied cyan by saturation and the halo geometry.</div>
+  </div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1010px;margin:0 0 36px">
+  Hue collision audit, run against every token that can share a surface with a stack: bronze sits between hostile red and caution
+  amber at half their chroma — separable from both with hue removed; violet occupies the palette's only unused band; teal is
+  distinguished from allied <span style="color:#4de1ff">#4de1ff</span> by saturation, and allied never appears beside a manifest
+  anyway — standings colour ships, not property. All three clear 4.5:1 against void.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§3</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE ALLOYS</span>
+  <span style="font-size:12px;color:#5d7a57">outlined, regular — the refinery's five outputs, hue by majority input</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:14px">
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 14px">
+    <div style="height:64px;display:flex;align-items:center;justify-content:center">
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="width:34px;height:8px;border:2px solid #c08a52"></div>
+        <div style="width:34px;height:8px;border:2px solid #c08a52"></div>
+        <div style="width:34px;height:8px;border:2px solid #c08a52"></div>
+      </div>
+    </div>
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.04em;margin-top:10px">FERROCITE PLATES</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:7px">
+      <span style="font-size:10px;color:#7cff3e;border:1px solid rgba(124,255,62,.35);padding:1px 6px">T1</span>
+      <span style="font-size:10.5px;color:#5d7a57">2 FC · 30 s</span>
+    </div>
+    <div style="font-size:11px;color:#7d8c79;line-height:1.65;margin-top:8px">Stacked slabs — the armor alloy is the literal one. Bronze: all-FC input.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 14px">
+    <div style="height:64px;display:flex;align-items:center;justify-content:center">
+      <div style="position:relative;width:38px;height:38px">
+        <div style="position:absolute;left:5px;top:5px;width:28px;height:28px;border:2px solid #cfe0d2;transform:rotate(45deg)"></div>
+        <div style="position:absolute;left:11px;top:18px;width:16px;height:2px;background:rgba(207,224,210,.55);transform:rotate(-45deg)"></div>
+      </div>
+    </div>
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.04em;margin-top:10px">ASTRA-GLASS</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:7px">
+      <span style="font-size:10px;color:#7cff3e;border:1px solid rgba(124,255,62,.35);padding:1px 6px">T1</span>
+      <span style="font-size:10.5px;color:#5d7a57">1 AC + 1 NB · 45 s</span>
+    </div>
+    <div style="font-size:11px;color:#7d8c79;line-height:1.65;margin-top:8px">A pane with a sheen line. Tied inputs, so it wears refined silver.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 14px">
+    <div style="height:64px;display:flex;align-items:center;justify-content:center">
+      <div style="position:relative;width:38px;height:26px">
+        <div style="position:absolute;inset:0;border:2px solid #4fd6c0;border-radius:13px"></div>
+        <div style="position:absolute;left:13px;top:7px;width:12px;height:12px;border:2px solid #4fd6c0;border-radius:50%"></div>
+      </div>
+    </div>
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.04em;margin-top:10px">CHROMITE CONDUIT</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:7px">
+      <span style="font-size:10px;color:#ffb000;border:1px solid rgba(255,176,0,.4);padding:1px 6px">T2</span>
+      <span style="font-size:10.5px;color:#5d7a57">1 FC + 2 NB · 90 s</span>
+    </div>
+    <div style="font-size:11px;color:#7d8c79;line-height:1.65;margin-top:8px">A pipe in cross-section — the cooling alloy. Teal: NB majority.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 14px">
+    <div style="height:64px;display:flex;align-items:center;justify-content:center">
+      <div style="width:34px;height:34px;border:2px solid #b99cff;display:grid;grid-template-columns:repeat(3,1fr);place-items:center;padding:3px">
+        <span style="width:4px;height:4px;background:#b99cff"></span><span style="width:4px;height:4px;background:#b99cff"></span><span style="width:4px;height:4px;background:#b99cff"></span>
+        <span style="width:4px;height:4px;background:#b99cff"></span><span style="width:4px;height:4px;background:#b99cff"></span><span style="width:4px;height:4px;background:#b99cff"></span>
+        <span style="width:4px;height:4px;background:#b99cff"></span><span style="width:4px;height:4px;background:#b99cff"></span><span style="width:4px;height:4px;background:#b99cff"></span>
+      </div>
+    </div>
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.04em;margin-top:10px">QUANTUM MATRIX</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:7px">
+      <span style="font-size:10px;color:#ffb000;border:1px solid rgba(255,176,0,.4);padding:1px 6px">T2</span>
+      <span style="font-size:10.5px;color:#5d7a57">2 AC + 1 FC · 120 s</span>
+    </div>
+    <div style="font-size:11px;color:#7d8c79;line-height:1.65;margin-top:8px">A lattice — the CPU/shield alloy. Violet: AC majority.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 14px">
+    <div style="height:64px;display:flex;align-items:center;justify-content:center">
+      <div style="position:relative;width:40px;height:40px">
+        <div style="position:absolute;inset:0;background:#cfe0d2;clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)"></div>
+        <div style="position:absolute;left:3px;top:3px;width:34px;height:34px;background:#0a0e0a;clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)"></div>
+        <div style="position:absolute;left:15px;top:15px;width:10px;height:10px;background:#cfe0d2;transform:rotate(45deg)"></div>
+        <div style="position:absolute;left:15px;top:15px;width:10px;height:10px;background:#cfe0d2"></div>
+      </div>
+    </div>
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.04em;margin-top:10px">NOVA-STEEL</div>
+    <div style="display:flex;align-items:center;gap:6px;margin-top:7px">
+      <span style="font-size:10px;color:#ff5a4a;border:1px solid rgba(255,90,74,.4);padding:1px 6px">T3</span>
+      <span style="font-size:10.5px;color:#5d7a57">2+2+2 · 300 s</span>
+    </div>
+    <div style="font-size:11px;color:#7d8c79;line-height:1.65;margin-top:8px">A star-cored hex — the only glyph with a core, because it is the only alloy with everything in it. Tie → silver.</div>
+  </div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1010px;margin:0 0 36px">
+  The tier tag re-uses the locked-row grammar D-P3 established — green reachable, amber tier-locked, red band-capped — so a
+  recipe row's icon, its tier tag and its lock sentence never disagree. Nova-Steel's tag is red on this sheet for the same reason
+  its REFINERY row is: it is <em style="color:#7d8c79;font-style:normal">geography</em>, never in High-Sec.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§4</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">SITE ARCHETYPES</span>
+  <span style="font-size:12px;color:#5d7a57">the map §5 diamonds, now hued — archetype wears its home ore</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px">
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px;display:flex;align-items:center;gap:18px">
+    <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center"><div style="width:22px;height:22px;background:#c08a52;transform:rotate(45deg)"></div></div>
+    <div>
+      <div style="font-size:14px;color:#c9ff9e;letter-spacing:.05em">FERROUS CRUST FIELD</div>
+      <div style="font-size:11px;color:#7d8c79;line-height:1.65;margin-top:6px">Filled diamond, FC bronze. The tutorial biome — no hazard, so no decoration.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px;display:flex;align-items:center;gap:18px">
+    <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center"><div style="width:22px;height:22px;border:2px solid #b99cff;transform:rotate(45deg);display:flex;align-items:center;justify-content:center"><div style="width:6px;height:6px;background:#b99cff"></div></div></div>
+    <div>
+      <div style="font-size:14px;color:#c9ff9e;letter-spacing:.05em">IRRADIATED BELT</div>
+      <div style="font-size:11px;color:#7d8c79;line-height:1.65;margin-top:6px">Centre-dot diamond, AC violet — the dot is the source in the middle of the belt.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px;display:flex;align-items:center;gap:18px">
+    <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center"><div style="width:22px;height:22px;border:2px dashed #4fd6c0;transform:rotate(45deg)"></div></div>
+    <div>
+      <div style="font-size:14px;color:#c9ff9e;letter-spacing:.05em">NEBULA POCKET</div>
+      <div style="font-size:11px;color:#7d8c79;line-height:1.65;margin-top:6px">Dashed diamond, NB teal — dashed is this HUD's word for "hard to resolve", and the pocket dampens sensors.</div>
+    </div>
+  </div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1010px;margin:0 0 36px">
+  Where the hue applies: <span style="color:#c9ff9e">constellation zoom and closer, and the system view's field marker</span>.
+  The strategic map's region zoom keeps its phosphor-brightness pips — a 6 px pip cannot carry a hue honestly, and the map §5
+  already ruled region zoom says <em style="color:#7d8c79;font-style:normal">count and grade</em> only. 07b's SITE glyph
+  (amber dashed diamond, unresolved probe contact) is untouched: that diamond means "unknown thing here", these mean
+  "known field of a known kind" — same family silhouette, deliberately.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§5</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">LEGIBILITY, STATES, GROWTH</span>
+  <span style="font-size:12px;color:#5d7a57">the 20 px plate, the grayscale proof, and what a new family costs</span>
+</div>
+<div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px;margin-bottom:14px">
+  <div style="font-size:11px;color:#4e6a49;letter-spacing:.14em;margin-bottom:12px">AT 20 PX — THE FLOOR</div>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+    <sc-for list="{{ plate20 }}" as="g" hint-placeholder-count="11">
+      <div style="width:44px;display:flex;flex-direction:column;align-items:center;gap:6px">
+        <div style="width:26px;height:26px;background:rgba(6,12,6,.55);border:1px solid rgba(124,255,62,.14);display:flex;align-items:center;justify-content:center;overflow:hidden"><div style="{{ g.st }}">{{ g.el }}</div></div>
+        <span style="font-size:9px;color:#4e6a49;letter-spacing:.04em">{{ g.code }}</span>
+      </div>
+    </sc-for>
+  </div>
+  <div style="font-size:11px;color:#4e6a49;letter-spacing:.14em;margin:16px 0 12px">SAME ROW, HUE REMOVED — THE PROOF</div>
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;filter:grayscale(1)">
+    <sc-for list="{{ plate20 }}" as="g" hint-placeholder-count="11">
+      <div style="width:44px;display:flex;flex-direction:column;align-items:center;gap:6px">
+        <div style="width:26px;height:26px;background:rgba(6,12,6,.55);border:1px solid rgba(124,255,62,.14);display:flex;align-items:center;justify-content:center;overflow:hidden"><div style="{{ g.st }}">{{ g.el }}</div></div>
+      </div>
+    </sc-for>
+  </div>
+  <sc-if value="{{ showLetterCodes }}" hint-placeholder-val="{{ true }}">
+    <div style="font-size:11px;color:#4e6a49;letter-spacing:.14em;margin:16px 0 12px">BELOW 20 PX — THE GLYPH IS REFUSED, THE CODE STANDS IN</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span style="font-size:11px;color:#0a0b09;background:#c08a52;padding:2px 7px;letter-spacing:.1em">FC</span>
+      <span style="font-size:11px;color:#0a0b09;background:#b99cff;padding:2px 7px;letter-spacing:.1em">AC</span>
+      <span style="font-size:11px;color:#0a0b09;background:#4fd6c0;padding:2px 7px;letter-spacing:.1em">NB</span>
+      <span style="font-size:11px;color:#5d7a57;margin-left:10px">alloys never shrink below the floor — they live on composers and manifests, not on chips</span>
+    </div>
+  </sc-if>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:36px">
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:12px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">PENDING — THE ◌ MARK</div>
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(6,12,6,.55);border:1px solid rgba(124,255,62,.14)">
+      <div style="width:20px;height:18px;background:#c08a52;clip-path:polygon(22% 0,88% 10%,100% 58%,72% 100%,8% 90%,0 34%)"></div>
+      <span style="font-size:13px;color:#c9ff9e">1,240</span>
+      <span style="font-size:13px;color:#ffb000">◌</span>
+      <span style="font-size:11px;color:#5d7a57">units · 372,000 L</span>
+    </div>
+    <div style="font-size:11px;color:#7d8c79;line-height:1.65;margin-top:9px">D-P2's rule, inherited unchanged: the icon never dims or animates for a pending transfer — the ◌ sits beside the old value until the ledger confirms.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:12px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">UNKNOWN ITEM — THE FALLBACK</div>
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(6,12,6,.55);border:1px solid rgba(124,255,62,.14)">
+      <div style="width:22px;height:22px;border:2px solid #8fa08b;display:flex;align-items:center;justify-content:center;font-size:12px;color:#8fa08b">?</div>
+      <span style="font-size:13px;color:#8fa08b">UNREGISTERED</span>
+    </div>
+    <div style="font-size:11px;color:#7d8c79;line-height:1.65;margin-top:9px">An ItemTypeId the client's atlas has no slot for draws this, in neutral — a client behind on content must degrade to honesty, not to a wrong icon. Same posture as the unknown palette name.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:12px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">THE ANY FILTER — NO ICON INVENTED</div>
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(6,12,6,.55);border:1px solid rgba(124,255,62,.14)">
+      <div style="display:flex;gap:3px;align-items:center">
+        <div style="width:8px;height:8px;background:#c08a52;transform:rotate(45deg)"></div>
+        <div style="width:8px;height:8px;background:#b99cff;transform:rotate(45deg)"></div>
+        <div style="width:8px;height:8px;background:#4fd6c0;transform:rotate(45deg)"></div>
+      </div>
+      <span style="font-size:13px;color:#7cff3e">ANY</span>
+    </div>
+    <div style="font-size:11px;color:#7d8c79;line-height:1.65;margin-top:9px">"Any" is not an item and gets no glyph of its own — it shows the members it stands for. The MINE order's default filter and the MOVE chips share this treatment.</div>
+  </div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§6</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">OPEN</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:12px">NEEDS A DECISION</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#ffb000">Where the slot mapping lives.</span> Proposed: <span style="color:#c9ff9e">iconAtlasSlot per item in Economy.json</span> — the hull table's own precedent, and it keeps item vocabulary on the game's side of the seam. The alternative (a client-side table keyed by ItemTypeId) puts game words in the engine.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Tie-silver vs authored hue.</span> The majority rule prices Nova-Steel at plain silver; an owner who wants the endgame alloy to gleam overrides per-item — one field, but it breaks "recipe readable off the icon" and should be a ruling, not a drift.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Wreck-loot surfaces.</span> If alloys ever appear on tactical grids (§5b wrecks), item hue meets standings colour on one surface for the first time — the neutral-frame treatment needs a decision before combat, not during it.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:12px">GROUNDED</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#7cff3e">Atlas discipline is 07b's</span>: SDF, single channel, one source from 12 px to 96 px, residency Critical. Eleven new slots on the existing icon page — no new texture, no new pass, R9 untouched.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">Grayscale-pass means palette freedom</span>: the three colour-vision palettes reassign item hues as table entries; no shape work is owed, matching the HudPalette posture ("a swap rather than a redesign").</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">Every consuming surface pre-agreed the geometry</span>: D-P2's manifest columns, D-P3's recipe rows and the map §5's diamonds were all drawn against this sheet's rules before it existed — this document closes the loop rather than opening one.</div>
+    </div>
+  </div>
+</div>
+
+<sc-if value="{{ gray }}" hint-placeholder-val="{{ false }}">
+  <div style="position:absolute;inset:0;backdrop-filter:grayscale(1);pointer-events:none;z-index:50"></div>
+</sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:2300},&quot;grayscale&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Proof&quot;},&quot;showLetterCodes&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Proof&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const gray = this.props.grayscale ?? false;
+    const showLetterCodes = this.props.showLetterCodes ?? true;
+    const e = React.createElement;
+    const abs = (st) => ({ position: 'absolute', ...st });
+    // The 20 px plate: each entry renders the full-size glyph scaled to the floor.
+    // Scale wrappers keep one authored shape per item — the SDF argument in miniature.
+    const wrap = (w, h, children, scale) => e('div',
+      { style: { position: 'relative', width: w + 'px', height: h + 'px', transform: `scale(${scale})` } }, ...children);
+    const BR = '#c08a52', VI = '#b99cff', TE = '#4fd6c0', SI = '#cfe0d2';
+    const plate20 = [
+      { code: 'FC', el: wrap(38, 34, [
+        e('div', { key: 1, style: abs({ inset: 0, background: BR, clipPath: 'polygon(22% 0,88% 10%,100% 58%,72% 100%,8% 90%,0 34%)' }) }),
+        e('div', { key: 2, style: abs({ inset: 0, background: 'rgba(0,0,0,.28)', clipPath: 'polygon(22% 0,60% 46%,8% 90%,0 34%)' }) })
+      ], .55) },
+      { code: 'AC', el: wrap(36, 38, [
+        e('div', { key: 1, style: abs({ left: '10px', top: 0, width: '16px', height: '38px', background: VI, clipPath: 'polygon(50% 0,100% 74%,50% 100%,0 74%)' }) }),
+        e('div', { key: 2, style: abs({ left: 0, top: '12px', width: '11px', height: '22px', background: 'rgba(185,156,255,.6)', clipPath: 'polygon(50% 0,100% 76%,50% 100%,0 76%)' }) })
+      ], .55) },
+      { code: 'NB', el: wrap(40, 40, [
+        e('div', { key: 1, style: abs({ inset: 0, border: '1px dashed rgba(79,214,192,.5)', borderRadius: '50%' }) }),
+        e('div', { key: 2, style: abs({ left: '7px', top: '7px', width: '26px', height: '26px', background: TE, borderRadius: '50% 44% 52% 40%' }) })
+      ], .52) },
+      { code: 'PLATES', el: e('div', { style: { display: 'flex', flexDirection: 'column', gap: '3px', transform: 'scale(.55)' } },
+        e('div', { key: 1, style: { width: '34px', height: '8px', border: '2px solid ' + BR } }),
+        e('div', { key: 2, style: { width: '34px', height: '8px', border: '2px solid ' + BR } }),
+        e('div', { key: 3, style: { width: '34px', height: '8px', border: '2px solid ' + BR } })) },
+      { code: 'GLASS', el: wrap(38, 38, [
+        e('div', { key: 1, style: abs({ left: '5px', top: '5px', width: '28px', height: '28px', border: '2px solid ' + SI, transform: 'rotate(45deg)' }) })
+      ], .55) },
+      { code: 'CONDUIT', el: wrap(38, 26, [
+        e('div', { key: 1, style: abs({ inset: 0, border: '2px solid ' + TE, borderRadius: '13px' }) }),
+        e('div', { key: 2, style: abs({ left: '13px', top: '7px', width: '12px', height: '12px', border: '2px solid ' + TE, borderRadius: '50%' }) })
+      ], .58) },
+      { code: 'MATRIX', el: e('div', { style: { width: '34px', height: '34px', border: '2px solid ' + VI, display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', placeItems: 'center', padding: '3px', transform: 'scale(.55)' } },
+        ...Array.from({ length: 9 }, (_, i) => e('span', { key: i, style: { width: '4px', height: '4px', background: VI } }))) },
+      { code: 'NOVA', el: wrap(40, 40, [
+        e('div', { key: 1, style: abs({ inset: 0, background: SI, clipPath: 'polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)' }) }),
+        e('div', { key: 2, style: abs({ left: '3px', top: '3px', width: '34px', height: '34px', background: '#0a0e0a', clipPath: 'polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)' }) }),
+        e('div', { key: 3, style: abs({ left: '15px', top: '15px', width: '10px', height: '10px', background: SI, transform: 'rotate(45deg)' }) }),
+        e('div', { key: 4, style: abs({ left: '15px', top: '15px', width: '10px', height: '10px', background: SI }) })
+      ], .52) },
+      { code: 'FIELD', el: e('div', { style: { width: '22px', height: '22px', background: BR, transform: 'rotate(45deg) scale(.62)' } }) },
+      { code: 'BELT', el: e('div', { style: { width: '22px', height: '22px', border: '2px solid ' + VI, transform: 'rotate(45deg) scale(.62)', display: 'flex', alignItems: 'center', justifyContent: 'center' } },
+        e('div', { style: { width: '6px', height: '6px', background: VI } })) },
+      { code: 'POCKET', el: e('div', { style: { width: '22px', height: '22px', border: '2px dashed ' + TE, transform: 'rotate(45deg) scale(.62)' } }) }
+    ].map(g => ({ code: g.code, el: g.el, st: { display: 'flex', alignItems: 'center', justifyContent: 'center' } }));
+    return { gray, showLetterCodes, plate20 };
+  }
+}
+
+</script>
+</body>
+</html>

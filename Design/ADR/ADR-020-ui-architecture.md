@@ -90,6 +90,25 @@ layer**, drawn above the active surface on every in-session surface in the zones
 context bar. Pre-session surfaces carry no toast layer: there is no session to raise one, and
 their equivalents (UPDATE REQUIRED, the queue position) are the screens themselves.
 
+> **Note, 2026-08-22 — fleet management is a surface on this stack, not a station tab.**
+> [fleet-management.png](../ScreenPrints/fleet-management.png) (D-P5) draws the doctrine layer
+> above P1's composition-at-a-station, and the placement is the design call worth recording
+> here: **a template exists everywhere**, so doctrine is not a station service and cannot be a
+> tab in ADR-017 §6's row without inheriting a station it does not have. It is a full-screen
+> surface in the family this section enumerates — TACTICAL ⇄ FLEET, `◀ TACTICAL` back, the one
+> mechanism §1 already gives — with the deploy *target* chosen inside it rather than implied by
+> where it was opened. Entry points are the hangar header and the menu.
+>
+> It sits in the table above with `Map`, `System`, `Station` and `Settings`: **world half
+> skipped, Ui half the whole screen**, no partial world, no composing overlay. Adding it is a
+> row in `SurfaceId` and nothing else — which is the property §1 was written to have, and the
+> first time it has been tested by a surface from a phase with no ADR. **D-P5 is forward
+> design**: the fleet-template design it implements (≤16 squadrons, all-or-nothing deploy) lives
+> upstream of this corpus, and the four rulings it names are tracked in
+> [README.md](../README.md)'s open-rulings register. One of them is this ADR's business as much
+> as the fleet phase's — **template storage, account-side or device-local, is the third screen
+> to ask 07h's settings question** and wants one answer for all three.
+
 ### 2. Input is claimed once, in one order, by one router
 
 An `InputRouter` wraps the frame and carries claim flags; each stage in turn asks what

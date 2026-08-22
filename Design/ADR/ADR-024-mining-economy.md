@@ -312,6 +312,39 @@ everything live: you learn how eaten a field is by having a ship there (§4d's s
 status), which gives scouting a job and keeps ADR-016 §7's "seeing without presence is
 intel's territory" intact.
 
+> **Note, 2026-08-22 — the split above is drawn.**
+> [strategic-map-sites.png](../ScreenPrints/strategic-map-sites.png) adds a **fifth overlay,
+> RESOURCES**, to the strategic map (authored as §5 of that screen's own source, because it is a
+> change to a drawn screen rather than a new one), and its whole subject is this section's
+> two-truths rule. **Archetype and grade are bake truth** — public, stable, drawn for everyone
+> exactly like security: grade is brightness, archetype is diamond geometry (filled ·
+> centre-dot · dashed) at the 20 px legibility floor, with D-C1's ore hues joining the pips and
+> region zoom falling back to count and brightness because a 6 px pip cannot honestly say which
+> ore it is. **The pool is presence truth** — your own ships' receipts, this epoch only, and a
+> system with no receipts draws **no depletion state at all**, with the panel saying so. Unknown
+> is not full: the map never guesses a ledger, which is §5d's `◌` rule applied to geology.
+>
+> **The epoch is the expiry rule, and the layer obeys it in both directions.** When a site
+> re-forms, yesterday's number is **dropped rather than greyed** — a re-formed field contains
+> none of the ore the stale figure describes, so keeping it would be keeping a lie legible. And
+> **countdowns read `EPOCH ≥ hh:mm` rather than a schedule**, because an occupied world holds
+> its epoch: [R27](../Risk-Register.md) is acknowledged on the plate rather than papered over,
+> and the clock is a floor and not a promise.
+>
+> **The map sells the system, never the spot.** A site's bearing rotates with the epoch, so
+> drawing it here would promise a warp-in the next epoch moves; the layer marks
+> presence-in-system only and the system view owns today's position. **Zero new wire**:
+> `SiteStatus` already carries per-ore remaining and per-cluster fractions to viewers of that
+> grid, the countdown is the same pure `(anchorId, epochIndex)` function both halves already
+> evaluate, and archetype/grade/orbit ring are in the bake copy every client holds. The layer's
+> only new data is what the player's own ships saw.
+>
+> Three rulings are open and tracked in [README.md](../README.md)'s register: **whose presence
+> counts** (v1 proposes your own ships only; corp-shared scouting pulls intel design forward),
+> the treatment of **faded High-Sec pockets** (ruling 1b — a FADED tag in the panel as proposed,
+> or their own pip state), and **where the scouting journal persists** — device-local or
+> account-side, which is 07h's settings question for the third time and now has gameplay stakes.
+
 ### 4. Mining — a fleet order, because this is a fleet game
 
 #### 4a. The order
@@ -367,6 +400,19 @@ Three exits, all per-ship and all visible:
   for routes.
 - **All Miners full → the order completes.** The escorts hold with them; hauling home is
   the player's next decision, not an automation.
+
+> **Note, 2026-08-22 — what a working order looks like on the tactical HUD.**
+> A group cycling a cluster is under way and going nowhere, which is a state no ghost in this
+> corpus had before: every other order ends when its last leg does. The client draws it as **one
+> centred label above the fleet** — `MINING · 4M 12S` — and **no lane, no footprint and no station
+> ticks**, because all three promise an arrival that has already happened. The seconds are
+> `LegEtaSeconds`'s own answer for this case (the cluster's remaining life, §4d), never recomputed
+> on the client; the word is `OrderWorkingName`, which answers `Mining` for this kind and **null
+> for every other**, so a client can tell a group that ran out of legs because it is *working*
+> from one that ran out because it is *finishing*. That distinction is this section's rule rather
+> than arithmetic, which is why it crosses the seam as a word and not as a comparison the engine
+> could have made itself. **No wire field was added**: the snapshot already carried `legIndex`,
+> `legCount` and the ETA.
 
 #### 4c. Rocks are presentation; the site is the state
 
@@ -451,6 +497,32 @@ future security-response design (that is combat's ADR to write), and the drop fr
 stays flat so the loot table never needs a map. Ore in a **docked** hull, like everything
 docked, is absolutely safe; ore in a Bay is safer than that.
 
+> **Note, 2026-08-22 — the wreck has a surface now, and it is not a wreck screen.**
+> [container-surface.png](../ScreenPrints/container-surface.png) (D-P6) draws this section's
+> container as **one component every container kind instantiates**: an identity header (kind,
+> claim rule, lifetime), D-P2's `(item, units, litres)` stack list carrying D-C1's glyphs, and
+> **at most one verb**. Kinds differ by chrome — a wreck has a countdown, a market escrow an
+> order reference, a Deploying container an assembly timer — never by layout, so the taxonomy's
+> remaining kinds each cost a header and a verb rather than a screen.
+>
+> **SCOOP rides the approach-chip pattern**: a context action on the target that feeds the
+> approach and then the verb, exactly as DOCK does (ADR-017 §2) and MINE does (§4a), with the
+> chip showing the leg. It previews the fill against the selection's **free litres** by the same
+> pure pre-check the server validates with — an enabled SCOOP is a promise, and a selection that
+> cannot lift the stacks says which stacks fit before anything flies (bounce parity, extended to
+> salvage). The header states both halves of the rule above in one breath: **finders-keepers**
+> — nobody owns a wreck, so there is no yours/theirs chrome to design and no loot-split UI to
+> invent — and **the 900 s scatter** in caution amber, the colour that means "will stop being
+> true on its own" everywhere else in this corpus.
+>
+> **Nothing here is decided by the print.** D-P6 is declared forward design for an ADR the
+> combat phase still owes, and it leaves four rulings, tracked in [README.md](../README.md)'s
+> open-rulings register: wreck stack visibility (proposed public to everyone on grid, which
+> finders-keepers implies); **partial-scoop order when not everything fits** — the same question
+> as §5d's ore-order-on-a-fill, in its third appearance, and one ruling should close all three;
+> whether a Deploying container's manifest is visible to others; and the item-taxonomy ADR
+> itself, which this is the third print to cite.
+
 #### 5c. Docking, the Bay, and the manual transfer
 
 The **Station Bay** is a per-`(PlayerId, station)` ledger at the universe layer — beside
@@ -516,6 +588,33 @@ manual rule; where `CargoStatus` surfaces for holds still in space (the print pr
 tactical roster strip, never this tab); and whether pending stays a mark or becomes an
 optimistic total reconciled on `BayStatus`. They are tracked in
 [Economy-Build-Order.md](../Economy-Build-Order.md)'s deliverables section.
+
+> **Note, 2026-08-22 — the item stacks have glyphs, and the glyphs have rules.**
+> [item-icon-system.png](../ScreenPrints/item-icon-system.png) (D-C1) authors the three ores,
+> the five alloys and the three site archetypes, and **this tab and §6e's were re-captured the
+> same day to adopt them** — the plate changed, the design did not. What is worth recording here
+> rather than only on the sheet is the **four-rule ruleset both tabs now obey**, because it is
+> written for the item families that do not exist yet:
+>
+> - **Raw filled, refined outlined.** The family channel, read before identity, so a mixed Bay
+>   sorts ore from alloy pre-attentively. Raw forms are irregular and asymmetric; manufactured
+>   forms are regular and symmetric — 07b's nothing-that-moves-is-symmetric logic, inverted for
+>   things that were made.
+> - **Silhouette carries identity; hue only assists.** Every glyph must pass in grayscale, which
+>   is exactly what lets a colour-vision palette retune item hues as a table swap without
+>   touching a shape.
+> - **The 20 px floor holds**, and below it the letter code stands in — `FC` · `AC` · `NB`. This
+>   tab's manifest column headers were already that fallback; the sheet names the rule the screen
+>   was obeying.
+> - **Hue by majority input.** An alloy wears its majority ore's hue and a tie wears refined
+>   silver, so the recipe is readable off the icon and a new one needs arithmetic rather than a
+>   colour meeting.
+>
+> The hues are audited against every token that can share a surface with a stack — bronze sits
+> between hostile red and caution amber at half their chroma, violet occupies the semantic
+> palette's one unused band, teal is held off allied cyan by saturation — and all three clear
+> 4.5:1 against void. **No decision in §5 or §6 changes**; this is the icon vocabulary those
+> sections assumed and did not specify.
 
 ### 6. Refining — the station becomes industry
 
@@ -688,6 +787,17 @@ the wire; whether contribution is whole stacks with a clamp or gains a partial p
 where the away log lives (the print proposes the alerts family owns telling the player, and
 this tab only ever shows current state). They are tracked in
 [Economy-Build-Order.md](../Economy-Build-Order.md)'s deliverables section.
+
+> **Note, 2026-08-22 — re-captured with D-C1's glyphs, same as CARGO.**
+> [item-icon-system.png](../ScreenPrints/item-icon-system.png) authors §6a's five outputs as
+> **outlined, regular** forms against the ores' filled, irregular ones, so a recipe row reads
+> its inputs and its output as two different kinds of thing before any word is parsed. The
+> alloy hues are not chosen, they are **derived**: an alloy wears its majority ore's hue and a
+> tie wears refined silver — Ferrocite Plates bronze from all-FC input, Chromite Conduit teal
+> because it is mostly Nebulite, Astra-Glass silver on 1 AC + 1 NB. That is the property worth
+> having in this section: §6a's recipe table is the icon sheet's input, so **a recipe added or
+> repriced never needs a colour decision**, only the same arithmetic the table already states.
+> The full four-rule ruleset is recorded at §5d. **No decision in this section changes.**
 
 ### 7. The configuration architecture — balance becomes data, with a hash
 

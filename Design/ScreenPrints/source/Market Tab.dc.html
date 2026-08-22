@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0a0b09;font-family:'Share Tech Mono',ui-monospace,monospace}
+a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
+</style></helmet>
+
+<div data-screen-label="Market Tab" style="width:1440px;background:#050705;padding:44px 48px 56px;color:#7cff3e;position:relative">
+<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.03) 0 1px,transparent 1px 3px);pointer-events:none"></div>
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(124,255,62,.3);padding-bottom:16px;margin-bottom:12px">
+  <div>
+    <div style="font-size:26px;color:#c9ff9e;letter-spacing:.08em">MARKET TAB — D-P4</div>
+    <div style="font-size:12.5px;color:#5d7a57;letter-spacing:.06em;margin-top:6px">07 §4.3 answered · the station surface's last stub, printed ahead of its phase · sibling of CARGO and REFINERY</div>
+  </div>
+  <div style="text-align:right;font-size:11.5px;color:#4e6a49;line-height:1.8">
+    <div>SOURCE · ADR-024 §6a §6d §9 · ADR-025 · ADR-017 §6 · 07d §2 · 08c §10 · D-C1</div>
+    <div>STATE · {{ stateLabel }}</div>
+  </div>
+</div>
+
+<div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.5);padding:13px 17px;font-size:12px;color:#7d8c79;line-height:1.7;margin-bottom:18px">
+  <span style="color:#ffb000">FORWARD DESIGN, STATED:</span> the market phase has no ADR — no currency, no order wire, no books exist
+  (ADR-024 §9 staged all three). This print is the UI half of that future ADR, grounded in what IS decided:
+  <span style="color:#c9ff9e">order books live at the service layer</span> (ADR-025), <span style="color:#c9ff9e">fees are the
+  staged sink</span> (§9), <span style="color:#c9ff9e">alloys are fungible or there is no order book</span> (§6a, verbatim),
+  and <span style="color:#c9ff9e">Ionized Slurry is the first commodity</span> (§6d). The wreck rule's posture, applied to commerce:
+  written down now so the market ADR inherits a surface instead of inventing one mid-phase.
+</div>
+<p style="font-size:13px;color:#7d8c79;line-height:1.75;max-width:1010px;margin:0 0 34px;text-wrap:pretty">
+  The screen's one idea: <span style="color:#c9ff9e">a market order is escrowed property, and this tab treats it exactly as CARGO
+  treats a hold</span> — listing debits your Bay or wallet on the spot (D-P3's debit-at-submission), a queued order cancels whole
+  (the refinery's cancel ruling, reused), fills land while you are away (Routine toast, ×40 coalesced, D19 away log), and nothing
+  on the screen is ever a guessed total. Prices anchor on ADR-024's value indices; every number here is that table wearing a
+  currency sign.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§1</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">THE SCREEN</span>
+  <span style="font-size:12px;color:#5d7a57">authored 1440×900 · MARKET tab active · per-station book, region price board</span>
+</div>
+<div data-plate="market-tab" style="position:relative;width:1344px;height:840px;overflow:hidden;border:1px solid rgba(124,255,62,.22);background:#000;margin-bottom:14px">
+<div style="width:1440px;height:900px;transform:scale(.9333);transform-origin:top left;position:relative;background:#000">
+  <div style="position:absolute;inset:0;background:radial-gradient(90% 80% at 50% 44%,#0b1210 0%,#000 74%)"></div>
+  <div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.035) 0 1px,transparent 1px 3px)"></div>
+
+  <div style="position:absolute;left:0;right:0;top:0;height:46px;display:flex;align-items:center;gap:16px;padding:0 18px;border-bottom:1px solid rgba(124,255,62,.3);background:rgba(4,8,5,.88);font-size:15px;letter-spacing:.06em">
+    <span style="color:#5d7a57">◀ TACTICAL</span><span style="color:#3d5a37">|</span>
+    <span style="color:#c9ff9e">VESTA-3 ANCHORAGE · STATION</span>
+    <span style="flex:1"></span>
+    <span style="font-size:13px;color:#7cff3e">WALLET {{ wallet }}</span>
+    <span style="border:1px solid rgba(124,255,62,.3);padding:2px 9px;font-size:13px;color:#7cff3e">▥ MENU</span>
+  </div>
+
+  <div style="position:absolute;left:0;right:0;top:46px;height:52px;display:flex;align-items:stretch;gap:2px;padding:0 26px;border-bottom:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86)">
+    <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="7">
+      <div style="{{ t.st }}">
+        <span style="font-size:14px;letter-spacing:.08em">{{ t.name }}</span>
+        <sc-if value="{{ t.tag }}" hint-placeholder-val="{{ false }}"><span style="{{ t.tagSt }}">{{ t.tag }}</span></sc-if>
+      </div>
+    </sc-for>
+    <span style="flex:1"></span>
+    <span style="align-self:center;font-size:12px;color:#4e6a49;letter-spacing:.06em">FUNGIBLE ITEMS ONLY — A PLATE IS A PLATE</span>
+  </div>
+
+  <div style="position:absolute;left:0;top:98px;bottom:0;width:392px;border-right:1px solid rgba(124,255,62,.2);padding:18px 20px;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <sc-for list="{{ cats }}" as="c" hint-placeholder-count="3"><div style="{{ c.st }}">{{ c.name }}</div></sc-for>
+    </div>
+    <div style="display:grid;grid-template-columns:20px 1fr 56px 56px 54px;gap:6px;padding:0 10px 7px;border-bottom:1px solid rgba(124,255,62,.2);font-size:10px;color:#4e6a49;letter-spacing:.1em">
+      <span></span><span>ITEM</span><span style="text-align:right">BID</span><span style="text-align:right">ASK</span><span style="text-align:right">24H</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:4px;margin-top:7px">
+      <sc-for list="{{ items }}" as="it" hint-placeholder-count="9">
+        <div style="{{ it.st }}">
+          <span style="position:relative;width:20px;height:20px;flex:0 0 auto;display:inline-block;opacity:.9"><span style="{{ it.g1 }}"></span><span style="{{ it.g2 }}"></span><span style="{{ it.g3 }}"></span></span>
+          <span style="font-size:11.5px;letter-spacing:.03em;white-space:nowrap;overflow:hidden">{{ it.name }}</span>
+          <span style="{{ it.bidSt }}">{{ it.bid }}</span>
+          <span style="{{ it.askSt }}">{{ it.ask }}</span>
+          <span style="font-size:10.5px;color:#4e6a49;text-align:right">{{ it.vol }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="margin-top:auto;padding-top:12px;font-size:11px;color:#4e6a49;line-height:1.65;border-top:1px solid rgba(124,255,62,.14)">Three flat categories (08c §10 answered) — a category past one screen of rows splits into a tree, a growth rule pre-authorised like D-P2's five-column collapse. Empty books say so; they never hide the row.</div>
+  </div>
+
+  <div style="position:absolute;left:392px;top:98px;bottom:0;right:408px;padding:18px 22px;display:flex;flex-direction:column;gap:14px;overflow:hidden">
+    <div style="border:1px solid rgba(124,255,62,.22);background:rgba(6,12,6,.5);padding:14px 16px;flex:1;display:flex;flex-direction:column;min-height:0">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="position:relative;width:22px;height:22px;flex:0 0 auto"><span style="position:absolute;left:2px;top:2px;width:18px;height:4px;border:1.5px solid #c08a52"></span><span style="position:absolute;left:2px;top:9px;width:18px;height:4px;border:1.5px solid #c08a52"></span><span style="position:absolute;left:2px;top:16px;width:18px;height:4px;border:1.5px solid #c08a52"></span></span>
+        <span style="font-size:16px;color:#c9ff9e;letter-spacing:.06em">FERROCITE PLATES</span>
+        <span style="flex:1"></span>
+        <span style="font-size:10.5px;color:#4e6a49;letter-spacing:.08em">PER-STATION BOOK — VESTA-3</span>
+      </div>
+      <div style="font-size:10px;color:#4e6a49;letter-spacing:.12em;margin-bottom:6px">SELLERS</div>
+      <sc-for list="{{ asks }}" as="a" hint-placeholder-count="5">
+        <div style="position:relative;display:grid;grid-template-columns:74px 84px 1fr auto;gap:10px;align-items:center;padding:4px 8px;font-size:12px">
+          <div style="{{ a.barSt }}"></div>
+          <span style="color:#8fa08b;position:relative">{{ a.price }}</span>
+          <span style="color:#5d7a57;text-align:right;position:relative">{{ a.qty }}</span>
+          <span></span>
+          <sc-if value="{{ a.tag }}" hint-placeholder-val="{{ false }}"><span style="{{ a.tagSt }}">{{ a.tag }}</span></sc-if>
+        </div>
+      </sc-for>
+      <div style="display:flex;align-items:center;gap:12px;margin:7px 0;padding:5px 8px;border-top:1px dashed rgba(255,176,0,.35);border-bottom:1px dashed rgba(255,176,0,.35);font-size:11px;color:#ffb000;letter-spacing:.06em">
+        <span style="white-space:nowrap">SPREAD {{ spread }}</span><span style="color:#5d7a57;white-space:nowrap">MID {{ mid }}</span>
+        <span style="flex:1"></span><span style="color:#4e6a49;white-space:nowrap">400 L/UNIT — THE SPREAD PAYS THE HAUL</span>
+      </div>
+      <div style="font-size:10px;color:#4e6a49;letter-spacing:.12em;margin-bottom:6px">BUYERS</div>
+      <sc-for list="{{ bids }}" as="b" hint-placeholder-count="5">
+        <div style="position:relative;display:grid;grid-template-columns:74px 84px 1fr auto;gap:10px;align-items:center;padding:4px 8px;font-size:12px">
+          <div style="{{ b.barSt }}"></div>
+          <span style="color:#7cff3e;position:relative">{{ b.price }}</span>
+          <span style="color:#5d7a57;text-align:right;position:relative">{{ b.qty }}</span>
+          <span></span>
+          <sc-if value="{{ b.tag }}" hint-placeholder-val="{{ false }}"><span style="{{ b.tagSt }}">{{ b.tag }}</span></sc-if>
+        </div>
+      </sc-for>
+    </div>
+    <div style="border:1px solid rgba(124,255,62,.22);background:rgba(6,12,6,.5);padding:14px 16px">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px">
+        <span style="font-size:12px;color:#4e6a49;letter-spacing:.14em">REGION PRICES — PLATES, BEST ASK</span>
+        <span style="flex:1"></span>
+        <span style="font-size:10px;color:#4e6a49">READ-ONLY — ORDERS LIVE WHERE THE GOODS ARE</span>
+      </div>
+      <sc-for list="{{ regionRows }}" as="rr" hint-placeholder-count="4">
+        <div style="display:grid;grid-template-columns:150px 1fr 90px 70px;gap:10px;align-items:center;padding:4px 4px;font-size:12px">
+          <span style="color:#c9ff9e">{{ rr.name }}</span>
+          <span style="{{ rr.legSt }}">{{ rr.leg }}</span>
+          <span style="color:#7cff3e;text-align:right">{{ rr.price }}</span>
+          <span style="color:#4e6a49;text-align:right;font-size:10.5px">{{ rr.delta }}</span>
+        </div>
+      </sc-for>
+      <div style="font-size:10.5px;color:#4e6a49;line-height:1.6;margin-top:8px">The board is the trade-route generator: compression planted industry in the dark (ADR-024 §6a), and a 51% premium six jumps into Null is the alloy convoy's whole business case — and the ambusher's.</div>
+    </div>
+  </div>
+
+  <div style="position:absolute;right:0;top:98px;bottom:0;width:408px;border-left:1px solid rgba(124,255,62,.2);background:rgba(4,8,5,.86);padding:18px 22px;display:flex;flex-direction:column;gap:13px;overflow:hidden">
+    <div>
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:9px">
+        <span style="font-size:13px;color:#4e6a49;letter-spacing:.14em">YOUR ORDERS</span>
+        <span style="flex:1"></span>
+        <span style="font-size:10px;color:#3d5a37;letter-spacing:.08em">THIS STATION · 2</span>
+      </div>
+      <sc-for list="{{ orderRows }}" as="o" hint-placeholder-count="2">
+        <div style="border:1px solid rgba(124,255,62,.16);background:rgba(6,12,6,.55);padding:9px 11px;margin-bottom:7px">
+          <div style="display:flex;align-items:baseline;gap:8px">
+            <span style="{{ o.sideSt }}">{{ o.side }}</span>
+            <span style="font-size:12px;color:#c9ff9e">{{ o.name }}</span>
+            <span style="flex:1"></span>
+            <span style="font-size:11px;border:1px solid rgba(124,255,62,.25);color:#5d7a57;padding:1px 7px">✕</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:10.5px;margin-top:5px">
+            <span style="color:#7d8c79">{{ o.fill }}</span>
+            <span style="color:#ffb000">{{ o.escrow }}</span>
+          </div>
+        </div>
+      </sc-for>
+      <div style="font-size:10px;color:#4e6a49;line-height:1.6">✕ cancels whole and returns the escrow untouched — the refinery's queued-cancel ruling, reused. Filled portions are already settled and stay settled.</div>
+    </div>
+    <div style="border-top:1px solid rgba(124,255,62,.14);padding-top:12px;flex:1;min-height:0;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px">
+        <span style="font-size:13px;color:#4e6a49;letter-spacing:.14em">{{ compTitle }}</span>
+        <span style="flex:1"></span>
+        <span style="font-size:10px;color:#3d5a37">SAME FOUR LINES AS THE REFINERY</span>
+      </div>
+      <sc-for list="{{ compLines }}" as="cl" hint-placeholder-count="4">
+        <div style="display:flex;align-items:baseline;gap:10px;padding:5px 0;border-bottom:1px solid rgba(124,255,62,.08)">
+          <span style="font-size:10px;color:#4e6a49;letter-spacing:.1em;width:88px;flex:0 0 auto">{{ cl.k }}</span>
+          <span style="{{ cl.st }}">{{ cl.v }}</span>
+        </div>
+      </sc-for>
+      <div style="margin-top:12px;display:flex;flex-direction:column;gap:8px">
+        <div style="{{ goBtnSt }}">{{ goBtnLabel }}</div>
+      </div>
+      <div style="margin-top:auto;font-size:11px;color:#7d8c79;line-height:1.65;border-top:1px solid rgba(124,255,62,.14);padding-top:11px">Escrow leaves at listing — the CARGO tab's own debit rule. Fills land while you are away: <span style="color:#c9ff9e">Routine toast, ×N coalesced</span>, and the away log (D19) reports the total. This tab never owes a notification.</div>
+    </div>
+  </div>
+</div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1010px;margin:0 0 36px">
+  <span style="color:#c9ff9e">Sells read neutral, buys read phosphor, and neither borrows a semantic colour</span> — hostile red and
+  caution amber keep their meanings (amber marks the spread and escrow, the two "not settled" facts on the screen). Depth bars are
+  quantity, not urgency. The D-C1 glyphs carry item identity everywhere the 20 px floor allows; below it the letter codes stand in,
+  same as CARGO.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§2</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">DESIGN CALLS</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;margin-bottom:14px">
+  <div style="grid-column:1/-1;border:1px solid rgba(124,255,62,.28);background:rgba(6,16,6,.65);padding:16px 18px">
+    <div style="font-size:13px;color:#7cff3e;letter-spacing:.06em;margin-bottom:10px">BOOKS ARE PER-STATION; PRICES TRAVEL</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">An order lives where its escrow lives: a sell order's goods sit in this station's market escrow (08c's container kind, upstream), so the book is a fact about a place — a region-wide book would teleport goods the transfer bus refuses to. The region board shows every station's best price read-only, with the leg's band named, because <span style="color:#c9ff9e">the price gap across a dangerous leg IS the hauling game</span> — ADR-024 §9's "buy it elsewhere" revisit lands on this board. Listing requires your Bay at that station; browsing is free everywhere (remote works, the refinery's rule).</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">ESCROW IS VISIBLE PROPERTY</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">Listing debits the Bay or wallet at submission (D-P3's pattern) and the order card states the escrow in amber until the order dies. A queued order cancels whole, escrow returns untouched; filled portions are settled and stay settled. Pending fills wear the ◌ beside old values — the ledger rule holds on commerce too.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">FEES ARE THE SINK, SHOWN</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">The fee is the market phase's currency sink (§9 staged it) and it appears as a composer line, never folded into a total — the refinery shows its refund even at zero for the same reason. Proposed: charged on fills, against proceeds, so a listing that never fills costs nothing and spam is bounded by escrow instead of fees. Rate is an owner ruling.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">FLAT TAXONOMY — 08c §10 ANSWERED</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">Three flat categories (ORES · ALLOYS · COMMODITIES) — nine listable items do not need a tree, and a browser that opens folders to find Plates would be ceremony. The growth rule is pre-authorised, not deferred: a category past one screen of rows splits into a tree, the same shaped rule as D-P2's five-column collapse.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">FUNGIBLE ONLY — THE GATE THAT MAKES A BOOK POSSIBLE</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">§6a said it as a design constraint ("a Ferrocite Plate is a Ferrocite Plate or the future market has no order book"); this tab enforces it as an admission rule. Instance items — Phase 2's blueprinted, quality-varying goods — never list here; they will need a contract surface, which is a different screen and is deliberately not sketched.</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px 18px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:10px">AWAY PARITY, INHERITED</div>
+    <div style="font-size:11.5px;color:#7d8c79;line-height:1.75">One order can fill forty times (07d wrote the coalescing rule against exactly this screen, two phases early). Fills raise Routine toasts ×N coalesced, land in the D19 event record, and the away log totals them — the tab shows current state only and never owes a notification, the refinery's honesty at any staleness.</div>
+  </div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:34px 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§3</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">DELIBERATELY ABSENT · OPEN FOR THE MARKET ADR</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="border:1px solid rgba(124,255,62,.3);background:rgba(6,16,6,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#7cff3e;letter-spacing:.06em;margin-bottom:12px">ABSENT BECAUSE THE DESIGN SAYS SO</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#c9ff9e">No price charts</span> — history depth is service-layer storage nobody has priced; the 24H volume column is the honest minimum. Charts join when the stream exists.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No margin/partial-escrow orders</span> — escrow is always whole, or the ledger rule dies. Financial instruments are not Phase 3.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No cross-station delivery</span> — buying at Talis-7 puts goods in your Talis-7 Bay. The market never hauls; haulers haul.</div>
+      <div style="margin-top:9px">▸ <span style="color:#c9ff9e">No contract surface</span> — non-fungible trades, courier contracts and escorts are a different screen for a different phase.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(255,176,0,.3);background:rgba(20,14,2,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#ffb000;letter-spacing:.06em;margin-bottom:12px">OPEN — OWNER RULINGS THE MARKET ADR NEEDS</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#ffb000">The currency</span> — name, denomination, and its faucet (mining bounties? refining? mission pay?). This print says "{{ curName }}" via a tweak because the word is not designable here.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Fee point and rate</span> — proposed on-fill against proceeds; on-listing is the anti-spam alternative and charges failures.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Order lifetime</span> — until-cancelled (shown) vs N-day expiry with escrow return. Until-cancelled plus visible escrow is self-limiting; expiry adds a timer the away log must then own.</div>
+      <div style="margin-top:9px">▸ <span style="color:#ffb000">Who seeds the first book</span> — pure player-to-player from zero, or an NPC vendor selling Ionized Slurry as the bootstrap faucet (§6d names the commodity; nothing names the vendor).</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1200},&quot;mode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Sell 500 Plates&quot;,&quot;Buy 200 Astracite&quot;],&quot;default&quot;:&quot;Sell 500 Plates&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Mockup&quot;},&quot;currency&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;CR&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Open ruling&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const G = '#7cff3e', HOT = '#c9ff9e', AMB = '#ffb000';
+    const fmt = n => n.toLocaleString('en-US');
+    const cur = this.props.currency ?? 'CR';
+    const mode = (this.props.mode ?? 'Sell 500 Plates').startsWith('Sell') ? 'sell' : 'buy';
+    const stateLabel = mode === 'sell' ? 'SELL COMPOSED — 500 PLATES' : 'BUY COMPOSED — 200 ASTRACITE';
+    const wallet = fmt(84210) + ' ' + cur;
+    const curName = cur;
+
+    const tabs = [
+      { name: 'HANGAR' }, { name: 'CARGO' }, { name: 'REFINERY', tag: 'T1' },
+      { name: 'REPAIR', tag: 'FREE' }, { name: 'REFIT', tag: 'FUTURE' },
+      { name: 'CONSTRUCT', tag: 'FUTURE' }, { name: 'MARKET', tag: 'PHASE 3', active: true }
+    ].map(t => ({
+      name: t.name, tag: t.tag || false,
+      st: { display: 'flex', alignItems: 'center', gap: '8px', padding: '0 16px',
+        borderBottom: '2px solid ' + (t.active ? G : 'transparent'),
+        background: t.active ? 'rgba(124,255,62,.10)' : 'transparent',
+        color: t.active ? HOT : (t.tag === 'FUTURE' ? '#3d5a37' : '#5d7a57') },
+      tagSt: { fontSize: '9px', letterSpacing: '.12em', padding: '1.5px 6px', flex: '0 0 auto', whiteSpace: 'nowrap',
+        color: t.active ? AMB : (t.tag === 'FUTURE' ? '#3d5a37' : G),
+        border: '1px solid ' + (t.active ? 'rgba(255,176,0,.5)' : (t.tag === 'FUTURE' ? 'rgba(124,255,62,.14)' : 'rgba(124,255,62,.4)')) }
+    }));
+
+    const cats = ['ORES', 'ALLOYS', 'COMMODITIES'].map((name, i) => ({
+      name,
+      st: { padding: '5px 12px', fontSize: '10.5px', letterSpacing: '.08em',
+        border: '1px solid rgba(124,255,62,' + (i === 1 ? '.5' : '.18') + ')',
+        background: i === 1 ? 'rgba(124,255,62,.12)' : 'transparent',
+        color: i === 1 ? HOT : '#5d7a57' }
+    }));
+
+    // D-C1 mini glyphs, 20 px, three layers. Hue by item; NONE for the padding layer.
+    const BR = '#c08a52', VI = '#b99cff', TE = '#4fd6c0', SI = '#cfe0d2', NONE = { display: 'none' };
+    const A = s => ({ position: 'absolute', ...s });
+    const G20 = {
+      'FERRO-CHROMA': [A({ left: 0, top: '1px', width: '20px', height: '18px', background: BR, clipPath: 'polygon(22% 0,88% 10%,100% 58%,72% 100%,8% 90%,0 34%)' }),
+        A({ left: 0, top: '1px', width: '20px', height: '18px', background: 'rgba(0,0,0,.28)', clipPath: 'polygon(22% 0,60% 46%,8% 90%,0 34%)' }), NONE],
+      'ASTRACITE': [A({ left: '6px', top: 0, width: '9px', height: '20px', background: VI, clipPath: 'polygon(50% 0,100% 74%,50% 100%,0 74%)' }),
+        A({ left: 0, top: '6px', width: '6px', height: '12px', background: 'rgba(185,156,255,.6)', clipPath: 'polygon(50% 0,100% 76%,50% 100%,0 76%)' }), NONE],
+      'NEBULITE': [A({ inset: 0, border: '1px dashed rgba(79,214,192,.5)', borderRadius: '50%' }),
+        A({ left: '4px', top: '4px', width: '12px', height: '12px', background: TE, borderRadius: '50% 44% 52% 40%' }), NONE],
+      'FERROCITE PLATES': [A({ left: '2px', top: '2px', width: '16px', height: '3px', border: '1.5px solid ' + BR }),
+        A({ left: '2px', top: '8px', width: '16px', height: '3px', border: '1.5px solid ' + BR }),
+        A({ left: '2px', top: '14px', width: '16px', height: '3px', border: '1.5px solid ' + BR })],
+      'ASTRA-GLASS': [A({ left: '3px', top: '3px', width: '13px', height: '13px', border: '1.5px solid ' + SI, transform: 'rotate(45deg)' }),
+        A({ left: '5px', top: '9px', width: '9px', height: '2px', background: 'rgba(207,224,210,.55)', transform: 'rotate(-45deg)' }), NONE],
+      'CHROMITE CONDUIT': [A({ left: 0, top: '4px', width: '20px', height: '12px', border: '1.5px solid ' + TE, borderRadius: '6px' }),
+        A({ left: '7px', top: '7px', width: '6px', height: '6px', border: '1.5px solid ' + TE, borderRadius: '50%' }), NONE],
+      'QUANTUM MATRIX': [A({ left: '2px', top: '2px', width: '16px', height: '16px', border: '1.5px solid ' + VI }),
+        A({ left: '5px', top: '5px', width: '10px', height: '10px', backgroundImage: 'radial-gradient(' + VI + ' 1.1px, transparent 1.3px)', backgroundSize: '5px 5px' }), NONE],
+      'NOVA-STEEL': [A({ inset: 0, background: SI, clipPath: 'polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)' }),
+        A({ left: '2px', top: '2px', width: '16px', height: '16px', background: '#0a0e0a', clipPath: 'polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)' }),
+        A({ left: '7px', top: '7px', width: '6px', height: '6px', background: SI, transform: 'rotate(45deg)' })],
+      'IONIZED SLURRY': [A({ left: '4px', top: '2px', width: '12px', height: '16px', border: '1.5px solid #8fa08b', borderRadius: '3px' }),
+        A({ left: '6px', top: '10px', width: '8px', height: '6px', background: 'rgba(143,160,139,.45)' }), NONE]
+    };
+
+    // [name, bid, ask, vol24, selected?, empty?]
+    const itemDefs = [
+      ['FERRO-CHROMA', '9.8', '10.2', '41k'],
+      ['ASTRACITE', '21.5', '22.4', '9.2k'],
+      ['NEBULITE', '29.0', '30.5', '6.1k'],
+      ['FERROCITE PLATES', '26.8', '27.5', '18k', true],
+      ['ASTRA-GLASS', '52.0', '54.0', '2.4k'],
+      ['CHROMITE CONDUIT', '68.0', '71.0', '1.1k'],
+      ['QUANTUM MATRIX', '55.0', '58.5', '940'],
+      ['NOVA-STEEL', '—', '210.0', '85'],
+      ['IONIZED SLURRY', '—', '—', 'NO ORDERS YET', false, true]
+    ];
+    const items = itemDefs.map(([name, bid, ask, vol, sel, empty]) => {
+      const gl = G20[name];
+      return {
+        name, bid, ask, vol,
+        g1: gl[0], g2: gl[1], g3: gl[2],
+        bidSt: { fontSize: '11.5px', textAlign: 'right', color: bid === '—' ? '#2f4a2a' : G },
+        askSt: { fontSize: '11.5px', textAlign: 'right', color: ask === '—' ? '#2f4a2a' : '#8fa08b' },
+        st: { display: 'grid', gridTemplateColumns: '20px 1fr 56px 56px 54px', gap: '6px', alignItems: 'center',
+          padding: '6px 10px',
+          border: '1px solid ' + (sel ? G : 'rgba(124,255,62,.1)'),
+          background: sel ? 'rgba(124,255,62,.12)' : 'rgba(6,12,6,.45)',
+          color: sel ? HOT : (empty ? '#4e6a49' : '#7d8c79') }
+      };
+    });
+
+    // The book. Depth bar width tracks quantity; sells neutral, buys phosphor.
+    const mkRow = (price, qty, maxQty, side, tag) => ({
+      price, qty: fmt(qty), tag: tag || false,
+      tagSt: { fontSize: '9px', letterSpacing: '.1em', color: AMB, border: '1px solid rgba(255,176,0,.5)', padding: '1px 6px' },
+      barSt: { position: 'absolute', left: 0, top: '2px', bottom: '2px', width: Math.round(qty / maxQty * 100) + '%',
+        background: side === 'ask' ? 'rgba(143,160,139,.10)' : 'rgba(124,255,62,.10)' }
+    });
+    const asks = [[30.0, 750], [29.0, 2500], [28.4, 300], [28.0, 1180, 'YOURS ◌'], [27.5, 420]]
+      .map(([p, q, t]) => mkRow(p.toFixed(1), q, 2500, 'ask', t));
+    const bids = [[26.8, 600], [26.5, 1900], [26.0, 3000], [25.2, 800], [24.0, 5000]]
+      .map(([p, q]) => mkRow(p.toFixed(1), q, 5000, 'bid'));
+    const spread = '0.7 ' + cur;
+    const mid = '27.15 ' + cur;
+
+    const regionRows = [
+      ['VESTA-3 ANCHORAGE', 'HERE', '27.5', '—', false],
+      ['KILN GATE YARDS', '2 JUMPS · HIGH', '28.9', '+5%', false],
+      ['LANTERN HUB', '4 JUMPS · LOW', '33.0', '+20%', true],
+      ['TALIS-7 FORGE', '6 JUMPS · NULL', '41.5', '+51%', true]
+    ].map(([name, leg, price, delta, risky]) => ({
+      name, leg, price: price + ' ' + cur, delta,
+      legSt: { fontSize: '10.5px', color: risky ? AMB : '#5d7a57', letterSpacing: '.04em' }
+    }));
+
+    const orderRows = [
+      { side: 'SELL', name: 'PLATES ×500 @ 28.0', fill: '120 FILLED · 3H AGO ◌', escrow: 'ESCROW 380 PLATES',
+        sideSt: { fontSize: '10px', letterSpacing: '.1em', color: '#8fa08b', border: '1px solid rgba(143,160,139,.4)', padding: '1px 6px' } },
+      { side: 'BUY', name: 'ASTRACITE ×200 @ 21.0', fill: 'OPEN · NO FILLS', escrow: 'ESCROW 4,200 ' + cur,
+        sideSt: { fontSize: '10px', letterSpacing: '.1em', color: G, border: '1px solid rgba(124,255,62,.4)', padding: '1px 6px' } }
+    ];
+
+    const line = (k, v, hot) => ({ k, v, st: { fontSize: '12px', color: hot ? HOT : '#7d8c79' } });
+    let compTitle, compLines, goBtnLabel;
+    if (mode === 'sell') {
+      compTitle = 'SELL — FERROCITE PLATES';
+      compLines = [
+        line('PRICE', '28.0 ' + cur + '/UNIT · BEST ASK 27.5 — YOURS QUEUES BEHIND', true),
+        line('QUANTITY', '500 · ALL YOUR BAY HOLDS'),
+        line('ESCROW', '500 PLATES LEAVE THE BAY AT LISTING · BAY AFTER 0'),
+        line('AT FULL FILL', '14,000 ' + cur + ' − FEE 1% (140) = 13,860 ' + cur)
+      ];
+      goBtnLabel = 'LIST 500 PLATES @ 28.0';
+    } else {
+      compTitle = 'BUY — ASTRACITE';
+      compLines = [
+        line('PRICE', '21.0 ' + cur + '/UNIT · BEST BID 21.5 — YOURS QUEUES BEHIND', true),
+        line('QUANTITY', '200 · 40,000 L INTO YOUR BAY AT FILL'),
+        line('ESCROW', '4,200 ' + cur + ' LEAVES THE WALLET AT LISTING · AFTER 80,010'),
+        line('AT FULL FILL', '200 ASTRACITE IN YOUR VESTA-3 BAY — THE MARKET NEVER HAULS')
+      ];
+      goBtnLabel = 'PLACE BUY — ESCROW 4,200 ' + cur;
+    }
+    const goBtnSt = { height: '52px', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      fontSize: '14px', letterSpacing: '.08em', border: '1px solid ' + G, background: 'rgba(124,255,62,.16)',
+      color: HOT, boxShadow: '0 0 18px rgba(124,255,62,.15)' };
+
+    return { stateLabel, wallet, curName, tabs, cats, items, asks, bids, spread, mid,
+      regionRows, orderRows, compTitle, compLines, goBtnLabel, goBtnSt };
+  }
+}
+
+</script>
+</body>
+</html>

@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0a0b09;font-family:'Share Tech Mono',ui-monospace,monospace}
+a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
+@keyframes engaged{0%,100%{opacity:1}50%{opacity:.3}}
+</style></helmet>
+
+<div data-screen-label="Icon System" style="width:1440px;background:#050705;padding:44px 48px 56px;color:#7cff3e;position:relative">
+<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.03) 0 1px,transparent 1px 3px);pointer-events:none"></div>
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(124,255,62,.3);padding-bottom:16px;margin-bottom:12px">
+  <div>
+    <div style="font-size:26px;color:#c9ff9e;letter-spacing:.08em">TACTICAL ICON SYSTEM</div>
+    <div style="font-size:12.5px;color:#5d7a57;letter-spacing:.06em;margin-top:6px">07 §3 — glyph taxonomy, flag and standings colour, state markers, density rules, atlas</div>
+  </div>
+  <div style="text-align:right;font-size:11.5px;color:#4e6a49;line-height:1.8">
+    <div>SOURCE · 03 §2.1 · 03 §6 · 02 §8.2 · 02 §8.3</div>
+    <div>PALETTE · {{ paletteName }}</div>
+    <div>UI SCALE · {{ scaleLabel }}</div>
+  </div>
+</div>
+
+<p style="font-size:13px;color:#7d8c79;line-height:1.75;max-width:960px;margin:0 0 34px;text-wrap:pretty">
+  Four independent channels, never collapsed into one: <span style="color:#c9ff9e">silhouette carries hull class</span>,
+  <span style="color:#c9ff9e">size carries tonnage</span>, <span style="color:#c9ff9e">colour carries relationship</span>, and
+  <span style="color:#c9ff9e">a ring decoration carries PVP flag</span>. Colour is never the only carrier of a state — every flag
+  is also a distinct ring geometry, which is what makes the three colour-vision palettes (03 §9.7) a swap rather than a redesign.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§1</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">HULL-CLASS GLYPHS</span>
+  <span style="font-size:12px;color:#5d7a57">11 values, closed set — <span style="color:#7cff3e">HullClass</span> 03 §2.1</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:14px">
+  <sc-for list="{{ classes }}" as="c" hint-placeholder-count="11">
+    <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:11px">
+      <div style="height:64px;display:flex;align-items:center;justify-content:center"><div style="{{ c.glyphSt }}"></div></div>
+      <div style="font-size:12.5px;color:#c9ff9e;letter-spacing:.05em">{{ c.name }}</div>
+      <div style="{{ c.tierSt }}">{{ c.tier }}</div>
+    </div>
+  </sc-for>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:960px;margin:0 0 36px">
+  Grouped by role so the eye learns four families, not eleven shapes: strike craft are open deltas, line ships are closed chevrons
+  and hexes that lengthen with tonnage, support hulls are blunt and rectilinear, structures are the only radially symmetric glyph —
+  nothing that moves is ever drawn symmetric, so heading is readable at every size.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§2</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">NON-HULL ENTITIES</span>
+  <span style="font-size:12px;color:#5d7a57">outside <span style="color:#7cff3e">HullClass</span> — never heading-oriented</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:36px">
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:11px">
+    <div style="height:64px;display:flex;align-items:center;justify-content:center"><div style="width:26px;height:26px;border:2px solid #4de1ff;border-radius:50%;display:flex;align-items:center;justify-content:center"><div style="width:6px;height:6px;background:#4de1ff;border-radius:50%"></div></div></div>
+    <div style="font-size:12.5px;color:#c9ff9e">PROBE</div>
+    <div style="font-size:10.5px;color:#4e6a49;text-align:center;line-height:1.5">dashed until dwell<br>completes · 03 §9.4</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:11px">
+    <div style="height:64px;display:flex;align-items:center;justify-content:center;position:relative;width:30px">
+      <div style="position:absolute;left:2px;top:24px;width:26px;height:2px;background:#8fa08b;transform:rotate(34deg)"></div>
+      <div style="position:absolute;left:2px;top:24px;width:26px;height:2px;background:#8fa08b;transform:rotate(-34deg)"></div>
+    </div>
+    <div style="font-size:12.5px;color:#c9ff9e">WRECK</div>
+    <div style="font-size:10.5px;color:#4e6a49;text-align:center;line-height:1.5">always neutral hue<br>salvage-capable only</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:11px">
+    <div style="height:64px;display:flex;align-items:center;justify-content:center"><div style="width:26px;height:26px;border:2px dashed #ffb000;transform:rotate(45deg)"></div></div>
+    <div style="font-size:12.5px;color:#c9ff9e">SITE</div>
+    <div style="font-size:10.5px;color:#4e6a49;text-align:center;line-height:1.5">unresolved contact<br>from the probe lens</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:11px">
+    <div style="height:64px;display:flex;align-items:center;justify-content:center;position:relative;width:30px;height:64px">
+      <div style="position:absolute;left:3px;top:19px;width:10px;height:26px;border:2px solid #7cff3e;border-right:0"></div>
+      <div style="position:absolute;right:3px;top:19px;width:10px;height:26px;border:2px solid #7cff3e;border-left:0"></div>
+    </div>
+    <div style="font-size:12.5px;color:#c9ff9e">GATE</div>
+    <div style="font-size:10.5px;color:#4e6a49;text-align:center;line-height:1.5">graph edge · 01 §3.1<br>route-planner anchor</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:11px">
+    <div style="height:64px;display:flex;align-items:center;justify-content:center"><div style="width:30px;height:30px;border:2px solid #8fa08b;border-radius:50%;opacity:.8"></div></div>
+    <div style="font-size:12.5px;color:#c9ff9e">CELESTIAL</div>
+    <div style="font-size:10.5px;color:#4e6a49;text-align:center;line-height:1.5">never selectable<br>lowest z, no label</div>
+  </div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§3</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">RELATIONSHIP × PVP FLAG</span>
+  <span style="font-size:12px;color:#5d7a57">02 §8.2 flags · 02 §8.3 standings — both <span style="color:#7cff3e">Public</span> (02 §11)</span>
+</div>
+<div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px;margin-bottom:14px">
+  <div style="display:grid;grid-template-columns:150px repeat(4,1fr);gap:14px;align-items:center">
+    <div></div>
+    <sc-for list="{{ flagCols }}" as="f" hint-placeholder-count="4">
+      <div style="text-align:center">
+        <div style="font-size:12px;color:#c9ff9e;letter-spacing:.06em">{{ f.name }}</div>
+        <div style="font-size:10.5px;color:#4e6a49;margin-top:3px">{{ f.dur }}</div>
+      </div>
+    </sc-for>
+    <sc-for list="{{ matrixRows }}" as="row" hint-placeholder-count="4">
+      <div style="display:contents">
+        <div>
+          <div style="{{ row.labelSt }}">{{ row.name }}</div>
+          <div style="font-size:10.5px;color:#4e6a49;margin-top:3px">{{ row.note }}</div>
+        </div>
+        <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="4">
+          <div style="height:62px;display:flex;align-items:center;justify-content:center">
+            <div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center">
+              <div style="{{ cell.ringSt }}"></div>
+              <div style="{{ cell.glyphSt }}"></div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-for>
+  </div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:960px;margin:0 0 36px">
+  Flags are drawn as rings <em style="color:#7d8c79;font-style:normal">around</em> the glyph rather than as a hue change, because a
+  hostile Criminal and a neutral Criminal must both read as attackable while still reading as different parties. Ring geometry alone
+  separates the four flag states with colour removed entirely — swap the palette above to check it.
+</p>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:960px;margin:0 0 36px">
+  <span style="color:#c9ff9e">Drawn on the selection and on locked targets only</span> (decided). Flags are
+  <span style="color:#7cff3e">Public</span>, so every ring in view could legally be drawn — but a lawless region at the 1,024-entity cap
+  would then be a screen of rings, and the states that matter are attached to something you are about to shoot or be shot by. The
+  information is not withheld: it is one tap away on any entity, and the
+  <span style="color:#c9ff9e">de-clutter merge never folds a flagged entity into a chip</span> — a flagged hull always survives as its
+  own glyph.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§4</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">STATE MARKERS</span>
+  <span style="font-size:12px;color:#5d7a57">composed over the glyph — additive, never mutually exclusive</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:14px">
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:10px">
+    <div style="height:60px;width:100%;position:relative;display:flex;align-items:center;justify-content:center">
+      <div style="position:absolute;width:40px;height:20px;border:1px solid #c9ff9e;border-radius:50%;box-shadow:0 0 10px rgba(124,255,62,.3)"></div>
+      <div style="{{ markerGlyph }}"></div>
+    </div>
+    <div style="font-size:12px;color:#c9ff9e">SELECTED</div>
+    <div style="font-size:10.5px;color:#4e6a49;text-align:center;line-height:1.5">2:1 ellipse on the<br>plane, not billboarded</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:10px">
+    <div style="height:60px;width:100%;position:relative;display:flex;align-items:center;justify-content:center">
+      <div style="position:absolute;width:34px;height:34px;border-radius:50%;background:conic-gradient(#ffb000 0 62%,rgba(124,255,62,.15) 62%);-webkit-mask:radial-gradient(circle,transparent 0 14px,#000 14px);mask:radial-gradient(circle,transparent 0 14px,#000 14px)"></div>
+      <div style="{{ markerGlyph }}"></div>
+    </div>
+    <div style="font-size:12px;color:#c9ff9e">LOCKING</div>
+    <div style="font-size:10.5px;color:#4e6a49;text-align:center;line-height:1.5">sweep = lock progress<br>f(sensor, signature)</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:10px">
+    <div style="height:60px;width:100%;position:relative;display:flex;align-items:center;justify-content:center">
+      <sc-for list="{{ lockBrackets }}" as="b" hint-placeholder-count="4"><div style="{{ b.st }}"></div></sc-for>
+      <div style="{{ markerGlyph }}"></div>
+    </div>
+    <div style="font-size:12px;color:#c9ff9e">LOCKED</div>
+    <div style="font-size:10.5px;color:#4e6a49;text-align:center;line-height:1.5">four corners snap in<br>on completion</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:10px">
+    <div style="height:60px;width:100%;position:relative;display:flex;align-items:center;justify-content:center">
+      <sc-for list="{{ incomingChevrons }}" as="b" hint-placeholder-count="3"><div style="{{ b.st }}"></div></sc-for>
+      <div style="{{ markerGlyph }}"></div>
+    </div>
+    <div style="font-size:12px;color:#ff5a4a">TARGETING ME</div>
+    <div style="font-size:10.5px;color:#4e6a49;text-align:center;line-height:1.5">gated by 04 §6.3's lock<br>disclosure rule</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:10px">
+    <div style="height:60px;width:100%;position:relative;display:flex;align-items:center;justify-content:center">
+      <div style="position:absolute;width:40px;height:20px;border:1px dashed rgba(143,160,139,.5);border-radius:50%"></div>
+      <div style="{{ staleGlyph }}"></div>
+    </div>
+    <div style="font-size:12px;color:#8fa08b">STALE</div>
+    <div style="font-size:10.5px;color:#4e6a49;text-align:center;line-height:1.5">extrapolation capped<br>at 250 ms · 03 §10</div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:10px">
+    <div style="height:60px;width:100%;position:relative;display:flex;align-items:center;justify-content:center">
+      <div style="position:absolute;left:6px;top:14px;bottom:14px;width:2px;background:rgba(124,255,62,.3)"></div>
+      <div style="position:absolute;left:12px;display:flex;align-items:center;gap:5px">
+        <div style="width:0;height:0;border-top:7px solid transparent;border-bottom:7px solid transparent;border-right:9px solid #7cff3e"></div>
+        <span style="font-size:10.5px;color:#7cff3e">14 km</span>
+      </div>
+    </div>
+    <div style="font-size:12px;color:#c9ff9e">OFF-SCREEN</div>
+    <div style="font-size:10.5px;color:#4e6a49;text-align:center;line-height:1.5">edge chevron + range,<br>selection only</div>
+  </div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:960px;margin:0 0 36px">
+  <span style="color:#ff5a4a">Targeting-me is the one marker that leaks information</span>, and 04 §6.3 already bounds it: it may
+  appear only once the attacker's lock has completed, never during the sweep. Drawn earlier it becomes a free early-warning system
+  that the replication audience explicitly refuses.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§5</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">LEGIBILITY PLATE</span>
+  <span style="font-size:12px;color:#5d7a57">the R3 F13 test — each glyph drawn to its stated longest axis, tonnage scaling suspended</span>
+</div>
+<div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:20px 22px;margin-bottom:14px">
+  <div style="display:grid;grid-template-columns:112px 1fr;gap:16px;align-items:center">
+    <sc-for list="{{ legibilityRows }}" as="row" hint-placeholder-count="5">
+      <div style="display:contents">
+        <div>
+          <div style="{{ row.labelSt }}">{{ row.label }}</div>
+          <div style="font-size:10.5px;color:#4e6a49;margin-top:2px">{{ row.note }}</div>
+        </div>
+        <div style="{{ row.stripSt }}">
+          <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="11">
+            <div style="{{ cell.boxSt }}"><div style="{{ cell.glyphSt }}"></div></div>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:960px;margin:0 0 36px">
+  <span style="color:#c9ff9e">The floor is 20 px, not U2's 48 px.</span> U2 governs what a finger must be able to <em style="color:#7d8c79;font-style:normal">hit</em>,
+  which the press-hold magnifier already solves for dense clusters; this is what an eye must be able to <em style="color:#7d8c79;font-style:normal">tell apart</em>,
+  and it is the tighter constraint in a 1,024-entity view. Tonnage scaling is suspended on this plate on purpose: the size channel
+  would flatter the result by separating glyphs that their shapes alone do not.
+</p>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:960px;margin:0 0 36px">
+  <span style="color:#ffb000">Two collisions survive to 20 px and both sit inside a role family.</span>
+  <span style="color:#c9ff9e">Cruiser and Structure</span> — hexagon against octagon — are the worse pair, separable here only because
+  Structure never moves and never carries a heading; if that ever stops being true the taxonomy needs a different glyph, not a bigger
+  one. <span style="color:#c9ff9e">Frigate and Battleship</span> are the second, resolved by giving the Battleship a twin-pronged stern
+  rather than by making it larger, since size is already carrying tonnage. Interceptor survives even the failing 14 px row — a thin
+  spike is the most robust silhouette in the set, which is worth remembering when a twelfth class is proposed.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§6</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">DENSITY LADDER</span>
+  <span style="font-size:12px;color:#5d7a57">what an icon degrades to, per zoom tier — 03 §6</span>
+</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:14px">
+  <sc-for list="{{ ladder }}" as="step" hint-placeholder-count="3">
+    <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:16px">
+      <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:12px">
+        <span style="{{ step.tagSt }}">{{ step.tag }}</span>
+        <span style="font-size:13px;color:#c9ff9e;letter-spacing:.05em">{{ step.title }}</span>
+      </div>
+      <div style="height:96px;position:relative;border:1px solid rgba(124,255,62,.1);background:#000;overflow:hidden;margin-bottom:12px">
+        <sc-for list="{{ step.marks }}" as="m" hint-placeholder-count="12"><div style="{{ m.st }}">{{ m.text }}</div></sc-for>
+      </div>
+      <div style="font-size:11.5px;color:#7d8c79;line-height:1.65;min-height:96px">{{ step.body }}</div>
+    </div>
+  </sc-for>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:960px;margin:0 0 36px">
+  A glyph never shrinks below its legible floor; it is replaced. That keeps 04 §6.3 satisfiable — a merged chip states an extent and
+  a count and claims nothing about position — and it makes the de-clutter step a <em style="color:#7d8c79;font-style:normal">pure function of
+  replicated fields</em>, which is what F10's determinism requirement demands.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§7</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">ATLAS, DPI, AND WHAT WAS DECIDED</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:12px">ATLAS STRATEGY — RECOMMENDED</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#7cff3e">Dedicated icon atlas</span>, not the R8 text pages (03 §9.7). Glyphs are multi-channel and permanently resident; text pages are R8 and LRU-evicted.</div>
+      <div style="margin-top:9px">▸ Authored as <span style="color:#7cff3e">SDF</span>, one channel, so a single source resolves 12 px to 96 px and every UI scale from 0.8× to 1.6× without a mip set or a second authoring pass.</div>
+      <div style="margin-top:9px">▸ Residency class <span style="color:#7cff3e">Critical</span> (03 §5.3) — an evicted icon page is an unreadable battle, not a soft degrade.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">iconAtlasSlot</span> already exists in <span style="color:#7cff3e">HullVisualRow</span> (08 hull-table proposal §5), so the binding needs no new field — but it is a per-<em style="font-style:normal;color:#7d8c79">type</em> value while this taxonomy is per-<em style="font-style:normal;color:#7d8c79">class</em>. Someone must say which wins.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.3);background:rgba(6,16,6,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#7cff3e;letter-spacing:.06em;margin-bottom:12px">DECIDED — 2026-08-08</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>✅ <span style="color:#c9ff9e">Glyphs are per-class</span> — 11 slots, closed. <span style="color:#7cff3e">iconAtlasSlot</span> is therefore a per-type field pointing at a per-class glyph, and the bake should validate that every type in a class resolves to the same slot rather than leaving it free.</div>
+      <div style="margin-top:9px">✅ <span style="color:#c9ff9e">Own takes a fourth hue.</span> All three palettes above carry four; knowing which ships are yours outranks the headroom.</div>
+      <div style="margin-top:9px">✅ <span style="color:#c9ff9e">Allied stays</span>, on the assumption D7's alliance entity lands. If D7 is rejected the Allied row collapses into Neutral and no other part of this system changes.</div>
+      <div style="margin-top:9px">✅ <span style="color:#c9ff9e">Cruiser/Structure collision accepted</span>, conditional on Structure remaining static and heading-less. <span style="color:#ffb000">A mobile structure re-opens this</span> and should be treated as a taxonomy change, not an art request.</div>
+      <div style="margin-top:9px">⬜ <span style="color:#ffb000">R3 F13 stays open</span> — if the 20 px floor cannot hold on an Adreno-class panel, the fix is fewer hull classes, which is a design change and not an art one.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1100},&quot;palette&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Default&quot;,&quot;Deuteranopia&quot;,&quot;Tritanopia&quot;],&quot;default&quot;:&quot;Default&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Accessibility&quot;},&quot;iconScale&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:1,&quot;min&quot;:0.8,&quot;max&quot;:1.6,&quot;step&quot;:0.1,&quot;unit&quot;:&quot;×&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Accessibility&quot;}}">
+class Component extends DCLogic {
+  palettes() {
+    return {
+      Default: { own: '#7cff3e', allied: '#4de1ff', neutral: '#8fa08b', hostile: '#ff5a4a', engaged: '#7cff3e', suspect: '#ffb000', criminal: '#ff2d6f' },
+      Deuteranopia: { own: '#7cd4ff', allied: '#b98cff', neutral: '#9aa39a', hostile: '#ffb000', engaged: '#7cd4ff', suspect: '#ffe066', criminal: '#ff5ec7' },
+      Tritanopia: { own: '#7cff3e', allied: '#ff9de0', neutral: '#a8b0a6', hostile: '#ff2d2d', engaged: '#7cff3e', suspect: '#ff7ac0', criminal: '#d40000' }
+    };
+  }
+
+  classDefs() {
+    return [
+      { name: 'INTERCEPTOR', tier: 'STRIKE', sw: .40, sh: .64, poly: 'polygon(50% 0%,66% 100%,50% 80%,34% 100%)' },
+      { name: 'FIGHTER', tier: 'STRIKE', sw: .54, sh: .58, poly: 'polygon(50% 0%,100% 100%,50% 76%,0% 100%)' },
+      { name: 'BOMBER', tier: 'STRIKE', sw: .72, sh: .48, poly: 'polygon(50% 0%,100% 84%,76% 100%,24% 100%,0% 84%)' },
+      { name: 'CORVETTE', tier: 'LINE', sw: .56, sh: .60, poly: 'polygon(50% 0%,100% 58%,100% 100%,50% 48%,0% 100%,0% 58%)' },
+      { name: 'FRIGATE', tier: 'LINE', sw: .64, sh: .78, poly: 'polygon(50% 0%,100% 46%,100% 100%,50% 62%,0% 100%,0% 46%)' },
+      { name: 'CRUISER', tier: 'LINE', sw: .72, sh: .90, poly: 'polygon(50% 0%,100% 32%,90% 76%,66% 100%,34% 100%,10% 76%,0% 32%)' },
+      { name: 'BATTLESHIP', tier: 'LINE', sw: .90, sh: 1.0, poly: 'polygon(50% 0%,86% 24%,100% 64%,80% 100%,58% 84%,42% 84%,20% 100%,0% 64%,14% 24%)' },
+      { name: 'CARRIER', tier: 'SUPPORT', sw: 1.0, sh: .84, poly: 'polygon(0% 6%,36% 6%,50% 24%,64% 6%,100% 6%,100% 100%,0% 100%)' },
+      { name: 'HAULER', tier: 'SUPPORT', sw: .78, sh: .70, poly: 'polygon(24% 0%,76% 0%,100% 100%,0% 100%)' },
+      { name: 'MINER', tier: 'SUPPORT', sw: .74, sh: .72, poly: 'polygon(30% 0%,70% 0%,70% 20%,100% 30%,100% 70%,70% 80%,70% 100%,30% 100%,30% 80%,0% 70%,0% 30%,30% 20%)' },
+      { name: 'STRUCTURE', tier: 'STATIC', sw: .84, sh: .84, poly: 'polygon(30% 0%,70% 0%,100% 30%,100% 70%,70% 100%,30% 100%,0% 70%,0% 30%)' }
+    ];
+  }
+
+  glyphStyle(def, boxPx, color, opts = {}) {
+    // normalize: longest axis becomes exactly boxPx, so a stated size is the size drawn.
+    const m = opts.normalize ? Math.max(def.sw, def.sh) : 1;
+    return {
+      width: Math.round(boxPx * def.sw / m) + 'px',
+      height: Math.round(boxPx * def.sh / m) + 'px',
+      background: color,
+      clipPath: def.poly,
+      opacity: opts.opacity ?? 1,
+      filter: opts.glow === false ? 'none' : `drop-shadow(0 0 4px ${color}66)`
+    };
+  }
+
+  renderVals() {
+    const paletteName = this.props.palette ?? 'Default';
+    const P = this.palettes()[paletteName] || this.palettes().Default;
+    const scale = this.props.iconScale ?? 1;
+    const defs = this.classDefs();
+
+    const tierColor = { STRIKE: '#7cff3e', LINE: '#4de1ff', SUPPORT: '#ffb000', STATIC: '#8fa08b' };
+    const classes = defs.map(d => ({
+      name: d.name, tier: d.tier,
+      glyphSt: this.glyphStyle(d, Math.round(52 * scale), P.own),
+      tierSt: {
+        fontSize: '9.5px', letterSpacing: '.12em', color: tierColor[d.tier],
+        border: '1px solid ' + tierColor[d.tier] + '55', padding: '2px 7px'
+      }
+    }));
+
+    const cruiser = defs[5];
+    const flagCols = [
+      { name: 'NO FLAG', dur: '—', key: 'none' },
+      { name: 'ENGAGED', dur: '60 s', key: 'engaged' },
+      { name: 'SUSPECT', dur: '5 min', key: 'suspect' },
+      { name: 'CRIMINAL', dur: '15 min', key: 'criminal' }
+    ];
+    const standings = [
+      { name: 'OWN', note: 'your corporation', color: P.own },
+      { name: 'ALLIED', note: 'standings: Allied', color: P.allied },
+      { name: 'NEUTRAL', note: 'standings: Neutral', color: P.neutral },
+      { name: 'HOSTILE', note: 'standings: Hostile', color: P.hostile }
+    ];
+
+    const ringFor = (key, base) => {
+      const common = { position: 'absolute', borderRadius: '50%', pointerEvents: 'none' };
+      if (key === 'none') return { display: 'none' };
+      if (key === 'engaged') return { ...common, width: '38px', height: '38px', border: '1px solid ' + base, opacity: .85, animation: 'engaged 1.4s infinite' };
+      if (key === 'suspect') return { ...common, width: '40px', height: '40px', border: '2px dashed ' + P.suspect };
+      return { ...common, width: '38px', height: '38px', border: '2px solid ' + P.criminal, boxShadow: '0 0 0 3px rgba(0,0,0,.9), 0 0 0 5px ' + P.criminal };
+    };
+
+    const matrixRows = standings.map(s => ({
+      name: s.name, note: s.note,
+      labelSt: { fontSize: '13px', color: s.color, letterSpacing: '.06em' },
+      cells: flagCols.map(f => ({
+        ringSt: ringFor(f.key, s.color),
+        glyphSt: this.glyphStyle(cruiser, 26, s.color)
+      }))
+    }));
+
+    const markerGlyph = this.glyphStyle(cruiser, 26, P.own);
+    const staleGlyph = this.glyphStyle(cruiser, 26, P.neutral, { opacity: .35, glow: false });
+
+    const lockBrackets = [[0, 0], [1, 0], [0, 1], [1, 1]].map(([rx, ry]) => ({
+      st: {
+        position: 'absolute', width: '9px', height: '9px',
+        left: rx ? 'calc(50% + 11px)' : 'calc(50% - 20px)',
+        top: ry ? 'calc(50% + 10px)' : 'calc(50% - 19px)',
+        borderTop: ry ? '0' : '2px solid ' + P.hostile,
+        borderBottom: ry ? '2px solid ' + P.hostile : '0',
+        borderLeft: rx ? '0' : '2px solid ' + P.hostile,
+        borderRight: rx ? '2px solid ' + P.hostile : '0'
+      }
+    }));
+
+    const incomingChevrons = [0, 120, 240].map(deg => ({
+      st: {
+        position: 'absolute', width: '0', height: '0',
+        borderLeft: '6px solid transparent', borderRight: '6px solid transparent',
+        borderTop: '9px solid ' + P.hostile,
+        transform: `rotate(${deg}deg) translateY(-25px)`, transformOrigin: '50% 50%', opacity: .9
+      }
+    }));
+
+    const sizes = [
+      { px: 48, label: '48 px', note: 'U2 touch target' },
+      { px: 32, label: '32 px', note: 'tactical default' },
+      { px: 24, label: '24 px', note: 'dense engagement' },
+      { px: 20, label: '20 px', note: 'legibility floor' },
+      { px: 14, label: '14 px', note: 'fails — merge instead' }
+    ];
+    // Every row is drawn to its stated longest axis; tonnage scaling is suspended here on
+    // purpose, because this plate tests shape discrimination, not the size channel.
+    const legibilityRows = sizes.map(s => ({
+      label: s.label, note: s.note,
+      labelSt: { fontSize: '14px', color: s.px < 20 ? '#ff5a4a' : s.px === 20 ? '#ffb000' : '#c9ff9e', letterSpacing: '.05em' },
+      stripSt: {
+        display: 'flex', alignItems: 'center', gap: '18px', minHeight: (s.px + 14) + 'px',
+        borderTop: '1px solid rgba(124,255,62,.08)', paddingTop: '10px',
+        opacity: s.px < 20 ? .75 : 1
+      },
+      cells: defs.map(d => ({
+        boxSt: { width: '52px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+        glyphSt: this.glyphStyle(d, s.px, s.px < 20 ? P.neutral : P.own, { glow: s.px >= 24, normalize: true })
+      }))
+    }));
+
+    const place = (x, y, extra = {}) => ({ position: 'absolute', left: x + '%', top: y + '%', transform: 'translate(-50%,-50%)', ...extra });
+    const spots = [[18, 26], [34, 60], [52, 22], [68, 54], [84, 30], [26, 78], [58, 80], [78, 74], [44, 42], [12, 52], [90, 58], [64, 34]];
+
+    const ladder = [
+      {
+        tag: 'TACTICAL', title: 'full glyph', tagSt: { fontSize: '9.5px', padding: '2px 7px', background: 'rgba(124,255,62,.18)', color: '#7cff3e', letterSpacing: '.1em' },
+        marks: spots.map((s, i) => ({
+          text: '', st: place(s[0], s[1], {
+            width: Math.round(26 * defs[(i * 3) % 11].sw) + 'px', height: Math.round(26 * defs[(i * 3) % 11].sh) + 'px',
+            background: i % 4 === 0 ? P.hostile : P.own, clipPath: defs[(i * 3) % 11].poly
+          })
+        })),
+        body: 'Class silhouette, heading, flag ring, hull and shield bars. Everything the icon system can say, said. Holds while the ≤ 80 km tier keeps glyphs above the 20 px floor.'
+      },
+      {
+        tag: 'OPERATIONAL', title: 'bars drop, glyph holds', tagSt: { fontSize: '9.5px', padding: '2px 7px', background: 'rgba(77,225,255,.18)', color: '#4de1ff', letterSpacing: '.1em' },
+        marks: spots.map((s, i) => ({
+          text: '', st: place(s[0], s[1], {
+            width: Math.round(17 * defs[(i * 3) % 11].sw) + 'px', height: Math.round(17 * defs[(i * 3) % 11].sh) + 'px',
+            background: i % 4 === 0 ? P.hostile : P.own, clipPath: defs[(i * 3) % 11].poly, opacity: .95
+          })
+        })),
+        body: 'Hull and shield bars retire first — they are per-entity detail nobody reads at this range — and formation outlines take over as the unit of attention. Class and flag survive.'
+      },
+      {
+        tag: 'STRATEGIC', title: 'merge to counted chips', tagSt: { fontSize: '9.5px', padding: '2px 7px', background: 'rgba(255,176,0,.18)', color: '#ffb000', letterSpacing: '.1em' },
+        marks: [
+          { text: '▲ 84', st: place(28, 34, { fontSize: '10px', color: P.own, border: '1px solid ' + P.own, padding: '3px 6px', background: 'rgba(0,0,0,.75)', whiteSpace: 'nowrap' }) },
+          { text: '× 137', st: place(70, 30, { fontSize: '10px', color: P.hostile, border: '1px solid ' + P.hostile, padding: '3px 6px', background: 'rgba(0,0,0,.75)', whiteSpace: 'nowrap' }) },
+          { text: '▲ 22', st: place(46, 72, { fontSize: '10px', color: P.own, border: '1px solid ' + P.own, padding: '3px 6px', background: 'rgba(0,0,0,.75)', whiteSpace: 'nowrap' }) },
+          { text: '', st: place(28, 34, { width: '78px', height: '34px', border: '1px dashed ' + P.own, opacity: .35 }) },
+          { text: '', st: place(70, 30, { width: '86px', height: '38px', border: '1px dashed ' + P.hostile, opacity: .35 }) },
+          { text: '', st: place(46, 72, { width: '58px', height: '26px', border: '1px dashed ' + P.own, opacity: .35 }) }
+        ],
+        body: 'Extent outline plus a count — 04 §6.3\u2019s honest aggregate. No hull is drawn at a position the client cannot justify, and the chip says exactly what is known: how many, roughly where.'
+      }
+    ];
+
+    return {
+      paletteName, scaleLabel: scale.toFixed(1) + '×',
+      classes, flagCols, matrixRows, markerGlyph, staleGlyph,
+      lockBrackets, incomingChevrons, legibilityRows, ladder
+    };
+  }
+}
+</script>
+</body>
+</html>

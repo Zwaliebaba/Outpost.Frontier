@@ -177,6 +177,7 @@ struct OrderPreview
     onThisGrid = true;
     etaSeconds = -1.0f;
     label[0] = '\0';
+    workingLabel[0] = '\0';
   }
 
   /// Appends a mark, or reports that the preview is full. Returning false
@@ -230,6 +231,29 @@ struct OrderPreview
    */
   static constexpr std::uint32_t LABEL_CAPACITY = 32;
   char label[LABEL_CAPACITY] = {};
+
+  /*
+   * What to call this order once it has stopped travelling and started
+   * *working* -- `MINING` -- or empty for an order whose whole life is a
+   * journey.
+   *
+   * **Most orders end when their last leg does; one does not**, and this field
+   * is how the engine is told which without being told why. A group under way
+   * with no leg left is either about to be retired or doing something the plane
+   * cannot show as motion, and only the game knows which -- so the game answers
+   * by having written a word here, or not.
+   *
+   * That split is the whole reason this is not derived from `legIndex` and
+   * `legCount`. The engine reads both already -- it draws `3 LEGS` from them --
+   * so it could compute "no leg left" perfectly well; what it must not do is
+   * conclude from that arithmetic that a fleet is *mining*, which is a fact
+   * about a game that has fields in it (ADR-014 2b).
+   *
+   * Filled at preview time and kept by the ghost, exactly like `label` and for
+   * the same lifetime reason: by the time an order is working, whatever storage
+   * the world view was pointing at has been previewed over several times.
+   */
+  char workingLabel[LABEL_CAPACITY] = {};
 };
 
 /*

@@ -148,6 +148,24 @@ inline constexpr StanceId STANCE_IDS[] = {StanceId::Balanced, StanceId::Aggressi
 /// because the engine is allowed to name neither (ADR-014 §2b).
 [[nodiscard]] const char* OrderKindName(OrderKind _kind) noexcept;
 
+/*
+ * And what to call what a group of this kind is *doing* once it has stopped
+ * travelling -- the `MINING` of `MINING Â· 4M 12S` -- or null for a kind
+ * whose whole life is a journey.
+ *
+ * Separate from `OrderKindName` because they are different words about
+ * different moments: `MINE` is the verb a player presses, and `MINING` is the
+ * state the fleet is in afterwards. A surface that reused the first for the
+ * second would report a command where the player is looking for a condition.
+ *
+ * **Null is the ordinary answer, and it is what makes the predicate honest.**
+ * Every kind but one finishes when its last leg does, so "under way with no leg
+ * left" describes only a Mine group -- and that is a game rule rather than an
+ * arithmetic one, which is why the client asks for a word here rather than
+ * working the state out from two numbers it can already read.
+ */
+[[nodiscard]] const char* OrderWorkingName(OrderKind _kind) noexcept;
+
 /// False for the three reserved kinds. Asked rather than remembered, the same
 /// as `HullClassHasContent` -- a command surface greys what this answers no to.
 [[nodiscard]] bool OrderKindHasContent(OrderKind _kind) noexcept;

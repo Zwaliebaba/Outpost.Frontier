@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap" rel="stylesheet"><style>
+*{box-sizing:border-box}
+body{margin:0;background:#0a0b09;font-family:'Share Tech Mono',ui-monospace,monospace}
+a{color:#7cff3e;text-decoration:none}a:hover{color:#c9ff9e}
+@keyframes dash{to{stroke-dashoffset:-24}}
+</style></helmet>
+
+<div data-screen-label="Overlay Pass" style="width:1440px;background:#050705;padding:44px 48px 56px;color:#7cff3e;position:relative">
+<div style="position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(124,255,62,.03) 0 1px,transparent 1px 3px);pointer-events:none"></div>
+
+<div style="display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid rgba(124,255,62,.3);padding-bottom:16px;margin-bottom:12px">
+  <div>
+    <div style="font-size:26px;color:#c9ff9e;letter-spacing:.08em">WORLD-SPACE OVERLAY PASS</div>
+    <div style="font-size:12.5px;color:#5d7a57;letter-spacing:.06em;margin-top:6px">07 §2 — pass placement, batching, depth, per-tier retirement, scaling law</div>
+  </div>
+  <div style="text-align:right;font-size:11.5px;color:#4e6a49;line-height:1.8">
+    <div>SOURCE · 03 §3 · 03 §6 · 03 §10 · 00 §5.1 · 04 §6.3</div>
+    <div>SCALING LAW · {{ lawName }}</div>
+  </div>
+</div>
+
+<p style="font-size:13px;color:#7d8c79;line-height:1.75;max-width:1000px;margin:0 0 34px;text-wrap:pretty">
+  <span style="color:#c9ff9e">Pass placement and depth behaviour are one decision, not two.</span> 03 §3's frame ends
+  <span style="color:#7cff3e">Tonemap → Ui → Present</span> and the UI pass composites post-tonemap, so overlays in the Ui pass cannot
+  depth-test against hulls, while overlays in their own pre-tonemap node get tonemapped and bloomed — a phosphor ring blown out by HDR
+  is precisely the legibility failure 07b exists to prevent. Picking a slot picks an occlusion model.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:0 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§1</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">PASS PLACEMENT — RECOMMENDED</span>
+  <span style="font-size:12px;color:#5d7a57">dedicated node, post-tonemap, depth as an SRV</span>
+</div>
+<div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:24px 22px;margin-bottom:14px">
+  <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+    <sc-for list="{{ passes }}" as="p" hint-placeholder-count="9">
+      <div style="display:flex;align-items:center;gap:7px">
+        <div style="{{ p.st }}">{{ p.name }}</div>
+        <span style="{{ p.arrowSt }}">▸</span>
+      </div>
+    </sc-for>
+  </div>
+  <div style="display:flex;align-items:flex-start;gap:10px;margin-top:20px;padding-top:18px;border-top:1px solid rgba(124,255,62,.14)">
+    <div style="flex:1;font-size:12px;color:#7d8c79;line-height:1.75">
+      <div><span style="color:#ffb000">▸ DepthPre's buffer is read as an SRV</span>, never bound as a depth target. Occlusion becomes a per-class shader decision instead of a pass-structure one: selection rings occlude softly behind hulls, bars and flag rings never do.</div>
+      <div style="margin-top:9px"><span style="color:#ffb000">▸ Post-tonemap</span> means overlay colour is the colour authored in 07b — no exposure, no bloom, no HDR drift between a bright nebula and empty space.</div>
+      <div style="margin-top:9px"><span style="color:#ffb000">▸ Before Ui</span>, so panels and toasts always composite over world-space marks. The context bar is never occluded by a selection ring.</div>
+      <div style="margin-top:9px"><span style="color:#ffb000">▸ Occlusion is per class</span> (decided): overlays that lie on the movement plane — selection rings, formation footprints, probe rings — occlude behind hulls so they read as being in the world. Screen-facing information never does; a hull must never hide the bar that reports it.</div>
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:34px 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§2</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">TWO MECHANISMS</span>
+  <span style="font-size:12px;color:#5d7a57">not a compromise — the two categories have different sources</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">
+  <div style="border:1px solid rgba(124,255,62,.3);background:rgba(6,16,6,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#7cff3e;letter-spacing:.06em;margin-bottom:6px">A · PER-ENTITY, HIGH-COUNT</div>
+    <div style="font-size:11px;color:#4e6a49;margin-bottom:12px">instanced off the culled InstanceRecord list</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>Selection rings · hull and shield bars · flag rings · lock and targeting markers · stale desaturation · velocity vectors</div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(124,255,62,.14)">
+        <span style="color:#c9ff9e">Zero new CPU work.</span> <span style="color:#7cff3e">InstanceRecord</span> already carries
+        <span style="color:#7cff3e">selectionAndLodBias</span> and <span style="color:#7cff3e">teamColorAndFlags</span> (03 §6), and GPU culling
+        already compacts the visible set. The largest overlay class is a GPU-side expansion of a buffer that exists — it never touches the game thread.
+      </div>
+      <div style="margin-top:10px;color:#4e6a49">Scales to the 1,024 cap for free.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(77,225,255,.3);background:rgba(4,14,18,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#4de1ff;letter-spacing:.06em;margin-bottom:6px">B · CLIENT-AUTHORED, LOW-COUNT</div>
+    <div style="font-size:11px;color:#4e6a49;margin-bottom:12px">projected geometry in UiDrawList</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>Order ghosts · waypoint polylines with per-leg ETAs · formation footprints · probe rings · aggregate extents · engagement arcs · off-screen indicators</div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(77,225,255,.14)">
+        These come from the client pre-check (02 §10) and presentation state (03 §10), <span style="color:#c9ff9e">not from replication</span>,
+        and their labels need the UI's layout and text machinery. A few hundred primitives worst case.
+      </div>
+      <div style="margin-top:10px;color:#4e6a49">Bounded by orders in flight, not by entity count.</div>
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:34px 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§3</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">RETIREMENT MATRIX</span>
+  <span style="font-size:12px;color:#5d7a57">every overlay class against 03 §6's three tiers — the line each one dies on</span>
+</div>
+<div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:20px 22px;margin-bottom:14px">
+  <div style="display:grid;grid-template-columns:214px repeat(3,1fr);gap:12px;align-items:center">
+    <div></div>
+    <sc-for list="{{ tiers }}" as="t" hint-placeholder-count="3">
+      <div style="text-align:center;padding-bottom:6px">
+        <div style="font-size:12.5px;color:#c9ff9e;letter-spacing:.08em">{{ t.name }}</div>
+        <div style="font-size:10.5px;color:#4e6a49;margin-top:3px">{{ t.span }}</div>
+      </div>
+    </sc-for>
+    <sc-for list="{{ rows }}" as="row" hint-placeholder-count="9">
+      <div style="display:contents">
+        <div style="padding:6px 0">
+          <div style="font-size:12.5px;color:#c9ff9e;letter-spacing:.04em">{{ row.name }}</div>
+          <div style="font-size:10.5px;color:#4e6a49;margin-top:3px;line-height:1.5">{{ row.note }}</div>
+          <div style="{{ row.mechSt }}">{{ row.mech }}</div><div style="{{ row.occSt }}">{{ row.occ }}</div>
+        </div>
+        <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="3">
+          <div style="{{ cell.wrapSt }}">
+            <sc-for list="{{ cell.marks }}" as="m" hint-placeholder-count="4"><div style="{{ m.st }}">{{ m.text }}</div></sc-for>
+            <div style="{{ cell.tagSt }}">{{ cell.tag }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-for>
+  </div>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1000px;margin:0 0 36px">
+  <span style="color:#c9ff9e">The probe ring is the one class that survives all three tiers</span>, and 03 §9.4 already says why: it is
+  the single place in the game where a world-space circle is drawn at strategic zoom rather than an icon, because the geometry of
+  overlapping rings <em style="color:#7d8c79;font-style:normal">is</em> the information. Everything else retires — and note that
+  retirement is per class, not a global switch, so the Operational tier is not "fewer overlays" but a different set.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:34px 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§4</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">SCALING LAW</span>
+  <span style="font-size:12px;color:#5d7a57">does a ring mean "this hull's size" or "this hull is selected"?</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">
+  <sc-for list="{{ laws }}" as="law" hint-placeholder-count="2">
+    <div style="{{ law.cardSt }}">
+      <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:6px">
+        <span style="{{ law.tagSt }}">{{ law.tag }}</span>
+        <span style="font-size:13px;color:#c9ff9e;letter-spacing:.05em">{{ law.title }}</span>
+      </div>
+      <div style="font-size:11px;color:#4e6a49;margin-bottom:14px">{{ law.sub }}</div>
+      <div style="display:flex;gap:10px;margin-bottom:14px">
+        <sc-for list="{{ law.samples }}" as="s" hint-placeholder-count="3">
+          <div style="flex:1">
+            <div style="{{ s.boxSt }}">
+              <sc-for list="{{ s.marks }}" as="m" hint-placeholder-count="3"><div style="{{ m.st }}"></div></sc-for>
+            </div>
+            <div style="font-size:10px;color:#4e6a49;text-align:center;margin-top:6px;letter-spacing:.06em">{{ s.label }}</div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="font-size:11.5px;color:#7d8c79;line-height:1.65;min-height:88px">{{ law.body }}</div>
+    </div>
+  </sc-for>
+</div>
+<p style="font-size:12px;color:#5d7a57;line-height:1.7;max-width:1000px;margin:0 0 36px">
+  Recommended: <span style="color:#c9ff9e">screen-space minimum with a world-space ceiling</span> — the ring tracks hull size while that
+  reads above the floor, then stops shrinking. It keeps 07b's size channel meaningful where the eye can use it and guarantees a selected
+  ship never becomes invisible, which is the failure that actually costs a fight. The cost is honest and worth stating: at the clamp the
+  ring no longer reports tonnage, so <span style="color:#ffb000">a ring is a selection marker first and a size cue second</span>.
+</p>
+
+<div style="display:flex;align-items:baseline;gap:12px;margin:34px 0 16px">
+  <span style="font-size:11px;color:#0a0b09;background:#7cff3e;padding:3px 8px;letter-spacing:.12em">§5</span>
+  <span style="font-size:19px;color:#c9ff9e;letter-spacing:.06em">BUDGET, DETERMINISM, AND WHAT IS STILL OPEN</span>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <div style="border:1px solid rgba(124,255,62,.18);background:rgba(8,14,8,.7);padding:18px 20px">
+    <div style="font-size:13px;color:#c9ff9e;letter-spacing:.06em;margin-bottom:12px">BUDGET — 00 §5.1</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>▸ <span style="color:#7cff3e">Category A costs no game-thread time</span> and no extract time: it consumes the compacted cull output, so it does not enter the 0.7 ms UI line or the 0.7 ms extract line at all.</div>
+      <div style="margin-top:9px">▸ <span style="color:#7cff3e">Category B</span> is the only overlay work on the game thread, and it is bounded by orders in flight rather than entities. It shares the 0.7 ms UI budget and should declare a ceiling — <span style="color:#c9ff9e">recommend 0.15 ms</span>, leaving 0.55 ms for the screens.</div>
+      <div style="margin-top:9px">▸ GPU cost is one instanced draw per overlay class plus one <span style="color:#7cff3e">UiDrawList</span> batch. Needs a microbench in ns/overlay at the 1,024 cap, SKU-named per 00 §5.0.</div>
+    </div>
+  </div>
+  <div style="border:1px solid rgba(124,255,62,.3);background:rgba(6,16,6,.6);padding:18px 20px">
+    <div style="font-size:13px;color:#7cff3e;letter-spacing:.06em;margin-bottom:12px">DECIDED — 2026-08-08</div>
+    <div style="font-size:12px;color:#7d8c79;line-height:1.8">
+      <div>✅ <span style="color:#c9ff9e">F7 — dedicated node</span>, post-tonemap, depth as an SRV.</div>
+      <div style="margin-top:9px">✅ <span style="color:#c9ff9e">De-clutter runs GPU-side</span> on a stable sort key over replicated fields. Draw order is never an input; if the key is not total, chip membership flickers.</div>
+      <div style="margin-top:9px">✅ <span style="color:#c9ff9e">Velocity vectors retire at Operational.</span> Formation outlines already carry direction, and a merged vector would imply a cohesion the simulation may not model — a lie the renderer would be telling on the sim's behalf.</div>
+      <div style="margin-top:9px">✅ <span style="color:#c9ff9e">Occlusion: plane-lying classes only</span> — selection rings, formation footprints, probe rings. Screen-facing information never occludes; a hull must never hide the bar that reports it.</div>
+      <div style="margin-top:9px">✅ <span style="color:#c9ff9e">Screen-space minimum with a world ceiling</span>, and <span style="color:#c9ff9e">0.15 ms</span> for Category B.</div>
+      <div style="margin-top:9px">⬜ <span style="color:#ffb000">Soft-occlusion depth bias</span> still has no owner — too tight and rings z-fight the hulls they wrap, too loose and the ring floats off the plane.</div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:1100},&quot;scalingLaw&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Screen-space minimum&quot;,&quot;Pure world-space&quot;],&quot;default&quot;:&quot;Screen-space minimum&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Overlay rules&quot;}}">
+class Component extends DCLogic {
+  m(st, text = '') { return { st: { position: 'absolute', ...st }, text }; }
+
+  glyph(x, y, px, color, poly) {
+    return this.m({
+      left: x + '%', top: y + '%', transform: 'translate(-50%,-50%)',
+      width: px + 'px', height: Math.round(px * 0.9) + 'px', background: color, clipPath: poly
+    });
+  }
+
+  ring(x, y, w, color, opts = {}) {
+    return this.m({
+      left: x + '%', top: y + '%', transform: 'translate(-50%,-50%)',
+      width: w + 'px', height: (w / 2) + 'px', borderRadius: '50%',
+      border: (opts.weight || 1) + 'px ' + (opts.dashed ? 'dashed ' : 'solid ') + color,
+      opacity: opts.opacity ?? 1
+    });
+  }
+
+  label(x, y, text, color, size = 9.5) {
+    return this.m({
+      left: x + '%', top: y + '%', transform: 'translate(-50%,-50%)',
+      fontSize: size + 'px', color, whiteSpace: 'nowrap', letterSpacing: '.06em'
+    }, text);
+  }
+
+  renderVals() {
+    const HEX = 'polygon(50% 0%,100% 32%,90% 76%,66% 100%,34% 100%,10% 76%,0% 32%)';
+    const DELTA = 'polygon(50% 0%,100% 100%,50% 76%,0% 100%)';
+    const G = '#7cff3e', HOT = '#c9ff9e', RED = '#ff5a4a', AMB = '#ffb000', CY = '#4de1ff', DIM = '#2f4a2a';
+
+    const screenSpace = (this.props.scalingLaw ?? 'Screen-space minimum') === 'Screen-space minimum';
+    const lawName = screenSpace ? 'SCREEN-SPACE MIN' : 'PURE WORLD-SPACE';
+
+    const passList = [
+      { name: 'CullClear' }, { name: 'GpuCull', async: true }, { name: 'DepthPre', depth: true },
+      { name: 'Opaque' }, { name: 'Effects' }, { name: 'Nebula' }, { name: 'Tonemap' },
+      { name: 'Overlay', neu: true }, { name: 'Ui' }, { name: 'Present', last: true }
+    ];
+    const passes = passList.map((p, i) => ({
+      name: p.neu ? '◆ Overlay' : p.name,
+      st: {
+        fontSize: p.neu ? '13px' : '12px', padding: p.neu ? '9px 15px' : '8px 12px',
+        border: '1px solid ' + (p.neu ? G : p.depth ? 'rgba(255,176,0,.5)' : 'rgba(124,255,62,.22)'),
+        background: p.neu ? 'rgba(124,255,62,.16)' : 'transparent',
+        color: p.neu ? HOT : p.depth ? AMB : '#5d7a57',
+        letterSpacing: '.05em', whiteSpace: 'nowrap',
+        boxShadow: p.neu ? '0 0 14px rgba(124,255,62,.25)' : 'none'
+      },
+      arrowSt: { color: '#233d1f', fontSize: '11px', display: i === passList.length - 1 ? 'none' : 'inline' }
+    }));
+
+    const tiers = [
+      { name: 'TACTICAL', span: '≤ 80 km' },
+      { name: 'OPERATIONAL', span: '80 – 2,000 km' },
+      { name: 'STRATEGIC', span: 'region scale' }
+    ];
+
+    // ring width per tier, under each scaling law
+    const rw = screenSpace ? [26, 20, 18] : [26, 13, 6];
+
+    const cell = (tag, marks) => ({ tag, marks });
+    const RET = () => cell('RETIRED', []);
+    const defs = [
+      {
+        name: 'SELECTION RING', mech: 'A', occ: true, note: '2:1 ellipse on the plane',
+        cells: [
+          cell('LIVE', [this.ring(50, 52, rw[0], HOT), this.glyph(50, 50, 15, G, HEX)]),
+          cell('LIVE', [this.ring(50, 52, rw[1], HOT), this.glyph(50, 50, 10, G, HEX)]),
+          cell('PROMOTED', [this.m({ left: '50%', top: '50%', transform: 'translate(-50%,-50%)', border: '1px solid ' + HOT, padding: '4px 9px', fontSize: '10px', color: HOT, background: 'rgba(0,0,0,.7)', whiteSpace: 'nowrap' }, '▲ 12 SEL')])
+        ]
+      },
+      {
+        name: 'HULL / SHIELD BARS', mech: 'A', note: 'selection + damaged (07b §5.1)',
+        cells: [
+          cell('LIVE', [
+            this.m({ left: '50%', top: '32%', transform: 'translateX(-50%)', width: '26px', height: '3px', background: '#1d2b17' }),
+            this.m({ left: 'calc(50% - 13px)', top: '32%', width: '18px', height: '3px', background: G }),
+            this.m({ left: '50%', top: '38%', transform: 'translateX(-50%)', width: '26px', height: '2px', background: '#0d1a20' }),
+            this.m({ left: 'calc(50% - 13px)', top: '38%', width: '11px', height: '2px', background: CY }),
+            this.glyph(50, 56, 15, G, HEX)
+          ]),
+          RET(), RET()
+        ]
+      },
+      {
+        name: 'FLAG RING', mech: 'A', note: 'selection + locked only (07b §4.1)',
+        cells: [
+          cell('LIVE', [this.ring(50, 52, 30, AMB, { dashed: true, weight: 2 }), this.glyph(50, 50, 15, RED, HEX)]),
+          cell('LIVE', [this.ring(50, 52, 22, AMB, { dashed: true, weight: 2 }), this.glyph(50, 50, 10, RED, HEX)]),
+          cell('PROMOTED', [this.m({ left: '50%', top: '50%', transform: 'translate(-50%,-50%)', border: '1px solid ' + AMB, padding: '4px 9px', fontSize: '10px', color: AMB, background: 'rgba(0,0,0,.7)', whiteSpace: 'nowrap' }, '⚑ ×137')])
+        ]
+      },
+      {
+        name: 'LOCK / TARGETING', mech: 'A', note: 'post-completion only — 04 §6.3',
+        cells: [
+          cell('LIVE', [
+            this.m({ left: '38%', top: '34%', width: '7px', height: '7px', borderTop: '2px solid ' + RED, borderLeft: '2px solid ' + RED }),
+            this.m({ left: '58%', top: '34%', width: '7px', height: '7px', borderTop: '2px solid ' + RED, borderRight: '2px solid ' + RED }),
+            this.m({ left: '38%', top: '60%', width: '7px', height: '7px', borderBottom: '2px solid ' + RED, borderLeft: '2px solid ' + RED }),
+            this.m({ left: '58%', top: '60%', width: '7px', height: '7px', borderBottom: '2px solid ' + RED, borderRight: '2px solid ' + RED }),
+            this.glyph(50, 52, 15, RED, HEX)
+          ]),
+          cell('REDUCED', [this.ring(50, 52, 22, RED, { weight: 2 }), this.glyph(50, 50, 10, RED, HEX)]),
+          RET()
+        ]
+      },
+      {
+        name: 'VELOCITY VECTOR', mech: 'A', note: 'per hull; retires at Operational',
+        cells: [
+          cell('LIVE', [
+            this.m({ left: '52%', top: '50%', width: '26px', height: '1px', background: G, transform: 'rotate(-20deg)', transformOrigin: '0 50%' }),
+            this.glyph(50, 50, 15, G, HEX)
+          ]),
+          RET(), RET()
+        ]
+      },
+      {
+        name: 'ORDER GHOST', mech: 'B', note: 'dashed path + puck; survives every tier',
+        cells: [
+          cell('LIVE', [
+            this.m({ left: '20%', top: '62%', width: '46px', height: '1px', background: 'transparent', borderTop: '1px dashed ' + G, transform: 'rotate(-24deg)', transformOrigin: '0 50%' }),
+            this.ring(74, 40, 26, G, { opacity: .9 }),
+            this.glyph(20, 62, 13, G, DELTA)
+          ]),
+          cell('LIVE', [
+            this.m({ left: '16%', top: '66%', width: '56px', height: '1px', borderTop: '1px dashed ' + G, transform: 'rotate(-26deg)', transformOrigin: '0 50%' }),
+            this.ring(78, 36, 20, G, { opacity: .9 })
+          ]),
+          cell('ROUTE', [
+            this.m({ left: '14%', top: '64%', width: '38px', height: '1px', borderTop: '1px dashed ' + CY, transform: 'rotate(-28deg)', transformOrigin: '0 50%' }),
+            this.m({ left: '48%', top: '42%', width: '40px', height: '1px', borderTop: '1px dashed ' + CY, transform: 'rotate(14deg)', transformOrigin: '0 50%' }),
+            this.m({ left: '48%', top: '42%', transform: 'translate(-50%,-50%)', width: '5px', height: '5px', background: CY, borderRadius: '50%' })
+          ])
+        ]
+      },
+      {
+        name: 'FORMATION FOOTPRINT', mech: 'B', occ: true, note: 'ticks, then outline only',
+        cells: [
+          cell('LIVE', [
+            this.ring(50, 54, 46, G, { opacity: .8 }),
+            this.m({ left: '34%', top: '46%', width: '1.5px', height: '6px', background: HOT }),
+            this.m({ left: '42%', top: '44%', width: '1.5px', height: '6px', background: HOT }),
+            this.m({ left: '50%', top: '43%', width: '1.5px', height: '6px', background: HOT }),
+            this.m({ left: '58%', top: '44%', width: '1.5px', height: '6px', background: HOT }),
+            this.m({ left: '66%', top: '46%', width: '1.5px', height: '6px', background: HOT })
+          ]),
+          cell('OUTLINE', [this.ring(50, 54, 34, G, { opacity: .65, dashed: true })]),
+          RET()
+        ]
+      },
+      {
+        name: 'PROBE RING', mech: 'B', occ: true, note: 'the one class that never retires',
+        cells: [
+          cell('ARC', [
+            this.m({ left: '50%', top: '150%', transform: 'translate(-50%,-50%)', width: '150px', height: '150px', borderRadius: '50%', border: '1px solid ' + CY, opacity: .7 })
+          ]),
+          cell('LIVE', [this.ring(50, 52, 58, CY, { opacity: .8 }), this.ring(50, 52, 30, CY, { opacity: .5, dashed: true })]),
+          cell('LIVE', [
+            this.m({ left: '40%', top: '50%', transform: 'translate(-50%,-50%)', width: '46px', height: '46px', borderRadius: '50%', border: '1px solid ' + CY, background: 'rgba(77,225,255,.10)' }),
+            this.m({ left: '60%', top: '50%', transform: 'translate(-50%,-50%)', width: '46px', height: '46px', borderRadius: '50%', border: '1px solid ' + CY, background: 'rgba(77,225,255,.10)' })
+          ])
+        ]
+      },
+      {
+        name: 'AGGREGATE EXTENT', mech: 'B', note: '04 §6.3 — extent + count, never hulls',
+        cells: [
+          RET(),
+          cell('LIVE', [
+            this.m({ left: '50%', top: '50%', transform: 'translate(-50%,-50%)', width: '62px', height: '28px', border: '1px dashed ' + G, opacity: .6 }),
+            this.label(50, 50, '▲ 84', G)
+          ]),
+          cell('LIVE', [
+            this.m({ left: '50%', top: '50%', transform: 'translate(-50%,-50%)', border: '1px solid ' + G, padding: '4px 9px', fontSize: '10px', color: G, background: 'rgba(0,0,0,.7)', whiteSpace: 'nowrap' }, '▲ 84')
+          ])
+        ]
+      }
+    ];
+
+    const tagStyle = tag => {
+      const c = tag === 'RETIRED' ? DIM : tag === 'LIVE' ? G : tag === 'PROMOTED' || tag === 'MERGED' ? AMB : CY;
+      return {
+        position: 'absolute', left: '7px', bottom: '6px', fontSize: '9px', letterSpacing: '.1em',
+        color: c, opacity: tag === 'RETIRED' ? .8 : .9
+      };
+    };
+
+    const rows = defs.map(d => ({
+      name: d.name, note: d.note, mech: d.mech === 'A' ? 'MECH A · INSTANCED' : 'MECH B · UIDRAWLIST',
+      mechSt: {
+        display: 'inline-block', marginTop: '7px', fontSize: '9px', letterSpacing: '.1em',
+        color: d.mech === 'A' ? G : CY, border: '1px solid ' + (d.mech === 'A' ? G : CY) + '55', padding: '2px 6px'
+      },
+      occ: '◑ OCCLUDES',
+      occSt: {
+        display: d.occ ? 'inline-block' : 'none', marginTop: '7px', marginLeft: '5px',
+        fontSize: '9px', letterSpacing: '.1em', color: AMB,
+        border: '1px solid rgba(255,176,0,.4)', padding: '2px 6px'
+      },
+      cells: d.cells.map(c => ({
+        tag: c.tag, marks: c.marks, tagSt: tagStyle(c.tag),
+        wrapSt: {
+          position: 'relative', height: '104px', overflow: 'hidden',
+          border: '1px solid ' + (c.tag === 'RETIRED' ? 'rgba(124,255,62,.07)' : 'rgba(124,255,62,.16)'),
+          background: c.tag === 'RETIRED' ? 'rgba(0,0,0,.5)' : '#000'
+        }
+      }))
+    }));
+
+    const lawSample = (widths) => widths.map((w, i) => ({
+      label: ['NEAR', 'MID', 'FAR'][i],
+      boxSt: { position: 'relative', height: '78px', border: '1px solid rgba(124,255,62,.14)', background: '#000' },
+      marks: [
+        this.ring(50, 52, w.ring, HOT, { opacity: w.ring < 8 ? .5 : 1 }),
+        this.glyph(50, 50, w.hull, G, HEX)
+      ]
+    }));
+
+    const laws = [
+      {
+        tag: 'A', title: 'Pure world-space', sub: 'ring is a world radius; shrinks with the hull',
+        cardSt: { border: '1px solid ' + (screenSpace ? 'rgba(124,255,62,.18)' : 'rgba(255,176,0,.4)'), background: screenSpace ? 'rgba(8,14,8,.7)' : 'rgba(20,14,2,.6)', padding: '18px 20px' },
+        tagSt: { fontSize: '9.5px', padding: '2px 7px', background: 'rgba(255,176,0,.18)', color: AMB, letterSpacing: '.1em' },
+        samples: lawSample([{ ring: 30, hull: 17 }, { ring: 15, hull: 9 }, { ring: 6, hull: 4 }]),
+        body: 'The ring always reports tonnage honestly, and a Carrier is visibly ringed larger than an Interceptor at every distance. It also means a selected Interceptor at the far end of the tactical tier carries a 6 px ring — below 07b\u2019s 20 px floor, and effectively invisible in the moment you most need to find it.'
+      },
+      {
+        tag: 'B', title: 'Screen-space minimum', sub: 'world radius, clamped to a pixel floor',
+        cardSt: { border: '1px solid ' + (screenSpace ? 'rgba(124,255,62,.4)' : 'rgba(124,255,62,.18)'), background: screenSpace ? 'rgba(6,16,6,.6)' : 'rgba(8,14,8,.7)', padding: '18px 20px' },
+        tagSt: { fontSize: '9.5px', padding: '2px 7px', background: 'rgba(124,255,62,.18)', color: G, letterSpacing: '.1em' },
+        samples: lawSample([{ ring: 30, hull: 17 }, { ring: 20, hull: 9 }, { ring: 18, hull: 4 }]),
+        body: 'The ring tracks hull size while that reads above the floor, then stops shrinking. A selected ship is never lost, at the cost of the ring ceasing to report tonnage past the clamp — so the ring becomes a selection marker first and a size cue second. Recommended, because losing your own ships is the failure that costs a fight.'
+      }
+    ];
+
+    return { lawName, passes, tiers, rows, laws };
+  }
+}
+</script>
+</body>
+</html>
