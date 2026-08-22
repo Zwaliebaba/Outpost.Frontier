@@ -7,7 +7,9 @@ across all three phases and the work that belongs to none of them. The paragraph
 state of this phase, not a claim about what happens next.
 
 **Status:** Session output 2026-08-19 · **U1, U2, U3a, U3b's sim and wire halves, U4's sim
-half, U5's pure half and U3c built** (U3c 2026-08-21). What is left here is **screen work**:
+half, U5's pure half and U3c built** (U3c 2026-08-21). **U3d — interest and delta — was added
+2026-08-22**: ADR-018 A14 scheduled it for "after U3c" and no build order had absorbed it, so it
+is specified below and is the next thing built. What is left after it is **screen work**:
 U3b's client half, U4's route feeder and icons, U5's map itself and U6 need a GPU and a person —
 ~~with no exceptions left~~ **and, as of 2026-08-22, behind the input model the plan of record
 establishes**, since a screen built against the mouse adaptation would be retrofitted for touch
@@ -673,6 +675,140 @@ and `WorldRegistry::Summaries()` and `Roster()` answer for everyone because ther
 ever been one of them. That is the work, and the shape ADR-018 D5 gives it — key on
 `PlayerId`, filter rather than restructure — has not moved.
 
+### U3d — Interest and delta *(ADR-022; ADR-018 A14 — the slice A14 scheduled and nobody wrote down)*
+
+**Its home was the gap.** ADR-018 A14 delivered [ADR-022](ADR/ADR-022-interest-and-delta.md) and
+scheduled its **implementation slice for "after U3c"**. U3c landed 2026-08-21; no build order
+absorbed the slice, and five places across this corpus went on referring to "the interest/delta
+slice" as the thing that lifts the shared-grid gate. It is written here because ADR-022 is this
+phase's deliverable **D6** and the gate it lifts is U3c's — the numbering follows A14's own
+words rather than inventing a phase.
+
+**It retires [R19](Risk-Register.md), the register's only High/High row.** The full-snapshot cap
+is 43 records against 42 of authored content: margin one, for the entire roadmap. Two commanders
+meeting at the starter station is 83 records, 62 % over, and today's designed behaviour is that
+`WriteSnapshot` refuses and *the whole grid's snapshot is dropped for every viewer*. That is a
+session-killing outage by construction, and it is why this is the next slice rather than a later
+one.
+
+**It splits three ways, along the seam this repo already respects** — sim truth, then its
+replication, then its presentation. The split is not tidiness: U3d-a is arithmetic over structs
+and a hash edit, provable in `GameLogicTests` on a machine with no GPU and no socket; U3d-b is
+wire, provable in `NeuronCoreTests`/`NeuronServerTests` and `selfTest`; U3d-c is a screen. Landing
+them together would put a replay-contract edit behind a datagram format behind a person at a
+display.
+
+---
+
+#### U3d-a — The ranking, and one subtraction from the world hash
+
+The seam gains **`RankRelevance`** (ADR-022 §4): `InterestQuery{ viewer, grid, selection,
+focusXMetres, focusYMetres, viewHalfExtentMetres }` in, a **priority-ordered** list of `ShipId`
+out. **It never truncates** — the caller knows the budget, the callee knows the game — which is
+ADR-014's pattern applied literally, and it is what lets a hostility tier change be a GameLogic
+edit that touches no engine code.
+
+GameLogic implements §4's three tiers: **tier 0** the viewer's owned ships on this grid, anything
+selected, and the grid's structures (never truncated, §5a); **tier 1** ships with a visible
+relationship inside the camera's extent, nearest to focus first; **tier 2** everything else,
+nearest to focus first and round-robin across ticks so a distant ship updates at a lower cadence
+rather than never. Structures are tier 0 for a stated reason — one or two per grid, and a station
+that flickered out of interest would take the player's sense of place with it.
+
+**`lastOrderSeqProcessed` leaves the world hash** (§7). It is per-session state living in shared
+state — world-global, written as a max across all submitters, folded into `WorldHash` — which
+with one commander is invisible and with two is wrong twice: one player's order sequence perturbs
+the other's feedback loop, and a replay's hash depends on which client happened to submit. It
+moves to the session. **The wire field stays exactly where it is** and becomes per-viewer, which
+is what it always read as.
+
+**This is a replay-contract edit** (ADR-005 §5), and the only determinism cost in the whole of
+ADR-022. Every recorded replay golden re-baselines with it, and the new number is stated in the
+slice's own note rather than discovered by a red test.
+
+**Accept:** `GameLogicTests` — ranking is a **total order with no duplicates and no omissions**
+over the grid's ships (a ranked list that lost a ship is a ship that can never be sent); tier 0
+appears before any tier 1 and tier 1 before any tier 2; an owned ship far from focus still
+outranks a neutral one under the cursor; a selected foreign ship is tier 0; round-robin over tier
+2 visits every ship within a bounded number of ticks; **double-run bit-identity is unaffected**,
+because ranking is a read. The replay hash moves once, to a stated number, and Spike 2 confirms
+Debug and Release agree on it.
+
+#### U3d-b — The wire cluster, and the baseline that is a view rather than a world
+
+**One fail-closed schema bump** carrying all of it, as ADR-018's Consequences require:
+
+- **`SnapshotAck`** (§2a), C→S on the **unreliable** channel: `{ u16 gridId, u32 tick }`. Highest
+  acked tick per (client, grid) wins and anything older is ignored, so reordering is a non-event
+  and a lost ack costs one larger delta rather than a stall.
+- **`DeltaHeader`** (§3b): `{ u32 tick, u32 baselineTick, u16 gridId, u16 culledCount,
+  u8 partIndex, u8 partCount, u16 recordCount }`. **Every part is independently applicable** — it
+  names its own tick, grid and baseline — so there is no reassembly buffer and no fragmentation
+  timeout. `partCount` is what makes §2d's whole-tick rule checkable.
+- **The keyframe, on a channel of its own.** `TransportChannel` gains **`Bulk`**, a second
+  reliable ordered stream — an **ADR-003 §1 amendment**, already recorded there. The reason is
+  head-of-line blocking in both directions: a keyframe is not fresh state but the *baseline* for
+  all of it, it must arrive intact, at the cap it is ~21 KB, and on `Control` it would park in
+  front of the player's orders.
+- **`EntityRecord::id` widens to u32** (§8a, ADR-018 D6) — the constraint that held it at u16 was
+  that one datagram had to hold everything, and §5b removes it.
+- **Relationship, not ownership** (§8b): **two bits of `statusBits`**, viewer-relative, giving the
+  icon sheet's OWN/ALLIED/NEUTRAL/HOSTILE channel for **zero extra bytes**. An owner id per record
+  would cost four bytes on every entity to answer a question the client asks once.
+
+**The baseline is what was *sent*, not what the world was** (§2b) — the subtlety the whole slice
+turns on. Under culling the client's picture is a *subset*, so delta-encoding against the grid's
+true state would describe changes the client never had a baseline for. The session host keeps,
+per client and per viewed grid, a ring of the **views it transmitted** for `BASELINE_RING_TICKS`
+(32, 1.6 s). **No ack in the ring ⇒ keyframe** (§2c), unconditionally: there is no partial-resync
+mode to get subtly wrong.
+
+**Truncate by priority, never refuse** (§6). Fill the tick's budget from U3d-a's ranked list;
+what does not fit keeps its place for the next tick. **`TICK_BUDGET_BYTES` is a bandwidth figure,
+not the datagram size** — the 1,152-byte datagram cap never moves; what moves is how many of them
+a tick may use (§5b). When tier 0 alone exceeds the budget **the budget loses** and the overrun is
+counted as `interestOverrun` beside `tickOverrun` (§5c): culling a player's own fleet to hit a
+bandwidth number is the one outcome this ADR exists to prevent.
+
+**`leftInterest` is an explicit id list** (§5e). A record absent from a delta means *unchanged*; a
+record that has left the interest set has to be *named*, or the client leaves a ghost hull frozen
+on the plane forever.
+
+**Accept:** `NeuronCoreTests` — every new message round-trips, and a part that names a baseline
+the peer does not hold is refused rather than misapplied. `NeuronServerTests` — the ring evicts at
+32 ticks and the eviction produces a keyframe; an ack older than the highest is ignored; a delta
+against a *sent view* differs from one against the world where culling made them diverge, which is
+§2b as a test rather than as a paragraph. `selfTest` — **a culled grid over the real loopback in
+which every owned and selected ship is present in every tick's union of parts** (the guarantee is
+a test, not a promise) and `culledCount` is non-zero and correct. **`WriteSnapshot`'s refusal is
+replaced here and not before** — until this slice it stays the loud failure T2's accept tests.
+
+#### U3d-c — The client half, and the honest sentence
+
+The client acks (§2d — **apply each part on arrival for freshness, ack tick *T* only when every
+part of *T* has arrived**), applies deltas against its own retained baseline, takes a keyframe as
+a mid-session join on the `Bulk` stream, and retires `leftInterest` ids rather than leaving them
+frozen.
+
+**`culledCount` renders through the icon ladder's existing counted-chip rung**
+(`tactical-icon-system.png` §5, §5d) — the same affordance that already answers *"there are more
+ships here than there are pixels"*. The player is never told a grid is empty when it is not; they
+are told **how many** they are not being shown.
+
+**Accept:** `NeuronClientTests` — parts applied out of order leave the same view as in order; a
+tick with a missing part is applied but **not acked**; a keyframe replaces rather than merges;
+`leftInterest` retires a hull and no ghost survives. Visual checkpoint: the counted chip reads a
+real `culledCount` on a grid over budget.
+
+---
+
+**What this slice unblocks, stated so it is not rediscovered:** **shared grids** (U3c ran on
+disjoint ones and ADR-018 D3 gates the rest behind exactly this); **A11's remainder**, the
+`EntityRecord` widening D6 staged to wait for it; and **NET-5's open half** — fan-out, datagram
+scheduling and client apply at 1,024 become testable for the first time, because a world past the
+cap can finally be serialised. **R10's wire half should be scheduled with this slice, not after
+it.**
+
 ### U4 — Gates: the twelfth hull and the jump
 `HullClass::Gate = 11` (append; `hull{}` schema bump; ADR-015 contact-radius row; STATIC
 icon; Structure mesh stands in until `Gate.obj` lands — a named content gap). The bake's gate
@@ -881,6 +1017,12 @@ one sitting.
   not being shown. Whole-snapshot refusal becomes priority truncation. `lastOrderSeqProcessed`
   leaves the world hash (one replay re-baseline). And ownership costs **no byte**: two spare
   `statusBits` carry the viewer-relative relationship the icon sheet reads.
+
+  **Its implementation slice is [U3d](#u3d--interest-and-delta-adr-022-adr-018-a14--the-slice-a14-scheduled-and-nobody-wrote-down)**,
+  written 2026-08-22. A14 scheduled it for "after U3c" and no build order absorbed it, so for a
+  day the corpus referred five times to a slice that existed nowhere. That is the gap this
+  deliverable's own wording created — *the ADR was the deliverable*, so delivering it struck the
+  row through while the work it schedules had no home.
 
   **What this changes for U3b/T2, which come first:** the per-client sender (A13) and the
   per-viewer roster are not optimisations to add later — they are the shapes this design

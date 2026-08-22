@@ -129,7 +129,7 @@ is a decision rather than a surprise.
 
 | # | Slice | Why it has no home today | Size |
 |---|---|---|---|
-| **N1** | **Interest & delta (ADR-022)** | A14 scheduled it "after U3c"; U3c landed 2026-08-21 and no build order absorbed it | large |
+| ~~**N1**~~ | **Interest & delta** — now **[U3d](Universe-Build-Order.md)**, split a/b/c | ~~no build order absorbed it~~ **Homed 2026-08-22**; it is D6's implementation slice and takes A14's own "after U3c" as its number | large |
 | **N2** | **The user layer** | ADR-012 §3 calls `Settings.json` "the only file the game writes" and nothing writes it | small |
 | **N3** | **The settings screen** | ADR-020 §8 names "the settings screen's first slice"; no build order contains it | medium |
 | **I1–I3** | **The input model** | §1 above | large |
@@ -222,7 +222,7 @@ property of a viewer and the registry currently has no viewer to be a property o
 
 **Now, in order:**
 
-1. **N1 — interest & delta.** Headless, large, retires R19, lifts the shared-grid gate.
+1. **U3d — interest & delta** *(was N1; specified in [Universe-Build-Order.md](Universe-Build-Order.md) on 2026-08-22)*. Retires R19, lifts the shared-grid gate, carries A11's remainder. **Three sub-slices on the repo's own seam:** **U3d-a** the ranking and the world-hash subtraction (device-free, `GameLogicTests`, and the one replay re-baseline in all of ADR-022); **U3d-b** the wire cluster — ack, delta header, keyframe on the new `Bulk` channel, u32 ids, relationship bits, the sent-view baseline ring, priority truncation; **U3d-c** the client half and the counted chip that makes `culledCount` an honest sentence rather than a silent absence.
 2. **N2 — the user layer.** Small, unblocks T3's reorganisation room and closes 🏁 H1.
 3. ~~**The item-taxonomy ADR.**~~ **Done 2026-08-22** — [ADR-027](ADR/ADR-027-item-taxonomy.md).
 4. **N4, N5, N6.** Three small slices, each closing a named gap; N6 before U5 as A20 requires.
@@ -303,3 +303,9 @@ named.
   decision before I1 builds against it. Six of the fifteen tracked rulings closed. What remains
   unowned is the push-notification contradiction, and the fleet-template ADR is now the whole of
   the upstream-citation debt.
+- **2026-08-22 — N1 given a home and a specification.** It is **U3d** in
+  [Universe-Build-Order.md](Universe-Build-Order.md), split a/b/c along the sim → wire → client
+  seam, with acceptance criteria per sub-slice. The numbering takes ADR-018 A14 at its word
+  ("slice after U3c") rather than inventing a phase for it, and D6's entry now records why a
+  delivered deliverable left its own work homeless: the ADR *was* the deliverable, so delivering
+  it struck the row through while the slice it schedules had nowhere to live.
