@@ -3,11 +3,11 @@
     <Platform Name="x64" />
   </Configurations>
   <Folder Name="/Tests/">
-    <Project Path="Tests/OutpostTests/OutpostTests.vcxproj" Id="35dbe233-2aa7-f136-1c4c-22927c80606b" />
     <Project Path="Tests/GameLogicTests/GameLogicTests.vcxproj" Id="1c8daad5-06f9-f54f-d508-9714512d9af0" />
     <Project Path="Tests/NeuronClientTests/NeuronClientTests.vcxproj" Id="82ff8212-c7c5-789c-299a-717affb644a4" />
     <Project Path="Tests/NeuronCoreTests/NeuronCoreTests.vcxproj" Id="8002b9e8-5815-0b65-38b0-53ea7706939c" />
     <Project Path="Tests/NeuronServerTests/NeuronServerTests.vcxproj" Id="96d8b9a7-2d2d-10ef-4802-cba34eb98cc8" />
+    <Project Path="Tests/OutpostTests/OutpostTests.vcxproj" Id="35dbe233-2aa7-f136-1c4c-22927c80606b" />
   </Folder>
   <Project Path="GameLogic/GameLogic.vcxproj" Id="90a55bb8-cc26-46db-85f3-61540ab6506d" />
   <Project Path="NeuronClient/NeuronClient.vcxproj" Id="33c61640-cc8c-43bb-b071-e728ae1c6d71" />
