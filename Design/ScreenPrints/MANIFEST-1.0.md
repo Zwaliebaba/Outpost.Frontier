@@ -26,7 +26,7 @@ CHANGELOG below.
 | 07e | Session Surfaces | session-surfaces.png | Session Surfaces.dc.html | 1.0 | Designed; away-digest names real economy systems |
 | 07f | Strategic Map | strategic-map.png | Strategic Map.dc.html §1 | 1.0 | Designed; plate re-captured this drop (post-consistency-pass state) |
 | 07f+ | Strategic Map — site layer | strategic-map-sites.png | Strategic Map.dc.html §5 | 1.0 | **New**: fifth overlay RESOURCES (ADR-024 §3d); closes inventory item 5 |
-| 07g | Puck and Wheel | puck-and-wheel.png | Puck and Wheel.dc.html | 1.0 | Built (OrderPuck/CommandWheel); MINE-placement ruling recorded (wheel stays eight) |
+| 07g | Puck and Wheel | puck-and-wheel.png | Puck and Wheel.dc.html | 1.0 | §2 built as a mouse adaptation (`OrderPuck`); **§1's modality table and §3's wheel are not built** and are scheduled as I3 ([Plan-of-Record-2026-08-22](../Plan-of-Record-2026-08-22.md)); MINE-placement ruling recorded (wheel stays eight) |
 | 07i | Debug HUD | debug-hud.png | Debug HUD.dc.html | 1.0 | Built (DebugStrip); answers F11 |
 | 07h | Settings | settings.png | Settings.dc.html | 1.0 | Designed; unimplemented (menu SETTINGS drawn dead) |
 | P1 | Station Screen | station-screen.png | Station Screen.dc.html | 1.0 | Delivered; rulings folded into ADR-017 §6a; 7-tab row |

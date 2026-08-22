@@ -132,6 +132,13 @@ moves between the trees without a rename pass. Three things it changed in these 
 
 ## Deliverables
 
+- [Plan-of-Record-2026-08-22.md](Plan-of-Record-2026-08-22.md) — **the current plan.** A gap
+  analysis across the whole corpus and the five owner decisions it produced, of which the largest
+  is that **touch is the primary input and the mouse a development convenience** (reversing
+  ADR-020 D15.4). Everything designed and not planned, planned and not designed, or built and not
+  recorded, with a home each: eight slices that had none — ADR-022's implementation among them —
+  the input model as its own phase, and the sequence they land in. Read it before starting a
+  slice; the three build orders below say *when* within a phase, and this says which phase.
 - [Architecture-Overview.md](Architecture-Overview.md) — process model, the one data flow,
   time model, frame/tick anatomy, deliberate omissions, corpus alignment.
 - [Dependency-Map.md](Dependency-Map.md) — allowed edges, per-project public surface
@@ -343,15 +350,16 @@ that is not being built, and each is named on its plate's §3 as well as here.
     third time**, now with gameplay stakes: a second tablet that forgot your scouting is a real
     loss. The same answer as #5, or a deliberate reason why not.
 
-- [Risk-Register.md](Risk-Register.md) — R1–R27 with designed-in mitigations + standing spikes.
+- [Risk-Register.md](Risk-Register.md) — R1–R28 with designed-in mitigations + standing spikes.
   R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised twice —
   closed 2026-08-20, reopened and root-caused 2026-08-21** when the Debug hang came back and
   the blame collector finally named it: a lost wake-up in `TaskPool::Stop`, not the msquic
   lifecycle the row had spent two days suspecting. R23 — a gating test that flakes — is the
   one question that did not close with it. **R24 and R25 arrived with ADR-024** — the economy's two: faucet-without-sink
   inflation, and High-Sec site contention — **R26 with ADR-025**, the one persistence
-  brings: a torn journal or a refused load taking a shard's state with it. **R27 arrived with
-  U3c-b (2026-08-21)**: sessions now survive a disconnect, and the token that claims one back is
+  brings: a torn journal or a refused load taking a shard's state with it. **R28 arrived with
+  U3c-b (2026-08-21)** *(numbered R27 until 2026-08-22, when it was found to collide with the
+  epoch row E2 had already taken)*: sessions now survive a disconnect, and the token that claims one back is
   a **bearer credential nothing authenticates** — bounded by being unguessable, single-use and
   two minutes long, and named here rather than left in a header comment, because "the shard has
   identity and no authentication" is a statement about the product and not about a file.
@@ -701,9 +709,16 @@ slice** as `Stargate.obj` rather than the `Gate.obj` the ADR named, so the Struc
 was never used; its export carried a sixth material the five-material palette does not have,
 authored onto `accent`, whose colour it already was.
 
-**What is not built is screen work, and as of 2026-08-21 there are no exceptions.** U3b's
-client half, U4's route feeder and icons, U5's map itself and U6 need a GPU and a person, which
-is the same wall S5 and R1 have been standing at since S8. The system-view print remains the
+~~**What is not built is screen work, and as of 2026-08-21 there are no exceptions.**~~
+**Corrected 2026-08-22 — that sentence was true of the build orders and not of the corpus, which
+is exactly the gap it claimed there was none of.** U3b's client half, U4's route feeder and
+icons, U5's map itself and U6 need a GPU and a person, which is the same wall S5 and R1 have been
+standing at since S8 — **and four more screens have a plate here and no slice anywhere**: 07e
+(session surfaces, blocked on the account service ADR-023 declines to design), 07g §3 (the
+command wheel), 07h (settings) and 07f+ (the map's site layer). **One item that is not screen
+work was missing too** — ADR-022's implementation slice, scheduled by A14 for "after U3c" and
+never written down. All of it is inventoried, with a home each, in
+[Plan-of-Record-2026-08-22.md](Plan-of-Record-2026-08-22.md). The system-view print remains the
 one missing design artifact.
 
 **U3c, the second-commander gate, was that exception and it closed (run 188).** Its blockers —
