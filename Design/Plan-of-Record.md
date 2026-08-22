@@ -17,14 +17,20 @@ the owner's, or a correction to a document that already disagreed with the tree.
 
 ---
 
-## The five decisions this document records
+## The decisions this document records
 
 1. **The interest/delta slice (ADR-022) is next**, before any further screen work.
 2. **Touch is the primary input; the mouse is a development convenience.** This reverses
    [ADR-020](ADR/ADR-020-ui-architecture.md) D15.4 and is the largest item here.
 3. **The command wheel is built**, not superseded — it follows from decision 2.
 4. **The user layer lands now**; the settings screen becomes a scheduled slice of its own.
-5. **The item-taxonomy ADR is written now**, ahead of E5.
+5. **The item-taxonomy ADR is written now**, ahead of E5. ✅ **Done** —
+   [ADR-027](ADR/ADR-027-item-taxonomy.md), 2026-08-22.
+6. **Fill order is content-declared order** — one ruling closing three (ADR-024 §5d, ADR-027 §2).
+7. **Per-player state is device-local**, account service as the named reopen trigger — one ruling
+   closing three more (ADR-012 §3).
+8. **Stance is selection-only; Abilities keep a placement** — the input model's last guess
+   replaced by a decision (ADR-020's amendment).
 
 ---
 
@@ -157,12 +163,17 @@ property of a viewer and the registry currently has no viewer to be a property o
 
 ## 3. Design deliverables owed
 
-- **The item-taxonomy ADR** — *decision 5: written now.* Cited by three prints (D-P2's "ore is
-  the first family of many", D-P4's admission rule, D-P6's six container kinds), and until it
-  lands those plates cite a document this repository cannot follow. **Scope:** `ItemTypeId`, the
-  fungible/instance split, the six container kinds, and the stack rules the cargo and market
-  surfaces both assume. **Note for whoever writes it:** the numbering in the upstream source is
-  not this corpus's, so the ADR has to restate rather than reference.
+- ~~**The item-taxonomy ADR**~~ — **delivered 2026-08-22:**
+  [ADR-027](ADR/ADR-027-item-taxonomy.md). Drafted from the three citing prints by owner ruling,
+  restating rather than referencing because the upstream numbering is not this corpus's. It fixes
+  `ItemTypeId` as a `u16`, the `(item, units, litres)` triple with litres derived, families as
+  display grouping with content-declared fill order, the fungible/instance split as the market's
+  admission rule, three flat categories with a pre-authorised growth rule, and one container
+  component whose kinds differ by chrome. **Two deliberate refusals, both in its §6:** the *six*
+  container kinds are **not** restated — three are grounded here and normative, the other three
+  are nowhere in this corpus and naming them would be inventing them — and nothing in it claims to
+  report what the upstream document says. Every inferred decision is flagged, which is what makes
+  a print-drafted ADR correctable rather than authoritative by accident.
 - **The market ADR** (D-P4's four rulings are its inputs) and **the fleet-template ADR**
   (D-P5's four) — both further out, both named so the prints stop being orphans.
 - **Session surfaces (07e) are blocked, legitimately.** ADR-023 says outright *"It does not
@@ -213,7 +224,7 @@ property of a viewer and the registry currently has no viewer to be a property o
 
 1. **N1 — interest & delta.** Headless, large, retires R19, lifts the shared-grid gate.
 2. **N2 — the user layer.** Small, unblocks T3's reorganisation room and closes 🏁 H1.
-3. **The item-taxonomy ADR.** Design, not code; can run beside 1 and 2.
+3. ~~**The item-taxonomy ADR.**~~ **Done 2026-08-22** — [ADR-027](ADR/ADR-027-item-taxonomy.md).
 4. **N4, N5, N6.** Three small slices, each closing a named gap; N6 before U5 as A20 requires.
 
 **Then the input model, which is its own phase:** I1 → I2 → I3. I1 and I2 are device-free and
@@ -232,17 +243,34 @@ the print before the screen.
 
 ## 6. Rulings, consolidated
 
-Fifteen open rulings are tracked in [README.md](README.md) and seven more in
-[Economy-Build-Order.md](Economy-Build-Order.md). Two of them are one ruling asked repeatedly,
-and answering each once closes five:
+Fifteen were tracked in [README.md](README.md) and eight in
+[Economy-Build-Order.md](Economy-Build-Order.md). Two of them were one ruling asked repeatedly,
+and **both were answered on 2026-08-22, closing six questions with two answers**:
 
-- **Fill order** — D-P2 #1 (ore order on a fill), D-P6 #10 (partial-scoop order) and ADR-024 §5d
-  are the same question. The ADR already says *"one ruling should close all three."*
-- **Device-local or account-side** — 07h §3 (settings), D-P5 #5 (templates), site-layer #15 (the
-  scouting journal). **Recommended: device-local, with the account service as the named reopen
-  trigger**, because ADR-023 defers accounts and it is the only answer the corpus can currently
-  honour. Decision 2 shrinks this further: under §1's selection model **wings are the control
-  groups and live on the shard**, so the grouping case never reaches the user layer at all.
+- ~~**Fill order**~~ — D-P2 #1, D-P6 #10 and ADR-024 §5d were the same question. **Answered:
+  content-declared order** (F-C → AST → NEB, each later family's own order after it), recorded at
+  [ADR-024 §5d](ADR/ADR-024-mining-economy.md) with the general form at
+  [ADR-027 §2](ADR/ADR-027-item-taxonomy.md). Not fairness but stability: value density needs a
+  price table that does not exist, and a rule computed from prices would re-order itself the day
+  the market phase tunes one.
+- ~~**Device-local or account-side**~~ — 07h §3 (settings), D-P5 #5 (templates), site-layer #15
+  (the scouting journal). **Answered: device-local, with the account service as the named reopen
+  trigger**, recorded at [ADR-012 §3](ADR/ADR-012-configuration-and-json.md). It is the only
+  answer the corpus can honour, since ADR-023 states it does not design the account service —
+  and decision 2 had already shrunk the problem, because **wings are the control groups and live
+  on the shard**, so the grouping case never reaches the user layer at all.
+
+**A third was answered with them, and it shapes the input model rather than a ruling register:**
+`OrderKindNamesDestination`'s conservative default. **Stance becomes selection-only** — a posture
+is not a placement — while **Abilities keep a placement**, because §1's modality table draws
+ABILITY + long-press empty space as *"PUCK — targeted ground"*. Recorded in
+[ADR-020](ADR/ADR-020-ui-architecture.md)'s amendment; it is one line in `Orders.cpp`'s exception
+list plus its parity row, and it is ruled **now** because I1–I3 are about to be built against it.
+
+**Still open and still unowned: the push-notification contradiction** (`alerts-and-toasts.png`
+§4). The platform allow-list has no notification row, and the refinery print's *"this tab never
+owes a notification"* sidesteps rather than settles it. It is the last §3/§4 item in seventeen
+plates with no home.
 
 ---
 
@@ -269,3 +297,9 @@ named.
   `Plan-of-Record-2026-08-22.md`, because a dated name makes a standing document look like a
   snapshot. The three build orders' status headers stopped sequencing and now point here;
   `prompt-hud-economy.md` folded into E5. One document answers "what is next" instead of four.
+- **2026-08-22 — four rulings taken, and the taxonomy debt paid.** Decision 5 delivered as
+  [ADR-027](ADR/ADR-027-item-taxonomy.md); fill order and per-player state each answered once,
+  closing six questions between them; `OrderKindNamesDestination`'s default replaced by a
+  decision before I1 builds against it. Six of the fifteen tracked rulings closed. What remains
+  unowned is the push-notification contradiction, and the fleet-template ADR is now the whole of
+  the upstream-citation debt.

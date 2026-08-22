@@ -138,6 +138,7 @@ and delta, this is why.
 | [024](ADR/ADR-024-mining-economy.md) | Mining economy *(economy design session — **accepted** 2026-08-20, nine owner rulings recorded across two review rounds)* | **Three ores across 2–3 `Site` anchors per system** (ADR-016 §3's reserved kind cashed in) that **re-form on a daily epoch** — bearing on an authored orbit ring, warp-in, layout, pools — banded by the existing security value with hazards staged pre/post-combat; a fleet `Mine` order with deterministic cycles and a durable site ledger (worlds forget, ledgers do not); every economy number in hash-guarded content (`Economy.json`, ADR-012 §D13), movement staying compiled; per-station Bays, manual transfer, deterministic ME refining with communal station-tier upgrades — Nova-Steel refinable only outside High-Sec; **persistence becomes due**: an engine-owned journal + snapshot at the universe layer, its ADR a named deliverable blocking implementation |
 | [025](ADR/ADR-025-persistence.md) | Persistence *(deliverable D-P1 — **accepted** 2026-08-20; clears E2's gate)* | **An engine-owned append-only journal plus a periodic snapshot**, serialised on Sim and written on its own lane; the durable line is **identity and location, never intention** — a fleet reloads at rest with an empty queue; records are **outcomes, not commands**, so the journal is explicitly *not* the replay log; a separate **`DurableHash()`** proves the reload because the replay hash folds transient state; the load guards on `universeHash` **only**, so retuning balance never invalidates a shard; a **named one-second** durability window on hard kill and nothing on a clean stop; SQL staged to the service layer |
 | [026](ADR/ADR-026-obstructed-footprints.md) | Obstructed footprints *(closes the corpus's oldest open item — **accepted** 2026-08-20, four owner rulings)* | **Solve, then slide**: a formation whose solved stations land in a hull, a gate or another fleet moves **whole** to the nearest free placement, shape and facing preserved — never deformed, never refused. Free is `FindBerth`'s predicate exactly (ADR-015's clearance factor + no other group's final-leg anchor, **pending orders included**), extracted so there is one copy and two callers. Two rings sized from the formation's own extent, fanned from the **approach** bearing so a blocked fleet stops short rather than overshooting; all 24 taken means fly to the asked point anyway, which **demotes ADR-015 §5's occupied-destination outcome to the fallback**. Placed when the leg becomes **active**, not at submission, so a queued leg is judged against the world it will actually fly in. The puck's preview is **advisory and allowed to differ** — the one such place in the game, safe because §4 means nothing can bounce — since `OrderStateRecord` carries no leg anchors and buying them costs ~2 ships off a cap with margin one |
+| [027](ADR/ADR-027-item-taxonomy.md) | The item taxonomy *(closes the standing upstream-citation gap — **accepted** 2026-08-22, drafted from the prints)* | **An item is a `u16 ItemTypeId` and a holding is `(item, units, litres)`** — litres derived, never stored, so a stack cannot disagree with its own type. Families are display grouping and **fill order is content-declared order** (one ruling closing three). **Fungible or instance**, declared in content, and fungibility is the market's admission rule rather than a hint — no instance item exists and none may be added without naming the surface that trades it. Three container kinds are grounded and normative; the prints' *six* is not restated, because the other three are nowhere in this corpus and naming them would be inventing them. **§6 flags every assumption**, which is what makes a print-drafted ADR correctable rather than authoritative-by-accident |
 
 ## Coding standard
 
@@ -305,12 +306,21 @@ categories, instance items explicitly excluded) and D-P6's "one component, six c
 The earlier version of this note said items 1, 2 and 3 could not be *designed* until the
 taxonomy landed. They were designed anyway, as **declared** forward designs, because a print
 that states its posture in an amber banner is worth more than a blank — but that was a decision
-to spend the debt, not to clear it. The conclusion is unchanged and now more expensive: **the
-taxonomy ADR is owed**, and until it lands (or the upstream document is explicitly declared out
-of scope) five plates cite a document this repository cannot follow, which is the failure mode
-this file's supersession list exists to prevent.
+to spend the debt, not to clear it.
 
-### Open rulings the 2026-08-22 prints name *(fifteen, none blocking)*
+**The taxonomy half of that debt was paid the same day:
+[ADR-027](ADR/ADR-027-item-taxonomy.md), 2026-08-22.** Drafted from the three citing prints
+rather than from the upstream source, by owner ruling, on the argument that the prints already
+constrain it hard — the `(item, units, litres)` triple, fungible-only admission, three flat
+categories, one component per container kind — and that a draft with **§6 flagging every
+assumption** is correctable where a blank is not. Two things it deliberately does *not* do: it
+does not restate the *six* container kinds (three are grounded here and normative; the other
+three are nowhere in this corpus, and naming them would be inventing them), and it does not claim
+to report what the upstream document says. **The fleet-template design is now the whole of the
+remaining debt** — two plates rest on it, P1 contextually and D-P5 directly and by its numbers,
+and the fleet ADR is owed the way the taxonomy one was.
+
+### Open rulings the 2026-08-22 prints name *(fifteen — **four closed 2026-08-22**, none blocking)*
 
 The economy's eight are tracked with their prints in
 [Economy-Build-Order.md](Economy-Build-Order.md), where a build order owns them. These have no
@@ -338,9 +348,11 @@ that is not being built, and each is named on its plate's §3 as well as here.
 
 **D-P5, fleet management — four for the fleet ADR:**
 
-5. **Where a template is stored** — account-side ("templates follow the account", as drawn) or
-   device-local. **The third screen to ask 07h's settings question**; it deserves one answer
-   rather than three.
+5. ~~**Where a template is stored**~~ — **answered 2026-08-22: device-local**, with the account
+   service as the named reopen trigger ([ADR-012 §3](ADR/ADR-012-configuration-and-json.md)). It
+   deserved one answer rather than three and got one: this closes #15 and `settings.png` §3 with
+   it. The only answer the corpus can honour — ADR-023 states it does not design the account
+   service — and the expectation on reopen is that a template *will* follow the player.
 6. **Deploying with damaged hulls** — does a hull with a worn gauge count against NEED?
    Proposed yes, with the row saying so. Repair-by-absence makes it moot at a station, but
    remote deploys will ask.
@@ -354,13 +366,18 @@ that is not being built, and each is named on its plate's §3 as well as here.
 
 9. **Wreck stack visibility** — proposed public to everyone on grid, which finders-keepers
    (ADR-024 §5b) implies; scan-to-reveal is future intel gameplay.
-10. **Partial-scoop order** — when not everything fits, value density or stack order? This is
-    **the same question as D-P2's ore-order-on-a-fill, in its third appearance**, and one
-    ruling should close all three at once.
+10. ~~**Partial-scoop order**~~ — **answered 2026-08-22: content-declared order**
+    ([ADR-027 §2](ADR/ADR-027-item-taxonomy.md), [ADR-024 §5d](ADR/ADR-024-mining-economy.md)).
+    One ruling closed all three appearances, as predicted. Not fairness but stability: value
+    density needs a price table, and a rule computed from prices would re-order itself the day
+    the market tunes one.
 11. **Deploying manifest visibility** — the assembly is announced; whether its *manifest* is
     too (a scout reading what a forming fleet carries) is a real intel decision.
-12. **The item-taxonomy ADR itself** — the standing gap above, which this is the third print to
-    cite. Listed here as well as there because a debt named twice is a debt someone pays.
+12. ~~**The item-taxonomy ADR itself**~~ — **delivered 2026-08-22:**
+    [ADR-027](ADR/ADR-027-item-taxonomy.md). A debt named twice was a debt someone paid. Drafted
+    from the three citing prints by owner ruling, with **§6 flagging every assumption** — including
+    that the *six* container kinds are not restated, because three of them are nowhere in this
+    corpus and naming them would be inventing them.
 
 **The strategic map's site layer — three:**
 
@@ -369,9 +386,8 @@ that is not being built, and each is named on its plate's §3 as well as here.
     pings carry reporter identity for exactly that reason.
 14. **Faded High-Sec pockets** (ADR-024 ruling 1b) — tagged FADED in the panel as proposed, or
     given their own pip state? The tag teaches the geography lesson only after a click.
-15. **Where the scouting journal persists** — device-local or account-side. **07h's question a
-    third time**, now with gameplay stakes: a second tablet that forgot your scouting is a real
-    loss. The same answer as #5, or a deliberate reason why not.
+15. ~~**Where the scouting journal persists**~~ — **answered with #5, 2026-08-22: device-local**,
+    same reopen trigger. It was 07h's question a third time and all three closed together.
 
 - [Risk-Register.md](Risk-Register.md) — R1–R28 with designed-in mitigations + standing spikes.
   R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised twice —

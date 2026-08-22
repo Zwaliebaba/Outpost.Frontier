@@ -562,6 +562,29 @@ place is 200 chips, so the hangar's wing columns scroll.
 > it, a verb that needs a placement opens the puck, a verb that targets a thing rides the
 > approach chain, and a verb that names a remote anchor belongs to the map or the system view.
 >
+> **And that taxonomy now has an answer for the two verbs that were guessing** *(owner ruling,
+> 2026-08-22)*. `OrderKindNamesDestination` (`Orders.cpp:107`) returns false only for Mine and
+> Dock, so Stance and Abilities need a placement gesture — and the function's own comment admits
+> that is a default rather than a decision: *"written as the exceptions rather than as the rule,
+> so a kind added without an answer defaults to needing a gesture."* The ruling splits them:
+>
+> - **Stance is selection-only.** A posture is not a placement. It joins Dock and Mine — issued
+>   by the press that lit it, pre-judged from the selection alone, with its value on the row's
+>   parameter chip. On the wheel it is a sector that arms a sub-wheel of stances, which is what
+>   §3's cascade is for.
+> - **Abilities keep a placement**, because §1's table says so: **ABILITY + long-press empty
+>   space is "PUCK — targeted ground"**. Abilities are a family, not a verb — some target ground,
+>   some an entity, some the selection itself — and the table draws all three cells differently.
+>   A single `Abilities` kind with a parameter is therefore too coarse to survive combat, and
+>   that is a combat-phase problem named here rather than discovered there.
+>
+> **It is ruled now because the input model is about to be built against it.** Neither has content,
+> so the change costs nothing today; deciding after I1–I3 would mean changing an input model that
+> screens already depend on. The code change is one line in `Orders.cpp`'s exception list plus its
+> parity row — and the row is the point, because `OrderKindNamesDestination` decides two things at
+> once (whether a kind can be pre-judged and whether a press can issue it), and a surface that
+> answered them differently would be incoherent.
+>
 > **What this costs, named rather than discovered.** The three input slices (I1 the seam, I2
 > selection, I3 the order surfaces) are new work; I1 and I2 are device-free and testable in
 > `NeuronClientTests` like everything else here. **I3 is the first slice in this corpus whose

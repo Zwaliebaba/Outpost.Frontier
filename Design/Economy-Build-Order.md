@@ -1124,8 +1124,14 @@ pocket's dampening legible as a thing happening to *you* rather than a number in
 
   **Open — four rulings owed before E5 builds** (the P1 pattern; unanswered questions in a
   print are how a screen gets built twice):
-  1. **Ore order on a fill.** Drawn as ore-index order (F-C → AST → NEB); value-density
-     order would favour the rare ores. It is player-visible arithmetic, so it wants a rule.
+  1. ~~**Ore order on a fill.**~~ **Answered 2026-08-22: content-declared order** —
+     F-C → AST → NEB, exactly as drawn, and each later family's own declared order after it.
+     Recorded at [ADR-024 §5d](ADR/ADR-024-mining-economy.md) with the general form at
+     [ADR-027 §2](ADR/ADR-027-item-taxonomy.md). **One ruling closed three**: this, D-P6's
+     partial-scoop order and §5d's own statement of it. Value density was declined because it
+     needs a price table that does not exist — a rule computed from prices would re-order itself
+     the day the market phase tunes one, and a player who learned it would find it changed with
+     no patch note.
   2. **A dock shortcut.** §5c makes the transfer manual; "TRANSFER ALL from the fleet that
      just docked" as a one-tap toast action may still earn its convenience. The print proposes
      yes, as an explicit tap — still manual.
@@ -1197,6 +1203,12 @@ artefacts**, and they are listed with each print above: four from D-P2, all owed
 four from D-P3, of which **job cancel was owed before E4b and is answered** (2026-08-21). The
 seven that remain can be answered any time before the screens build, which is the sequencing
 consequence worth carrying forward: nothing left in this phase is gated on a ruling.
+**Six now** *(2026-08-22)*: D-P2's ore-order-on-a-fill was answered as content-declared order,
+which closed the same question in two other places at once. **And the phase gained an ADR it did
+not have** — [ADR-027](ADR/ADR-027-item-taxonomy.md), the item taxonomy — so D-P2's "ore is the
+first item family of many" now rests on a document in this repository instead of an upstream
+citation. E5 builds against its §1 and §2, which is a change in the reading rather than in the
+building: the CARGO tab's vocabulary was already the `(item, units, litres)` triple.
 - ~~**D-C1 — Ore and alloy icons**~~, in the tactical icon system's families, plus the three
   archetype glyphs the strategic and system maps need. **Delivered 2026-08-22:**
   [item-icon-system.png](ScreenPrints/item-icon-system.png), with its source beside it — three
