@@ -253,6 +253,30 @@ and the hangar's composer get one answer and nobody asks a third time.
    them was paint. The moment it opened a screen, the layout had to move to where the press is
    judged.
 
+5c. **Built (2026-08-22, T3b): the first whole screen, and what it corrected.** The station
+   surface is the first thing to exercise §5.1 at scale — a tab row, sixty chips, a cycling
+   parameter and a primary action, all laid out and hit-tested in `StationScreen`. Three
+   findings worth keeping.
+
+   - **§5.1's payoff is a test, not tidiness.** With the draw and the input handler each
+     holding their own arithmetic, "the thing you press is the thing you see" is not a claim
+     anything can check, because the two halves never meet. They meet in one file here, so it
+     is checked — including the boundary a column header shares with its first chip, which is
+     precisely what two files would disagree about.
+   - **A visible-row count is part of the layout, not part of the scroll.** §4 says a list
+     scrolls by whole rows; it did not say *who* decides how many rows fit. Two answers
+     derived separately disagree by one wherever the slack under the last row is at least a
+     row tall and short of a row and a gap — the last row needs no gap under it — and the
+     scroll then believes in a row the layout has already drawn. Both must come from the same
+     inequality.
+   - **§2's claim order cannot reach a stage that runs before the router.** The camera reads
+     the input frame directly, in the stage ahead of the HUD, so no claim made downstream
+     touches it: a wheel over a scrolling list zoomed a camera the player could not see, and
+     `W` panned the same hidden view. The fix is not a reordering — it is that a full-screen
+     surface means there is no world for a camera move to mean anything to, which §1 already
+     says and the camera now asks. **Any stage that runs before `InputRouter::Begin` has to
+     ask the surface itself.**
+
 ### 6. The screen-data contract across the ADR-014 seam
 
 D14 decided screens are engine surfaces, data-fed. The shape of that data, fixed here so U5
@@ -263,6 +287,7 @@ and T3 do not each invent one:
 | Universe topology | a neutral graph: nodes (id, plane position, label, badge class, flags), edges (a, b, link class), and the class tables | **once, at boot** | `OrderKinds` — the asked-once pattern (ADR-014 §2c) |
 | Live per-node data | summary-keyed neutral rows (counts, state, `etaSeconds`, badge values) | summary rate, ~1 Hz (ADR-016 §6) | `BuildRoster` |
 | Docked roster | group rows plus ship-chip rows, keyed by station | on entry, and on roster change | `BuildRoster`, `StationRoster` (ADR-017 §8) |
+| A screen's primary action | a name, a parameter name and an opaque verb, plus the values that parameter may take | **once, on entry** | `OrderKinds` + `OrderOptions` |
 | Search | a pure game-side function over the graph, reached through the seam | per keystroke | `ValidateOrder` parity |
 | Route solve | a pure game-side function returning a path | on request | `SolveFormation` |
 | Toast action | an opaque `(actionKind, actionTarget)` pair, carried and handed back unread | on press | `groupId` (ADR-014 §4) |
@@ -270,6 +295,14 @@ and T3 do not each invent one:
 **A screen's seam budget is three shapes, not three methods**: one asked-once builder, one
 summary-rate row builder, and pure query functions. A screen wanting something that is none
 of the three is the tripwire below.
+
+**Verbs are data too, and T3b is why that row is in the table.** Everything the station screen
+draws was already covered — tab words, wing names, hull classes — but UNDOCK is a *verb*, and
+a client that may not learn a tab is called REFIT may not learn a verb is called `Undock`
+either. `StationAction` crosses as `OrderKindOption`'s shape and carries **no availability and
+no reason**: whether the action is live depends on the frame's selection, and the pre-check
+already answers that from the authority's own validator. A second answer assembled beside it
+would be a second opinion, which is what ADR-014 §3's parity claim forbids.
 
 **The extended leak test, in words** (D14): *no security, sovereignty or station-service
 semantics in engine code — labels, badge classes and colours arrive as data.* Concretely,

@@ -18,12 +18,12 @@ what remains of this phase is screen work.
 ADR-020's surface stack, input router, focus, text editing and scrolling list, all
 device-free and tested; the ELSEWHERE column laid out where it is pressed rather than inside
 the draw; its block button live and opening a station surface; and a frame that skips the
-world half beneath a full-screen screen. **T3b is the hangar itself** and is not built — and
-one thing it needs is older than it is: `StationCommand` has been on the wire since T2 and
-has no *client* path, so UNDOCK still cannot be sent from the client at all. The split's
-rationale is with the slice. **What T3a owes is R1's category again** — the station surface
-and the live button have never been on a screen — which now makes **two** visual checkpoints
-this phase is carrying rather than one. The design it delivers is
+world half beneath a full-screen screen. **T3b is built too** — the hangar's seam, its
+composer, its geometry, its draw, and UNDOCK on the wire: `StationCommand` had a format, a
+validator, a server path and a `selfTest` since T2 and no client line that could produce one,
+and now a player can issue one. **What T3a and T3b both owe is R1's category** — neither the
+station surface nor the screen that now fills it has been on a display — which makes **two**
+visual checkpoints this phase is carrying rather than one. The design it delivers is
 [ADR-017](ADR/ADR-017-station-docking.md); where this document and that one disagree, the
 ADR wins on *what* and this one on *when*.
 
@@ -437,13 +437,45 @@ or the live block button on a screen. Also owed, and smaller: the tactical chrom
 built underneath a surface that covers it — a `UiDrawList` fill nobody sees, whose fix is an
 early return once T3b makes that half a function of its own.
 
-**Still owed by T3 (T3b):** the hangar. The tab row and its seam call, the docked roster
-grouped by wing, multi-selection, the formation dropdown, UNDOCK and its wave pacing
-(ADR-017 §6a.1), wing assignment and renames in the user layer, and the two seam calls the
-screen cannot work without — **a client path for `StationCommand`** (the format and its
-validator have been on the wire since T2 and `ReplicatedWorldView::EncodeOrder` still writes
-only `CommandKind::Order`, so UNDOCK cannot be sent from the client at all) and a builder that
-hands the hangar its ship-chip rows (§6's "group rows plus ship-chip rows, keyed by station").
+**Built (T3b, 2026-08-22).** The hangar: a seam, a composer, a geometry, a draw, and a verb
+that leaves the machine.
+
+- **The seam.** `StationIntent` in NeuronCore beside `OrderIntent`, because both seams speak
+  it; `EncodeStationCommand` as `EncodeOrder`'s twin; `PreCheckStation` running the
+  authority's own `ValidateStationCommand` over the same `RosterView`. `StationView.h` holds
+  the tab row, the group rows and the ship-chip rows — §6's shape exactly — and never spells
+  one of the words in them. `StationAction` is the piece that was not obvious: everything on
+  the screen was already data, but UNDOCK is a *verb*, and a client that cannot know a tab is
+  called REFIT cannot know a verb is called Undock either. It crosses as
+  `OrderKindOption`'s shape, with `StationActionOptions` over the same `FORMATION_IDS` the
+  order side already offers.
+- **The composer.** `RosterSelection` — `Selection`'s sibling rather than its rival, on
+  durable roster ids because a docked ship is in no snapshot. Session lifetime and reconciled
+  on every look (ADR-017 §6a.2), and `WaveCount` declares the game's cap as waves *before* the
+  press rather than meeting the player as an error after it.
+- **The geometry.** `StationScreen` — `CommandRow`'s "laid out and hit-tested in one file"
+  applied to a whole screen, which is where that rule starts paying: sixty chips, a tab row
+  and a primary action are sixty-plus rects a draw and an input handler could disagree about
+  independently. Overflow follows §7's declared rules for this surface — the tab row drops,
+  the wing columns scroll on one shared offset, the parking diagram letterboxes.
+- **The draw and the gesture.** Tap toggles a chip, a press on a header takes the whole wing
+  (a press rather than a hold: a header has no competing gesture, and a dwell timer earns its
+  cost on a chip), the formation cycles in place, and UNDOCK sends one wave per press. The
+  button is live or greyed on `PreCheckStation`'s verdict, so it greys for the reason the
+  bounce would have carried, in the same words, because it is the same function.
+
+**Fifty-one more tests, a hundred and twenty-eight device-free in all**, mutation-tested at
+each step. Two defects the tests found rather than the compiler: `StationVisibleRows` and
+`BuildStationColumns` disagreed by one row wherever the slack under the last chip was at
+least a chip tall and short of a chip and a gap, and `UpdateCamera` — which runs *before*
+the router exists and so cannot be reached by any claim — was zooming and panning a camera
+under a screen that covers the world.
+
+**Still owed by T3:** the reorganisation room. Wing assignment, wing creation and renames are
+drawn and disabled with their reason, in the treatment the tab row already gives a service
+that has not landed — all three need the user settings layer, because a wing's *name* is
+client-side (ADR-017 §6a.4) and there is nowhere to put one yet. And the visual checkpoints
+above.
 
 **Accept 🏁 H1:** the owner's loop in one sitting — fly to the station, DOCK from the
 context action, open the hangar, move three ships into a new wing, select a mixed
