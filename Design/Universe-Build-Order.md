@@ -168,12 +168,16 @@ One thing the id-space arithmetic caught before it shipped: giving every anchor 
 put the highest authored id at 1.19M, far past the u16 window D6 keeps. Blocks now go only to
 anchors that author something (3,356 of 18,618) and are 8 wide, so the highest authored id is
 26,848 against a dynamic base of 32,768.
-**Still owed:** the viewer hold exists and is exercised by the tests, but **nothing calls
-`AddViewer`/`RemoveViewer` for a player's view** — and the "until U3b" this line used to carry
-has expired: U3b's wire half landed, and the only callers are still the composition root's own
-`m_startAnchor` and the scenario lever's second grid. Presence gating has hidden it so far,
-because a grid a player may watch is one their ships are standing on and therefore one somebody
-already holds; the hold starts mattering the moment a view outlives the ships that justified it.
+~~**Still owed:** the viewer hold exists and is exercised by the tests, but **nothing calls
+`AddViewer`/`RemoveViewer` for a player's view**~~ — **closed 2026-08-22 by N5**, two slices
+after the "until U3b" this line used to carry expired. The seam is
+`Simulation::ViewerOpened`/`ViewerClosed`, called when a session opens on a grid, when a view
+switch is accepted, and when the socket goes; the composition root keeps the viewer-to-grid map
+and this registry keeps the count, which is ADR-022 §1's split applied to a hold. Presence
+gating had hidden it, because a grid a player may watch is one their ships are standing on and
+therefore one somebody already holds — and what it did not hide is the grid with no ships on it,
+where the sweep tore the world down and `RankRelevance` rebuilt it on the next tick. See
+[ADR-016 §7](ADR/ADR-016-procedural-universe-and-warp.md)'s note for what that cost a scout.
 `HostForAnchor` returning 0 and `TransferId` having no bus behind it were both closed by T1.
 
 ### U3a — In-system warp (sim)

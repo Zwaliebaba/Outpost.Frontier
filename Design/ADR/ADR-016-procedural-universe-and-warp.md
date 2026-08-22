@@ -225,6 +225,41 @@ Rules: the view may point at **any grid where the player has ships** — and now
 > station, which §7's own sentence and ADR-017 §7 already folded into one answer — and the
 > `selfTest` asserts the refusal with two real clients over a socket.
 
+> **The viewer half of that rule was built on 2026-08-22 (N5), two slices after it was
+> scheduled.** `WorldRegistry::AddViewer` shipped with U2 and its header named U3b as what
+> would start calling it for a player's view. U3b landed, and every caller in the tree was
+> still the composition root holding its own start grid — so *"a viewer"* meant a grid chosen
+> at boot rather than the grid anybody was looking at. **Presence gating hid it**: a grid you
+> may watch is one your ships are standing on, and ships keep a grid alive on their own. What
+> it did not hide is the case that has no ships — a station whose grid you have docked
+> everything at, a site you are scouting after the field is chewed out. There **the sentence
+> above was simply false**: `RankRelevance` borrowed the grid, which spun it up; the sweep at
+> the end of the tick found it empty and unwatched and tore it down; and the next tick built it
+> again. A whole `World`, its authored occupants and — on a site — a `BuildSiteField` layout,
+> once per tick, for as long as somebody looked.
+>
+> **What it did not do is change what the player saw**, and that is worth stating so the fix is
+> not credited with more than it did. A rebuilt grid resolves its field from the calendar —
+> `ResolveField` reads the shard tick, not the instance that went away — so the picture was
+> stable, and the defect was the work plus a stated rule that was not true. The one place the
+> distinction was already written down is `LedgerIsCurrent`, which gives a shipless viewer-held
+> grid the *calendar's* epoch rather than its own ([ADR-018](ADR-018-scaling-baseline.md) D8, so
+> that what a viewer holds alive cannot change what the session hashes). That branch was written
+> for holds which did not yet exist; it has callers now.
+>
+> The seam is `Simulation::ViewerOpened`/`ViewerClosed`, beside `MayView` and doing the other
+> half of its job: `MayView` says whether a view is legal, these say it happened.
+> **`ViewerOpened` reports the whole answer rather than a delta** — which grid this viewer is
+> watching now — so a missed release is not expressible; the composition root keeps the
+> viewer-to-grid map and the registry keeps a count, which is ADR-022 §1's split (the sim tier
+> has no viewers) applied to a hold.
+>
+> **The hold goes with the socket, not with the commander.** A player inside D5's grace window
+> still owns their fleet, their Bay and their refine jobs, all keyed on the player at the
+> universe layer — but they have no camera, and a hold is about a camera. Worlds forget by
+> design (ADR-018 D2), so a grid that empties while they are away is rebuilt from content on
+> the tick they resume onto it.
+
 Seeing without presence is the intel overlay's territory (`strategic-map.png`'s INTEL PINGS:
 "the shape of your ignorance"), deliberately not given away for free now. Within a grid the
 camera is exactly as free as today. **Auto-follow**: a watched fleet that warps takes the

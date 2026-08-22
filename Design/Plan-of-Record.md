@@ -1,7 +1,7 @@
 # Plan of Record
 
 **Status:** standing document, **revised in place** · opened 2026-08-22 · current as of
-2026-08-22 (U3d-a, U3d-b and N2 built). **This is the only document that says what is built next.** The three build orders
+2026-08-22 (U3d-a, U3d-b, N2 and N5 built). **This is the only document that says what is built next.** The three build orders
 say what a slice *contains* and record what happened when it landed; this one says which slice,
 and when. Where it and an ADR disagree the ADR wins on *what*, which is the rule the build
 orders already run under.
@@ -134,7 +134,7 @@ is a decision rather than a surprise.
 | **N3** | **The settings screen** | ADR-020 §8 names "the settings screen's first slice"; no build order contains it | medium |
 | **I1–I3** | **The input model** | §1 above | large |
 | **N4** | **D18, arrival contention** | Baked, parsed, hashed, never read — fell between U1 and U3a | small |
-| **N5** | **The viewer hold** | `AddViewer`/`RemoveViewer` have no caller for a player's view; the "until U3b" deferral expired | small |
+| ~~**N5**~~ | ~~**The viewer hold**~~ — **built 2026-08-22** | ~~`AddViewer`/`RemoveViewer` have no caller for a player's view; the "until U3b" deferral expired~~ | small |
 | **N6** | **A20 — spike 3 + the S5 frame check** | Stated as "Before U5", no slice, no owner | small |
 | **N7** | **The map's RESOURCES overlay** | Drawn 2026-08-22 (ADR-024 §3d); U5's scope was written 2026-08-19 | medium |
 
@@ -156,8 +156,16 @@ do while the input decision above is still turning into screens.
 warping to one anchor on one tick land on the same point and are pushed apart by ADR-015
 separation, which is the stacking D18 exists to prevent.
 
-**N5 — The viewer hold.** Small, and it grows teeth the moment N1 lands, because culling is a
-property of a viewer and the registry currently has no viewer to be a property of.
+~~**N5 — The viewer hold.**~~ **Built 2026-08-22.** It grew the teeth this line predicted, and
+from a direction it did not: not culling, but **teardown**. A player watching a grid with no
+ships on it was watching a world that `RankRelevance` spun up and the end-of-tick sweep tore back
+down — a whole `World`, its authored occupants and a site's `BuildSiteField` layout, once per
+tick, for as long as they looked. It never changed what they *saw*, because a rebuilt grid
+resolves its field from the calendar; what the gap cost was the work, and a rule ADR-016 §7
+states outright and nothing enforced. The seam is `Simulation::ViewerOpened`/`ViewerClosed` beside `MayView`, reporting the
+whole answer rather than a delta so a missed release is not expressible; the hold goes with the
+socket rather than with the commander, because a player inside the grace window still owns their
+fleet but has no camera.
 
 ---
 
@@ -238,8 +246,9 @@ property of a viewer and the registry currently has no viewer to be a property o
     written at **shutdown** rather than at the keystroke, which is the right trade for call signs
     and the first thing N3 has to revisit.
 3. ~~**The item-taxonomy ADR.**~~ **Done 2026-08-22** — [ADR-027](ADR/ADR-027-item-taxonomy.md).
-4. **N5, then N4, then N6** — three small slices, each closing a named gap; N6 before U5 as A20
-    requires. **N5 moved ahead of N4 on 2026-08-22, and U3d is why.** This document listed the
+4. ~~**N5**~~ **built 2026-08-22**, then **N4**, then **N6** — three small slices, each closing a
+    named gap; N6 before U5 as A20 requires. **N5 moved ahead of N4 on 2026-08-22, and U3d is
+    why.** This document listed the
     three as interchangeable and justified N5 as "small, and it grows teeth the moment N1 lands".
     N1 has landed — and U3d-b built the very thing N5 was missing: `ViewFocus` carries a `gridId`
     per session and `SnapshotSender` holds it, so the viewer the registry has no viewer for now
@@ -307,6 +316,21 @@ named.
 ---
 
 ## Revision log
+
+- **2026-08-22 — N5 built.** `Simulation` gained `ViewerOpened`/`ViewerClosed` beside `MayView`,
+  and `ServerHost` calls them at the three moments the answer changes: a session opening on its
+  grid, an accepted `RequestView`, and the socket going. The composition root keeps the
+  viewer-to-grid table and `WorldRegistry` keeps its count, which is ADR-022 §1's rule — the sim
+  tier has no viewers — applied to a hold. **What the slice found was worse than the gap it was
+  scheduled to close**: presence gating meant the missing hold never showed on a grid with ships
+  on it, and on a grid *without* ships the world was torn down and rebuilt every tick — a whole
+  `World`, its authored occupants and a site's field layout, for as long as somebody watched. The
+  picture stayed stable throughout, since a rebuilt grid resolves its field from the calendar, so
+  what the gap cost was the work and a rule ADR-016 §7 states that nothing held up. One decision
+  it had to take
+  rather than look up: the hold is released on **transport loss** rather than at the end of D5's
+  grace window, because a disconnected commander still owns their fleet but has no camera, and
+  worlds forget by design.
 
 - **2026-08-22 — N2 built, and N5 moved ahead of N4.** The user layer is written:
   `WriteUserLayer` beside `ApplyUserLayer` in `AppConfig.cpp` — pure, and so covered by

@@ -98,9 +98,24 @@ public:
   /// registry keeping its own would be a second clock to drift.
   void Tick(std::uint32_t _shardTick);
 
-  /// A viewer holds a grid alive even when nothing is on it (ADR-016 §7): a
-  /// world is never torn down under someone's camera. U3b is what starts
-  /// calling these; U2 builds the hold.
+  /*
+   * A viewer holds a grid alive even when nothing is on it (ADR-016 §7): a
+   * world is never torn down under someone's camera.
+   *
+   * U2 built the hold and named U3b as what would start calling it for a
+   * player's view. **N5 is what actually did, on 2026-08-22**, and the gap is
+   * worth a sentence: until then every caller was the composition root holding
+   * its own start grid, so the clause `TearDownIdle` consults was decided at
+   * boot rather than by where anybody was looking. A player watching any other
+   * empty grid was watching a world torn down and rebuilt once a tick -- which
+   * cost the work rather than the picture, since a rebuilt grid resolves from
+   * content and the calendar and comes back identical.
+   *
+   * **A count, not a table.** Who is watching is session state and the sim tier
+   * has no viewers (ADR-022 §1); what this holds is a fact about the grid. The
+   * composition root keeps the viewer-to-grid map, because it is the only tier
+   * entitled to know both.
+   */
   void AddViewer(AnchorId _anchor);
   void RemoveViewer(AnchorId _anchor);
 

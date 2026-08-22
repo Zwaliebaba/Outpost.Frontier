@@ -185,9 +185,19 @@ public:
     config.hostId = 0; // ADR-019: three roles, one process, one host.
     m_registry.Reset(&_universe, &_economy, config);
 
-    // The session holds a viewer on the grid it serves, so the world is never
-    // torn down under the wire (ADR-016 §7). U3b generalises this to the
-    // player's actual view; U2 builds the hold.
+    /*
+     * The **shard's** own hold on its start grid, and it is no longer standing
+     * in for a player's (ADR-016 §7).
+     *
+     * It said "the session holds a viewer on the grid it serves" and named U3b
+     * as what would generalise it to the player's actual view. N5 did that --
+     * `ViewerOpened`/`ViewerClosed` below take a hold per commander on the grid
+     * they are actually watching -- and this one stays for the case that has
+     * nothing to do with a session: a headless shard with no client at all,
+     * whose start grid would otherwise be torn down the moment its fleet docked
+     * and rebuilt when they undocked. The counts sum, so a player watching this
+     * grid adds to it rather than replacing it.
+     */
     m_registry.AddViewer(m_startAnchor);
   }
 
@@ -354,6 +364,72 @@ public:
     return m_registry.HasPresence(_viewer, anchor)
              ? static_cast<std::uint16_t>(0)
              : static_cast<std::uint16_t>(Game::OrderReason::NoPresence);
+  }
+
+  /*
+   * The hold that stops a world being torn down under somebody's camera
+   * (ADR-016 §7, N5).
+   *
+   * `MayView` says whether a view is legal; this pair is what makes one *cost*
+   * something. `WorldRegistry::TearDownIdle` removes a grid when the last ship
+   * leaves **and nobody is watching**, and until now the second clause was
+   * decided by a hold the composition root took on its own start grid at boot.
+   * A player looking at any other empty grid -- a station they have ships
+   * docked at, a site whose field they are scouting -- was watching a world
+   * torn down and rebuilt on every tick, because `RankRelevance` borrows the
+   * grid (which spins it up) and the sweep at the end of the tick finds it
+   * empty and unwatched. A whole `World`, its authored occupants and a site's
+   * `BuildSiteField` layout, once a tick, for as long as they looked.
+   *
+   * It never changed what they *saw* -- a rebuilt grid resolves its field from
+   * the calendar rather than from the instance that went away -- so what the
+   * gap cost was the work, and a rule ADR-016 §7 states that nothing enforced.
+   *
+   * **The table is here rather than in the registry, and that is ADR-022 §1's
+   * rule rather than a preference.** Which grid a commander is watching is
+   * session state, the sim tier has no viewers, and a registry that held a
+   * viewer *table* would be the session's business living one library too deep.
+   * What the registry holds is a count -- how many holds are on this grid --
+   * which is a fact about the grid and nothing about who is looking.
+   */
+  void ViewerOpened(PlayerId _viewer, std::uint16_t _grid) override
+  {
+    const auto anchor = static_cast<Game::AnchorId>(_grid);
+    const auto held = std::find_if(m_viewerGrids.begin(), m_viewerGrids.end(),
+                                   [_viewer](const ViewerGrid& _entry) { return _entry.viewer == _viewer; });
+    if (held != m_viewerGrids.end() && held->anchor == anchor)
+    {
+      return; // The seam reports the whole answer, so the same answer twice is not two holds.
+    }
+
+    /*
+     * Taken before the old one is let go. The order does not decide anything --
+     * `TearDownIdle` sweeps once, inside `Tick`, so this pair is atomic with
+     * respect to it -- and it is this way round because `AddViewer` is the call
+     * that can fail: a grid nobody authored takes no hold, and finding that out
+     * before letting go of a real one keeps the failure to a viewer with no
+     * grid rather than a viewer with a stale one.
+     */
+    m_registry.AddViewer(anchor);
+    if (held != m_viewerGrids.end())
+    {
+      m_registry.RemoveViewer(held->anchor);
+      held->anchor = anchor;
+      return;
+    }
+    m_viewerGrids.push_back(ViewerGrid{_viewer, anchor});
+  }
+
+  void ViewerClosed(PlayerId _viewer) override
+  {
+    const auto held = std::find_if(m_viewerGrids.begin(), m_viewerGrids.end(),
+                                   [_viewer](const ViewerGrid& _entry) { return _entry.viewer == _viewer; });
+    if (held == m_viewerGrids.end())
+    {
+      return; // A handshake that never completed never took one.
+    }
+    m_registry.RemoveViewer(held->anchor);
+    m_viewerGrids.erase(held);
   }
 
   /*
@@ -952,6 +1028,28 @@ private:
 
   Game::WorldRegistry m_registry;
   Game::AnchorId m_startAnchor = Game::INVALID_ID;
+
+  /*
+   * Which grid each commander is watching, and therefore which hold is theirs
+   * (ADR-016 §7, N5).
+   *
+   * One row per *live session*, so it is bounded by `server.maxSessions` and a
+   * linear scan is the whole lookup. A vector rather than a map for that
+   * reason, and because the order it iterates in has to be stable: this is read
+   * on the Sim thread beside the registry it is about.
+   *
+   * It exists to answer one question the engine cannot: *what did this viewer
+   * hold before?* `ViewerOpened` reports the whole answer rather than a delta,
+   * which is what makes a missed release impossible -- but only if somebody
+   * remembers the previous answer, and the engine deliberately does not know
+   * that holds exist at all.
+   */
+  struct ViewerGrid
+  {
+    Neuron::PlayerId viewer = Neuron::INVALID_PLAYER_ID;
+    Game::AnchorId anchor = Game::INVALID_ID;
+  };
+  std::vector<ViewerGrid> m_viewerGrids;
 
   /// Said once, not once a second: a summary frame that cannot hold every
   /// roster will not hold them next second either, and a warning at 1 Hz is a
