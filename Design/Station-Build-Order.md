@@ -329,8 +329,11 @@ on the grid — which on this wire *is* "outside", since a docked ship leaves th
 entirely (ADR-017 §1).
 
 That last one was drafted as a check that the fleet had come to a **stop**, and it failed for a
-reason worth keeping in the record: this simulation's fleet is on a scripted patrol, so it is
-never stationary and no disconnect would make it so. "Halted" is not a property this world has.
+reason worth keeping in the record: this simulation's fleet was on a scripted patrol, so it was
+never stationary and no disconnect would have made it so. "Halted" was not a property that world
+had. (The patrol has since been removed — the fleet stands still until its commander says
+otherwise — but the check stays roster-based, because a speed at an instant was the wrong
+question either way.)
 What the criterion is actually about — the client that would have sent the Dock is gone, so
 nothing docks — survives that intact, and is now checked against the roster over a window
 rather than a speed at an instant.

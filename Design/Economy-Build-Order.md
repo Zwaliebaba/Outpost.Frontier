@@ -775,8 +775,9 @@ kind is the `u16` the frame actually holds).
 **The wiring is the composition root's, and two of its consequences are the interesting part.**
 The starting fleet is what a *new* shard is built with, so the load decides whether to spawn it
 — spawning it on top of a reloaded shard would hand every commander a second fleet on every
-restart. And the scripted patrol's ship list is *intention*, so a reloaded shard rebuilds it
-from what is actually standing on the start grid rather than restoring it. `ServerHost` owns the
+restart. And the scripted patrol's ship list was *intention*, so a reloaded shard rebuilt it
+from what was actually standing on the start grid rather than restoring it — the patrol has
+since been removed, and the walk that fed it is now only a count in the log. `ServerHost` owns the
 cadence on the Sim thread and nowhere else — a snapshot every `SNAPSHOT_INTERVAL_SECONDS`
 counted in **ticks**, because the tick is the only clock (ADR-002 §1) and a wall-clock timer
 there would be a second one to drift, and one on the way out before anything is torn down, which
