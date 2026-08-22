@@ -1,13 +1,19 @@
-# Plan of Record — 2026-08-22
+# Plan of Record
 
-**Status:** written 2026-08-22 from a gap analysis run across the whole corpus before the next
-slice starts. **What it is:** every item that is designed and not planned, planned and not
-designed, or built and not recorded — each with a home. **What it is not:** a new design.
-Every decision below is the owner's, taken in the session that produced this document, or a
-correction to a document that already disagreed with the tree.
+**Status:** standing document, **revised in place** · opened 2026-08-22 · current as of
+2026-08-22. **This is the only document that says what is built next.** The three build orders
+say what a slice *contains* and record what happened when it landed; this one says which slice,
+and when. Where it and an ADR disagree the ADR wins on *what*, which is the rule the build
+orders already run under.
 
-It is a **plan**, so it says *when*; where it and an ADR disagree the ADR wins on *what*, which
-is the rule the three build orders already run under.
+**It carries no date in its name on purpose.** A dated plan is a snapshot, and a snapshot
+someone has to notice has gone stale is how a corpus ends up with four documents answering one
+question — which is the condition this document was written to end. Revise it here; the
+revision log at the foot is the record of what changed.
+
+**What it is:** every item that is designed and not planned, planned and not designed, or built
+and not recorded — each with a home. **What it is not:** a new design. Every decision below is
+the owner's, or a correction to a document that already disagreed with the tree.
 
 ---
 
@@ -250,3 +256,16 @@ debt rather than narrowing it — the checkpoints now need a touch display, not 
 sectors (HOLD, ORBIT, KEEP RANGE) all name a phase with no ADR and no build order. It is not a
 loose end so much as the next horizon, recorded here so the first person to need it finds it
 named.
+
+---
+
+## Revision log
+
+- **2026-08-22 — opened.** From a gap analysis run across the corpus before the next slice
+  started. Five owner decisions recorded; eight slices that had no home given one; the input
+  model established as its own phase after ADR-020 D15.4 was reversed. Four documentation
+  defects fixed in the same commit.
+- **2026-08-22 — the planning documents de-duplicated.** Renamed from
+  `Plan-of-Record-2026-08-22.md`, because a dated name makes a standing document look like a
+  snapshot. The three build orders' status headers stopped sequencing and now point here;
+  `prompt-hud-economy.md` folded into E5. One document answers "what is next" instead of four.

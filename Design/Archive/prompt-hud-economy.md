@@ -1,5 +1,15 @@
 # Prompt — economy on the tactical HUD (post-E3)
 
+**Status: ARCHIVED, 2026-08-22.** Four of its six sections are built and recorded below (§0 the
+decoder, §0a the validation view, §1 MINE on the context bar, §2 the MINING chip); **the two that
+remained — §3 HOLD FULL and §4 site fullness — moved into E5**, which is where a slice's scope
+belongs. It is archived rather than deleted for the reason the MVP build order is: it is the
+record of what those four put in the tree and which defects they found, and two of them were
+found by writing a gate rather than by review.
+
+It was also, until today, a fifth document in `Design/` that read as a plan. **Nothing owed lives
+only here** — see [Economy-Build-Order.md](../Economy-Build-Order.md)'s E5 and [Plan-of-Record.md](../Plan-of-Record.md).
+
 For Claude Code, working in `Zwaliebaba/Outpost.Frontier@main`. The mining loop is built and green
 through E3 (run 161): `OrderKind::Mine = 6` with a trailing `u8 oreFilter` on `OrderSubmit`,
 `OrderReason` 17–19 (`NotAtSite`, `NoMinerInOrder`, `HoldFull`), and the three ~1 Hz summaries in

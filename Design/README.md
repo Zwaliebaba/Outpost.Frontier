@@ -42,6 +42,28 @@ and is **one** now: character and skills, still correctly blocked on a data mode
 closed are listed below with their plates, because a worked-off row is the evidence that the
 mechanism works.
 
+## Reading order
+
+Stated rather than inferred, because four documents used to answer "what is next" and now one
+does *(2026-08-22)*.
+
+| | Read | For |
+|---|---|---|
+| 1 | this file | the index and the decisions at a glance — what exists and which ADR governs it |
+| 2 | [Plan-of-Record.md](Plan-of-Record.md) | **which slice is next, and why.** The only document that sequences |
+| 3 | the phase's build order — [Universe](Universe-Build-Order.md) · [Station](Station-Build-Order.md) · [Economy](Economy-Build-Order.md) | that slice's scope and accept, and in its **Built** lines what the neighbouring slices already did and cost |
+| 4 | the ADR that slice delivers | what the thing must actually do — **the ADR wins on *what***, the plan on *when* |
+| 5 | [Dependency-Map.md](Dependency-Map.md) | where the code goes and which suite it proves itself in |
+| 6 | [AGENTS.md](../AGENTS.md) | how to write it here |
+
+Steps 3 and 4 are the ones people invert. Read the plan's ordering before the ADR's content and
+the two rules stay straight; read them the other way and a build order starts to look like it is
+deciding something.
+
+[Risk-Register.md](Risk-Register.md) is not in that path — it is a review artefact, read at
+milestones, which is what its own header says. [Archive/](Archive/) is never in it: those
+documents are finished, and nothing owed lives only there.
+
 **Supersessions to be aware of when reading older ADRs:** ADR-012 replaces ADR-008's command
 line (there is no argv) and ADR-009's line-oriented universe format (it is JSON); ADR-010
 deletes the `NeuronCore/Math.h` the Dependency Map originally planned; ADR-013 replaces every
@@ -132,7 +154,7 @@ moves between the trees without a rename pass. Three things it changed in these 
 
 ## Deliverables
 
-- [Plan-of-Record-2026-08-22.md](Plan-of-Record-2026-08-22.md) — **the current plan.** A gap
+- [Plan-of-Record.md](Plan-of-Record.md) — **the current plan.** A gap
   analysis across the whole corpus and the five owner decisions it produced, of which the largest
   is that **touch is the primary input and the mouse a development convenience** (reversing
   ADR-020 D15.4). Everything designed and not planned, planned and not designed, or built and not
@@ -200,13 +222,14 @@ moves between the trees without a rename pass. Three things it changed in these 
   report stays as the evidence, the way the scaling review does. It also turned up one thing
   that outlived its own fix list: the **item taxonomy** its source document cites has no ADR
   here, which is recorded with the inventory.
-- [prompt-hud-economy.md](prompt-hud-economy.md) — a **build-scoping document, not a design
-  one**: the four tactical-HUD additions the built economy is owed (the MINE context verb with
-  reason parity, the MINING chip off the existing `LegEtaSeconds` seam, HOLD FULL on the roster
-  strip from `CargoStatus`, minimal `SiteStatus` cluster bars), with their accept criteria.
-  Station tabs are explicitly out of its scope — those are E5's, to the D-P2/D-P3 prints. It
-  exists because the tactical HUD is live C++ that shows *nothing* of a mining loop that is
-  built and green, which is the kind of gap a corpus notices only when somebody looks.
+- ~~`prompt-hud-economy.md`~~ — **archived 2026-08-22**:
+  [Archive/prompt-hud-economy.md](Archive/prompt-hud-economy.md). A build-scoping document for
+  the four tactical-HUD additions the built economy was owed. **Two of them landed** — the MINE
+  context verb with reason parity (2026-08-21) and the MINING chip off the `LegEtaSeconds` seam
+  (2026-08-22) — and **the two that had not moved into E5**, which is where a slice's scope
+  belongs. It is archived rather than deleted because it is the record of what those four put in
+  the tree, including two defects found by writing a gate rather than by review. It was also the
+  fifth document here that read as a plan, which is the other reason it moved.
 - [Archive/](Archive/) — corpus documents that are **finished rather than wrong**. A plan moves
   here when every slice in it is built and every open item it tracked is closed; it stays
   readable and linked because it is the record of what was built and why, and it leaves
@@ -718,7 +741,7 @@ standing at since S8 — **and four more screens have a plate here and no slice 
 command wheel), 07h (settings) and 07f+ (the map's site layer). **One item that is not screen
 work was missing too** — ADR-022's implementation slice, scheduled by A14 for "after U3c" and
 never written down. All of it is inventoried, with a home each, in
-[Plan-of-Record-2026-08-22.md](Plan-of-Record-2026-08-22.md). The system-view print remains the
+[Plan-of-Record.md](Plan-of-Record.md). The system-view print remains the
 one missing design artifact.
 
 **U3c, the second-commander gate, was that exception and it closed (run 188).** Its blockers —

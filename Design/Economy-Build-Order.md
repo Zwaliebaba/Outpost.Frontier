@@ -1,5 +1,12 @@
 # Economy Build Order — the Mining and Refining Phase
 
+**This document does not sequence** *(2026-08-22)*. It says what each E-slice contains, what its
+accept is, and — in the **Built** lines, which are most of its length — what landed and what that
+cost. **When a slice is built is [Plan-of-Record.md](Plan-of-Record.md)'s**, which sequences
+across all three phases and the work that belongs to none of them. E5 also sits behind the input model as of
+2026-08-22, for the reason the plan gives: a screen built against the mouse adaptation would be
+retrofitted for touch afterwards.
+
 **Status:** Session output 2026-08-20 · **E1a, E1b, E2, E3, E4a and E4b are built**, all six
 green in CI (run 176, commit `c44724d`, 2026-08-21 — 795 tests, `self test: PASSED` with all
 thirteen 🏁 G0 checks and 🏁 G1's mid-job restart); **E5, the two screens, is the last slice of
@@ -1022,6 +1029,34 @@ project board with its contribution history. On the tactical side, the site fiel
 Nebula pass parameter set for pockets, rock impostors for fields, clusters visibly hollowing as
 `SiteStatus` reports them — plus the MINE context action and its MINING chip, HOLD FULL on the
 roster strip, and the ore/alloy icons.
+
+**Two of those four have landed, and E5's scope did not say so** *(recorded 2026-08-22)*. **MINE
+on the context bar is built** (2026-08-21): `OrderKinds` takes the selection and is asked every
+frame rather than once at boot, `OrderKindOption` carries a `reasonCode` so a greyed verb draws
+the game's own words, and `RunMineAvailabilityGate` proves it through a real snapshot — which
+found `oreUnitLitres` unfilled, so `HoldFull` could never fire. **The MINING chip is built**
+(2026-08-22), and it took a word rather than a byte: `OrderWorkingName` answers `Mining` and null
+for every other kind, rides in `OrderPreview::workingLabel`, and `OrderGhost::Working()` is the
+predicate both draw passes share — so a working order draws no lane, no footprint and no station
+ticks, because all three promise an arrival that already happened. No wire change.
+
+**What is left of the tactical half, in the detail the annex carried:**
+
+- **HOLD FULL on the roster strip.** Per-ship litres from `CargoStatus` (owner-only, ~1 Hz,
+  capped at `MAX_CARGO_STATUS_ROWS`) as Σ `oreUnits[i] × unitVolumeLitres[i]` — from the parsed
+  `EconomyDef`, never re-authored constants — against the hull's `oreHoldLitres`. The tag appears
+  at 100 %. Fill shows only for hulls that mine; no cargo bar on a combat hull.
+- **Site fullness, minimal.** `SiteStatus`'s per-cluster `clusterFullPct` as thin bars in the
+  context zone when a site grid is focused (0–100, saturating — the wire guarantees no wrap), and
+  `epoch` checked against the client's own `SiteEpochIndex` so a stale status is tagged
+  `LAST EPOCH` rather than drawing yesterday's rocks. The field's *visual treatment* is D-C2.
+- **Rails that stay:** atlas quads only (R9), palette through `HudPalette` and no new constants,
+  the 48 px verb floor, zone metrics from `UiTuning`, and economy data from the summaries only —
+  never `EntityRecord`, which ADR-024 §4d refused and a test asserts.
+
+*The record of the four pieces above — including the two decoder and validation-view defects
+found ahead of them — is [Archive/prompt-hud-economy.md](Archive/prompt-hud-economy.md), closed
+and archived 2026-08-22 when its remaining scope moved here.*
 
 **Accept 🏁 G2:** the owner's loop in one sitting — pick a field off the system view, mine it
 until a hold fills, watch the cluster hollow, haul home, dock, move ore into the Bay, queue a

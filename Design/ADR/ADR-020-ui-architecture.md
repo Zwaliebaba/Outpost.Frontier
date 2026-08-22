@@ -547,7 +547,7 @@ place is 200 chips, so the hangar's wing columns scroll.
 >
 > **Selection gets a design for the first time.** ADR-006 §11 designed *picking* and stopped;
 > nothing designed how a player takes a fleet, on any input. The model is
-> [Plan-of-Record-2026-08-22 §1](../Plan-of-Record-2026-08-22.md): **tap selects, drag pans,
+> [Plan-of-Record §1](../Plan-of-Record.md): **tap selects, drag pans,
 > long-press commands** — and the roster row takes a wing without moving the camera, which is a
 > defect fix as much as a design (`ClientApp.cpp:855` frames unconditionally today, so the plane
 > moves under the order about to be given). **Wings are the control groups**, which is why this

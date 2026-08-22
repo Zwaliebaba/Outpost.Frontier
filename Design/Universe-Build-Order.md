@@ -1,9 +1,18 @@
 # Universe Build Order — Post-MVP Phase One
 
+**This document does not sequence** *(2026-08-22)*. It says what each U-slice contains, what its
+accept is, and — in the **Built** lines, which are most of its length — what landed and what that
+cost. **When a slice is built is [Plan-of-Record.md](Plan-of-Record.md)'s**, which sequences
+across all three phases and the work that belongs to none of them. The paragraph below is the
+state of this phase, not a claim about what happens next.
+
 **Status:** Session output 2026-08-19 · **U1, U2, U3a, U3b's sim and wire halves, U4's sim
-half, U5's pure half and U3c built** (U3c 2026-08-21). What is left in this plan is **screen
-work, with no exceptions left**: U3b's client half, U4's route feeder and icons, U5's map itself
-and U6 need a GPU and a person. **D1, U6's design gate, was drawn on 2026-08-21** — source in,
+half, U5's pure half and U3c built** (U3c 2026-08-21). What is left here is **screen work**:
+U3b's client half, U4's route feeder and icons, U5's map itself and U6 need a GPU and a person —
+~~with no exceptions left~~ **and, as of 2026-08-22, behind the input model the plan of record
+establishes**, since a screen built against the mouse adaptation would be retrofitted for touch
+afterwards. **U5 also grew a fifth overlay it does not yet mention** — the RESOURCES site layer,
+drawn 2026-08-22, tracked as N7 in the plan. **D1, U6's design gate, was drawn on 2026-08-21** — source in,
 plate and four rulings owed. U3c was the exception and it is done — it split into **U3c-a**
 (ownership in the simulation) and **U3c-b** (the second commander on the wire), because a ship
 had no owner and minting a second id against a registry where both commanders owned everything
