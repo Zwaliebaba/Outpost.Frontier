@@ -546,6 +546,23 @@ shared way `Undock` is.
 
 #### 5d. The CARGO tab, as drawn *(D-P2, 2026-08-21)*
 
+> **Ruling, 2026-08-22 — fill order is content-declared order, and one ruling closed three.**
+> When a transfer, a fill or a scoop cannot take everything, items move in the order content
+> declares them: Ferro-Chroma → Astracite → Nebulite, and each later family's own declared order
+> after that. This settles **this section's ore-order-on-a-fill**, **D-P2 §3's** statement of it
+> and **D-P6 §3's partial-scoop order** — the three appearances §5b already predicted would close
+> together.
+>
+> **The argument is not fairness, it is stability.** Value-density order needs a price table and
+> there is no market, so a rule computed from prices would silently re-order itself the day the
+> market phase tunes one — a player who learned the rule would find it changed with no patch note.
+> Content order is stable, teachable, and already the order every screen lists items in, so the
+> rule learned on the CARGO tab is the rule a wreck obeys. A later phase wanting density gets a
+> new rule with a name rather than this one drifting.
+>
+> The general form lives in [ADR-027 §2](ADR-027-item-taxonomy.md), which is where item rules
+> belong now that the taxonomy has an ADR in this corpus.
+
 [cargo-tab.png](../ScreenPrints/cargo-tab.png) is the surface §5c names, and it made six
 calls this ADR deliberately left to a print. They are recorded here because two of them reach
 past the screen.

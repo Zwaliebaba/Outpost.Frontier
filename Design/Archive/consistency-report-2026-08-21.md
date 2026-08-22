@@ -12,7 +12,7 @@ ADR in this corpus, so D-P2's "ore is the first family of many" is currently unc
 
 It stays readable because it is the evidence — the same reason
 [Scaling-Readiness-Review.md](Scaling-Readiness-Review.md) does. Nothing owed lives only here.
-The one live document it points at, [prompt-hud-economy.md](../prompt-hud-economy.md), is still
+The one live document it points at, [prompt-hud-economy.md](prompt-hud-economy.md), is still
 at the top level because its work is not done.
 
 **A caveat for anyone reading it later.** The scope line below describes `main` as it stood in
@@ -40,7 +40,7 @@ D-P2 ↔ D-P3 agree on tier tag, Bay contents, privacy language; Alerts' WALL-TI
 covers "long industry job finished while away" (now the refinery, no change needed).
 
 ## Implemented-code impact → prompt-hud-economy.md
-The tactical HUD is live C++ and shows nothing of the built economy. [prompt-hud-economy.md](../prompt-hud-economy.md)
+The tactical HUD is live C++ and shows nothing of the built economy. [prompt-hud-economy.md](prompt-hud-economy.md)
 (new) scopes the four additions for Claude Code: MINE context verb (reason parity 17–19),
 MINING chip via the LegEtaSeconds seam, HOLD FULL on the roster strip from CargoStatus,
 minimal SiteStatus cluster bars. Station tabs stay E5's, to the D-P2/D-P3 prints.

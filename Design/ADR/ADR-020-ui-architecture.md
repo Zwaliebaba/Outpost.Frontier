@@ -410,10 +410,13 @@ channel, so the next press is captured rather than acted on. `InputMap.h:57–77
 hardcoded actions become a table `Window` reads, and bindings persist in the user layer
 beside the other families (D15.5; ADR-012 §3).
 
-**Touch and pad are off the roadmap** (D15.4). No pointer abstraction beyond the mouse is
-built, reserved or hinted at — building one speculatively is what this clause refuses. **48 px
+~~**Touch and pad are off the roadmap** (D15.4). No pointer abstraction beyond the mouse is
+built, reserved or hinted at — building one speculatively is what this clause refuses.~~
+**Reversed 2026-08-22 — see the amendment at the end of this ADR: touch is the primary input and
+the mouse is a development convenience.** **48 px
 stays target-size discipline**, generalised from `CommandRow.h:76–83` to every interactive
-widget: a floor in real pixels, enforced and not scaled, exactly as `settings.png` states it.
+widget: a floor in real pixels, enforced and not scaled, exactly as `settings.png` states it —
+and it is the one part of D15.4 the reversal keeps, because it was always a touch floor.
 
 **Toasts gain an action payload** (D15.5): an opaque `(actionKind, actionTarget)` pair beside
 `sourceKey`, plus an action label supplied by the game as `RosterRow::name` and `ReasonText`
@@ -509,3 +512,83 @@ place is 200 chips, so the hangar's wing columns scroll.
   `station-screen.png` §3's composer persistence (§5 — session lifetime, cleared on undock,
   validated on entry) and `settings.png` §3's keybind surface (§8 — yes, in the settings
   screen's first slice).
+
+---
+
+> **Amendment, 2026-08-22 — D15.4 is reversed: touch is the primary input and the mouse is a
+> development convenience.**
+>
+> The owner ruled it, and what makes it an amendment rather than a change of mind is that the
+> corpus never agreed with D15.4 in the first place. `puck-and-wheel.png` is a **touch** design
+> throughout — §1's modality table turns on a long-press, §2's puck spends a *second finger* on
+> arrival facing, §3's wheel rotates so HOLD lands under the holding thumb, and the probe ladder
+> is stepped by a pinch. This repository built §2 for a mouse and said so where it did it
+> (`OrderPuck.h:21`: *"The print draws a touch gesture and this is a mouse"*), and D15.4 then
+> generalised one slice's adaptation into a roadmap. **The clause described the code and called
+> itself a decision**, which is the failure mode this ADR's own §6 leak test exists to catch one
+> level down.
+>
+> **What is reversed, precisely.** "No pointer abstraction beyond the mouse is built, reserved or
+> hinted at" is replaced by: **the pointer abstraction is the seam, and the mouse is expressed
+> through it.** Not beside it — a second path would drift, and the drift would be invisible
+> because the mouse is what the developer uses and the touch path is what ships.
+>
+> **48 px survives untouched, and now for its real reason.** It was always a touch floor; D15.4
+> kept the number and dropped the argument. `settings.png` states it, `CommandRow.h:76-83`
+> enforces it, and every widget added since has obeyed it — so nothing built under D15.4 has to
+> be revisited for target size, which is the one thing that would have made this reversal
+> expensive.
+>
+> **Keybindings are demoted, not dropped.** D15.3's capture control stands and the settings
+> screen still owns it. What changes is that **no interaction may require a key**: a binding is
+> an accelerator for a desk, and a design that needs one has failed the primary input. That rule
+> is the load-bearing half of this amendment — without it D15.4 re-forms one convenience at a
+> time.
+>
+> **Selection gets a design for the first time.** ADR-006 §11 designed *picking* and stopped;
+> nothing designed how a player takes a fleet, on any input. The model is
+> [Plan-of-Record §1](../Plan-of-Record.md): **tap selects, drag pans,
+> long-press commands** — and the roster row takes a wing without moving the camera, which is a
+> defect fix as much as a design (`ClientApp.cpp:855` frames unconditionally today, so the plane
+> moves under the order about to be given). **Wings are the control groups**, which is why this
+> needs no keys and no user-layer storage: `AssignWing` already mints emergent ids 1..255 on the
+> shard. Box-select is dropped with two-finger drag reserved, because once drag is the camera it
+> has no home and the corpus never drew one.
+>
+> **The command wheel is therefore built, not superseded.** It is half the order model — under
+> §1's table, ATTACK and ABILITY have no other entry point — and `MAX_ORDER_KINDS = 8`
+> (`OrderIntent.h:383`) stops being circular the day it is real. The verb taxonomy the row and
+> the wheel share is unchanged: a verb that names no destination is issued by the press that lit
+> it, a verb that needs a placement opens the puck, a verb that targets a thing rides the
+> approach chain, and a verb that names a remote anchor belongs to the map or the system view.
+>
+> **And that taxonomy now has an answer for the two verbs that were guessing** *(owner ruling,
+> 2026-08-22)*. `OrderKindNamesDestination` (`Orders.cpp:107`) returns false only for Mine and
+> Dock, so Stance and Abilities need a placement gesture — and the function's own comment admits
+> that is a default rather than a decision: *"written as the exceptions rather than as the rule,
+> so a kind added without an answer defaults to needing a gesture."* The ruling splits them:
+>
+> - **Stance is selection-only.** A posture is not a placement. It joins Dock and Mine — issued
+>   by the press that lit it, pre-judged from the selection alone, with its value on the row's
+>   parameter chip. On the wheel it is a sector that arms a sub-wheel of stances, which is what
+>   §3's cascade is for.
+> - **Abilities keep a placement**, because §1's table says so: **ABILITY + long-press empty
+>   space is "PUCK — targeted ground"**. Abilities are a family, not a verb — some target ground,
+>   some an entity, some the selection itself — and the table draws all three cells differently.
+>   A single `Abilities` kind with a parameter is therefore too coarse to survive combat, and
+>   that is a combat-phase problem named here rather than discovered there.
+>
+> **It is ruled now because the input model is about to be built against it.** Neither has content,
+> so the change costs nothing today; deciding after I1–I3 would mean changing an input model that
+> screens already depend on. The code change is one line in `Orders.cpp`'s exception list plus its
+> parity row — and the row is the point, because `OrderKindNamesDestination` decides two things at
+> once (whether a kind can be pre-judged and whether a press can issue it), and a surface that
+> answered them differently would be incoherent.
+>
+> **What this costs, named rather than discovered.** The three input slices (I1 the seam, I2
+> selection, I3 the order surfaces) are new work; I1 and I2 are device-free and testable in
+> `NeuronClientTests` like everything else here. **I3 is the first slice in this corpus whose
+> accept requires hardware nobody has** — a touch display — and that is a procurement question,
+> not an engineering one. Every screen slice still owed now sits *behind* the input model rather
+> than beside it, because building a screen against the mouse adaptation and re-fitting it after
+> is the retrofit T3 and U6 both refuse in their own sequencing clauses.

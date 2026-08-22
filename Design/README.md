@@ -42,6 +42,28 @@ and is **one** now: character and skills, still correctly blocked on a data mode
 closed are listed below with their plates, because a worked-off row is the evidence that the
 mechanism works.
 
+## Reading order
+
+Stated rather than inferred, because four documents used to answer "what is next" and now one
+does *(2026-08-22)*.
+
+| | Read | For |
+|---|---|---|
+| 1 | this file | the index and the decisions at a glance — what exists and which ADR governs it |
+| 2 | [Plan-of-Record.md](Plan-of-Record.md) | **which slice is next, and why.** The only document that sequences |
+| 3 | the phase's build order — [Universe](Universe-Build-Order.md) · [Station](Station-Build-Order.md) · [Economy](Economy-Build-Order.md) | that slice's scope and accept, and in its **Built** lines what the neighbouring slices already did and cost |
+| 4 | the ADR that slice delivers | what the thing must actually do — **the ADR wins on *what***, the plan on *when* |
+| 5 | [Dependency-Map.md](Dependency-Map.md) | where the code goes and which suite it proves itself in |
+| 6 | [AGENTS.md](../AGENTS.md) | how to write it here |
+
+Steps 3 and 4 are the ones people invert. Read the plan's ordering before the ADR's content and
+the two rules stay straight; read them the other way and a build order starts to look like it is
+deciding something.
+
+[Risk-Register.md](Risk-Register.md) is not in that path — it is a review artefact, read at
+milestones, which is what its own header says. [Archive/](Archive/) is never in it: those
+documents are finished, and nothing owed lives only there.
+
 **Supersessions to be aware of when reading older ADRs:** ADR-012 replaces ADR-008's command
 line (there is no argv) and ADR-009's line-oriented universe format (it is JSON); ADR-010
 deletes the `NeuronCore/Math.h` the Dependency Map originally planned; ADR-013 replaces every
@@ -116,6 +138,7 @@ and delta, this is why.
 | [024](ADR/ADR-024-mining-economy.md) | Mining economy *(economy design session — **accepted** 2026-08-20, nine owner rulings recorded across two review rounds)* | **Three ores across 2–3 `Site` anchors per system** (ADR-016 §3's reserved kind cashed in) that **re-form on a daily epoch** — bearing on an authored orbit ring, warp-in, layout, pools — banded by the existing security value with hazards staged pre/post-combat; a fleet `Mine` order with deterministic cycles and a durable site ledger (worlds forget, ledgers do not); every economy number in hash-guarded content (`Economy.json`, ADR-012 §D13), movement staying compiled; per-station Bays, manual transfer, deterministic ME refining with communal station-tier upgrades — Nova-Steel refinable only outside High-Sec; **persistence becomes due**: an engine-owned journal + snapshot at the universe layer, its ADR a named deliverable blocking implementation |
 | [025](ADR/ADR-025-persistence.md) | Persistence *(deliverable D-P1 — **accepted** 2026-08-20; clears E2's gate)* | **An engine-owned append-only journal plus a periodic snapshot**, serialised on Sim and written on its own lane; the durable line is **identity and location, never intention** — a fleet reloads at rest with an empty queue; records are **outcomes, not commands**, so the journal is explicitly *not* the replay log; a separate **`DurableHash()`** proves the reload because the replay hash folds transient state; the load guards on `universeHash` **only**, so retuning balance never invalidates a shard; a **named one-second** durability window on hard kill and nothing on a clean stop; SQL staged to the service layer |
 | [026](ADR/ADR-026-obstructed-footprints.md) | Obstructed footprints *(closes the corpus's oldest open item — **accepted** 2026-08-20, four owner rulings)* | **Solve, then slide**: a formation whose solved stations land in a hull, a gate or another fleet moves **whole** to the nearest free placement, shape and facing preserved — never deformed, never refused. Free is `FindBerth`'s predicate exactly (ADR-015's clearance factor + no other group's final-leg anchor, **pending orders included**), extracted so there is one copy and two callers. Two rings sized from the formation's own extent, fanned from the **approach** bearing so a blocked fleet stops short rather than overshooting; all 24 taken means fly to the asked point anyway, which **demotes ADR-015 §5's occupied-destination outcome to the fallback**. Placed when the leg becomes **active**, not at submission, so a queued leg is judged against the world it will actually fly in. The puck's preview is **advisory and allowed to differ** — the one such place in the game, safe because §4 means nothing can bounce — since `OrderStateRecord` carries no leg anchors and buying them costs ~2 ships off a cap with margin one |
+| [027](ADR/ADR-027-item-taxonomy.md) | The item taxonomy *(closes the standing upstream-citation gap — **accepted** 2026-08-22, drafted from the prints)* | **An item is a `u16 ItemTypeId` and a holding is `(item, units, litres)`** — litres derived, never stored, so a stack cannot disagree with its own type. Families are display grouping and **fill order is content-declared order** (one ruling closing three). **Fungible or instance**, declared in content, and fungibility is the market's admission rule rather than a hint — no instance item exists and none may be added without naming the surface that trades it. Three container kinds are grounded and normative; the prints' *six* is not restated, because the other three are nowhere in this corpus and naming them would be inventing them. **§6 flags every assumption**, which is what makes a print-drafted ADR correctable rather than authoritative-by-accident |
 
 ## Coding standard
 
@@ -132,6 +155,13 @@ moves between the trees without a rename pass. Three things it changed in these 
 
 ## Deliverables
 
+- [Plan-of-Record.md](Plan-of-Record.md) — **the current plan.** A gap
+  analysis across the whole corpus and the five owner decisions it produced, of which the largest
+  is that **touch is the primary input and the mouse a development convenience** (reversing
+  ADR-020 D15.4). Everything designed and not planned, planned and not designed, or built and not
+  recorded, with a home each: eight slices that had none — ADR-022's implementation among them —
+  the input model as its own phase, and the sequence they land in. Read it before starting a
+  slice; the three build orders below say *when* within a phase, and this says which phase.
 - [Architecture-Overview.md](Architecture-Overview.md) — process model, the one data flow,
   time model, frame/tick anatomy, deliberate omissions, corpus alignment.
 - [Dependency-Map.md](Dependency-Map.md) — allowed edges, per-project public surface
@@ -193,13 +223,14 @@ moves between the trees without a rename pass. Three things it changed in these 
   report stays as the evidence, the way the scaling review does. It also turned up one thing
   that outlived its own fix list: the **item taxonomy** its source document cites has no ADR
   here, which is recorded with the inventory.
-- [prompt-hud-economy.md](prompt-hud-economy.md) — a **build-scoping document, not a design
-  one**: the four tactical-HUD additions the built economy is owed (the MINE context verb with
-  reason parity, the MINING chip off the existing `LegEtaSeconds` seam, HOLD FULL on the roster
-  strip from `CargoStatus`, minimal `SiteStatus` cluster bars), with their accept criteria.
-  Station tabs are explicitly out of its scope — those are E5's, to the D-P2/D-P3 prints. It
-  exists because the tactical HUD is live C++ that shows *nothing* of a mining loop that is
-  built and green, which is the kind of gap a corpus notices only when somebody looks.
+- ~~`prompt-hud-economy.md`~~ — **archived 2026-08-22**:
+  [Archive/prompt-hud-economy.md](Archive/prompt-hud-economy.md). A build-scoping document for
+  the four tactical-HUD additions the built economy was owed. **Two of them landed** — the MINE
+  context verb with reason parity (2026-08-21) and the MINING chip off the `LegEtaSeconds` seam
+  (2026-08-22) — and **the two that had not moved into E5**, which is where a slice's scope
+  belongs. It is archived rather than deleted because it is the record of what those four put in
+  the tree, including two defects found by writing a gate rather than by review. It was also the
+  fifth document here that read as a plan, which is the other reason it moved.
 - [Archive/](Archive/) — corpus documents that are **finished rather than wrong**. A plan moves
   here when every slice in it is built and every open item it tracked is closed; it stays
   readable and linked because it is the record of what was built and why, and it leaves
@@ -275,12 +306,21 @@ categories, instance items explicitly excluded) and D-P6's "one component, six c
 The earlier version of this note said items 1, 2 and 3 could not be *designed* until the
 taxonomy landed. They were designed anyway, as **declared** forward designs, because a print
 that states its posture in an amber banner is worth more than a blank — but that was a decision
-to spend the debt, not to clear it. The conclusion is unchanged and now more expensive: **the
-taxonomy ADR is owed**, and until it lands (or the upstream document is explicitly declared out
-of scope) five plates cite a document this repository cannot follow, which is the failure mode
-this file's supersession list exists to prevent.
+to spend the debt, not to clear it.
 
-### Open rulings the 2026-08-22 prints name *(fifteen, none blocking)*
+**The taxonomy half of that debt was paid the same day:
+[ADR-027](ADR/ADR-027-item-taxonomy.md), 2026-08-22.** Drafted from the three citing prints
+rather than from the upstream source, by owner ruling, on the argument that the prints already
+constrain it hard — the `(item, units, litres)` triple, fungible-only admission, three flat
+categories, one component per container kind — and that a draft with **§6 flagging every
+assumption** is correctable where a blank is not. Two things it deliberately does *not* do: it
+does not restate the *six* container kinds (three are grounded here and normative; the other
+three are nowhere in this corpus, and naming them would be inventing them), and it does not claim
+to report what the upstream document says. **The fleet-template design is now the whole of the
+remaining debt** — two plates rest on it, P1 contextually and D-P5 directly and by its numbers,
+and the fleet ADR is owed the way the taxonomy one was.
+
+### Open rulings the 2026-08-22 prints name *(fifteen — **four closed 2026-08-22**, none blocking)*
 
 The economy's eight are tracked with their prints in
 [Economy-Build-Order.md](Economy-Build-Order.md), where a build order owns them. These have no
@@ -308,9 +348,11 @@ that is not being built, and each is named on its plate's §3 as well as here.
 
 **D-P5, fleet management — four for the fleet ADR:**
 
-5. **Where a template is stored** — account-side ("templates follow the account", as drawn) or
-   device-local. **The third screen to ask 07h's settings question**; it deserves one answer
-   rather than three.
+5. ~~**Where a template is stored**~~ — **answered 2026-08-22: device-local**, with the account
+   service as the named reopen trigger ([ADR-012 §3](ADR/ADR-012-configuration-and-json.md)). It
+   deserved one answer rather than three and got one: this closes #15 and `settings.png` §3 with
+   it. The only answer the corpus can honour — ADR-023 states it does not design the account
+   service — and the expectation on reopen is that a template *will* follow the player.
 6. **Deploying with damaged hulls** — does a hull with a worn gauge count against NEED?
    Proposed yes, with the row saying so. Repair-by-absence makes it moot at a station, but
    remote deploys will ask.
@@ -324,13 +366,18 @@ that is not being built, and each is named on its plate's §3 as well as here.
 
 9. **Wreck stack visibility** — proposed public to everyone on grid, which finders-keepers
    (ADR-024 §5b) implies; scan-to-reveal is future intel gameplay.
-10. **Partial-scoop order** — when not everything fits, value density or stack order? This is
-    **the same question as D-P2's ore-order-on-a-fill, in its third appearance**, and one
-    ruling should close all three at once.
+10. ~~**Partial-scoop order**~~ — **answered 2026-08-22: content-declared order**
+    ([ADR-027 §2](ADR/ADR-027-item-taxonomy.md), [ADR-024 §5d](ADR/ADR-024-mining-economy.md)).
+    One ruling closed all three appearances, as predicted. Not fairness but stability: value
+    density needs a price table, and a rule computed from prices would re-order itself the day
+    the market tunes one.
 11. **Deploying manifest visibility** — the assembly is announced; whether its *manifest* is
     too (a scout reading what a forming fleet carries) is a real intel decision.
-12. **The item-taxonomy ADR itself** — the standing gap above, which this is the third print to
-    cite. Listed here as well as there because a debt named twice is a debt someone pays.
+12. ~~**The item-taxonomy ADR itself**~~ — **delivered 2026-08-22:**
+    [ADR-027](ADR/ADR-027-item-taxonomy.md). A debt named twice was a debt someone paid. Drafted
+    from the three citing prints by owner ruling, with **§6 flagging every assumption** — including
+    that the *six* container kinds are not restated, because three of them are nowhere in this
+    corpus and naming them would be inventing them.
 
 **The strategic map's site layer — three:**
 
@@ -339,19 +386,19 @@ that is not being built, and each is named on its plate's §3 as well as here.
     pings carry reporter identity for exactly that reason.
 14. **Faded High-Sec pockets** (ADR-024 ruling 1b) — tagged FADED in the panel as proposed, or
     given their own pip state? The tag teaches the geography lesson only after a click.
-15. **Where the scouting journal persists** — device-local or account-side. **07h's question a
-    third time**, now with gameplay stakes: a second tablet that forgot your scouting is a real
-    loss. The same answer as #5, or a deliberate reason why not.
+15. ~~**Where the scouting journal persists**~~ — **answered with #5, 2026-08-22: device-local**,
+    same reopen trigger. It was 07h's question a third time and all three closed together.
 
-- [Risk-Register.md](Risk-Register.md) — R1–R27 with designed-in mitigations + standing spikes.
+- [Risk-Register.md](Risk-Register.md) — R1–R28 with designed-in mitigations + standing spikes.
   R1, R6 and R14 are marked realised, with what actually happened; **R22 is realised twice —
   closed 2026-08-20, reopened and root-caused 2026-08-21** when the Debug hang came back and
   the blame collector finally named it: a lost wake-up in `TaskPool::Stop`, not the msquic
   lifecycle the row had spent two days suspecting. R23 — a gating test that flakes — is the
   one question that did not close with it. **R24 and R25 arrived with ADR-024** — the economy's two: faucet-without-sink
   inflation, and High-Sec site contention — **R26 with ADR-025**, the one persistence
-  brings: a torn journal or a refused load taking a shard's state with it. **R27 arrived with
-  U3c-b (2026-08-21)**: sessions now survive a disconnect, and the token that claims one back is
+  brings: a torn journal or a refused load taking a shard's state with it. **R28 arrived with
+  U3c-b (2026-08-21)** *(numbered R27 until 2026-08-22, when it was found to collide with the
+  epoch row E2 had already taken)*: sessions now survive a disconnect, and the token that claims one back is
   a **bearer credential nothing authenticates** — bounded by being unguessable, single-use and
   two minutes long, and named here rather than left in a header comment, because "the shard has
   identity and no authentication" is a statement about the product and not about a file.
@@ -701,9 +748,16 @@ slice** as `Stargate.obj` rather than the `Gate.obj` the ADR named, so the Struc
 was never used; its export carried a sixth material the five-material palette does not have,
 authored onto `accent`, whose colour it already was.
 
-**What is not built is screen work, and as of 2026-08-21 there are no exceptions.** U3b's
-client half, U4's route feeder and icons, U5's map itself and U6 need a GPU and a person, which
-is the same wall S5 and R1 have been standing at since S8. The system-view print remains the
+~~**What is not built is screen work, and as of 2026-08-21 there are no exceptions.**~~
+**Corrected 2026-08-22 — that sentence was true of the build orders and not of the corpus, which
+is exactly the gap it claimed there was none of.** U3b's client half, U4's route feeder and
+icons, U5's map itself and U6 need a GPU and a person, which is the same wall S5 and R1 have been
+standing at since S8 — **and four more screens have a plate here and no slice anywhere**: 07e
+(session surfaces, blocked on the account service ADR-023 declines to design), 07g §3 (the
+command wheel), 07h (settings) and 07f+ (the map's site layer). **One item that is not screen
+work was missing too** — ADR-022's implementation slice, scheduled by A14 for "after U3c" and
+never written down. All of it is inventoried, with a home each, in
+[Plan-of-Record.md](Plan-of-Record.md). The system-view print remains the
 one missing design artifact.
 
 **U3c, the second-commander gate, was that exception and it closed (run 188).** Its blockers —
