@@ -114,8 +114,10 @@ the round-trip, and fixed by giving `JsonWriter` a `const char*` overload), and 
 overflow squaring universe-plane deltas — 1.2e16² does not fit — which made "nearest" mean
 "furthest" **and was then reintroduced in the test written to check the property it broke**.
 `DistanceSquared` now takes an explicit shift and the scales are named constants.
-**Still owed:** `Ids.h`'s scale comment is corrected, but the deterministic per-order arrival
-offset (D18) has only the anchor fields reserved for it — the rule itself is U3a's.
+~~**Still owed:** `Ids.h`'s scale comment is corrected, but the deterministic per-order arrival
+offset (D18) has only the anchor fields reserved for it — the rule itself is U3a's.~~ **The rule
+was not U3a's, because U3a's own note then said it owed nothing** — see U3a below. The fields
+this slice reserved were read for the first time on 2026-08-22 by **N4**.
 
 ### U2 — Anchors and the world registry
 **Gate (ADR-018): both cleared — A1 is delivered
@@ -237,9 +239,19 @@ and there is one host, which is exactly when a timing table gets tuned under a f
 anybody noticing. A test asks the nearest pair of anchors in a system, which is the case that
 would breach it.
 
-**Still owed by U3a:** nothing. `etaSeconds` during transit landed with U3b's summaries
+~~**Still owed by U3a:** nothing.~~ `etaSeconds` during transit landed with U3b's summaries
 below, which is where it belongs: a fleet mid-crossing is in no world, so no grid's order
 records can carry it.
+
+**One thing was owed and this line is why nobody found it: D18's arrival offset.** U1 wrote
+`arrivalSpreadRadiusCm` into every anchor and said *"the offset rule is U3a's"*; this line then
+said U3a owed nothing. Two slices each believed the other had it, and the field was baked,
+parsed, hashed and read by nothing for three days while `ApplyTransit` placed every crossing on
+the raw `warpInPoint` — so two fleets warping to one hub on one tick landed on top of each other
+and were pushed apart by ADR-015 separation afterwards. **Closed 2026-08-22 as N4**; the rule and
+its numbers are with [ADR-018 D18](ADR/ADR-018-scaling-baseline.md). Worth reading as a pattern
+rather than as one bug: *"still owed: nothing"* is a claim about a slice's own list, and the item
+that gets lost is always the one another slice put on it.
 
 ### U3b — Warp on the wire and on screen
 Per-grid snapshots (grid identity in the header — the smear guard), the view request,

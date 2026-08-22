@@ -3,6 +3,7 @@
 #include "WorldRegistry.h"
 
 #include "DurableState.h"
+#include "FixedAngle.h"
 #include "Formation.h"
 #include "ShipClass.h"
 #include "SiteEpoch.h"
@@ -13,6 +14,7 @@
 #include "Hash.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <iterator>
 #include <string>
 #include <utility>
@@ -22,6 +24,90 @@ namespace Game
 {
 namespace
 {
+
+/*
+ * --- arrival contention (ADR-018 D18) --------------------------------------
+ *
+ * How far around the arrival ring each successive crossing steps.
+ *
+ * 159 of 256 steps is 223.6 degrees, which is the golden angle read the long
+ * way round -- the stride that keeps consecutive numbers as far apart as a
+ * fixed step can. That matters here and nowhere else in this file: crossings
+ * filed in the same tick carry *consecutive* counters, so a burst arriving
+ * together is exactly the case a naive stride would place in a neat clump.
+ *
+ * 256 has no odd factors, so any odd stride visits every step before repeating
+ * and 159 is odd. A stride of 158 would have been marginally closer to the
+ * golden angle and would have used half the ring.
+ */
+inline constexpr std::uint32_t ARRIVAL_BEARING_STRIDE = 159;
+
+/*
+ * And what a second host is worth, so two of them filing the same counter in
+ * the same tick do not choose the same slot (ADR-019 §6.3).
+ *
+ * Odd, for the stride's reason, and deliberately not a factor or multiple of
+ * it: 83 is prime, so `host * 83` walks its own sequence through the ring
+ * rather than shadowing the counter's. There is one host today and this costs
+ * nothing; what it buys is that the day there are two, the fix is not a bug
+ * report about fleets landing on each other across a shard boundary.
+ */
+inline constexpr std::uint32_t ARRIVAL_HOST_STRIDE = 83;
+
+/*
+ * Where this crossing arrives, as an offset from the anchor's authored warp-in
+ * point (ADR-018 D18).
+ *
+ * **Integer angles throughout**, which is ADR-016 §2's rule and not a
+ * preference: this decides a position in the replay domain, and `std::sin` is
+ * not a promise any two compilers make identically. `FixedAngle.h`'s table is
+ * the same one the bake places warp-in points with, so an arrival slot is
+ * computed the way the point it is measured from was.
+ *
+ * The radius is the anchor's own reserved room, which the bake has written
+ * since U1 and nothing has read until now. A zero -- an anchor that reserves no
+ * room, which the shipped bake never produces but a hand-edited universe may --
+ * puts every arrival back on the authored point, which is the behaviour that
+ * was there before this existed.
+ */
+[[nodiscard]] LocalOffsetCm ArrivalSpreadCm(const TransferId& _id, const Anchor& _anchor) noexcept
+{
+  if (_anchor.arrivalSpreadRadiusCm <= 0)
+  {
+    return LocalOffsetCm{};
+  }
+
+  /*
+   * Clamped to the room the grid actually has, per component.
+   *
+   * The bake leaves plenty -- the widest standoff is 5 km and a site's reach is
+   * asserted to fit -- so this never binds on shipped content. It is here for
+   * the file `UniverseParse` will accept, which may set the radius as high as
+   * the grid's own half-extent: a ring that size would place arrivals outside
+   * the world they are arriving in. Shrinking the ring keeps every slot
+   * distinct, which clamping the finished *point* would not: two crossings
+   * pushed against the same edge would land on it together, which is the
+   * stacking this whole function exists to stop.
+   */
+  const std::int64_t bound = GRID_HALF_EXTENT_METRES * 100;
+  const std::int64_t furthest = std::max(std::abs(static_cast<std::int64_t>(_anchor.warpInPoint.x)),
+                                         std::abs(static_cast<std::int64_t>(_anchor.warpInPoint.y)));
+  const std::int64_t radius =
+    std::min(static_cast<std::int64_t>(_anchor.arrivalSpreadRadiusCm), std::max<std::int64_t>(0, bound - furthest));
+  if (radius <= 0)
+  {
+    return LocalOffsetCm{};
+  }
+
+  /*
+   * The multiply may wrap, and the answer is still exact: 256 divides 2^32, so
+   * reducing mod 2^32 first -- which is what unsigned overflow does -- cannot
+   * change the result mod 256. A shard that has filed four billion crossings
+   * gets the same ring it would have got with unbounded arithmetic.
+   */
+  const std::uint32_t step = (_id.counter * ARRIVAL_BEARING_STRIDE + _id.host * ARRIVAL_HOST_STRIDE) % ANGLE_STEPS;
+  return PolarOffsetCm(static_cast<std::int32_t>(radius), step);
+}
 
 /*
  * A world's seed, from (session seed, anchor id) -- ADR-016 §4.
@@ -1154,7 +1240,7 @@ void WorldRegistry::ApplyDueTransfers()
     }
     else if (record.what.kind == TransferKind::Transit)
     {
-      ApplyTransit(record.what);
+      ApplyTransit(record.what, record.id);
     }
     else if (record.what.kind == TransferKind::MineYield)
     {
@@ -1368,7 +1454,7 @@ void WorldRegistry::ApplyMineYield(const TransferRequest& _request)
   }
 }
 
-void WorldRegistry::ApplyTransit(const TransferRequest& _request)
+void WorldRegistry::ApplyTransit(const TransferRequest& _request, const TransferId& _id)
 {
   const Anchor* anchor = m_universe == nullptr ? nullptr : m_universe->FindAnchor(_request.anchor);
   if (anchor == nullptr)
@@ -1384,8 +1470,26 @@ void WorldRegistry::ApplyTransit(const TransferRequest& _request)
     return;
   }
 
-  const DirectX::XMFLOAT2 arrival{Neuron::CentimetresToMetres(static_cast<std::int32_t>(anchor->warpInPoint.x)),
-                                  Neuron::CentimetresToMetres(static_cast<std::int32_t>(anchor->warpInPoint.y))};
+  /*
+   * The authored point, plus this crossing's own place on the arrival ring
+   * (ADR-018 D18).
+   *
+   * The anchor keeps **one** authored warp-in point -- D18 is explicit that
+   * contention must not turn into a second authored field -- so what spreads
+   * simultaneous arrivals is an offset computed from the record that is
+   * arriving. Until this landed every crossing was placed on the raw point, and
+   * two fleets warping to one hub on one tick were laid on top of each other
+   * and pushed apart by ADR-015 separation afterwards: the stacking D18 exists
+   * to prevent, resolved by the mechanism that is supposed to be the backstop.
+   *
+   * **The facing does not move with the point.** ADR-016 §3 has the formation
+   * solve centring on the warp-in point *with the authored facing*, and that
+   * half is untouched: a fleet arriving in the third slot rather than the first
+   * still faces the way the content says arrivals face.
+   */
+  const LocalOffsetCm spread = ArrivalSpreadCm(_id, *anchor);
+  const DirectX::XMFLOAT2 arrival{Neuron::CentimetresToMetres(anchor->warpInPoint.x + spread.x),
+                                  Neuron::CentimetresToMetres(anchor->warpInPoint.y + spread.y)};
   const float facing = Neuron::HeadingToRadians(anchor->warpInFacingTurns16);
 
   struct MemberLookup

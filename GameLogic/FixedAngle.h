@@ -80,4 +80,28 @@ inline constexpr std::array<std::int32_t, 65> SIN_QUARTER = {
   return UniversePos{(_radiusMetres * CosStep(_step)) >> SIN_SCALE_BITS, (_radiusMetres * SinStep(_step)) >> SIN_SCALE_BITS};
 }
 
+/*
+ * The same point, in the *grid's* units: centimetres, as a local offset.
+ *
+ * A second function rather than a cast at the call site, and the reason is a
+ * rule rather than taste. `UniversePos` is the universe *coordinate*, and
+ * ADR-009 §2 keeps it out of everything that is not placement -- CI enforces
+ * that by name, with no exceptions, because universe-scale arithmetic on the
+ * per-tick path is the defect the rule exists to make impossible. A bearing
+ * inside one grid is not that arithmetic: it is centimetres about a local
+ * origin, and it should not have to borrow the universe's type to be computed.
+ * `SiteEpoch` borrowed it and converted, which was fine there because that file
+ * *is* placement; N4's arrival ring is not, and would have had to widen the
+ * exclusion list to say so.
+ *
+ * `int32` in and out, which is what a grid-local offset is: the whole grid is
+ * 40 km across, so anything that does not fit was never a point on one.
+ */
+[[nodiscard]] inline LocalOffsetCm PolarOffsetCm(std::int32_t _radiusCm, std::uint32_t _step) noexcept
+{
+  const std::int64_t radius = _radiusCm;
+  return LocalOffsetCm{static_cast<std::int32_t>((radius * CosStep(_step)) >> SIN_SCALE_BITS),
+                       static_cast<std::int32_t>((radius * SinStep(_step)) >> SIN_SCALE_BITS)};
+}
+
 } // namespace Game

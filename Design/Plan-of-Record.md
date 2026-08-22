@@ -1,7 +1,7 @@
 # Plan of Record
 
 **Status:** standing document, **revised in place** · opened 2026-08-22 · current as of
-2026-08-22 (U3d-a, U3d-b, N2 and N5 built). **This is the only document that says what is built next.** The three build orders
+2026-08-22 (U3d-a, U3d-b, N2, N5 and N4 built). **This is the only document that says what is built next.** The three build orders
 say what a slice *contains* and record what happened when it landed; this one says which slice,
 and when. Where it and an ADR disagree the ADR wins on *what*, which is the rule the build
 orders already run under.
@@ -133,7 +133,7 @@ is a decision rather than a surprise.
 | ~~**N2**~~ | ~~**The user layer**~~ — **built 2026-08-22** | ~~ADR-012 §3 calls `Settings.json` "the only file the game writes" and nothing writes it~~ | small |
 | **N3** | **The settings screen** | ADR-020 §8 names "the settings screen's first slice"; no build order contains it | medium |
 | **I1–I3** | **The input model** | §1 above | large |
-| **N4** | **D18, arrival contention** | Baked, parsed, hashed, never read — fell between U1 and U3a | small |
+| ~~**N4**~~ | ~~**D18, arrival contention**~~ — **built 2026-08-22** | ~~Baked, parsed, hashed, never read — fell between U1 and U3a~~ | small |
 | ~~**N5**~~ | ~~**The viewer hold**~~ — **built 2026-08-22** | ~~`AddViewer`/`RemoveViewer` have no caller for a player's view; the "until U3b" deferral expired~~ | small |
 | **N6** | **A20 — spike 3 + the S5 frame check** | Stated as "Before U5", no slice, no owner | small |
 | **N7** | **The map's RESOURCES overlay** | Drawn 2026-08-22 (ADR-024 §3d); U5's scope was written 2026-08-19 | medium |
@@ -148,13 +148,16 @@ constraint". It retires **R19**, the register's only High/High row, and lifts th
 gate U3c is currently fenced behind. It is headless, which is what makes it the right thing to
 do while the input decision above is still turning into screens.
 
-**N4 — D18.** `Anchor::arrivalSpreadRadiusCm` is written by the bake
-(`UniverseGen.cpp:638`), parsed, and folded into the universe hash — and read by nothing.
-`WorldRegistry::ApplyTransit` places every arrival on the raw `warpInPoint`
-(`WorldRegistry.cpp:1236`). U1's note said *"the rule itself is U3a's"*; U3a's note says
-*"Still owed by U3a: nothing."* Two slices each believed the other had it. Today two fleets
-warping to one anchor on one tick land on the same point and are pushed apart by ADR-015
-separation, which is the stacking D18 exists to prevent.
+~~**N4 — D18.**~~ **Built 2026-08-22.** `arrivalSpreadRadiusCm` was baked, parsed, folded into
+the universe hash and read by nothing; `ApplyTransit` placed every crossing on the raw
+`warpInPoint`. Two slices each believed the other had it — U1's note said *"the rule itself is
+U3a's"*, U3a's said *"Still owed by U3a: nothing."* The offset is a slot on a ring of that
+radius, at a bearing the crossing's own `TransferId` decides through `FixedAngle.h`'s integer
+table: consecutive counters step 223.6° — the golden angle the long way round — so a burst filed
+in one tick lands 2,228 m apart rather than on one point. **Undock is not covered and that is a
+decision**: ADR-017 §6a.1 answered undock contention a day after D18 and differently, with a
+clearance predicate and a timeout, and that gate is not built — so undock contention stays open
+and belongs to the station phase.
 
 ~~**N5 — The viewer hold.**~~ **Built 2026-08-22.** It grew the teeth this line predicted, and
 from a direction it did not: not culling, but **teardown**. A player watching a grid with no
@@ -246,8 +249,8 @@ fleet but has no camera.
     written at **shutdown** rather than at the keystroke, which is the right trade for call signs
     and the first thing N3 has to revisit.
 3. ~~**The item-taxonomy ADR.**~~ **Done 2026-08-22** — [ADR-027](ADR/ADR-027-item-taxonomy.md).
-4. ~~**N5**~~ **built 2026-08-22**, then **N4**, then **N6** — three small slices, each closing a
-    named gap; N6 before U5 as A20 requires. **N5 moved ahead of N4 on 2026-08-22, and U3d is
+4. ~~**N5**~~ and ~~**N4**~~ **built 2026-08-22**; **N6** remains — the last of the three small
+    slices, and the one that needs a GPU and a person. N6 before U5 as A20 requires. **N5 moved ahead of N4 on 2026-08-22, and U3d is
     why.** This document listed the
     three as interchangeable and justified N5 as "small, and it grows teeth the moment N1 lands".
     N1 has landed — and U3d-b built the very thing N5 was missing: `ViewFocus` carries a `gridId`
@@ -316,6 +319,18 @@ named.
 ---
 
 ## Revision log
+
+- **2026-08-22 — N4 built, and the three small slices are two.** D18's offset is a slot on a ring
+  of `arrivalSpreadRadiusCm`, bearing from the crossing's own `TransferId` through
+  `FixedAngle.h`'s integer table — integer angles because this decides a position in the replay
+  domain, and the id was already in the transfer hash so nothing new entered it. Two existing
+  tests moved rather than broke: the slot-assignment test now checks the formation's *shape* in
+  the frame it arrived in, which is what it was always about, and the near-anchor test's
+  tolerance became a sum that names the reserved radius instead of a number that hid it.
+  **Undock contention is deliberately not covered** — ADR-017 §6a.1 answers it with a clearance
+  predicate rather than an offset, and that gate is unbuilt, so it is now the station phase's
+  open item rather than something D18 quietly covers. **What is left of the plan's small slices
+  is N6**, which needs a GPU and a person.
 
 - **2026-08-22 — N5 built.** `Simulation` gained `ViewerOpened`/`ViewerClosed` beside `MayView`,
   and `ServerHost` calls them at the three moments the answer changes: a session opening on its

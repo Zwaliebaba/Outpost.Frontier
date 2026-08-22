@@ -515,7 +515,15 @@ private:
 
   [[nodiscard]] StationRoster& RosterFor(AnchorId _anchor);
   void ApplyUndock(const TransferRequest& _request);
-  void ApplyTransit(const TransferRequest& _request);
+  /*
+   * Arrival, at an offset the crossing's own id decides (ADR-018 D18).
+   *
+   * The id is passed rather than looked up because the *whole* of D18's answer
+   * to contention is that the offset is "a function of the transfer record, not
+   * randomness" -- so the record's identity has to reach the placement, and the
+   * bus is the only thing that has it.
+   */
+  void ApplyTransit(const TransferRequest& _request, const TransferId& _id);
 
   /// Debits a completed cycle against the ledger, creating one for a site that
   /// has not been worked this epoch (ADR-024 §4b).

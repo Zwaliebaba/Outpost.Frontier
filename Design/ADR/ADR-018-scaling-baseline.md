@@ -271,6 +271,36 @@ record, not randomness), so simultaneous arrivals at a hub spread instead of sta
 one point. Recorded before U1 so the bake's anchor record never needs a schema migration
 for it. *(UX-6.)*
 
+> **Built 2026-08-22 (N4), for warp arrivals.** `Anchor::arrivalSpreadRadiusCm` was baked by
+> U1, parsed, folded into the universe hash — and **read by nothing**. `ApplyTransit` placed
+> every crossing on the raw `warpInPoint`, so two fleets warping to one hub on one tick were
+> laid on top of each other and pushed apart by ADR-015 separation afterwards: the stacking
+> this decision exists to prevent, resolved by the mechanism that is meant to be its backstop.
+> **Two slices each believed the other had it** — U1's note said *"the rule itself is U3a's"*
+> and U3a's said *"Still owed by U3a: nothing."*
+>
+> **The offset is a slot on a ring**, radius `arrivalSpreadRadiusCm`, at a bearing the
+> crossing's own `TransferId` decides: `(counter × 159 + host × 83) mod 256` steps of
+> `FixedAngle.h`'s table. 159 of 256 steps is 223.6° — the golden angle read the long way
+> round — so *consecutive* counters land as far apart as a fixed stride can put them, which is
+> the case that matters because crossings filed in the same tick carry consecutive numbers. At
+> the baked 1,200 m radius that is **2,228 m between neighbours**, and 2,043 m between two
+> hosts filing the same counter. Integer angles throughout, because this decides a position in
+> the replay domain and `std::sin` is not a promise two compilers make identically
+> (ADR-016 §2); the id is already folded into the transfer hash, so nothing new entered it.
+>
+> **The facing does not move with the point.** [ADR-016](ADR-016-procedural-universe-and-warp.md)
+> §3 has the formation solve centring on the warp-in point *with the authored facing*, and that
+> half is untouched: a fleet arriving in the third slot still faces the way the content says
+> arrivals face.
+>
+> **Undock is not covered, and that is a decision rather than an omission.** This clause says
+> "warp-in/undock point", but [ADR-017](ADR-017-station-docking.md) §6a.1 answered undock
+> contention a day later and differently — a wave launches when the undock point *clears*, with
+> a timeout — and a clearance predicate is a better answer than an offset for a queue leaving
+> one door. That gate is **not built**: `UNDOCK_WAVE_TIMEOUT_SECONDS` is in no source file, so
+> undock contention is still open and belongs to the station phase, not here.
+
 ### D19 — The event record *(adopted default)*
 
 A **per-commander, append-only event record at the universe layer** — beside the transfer

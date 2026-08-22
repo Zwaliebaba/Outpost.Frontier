@@ -1049,6 +1049,18 @@ public:
     const float warpInX = Neuron::CentimetresToMetres(static_cast<std::int32_t>(destination->warpInPoint.x));
     const float warpInY = Neuron::CentimetresToMetres(static_cast<std::int32_t>(destination->warpInPoint.y));
 
+    /*
+     * The formation's own reach, plus the room the anchor reserves for arrival
+     * contention (ADR-018 D18, N4).
+     *
+     * The fleet is centred on the authored point *plus this crossing's slot on
+     * the arrival ring*, so "near its anchor" is now the authored point plus a
+     * radius the anchor itself declares. Written as a sum rather than as a
+     * bigger number so it stays the same claim: a six-ship formation lands
+     * together and near where it was sent, on a grid 20 km across.
+     */
+    const float nearEnough = 4000.0f + Neuron::CentimetresToMetres(destination->arrivalSpreadRadiusCm);
+
     std::uint32_t found = 0;
     for (std::size_t slot = 0; slot < world->Ids().size(); ++slot)
     {
@@ -1059,7 +1071,7 @@ public:
       ++found;
       const float dx = world->Positions()[slot].x - warpInX;
       const float dy = world->Positions()[slot].y - warpInY;
-      Assert::IsTrue(std::sqrt(dx * dx + dy * dy) < 4000.0f, L"a six-ship formation solves near its anchor");
+      Assert::IsTrue(std::sqrt(dx * dx + dy * dy) < nearEnough, L"a six-ship formation solves near its anchor");
     }
     Assert::AreEqual<std::uint32_t>(6, found, L"the whole fleet arrived, and the same ships");
 
@@ -1126,6 +1138,14 @@ public:
      *
      * So this asks the only question that catches it: solve the same formation
      * independently and check each ship is where *its own* station is.
+     *
+     * **Relative to where the fleet actually landed, since N4** (ADR-018 D18).
+     * The arrival point is the authored one plus an offset this crossing's own
+     * record decides, so the absolute answer is no longer a thing this test can
+     * compute -- and it never wanted to. A permutation survives a translation
+     * and dies here either way: the offset is one vector for the whole
+     * crossing, so recovering it from one ship and holding the other four to it
+     * is the same question asked in the frame the fleet arrived in.
      */
     const UniverseDef universe = SmallUniverse();
     const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
@@ -1169,23 +1189,39 @@ public:
                      std::span<FormationStation>{expected});
     Assert::AreEqual<std::uint32_t>(5, placed);
 
+    const auto slotOf = [world](ShipId _ship, std::uint32_t& _outSlot)
+    {
+      for (std::size_t candidate = 0; candidate < world->Ids().size(); ++candidate)
+      {
+        if (world->Ids()[candidate] == _ship)
+        {
+          _outSlot = static_cast<std::uint32_t>(candidate);
+          return true;
+        }
+      }
+      return false;
+    };
+
+    // The crossing's own offset, recovered from the first station rather than
+    // recomputed: what this test is about is which ship stands where, and the
+    // vector is the same one for every member of one record.
+    std::uint32_t firstSlot = 0;
+    Assert::IsTrue(slotOf(expected[0].shipId, firstSlot), L"a ship in the order never arrived");
+    const float offsetX = world->Positions()[firstSlot].x - expected[0].positionMetres.x;
+    const float offsetY = world->Positions()[firstSlot].y - expected[0].positionMetres.y;
+    // The ring's radius is the whole offset, so this is an equality with slack
+    // for two independent formation solves rather than a bound with room in it.
+    Assert::IsTrue(std::sqrt(offsetX * offsetX + offsetY * offsetY) <
+                     Neuron::CentimetresToMetres(destination->arrivalSpreadRadiusCm) + 10.0f,
+                   L"the fleet landed outside the room its anchor reserves for arrivals");
+
     for (std::uint32_t index = 0; index < placed; ++index)
     {
       std::uint32_t slot = 0;
-      bool present = false;
-      for (std::size_t candidate = 0; candidate < world->Ids().size(); ++candidate)
-      {
-        if (world->Ids()[candidate] == expected[index].shipId)
-        {
-          slot = static_cast<std::uint32_t>(candidate);
-          present = true;
-          break;
-        }
-      }
-      Assert::IsTrue(present, L"a ship in the order never arrived");
+      Assert::IsTrue(slotOf(expected[index].shipId, slot), L"a ship in the order never arrived");
 
-      const float dx = world->Positions()[slot].x - expected[index].positionMetres.x;
-      const float dy = world->Positions()[slot].y - expected[index].positionMetres.y;
+      const float dx = world->Positions()[slot].x - (expected[index].positionMetres.x + offsetX);
+      const float dy = world->Positions()[slot].y - (expected[index].positionMetres.y + offsetY);
       Assert::IsTrue(std::sqrt(dx * dx + dy * dy) < 1.0f, L"a ship landed on another ship's station");
     }
   }
@@ -1235,6 +1271,135 @@ public:
     {
       Assert::AreEqual(first[index], second[index], L"two runs of one script disagreed mid-crossing");
     }
+  }
+
+  /*
+   * --- arrival contention (ADR-018 D18, N4) ---------------------------------
+   *
+   * `Anchor::arrivalSpreadRadiusCm` was baked by U1, parsed, folded into the
+   * universe hash -- and read by nothing. Every crossing was placed on the raw
+   * `warpInPoint`, so two fleets warping to one hub on one tick were laid on
+   * top of each other and pushed apart by ADR-015 separation afterwards: the
+   * stacking D18 exists to prevent, resolved by the mechanism that is meant to
+   * be its backstop.
+   *
+   * Two slices each believed the other had it. U1's note said "the rule itself
+   * is U3a's"; U3a's note said "Still owed by U3a: nothing."
+   */
+
+  /// Where the ship with this id is standing, or false if it is not here.
+  [[nodiscard]] static bool PositionOf(const WorldRegistry& _registry, AnchorId _anchor, ShipId _ship, DirectX::XMFLOAT2& _outAt)
+  {
+    const World* world = _registry.Peek(_anchor);
+    if (world == nullptr)
+    {
+      return false;
+    }
+    const std::span<const ShipId> ids = world->Ids();
+    for (std::size_t slot = 0; slot < ids.size(); ++slot)
+    {
+      if (ids[slot] == _ship)
+      {
+        _outAt = world->Positions()[slot];
+        return true;
+      }
+    }
+    return false;
+  }
+
+  TEST_METHOD(TwoFleetsWarpingToOneAnchorDoNotArriveOnTheSamePoint)
+  {
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+    const Anchor* destination = universe.FindAnchor(anchors[1]);
+    Assert::IsNotNull(destination);
+    Assert::IsTrue(destination->arrivalSpreadRadiusCm > 0, L"the fixture's destination reserves no room to spread into");
+
+    WorldRegistry registry;
+    registry.Reset(&universe, nullptr, Config());
+    std::uint32_t tick = 0;
+
+    // Two fleets, filed separately, so the bus carries two records with two
+    // counters -- which is the whole of what the offset is a function of.
+    const ShipId first = AddShip(registry, anchors[0], 300.0f, 0.0f, 1);
+    const ShipId second = AddShip(registry, anchors[0], -300.0f, 0.0f, 2);
+    const ShipId firstFleet[] = {first};
+    const ShipId secondFleet[] = {second};
+    Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], firstFleet).accepted);
+    Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], secondFleet).accepted);
+
+    DirectX::XMFLOAT2 firstAt{};
+    DirectX::XMFLOAT2 secondAt{};
+    const std::uint32_t arrived = TickUntil(registry, tick, 40000,
+                                            [&]
+                                            {
+                                              return PositionOf(registry, anchors[1], first, firstAt) &&
+                                                     PositionOf(registry, anchors[1], second, secondAt);
+                                            });
+    Assert::IsTrue(arrived < 40000, L"one of the two crossings never arrived");
+
+    const float warpX = Neuron::CentimetresToMetres(destination->warpInPoint.x);
+    const float warpY = Neuron::CentimetresToMetres(destination->warpInPoint.y);
+    const float spread = Neuron::CentimetresToMetres(destination->arrivalSpreadRadiusCm);
+
+    const auto distance = [](float _ax, float _ay, float _bx, float _by)
+    { return std::sqrt((_ax - _bx) * (_ax - _bx) + (_ay - _by) * (_ay - _by)); };
+
+    /*
+     * Apart, and by more than a nudge: consecutive records step most of the way
+     * round the ring, so the two are chords apart rather than neighbours. The
+     * threshold is deliberately far below what the stride produces (~2.2 km at
+     * this radius) -- what is being asserted is that they are not stacked, not
+     * that the stride is a particular number.
+     */
+    Assert::IsTrue(distance(firstAt.x, firstAt.y, secondAt.x, secondAt.y) > 500.0f,
+                   L"two fleets arriving at one anchor were placed on top of each other");
+
+    /*
+     * And each is on the ring the anchor reserved rather than wherever the
+     * arithmetic went. A single-ship fleet solves its formation at the centre,
+     * so the slack here is for the solve and not for the offset.
+     */
+    for (const DirectX::XMFLOAT2& at : {firstAt, secondAt})
+    {
+      const float fromAuthored = distance(at.x, at.y, warpX, warpY);
+      Assert::IsTrue(fromAuthored > 1.0f, L"an arrival was placed on the raw warp-in point, which is what D18 replaces");
+      Assert::IsTrue(fromAuthored < spread + 500.0f, L"an arrival wandered outside the room its anchor reserves");
+    }
+  }
+
+  TEST_METHOD(WhereACrossingArrivesIsAFunctionOfItsRecordAndNotOfChance)
+  {
+    /*
+     * D18's parenthesis, as an assertion: *a function of the transfer record,
+     * not randomness*. Two runs of one script have to place the fleet on the
+     * same metre, or an arrival is a thing a replay cannot reproduce -- and the
+     * registry's own seed is per-world, so an offset drawn from a world's PCG32
+     * would have passed every other test in this file and failed this one.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+
+    const auto arrivalPoint = [&universe, &anchors]
+    {
+      WorldRegistry registry;
+      registry.Reset(&universe, nullptr, Config());
+      std::uint32_t tick = 0;
+      const ShipId ship = AddShip(registry, anchors[0], 300.0f, 0.0f);
+      const ShipId fleet[] = {ship};
+      Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], fleet).accepted);
+
+      DirectX::XMFLOAT2 at{};
+      const std::uint32_t arrived =
+        TickUntil(registry, tick, 40000, [&] { return PositionOf(registry, anchors[1], ship, at); });
+      Assert::IsTrue(arrived < 40000, L"the crossing never arrived");
+      return at;
+    };
+
+    const DirectX::XMFLOAT2 once = arrivalPoint();
+    const DirectX::XMFLOAT2 again = arrivalPoint();
+    Assert::AreEqual(once.x, again.x, 0.0f, L"two runs of one script arrived at different places");
+    Assert::AreEqual(once.y, again.y, 0.0f);
   }
 };
 
