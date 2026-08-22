@@ -28,10 +28,45 @@ namespace Neuron
 /// willing to carry more than a real link would.
 inline constexpr std::size_t MAX_DATAGRAM_BYTES = 1152;
 
+/*
+ * The ceiling on one `Bulk` message (ADR-022 §3c).
+ *
+ * `Bulk` is the one channel a datagram-sized cap would be wrong for: a keyframe
+ * is a baseline rather than fresh state, it must arrive whole, and at ADR-018
+ * D4's 1,024-entity cap it is roughly 24 KB. Fragmenting it over datagrams with
+ * an ack-and-resend scheme is re-implementing a reliable stream beside a
+ * protocol that has one, which ADR-003 rejected in its general form.
+ *
+ * 65,535 because that is what the two-byte length prefix on a reliable stream
+ * can express, so this is the framing's own ceiling rather than a number
+ * somebody chose. The keyframe at the cap sits comfortably under it; a message
+ * that did not would need a wider prefix, which is a wire break and should be
+ * one.
+ */
+inline constexpr std::size_t MAX_BULK_BYTES = 65535;
+
 enum class TransportChannel : std::uint8_t
 {
   Control, // Reliable, ordered. Handshake and orders.
-  State    // Unreliable, unordered. Snapshots and pings.
+  State,   // Unreliable, unordered. Snapshots and pings.
+
+  /*
+   * Reliable, ordered, and separate from `Control` (ADR-022 §3c, amending
+   * ADR-003 §1, which promised exactly one reliable ordered channel).
+   *
+   * **The reason is head-of-line blocking, and it cuts both ways.** ADR-004
+   * rejected reliable snapshots because a hitch would stall fresh state behind
+   * a resend, and that argument still holds for the per-tick path -- which is
+   * why deltas stay on `State`. But a keyframe is not fresh state: it is the
+   * *baseline* for all the fresh state after it, it must arrive intact, and it
+   * is not a datagram-shaped object. Putting it on `Control` would park it in
+   * front of the player's orders.
+   *
+   * QUIC gives independent streams for nothing, so the correct answer is a
+   * stream of its own and the cost of deciding it is one enumerator. Carries up
+   * to `MAX_BULK_BYTES` rather than `MAX_DATAGRAM_BYTES`.
+   */
+  Bulk
 };
 
 enum class ConnectionState : std::uint8_t
@@ -109,6 +144,10 @@ public:
   /// Drains one queued event. Returns false when the queue is empty.
   [[nodiscard]] virtual bool NextEvent(TransportEvent& _outEvent) = 0;
 
+  /// Sends one whole message. `Control` and `State` are capped at
+  /// `MAX_DATAGRAM_BYTES`; `Bulk` at `MAX_BULK_BYTES` (ADR-022 §3c). A payload
+  /// past its channel's cap is refused rather than split -- fragmentation
+  /// policy belongs to whoever knows what the bytes mean.
   [[nodiscard]] virtual bool Send(ConnectionId _connection, TransportChannel _channel, std::span<const std::uint8_t> _payload) = 0;
 
   virtual void Close(ConnectionId _connection, DisconnectReason _reason) = 0;

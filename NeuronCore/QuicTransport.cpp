@@ -30,10 +30,30 @@ namespace
 /// the handshake at the door rather than mid-session.
 constexpr const char* ALPN = "opf/1";
 
-/// One frame on the control stream: little-endian u16 length, then the payload.
+/// One frame on a reliable stream: little-endian u16 length, then the payload.
 /// A QUIC stream is a byte pipe, not a message queue, so the transport owns the
-/// re-framing (ADR-003 §1).
+/// re-framing (ADR-003 §1). Both reliable channels use it -- the framing is the
+/// same, only the cap differs (ADR-022 §3c).
 constexpr std::size_t CONTROL_PREFIX_BYTES = 2;
+
+/*
+ * Which client-initiated bidirectional stream is which.
+ *
+ * QUIC numbers client-initiated bidirectional streams 0, 4, 8..., in the order
+ * the client starts them, so the id **is** the channel and no handshake is
+ * needed to agree on it. Read off the handle rather than inferred from which
+ * `PEER_STREAM_STARTED` arrived first: msquic makes no promise about that
+ * ordering, and a protocol that silently swapped its control and bulk channels
+ * under load would be a bug nobody could reproduce.
+ */
+constexpr std::uint64_t CONTROL_STREAM_ID = 0;
+constexpr std::uint64_t BULK_STREAM_ID = 4;
+
+/// The largest frame each reliable channel will read or write.
+[[nodiscard]] constexpr std::size_t ReliableCapFor(TransportChannel _channel) noexcept
+{
+  return _channel == TransportChannel::Bulk ? MAX_BULK_BYTES : MAX_DATAGRAM_BYTES;
+}
 
 /*
  * A send in flight. msquic does not copy what it is given -- the bytes must
@@ -217,6 +237,13 @@ struct QuicTransport::Impl
     ConnectionId id = INVALID_CONNECTION;
     HQUIC connection = nullptr;
     HQUIC stream = nullptr;
+
+    /// The second reliable ordered stream (ADR-022 §3c). Null until the peer
+    /// starts it, which a build that predates the amendment never will --
+    /// hence a `Bulk` send to a connection without one is refused rather than
+    /// quietly rerouted onto `Control`, where it would do the head-of-line
+    /// damage the channel exists to avoid.
+    HQUIC bulkStream = nullptr;
     ConnectionState state = ConnectionState::Connecting;
     DisconnectReason endReason = DisconnectReason::ClosedByPeer;
     DisconnectReason closeReason = DisconnectReason::None; // Set by Close(); rides out once the stream has flushed.
@@ -225,7 +252,8 @@ struct QuicTransport::Impl
     bool datagramSendEnabled = false;
     std::uint16_t maxDatagramBytes = 0;
     TransportStats stats;
-    std::vector<std::uint8_t> assembly; // Control-frame reassembly; bounded by the frame cap below.
+    std::vector<std::uint8_t> assembly;     // Control-frame reassembly; bounded by the frame cap.
+    std::vector<std::uint8_t> bulkAssembly; // The same, for `Bulk`. Separate, because the streams interleave.
   };
 
   struct QueuedEvent
@@ -292,8 +320,11 @@ struct QuicTransport::Impl
     QUIC_SETTINGS settings{};
     settings.IdleTimeoutMs = IDLE_TIMEOUT_MS;
     settings.IsSet.IdleTimeoutMs = TRUE;
-    // One bidirectional stream -- the control channel, opened by the client.
-    settings.PeerBidiStreamCount = 1;
+    // Two bidirectional streams, both opened by the client: `Control` (stream 0)
+    // and `Bulk` (stream 4). The second is ADR-022 §3c's amendment to ADR-003 §1
+    // -- a keyframe is a baseline rather than fresh state, so it must not queue
+    // behind the player's orders.
+    settings.PeerBidiStreamCount = 2;
     settings.IsSet.PeerBidiStreamCount = TRUE;
     settings.DatagramReceiveEnabled = TRUE;
     settings.IsSet.DatagramReceiveEnabled = TRUE;
@@ -371,30 +402,42 @@ struct QuicTransport::Impl
    * peer framed something this protocol cannot read -- a zero or over-cap
    * length -- and the caller then drops the connection rather than guessing.
    */
-  [[nodiscard]] bool OnStreamBytes(Connection& _connection, const std::uint8_t* _data, std::uint32_t _size)
+  [[nodiscard]] bool OnStreamBytes(Connection& _connection, TransportChannel _channel, const std::uint8_t* _data,
+                                   std::uint32_t _size)
   {
-    _connection.assembly.insert(_connection.assembly.end(), _data, _data + _size);
+    // Each reliable stream reassembles into its own buffer. They interleave on
+    // the wire and a shared buffer would splice one channel's frame into the
+    // other's, which the length prefix would then read as garbage.
+    std::vector<std::uint8_t>& assembly = _channel == TransportChannel::Bulk ? _connection.bulkAssembly : _connection.assembly;
+    const std::size_t cap = ReliableCapFor(_channel);
+
+    assembly.insert(assembly.end(), _data, _data + _size);
     _connection.stats.bytesReceived += _size;
 
     std::size_t at = 0;
-    while (_connection.assembly.size() - at >= CONTROL_PREFIX_BYTES)
+    while (assembly.size() - at >= CONTROL_PREFIX_BYTES)
     {
-      const std::size_t frameBytes =
-        static_cast<std::size_t>(_connection.assembly[at]) | (static_cast<std::size_t>(_connection.assembly[at + 1]) << 8);
-      if (frameBytes == 0 || frameBytes > MAX_DATAGRAM_BYTES)
+      const std::size_t frameBytes = static_cast<std::size_t>(assembly[at]) | (static_cast<std::size_t>(assembly[at + 1]) << 8);
+      if (frameBytes == 0 || frameBytes > cap)
       {
         return false;
       }
-      if (_connection.assembly.size() - at < CONTROL_PREFIX_BYTES + frameBytes)
+      if (assembly.size() - at < CONTROL_PREFIX_BYTES + frameBytes)
       {
         break;
       }
-      QueueEvent(TransportEvent::Type::Message, _connection.id, TransportChannel::Control, DisconnectReason::None,
-                 std::span<const std::uint8_t>{_connection.assembly.data() + at + CONTROL_PREFIX_BYTES, frameBytes});
+      QueueEvent(TransportEvent::Type::Message, _connection.id, _channel, DisconnectReason::None,
+                 std::span<const std::uint8_t>{assembly.data() + at + CONTROL_PREFIX_BYTES, frameBytes});
       at += CONTROL_PREFIX_BYTES + frameBytes;
     }
-    _connection.assembly.erase(_connection.assembly.begin(), _connection.assembly.begin() + static_cast<std::ptrdiff_t>(at));
+    assembly.erase(assembly.begin(), assembly.begin() + static_cast<std::ptrdiff_t>(at));
     return true;
+  }
+
+  /// Which channel a stream handle is. Called with m_lock held.
+  [[nodiscard]] static TransportChannel ChannelOf(const Connection& _connection, HQUIC _stream) noexcept
+  {
+    return _stream == _connection.bulkStream ? TransportChannel::Bulk : TransportChannel::Control;
   }
 
   static QUIC_STATUS QUIC_API StreamCallback(HQUIC _stream, void* _context, QUIC_STREAM_EVENT* _event)
@@ -415,10 +458,11 @@ struct QuicTransport::Impl
       HQUIC toDrop = nullptr;
       {
         const std::lock_guard<std::mutex> hold(self->m_lock);
+        const TransportChannel channel = Impl::ChannelOf(*connection, _stream);
         bool ok = true;
         for (std::uint32_t i = 0; i < _event->RECEIVE.BufferCount && ok; ++i)
         {
-          ok = self->OnStreamBytes(*connection, _event->RECEIVE.Buffers[i].Buffer, _event->RECEIVE.Buffers[i].Length);
+          ok = self->OnStreamBytes(*connection, channel, _event->RECEIVE.Buffers[i].Buffer, _event->RECEIVE.Buffers[i].Length);
         }
         if (!ok)
         {
@@ -465,7 +509,10 @@ struct QuicTransport::Impl
       DisconnectReason reason = DisconnectReason::None;
       {
         const std::lock_guard<std::mutex> hold(self->m_lock);
-        if (connection->closeRequested)
+        // The control stream is what the deferred close waits on, and only it:
+        // `Bulk` shuts down alongside, and letting either trigger the close
+        // would race two shutdowns against one connection.
+        if (connection->closeRequested && _stream == connection->stream)
         {
           connection->closeRequested = false;
           toClose = connection->connection;
@@ -486,6 +533,10 @@ struct QuicTransport::Impl
         if (connection->stream == _stream)
         {
           connection->stream = nullptr;
+        }
+        else if (connection->bulkStream == _stream)
+        {
+          connection->bulkStream = nullptr;
         }
       }
       self->m_api->StreamClose(_stream);
@@ -519,14 +570,40 @@ struct QuicTransport::Impl
     case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
     {
       const std::lock_guard<std::mutex> hold(self->m_lock);
-      if (connection->stream != nullptr)
+      HQUIC opened = _event->PEER_STREAM_STARTED.Stream;
+
+      /*
+       * Which channel this is, from the stream's own id (ADR-022 §3c).
+       *
+       * Not "the first one is control": msquic promises nothing about the order
+       * `PEER_STREAM_STARTED` fires in, and a protocol whose channels could
+       * swap under load would be a bug nobody could reproduce. A stream whose
+       * id is neither is refused rather than adopted -- two streams is the
+       * whole protocol, and the settings say so.
+       */
+      std::uint64_t streamId = 0;
+      std::uint32_t idBytes = sizeof(streamId);
+      if (QUIC_FAILED(self->m_api->GetParam(opened, QUIC_PARAM_STREAM_ID, &idBytes, &streamId)))
       {
-        // One stream is the whole protocol, and the settings say so. Refusing
-        // means returning failure without adopting the handle.
         return QUIC_STATUS_NOT_SUPPORTED;
       }
-      connection->stream = _event->PEER_STREAM_STARTED.Stream;
-      self->m_api->SetCallbackHandler(connection->stream, reinterpret_cast<void*>(StreamCallback), connection);
+
+      HQUIC* slot = nullptr;
+      if (streamId == CONTROL_STREAM_ID)
+      {
+        slot = &connection->stream;
+      }
+      else if (streamId == BULK_STREAM_ID)
+      {
+        slot = &connection->bulkStream;
+      }
+      if (slot == nullptr || *slot != nullptr)
+      {
+        return QUIC_STATUS_NOT_SUPPORTED;
+      }
+
+      *slot = opened;
+      self->m_api->SetCallbackHandler(opened, reinterpret_cast<void*>(StreamCallback), connection);
       break;
     }
 
@@ -798,6 +875,19 @@ ConnectionId QuicTransport::Connect(const std::string& _host, std::uint16_t _por
     {
       status = impl.m_api->StreamStart(connection->stream, QUIC_STREAM_START_FLAG_SHUTDOWN_ON_FAIL);
     }
+    // And the bulk stream, immediately after, so it takes id 4 (ADR-022 §3c).
+    // Started here rather than lazily on the first keyframe: opening a stream
+    // mid-session would put a round trip in front of the one message on this
+    // channel that a client is waiting on to render anything at all.
+    if (QUIC_SUCCEEDED(status))
+    {
+      status = impl.m_api->StreamOpen(connection->connection, QUIC_STREAM_OPEN_FLAG_NONE, Impl::StreamCallback, connection,
+                                      &connection->bulkStream);
+    }
+    if (QUIC_SUCCEEDED(status))
+    {
+      status = impl.m_api->StreamStart(connection->bulkStream, QUIC_STREAM_START_FLAG_SHUTDOWN_ON_FAIL);
+    }
   }
   if (QUIC_SUCCEEDED(status))
   {
@@ -916,10 +1006,19 @@ bool QuicTransport::NextEvent(TransportEvent& _outEvent)
 bool QuicTransport::Send(ConnectionId _connection, TransportChannel _channel, std::span<const std::uint8_t> _payload)
 {
   Impl& impl = *m_impl;
-  if (impl.m_api == nullptr || _payload.size() > MAX_DATAGRAM_BYTES)
+  /*
+   * The cap is the channel's, and two of the three share the datagram's.
+   *
+   * `Control` and `State` both hold at `MAX_DATAGRAM_BYTES` for ADR-003 §1's
+   * reason: nothing may learn to depend on the reliable channel being roomier
+   * than a datagram, or the day it has to fit one it will not. `Bulk` is the
+   * exception the amendment bought -- a keyframe is not a datagram-shaped
+   * object -- and it is a *separate* channel precisely so the exception cannot
+   * leak into the messages that must stay small.
+   */
+  const std::size_t cap = _channel == TransportChannel::Bulk ? MAX_BULK_BYTES : MAX_DATAGRAM_BYTES;
+  if (impl.m_api == nullptr || _payload.size() > cap)
   {
-    // The cap holds on both channels: nothing may learn to depend on the
-    // reliable channel being roomier than a datagram (ADR-003 §1).
     return false;
   }
 
@@ -930,10 +1029,15 @@ bool QuicTransport::Send(ConnectionId _connection, TransportChannel _channel, st
     return false;
   }
 
-  if (_channel == TransportChannel::Control)
+  if (_channel == TransportChannel::Control || _channel == TransportChannel::Bulk)
   {
-    if (connection->stream == nullptr)
+    HQUIC stream = _channel == TransportChannel::Bulk ? connection->bulkStream : connection->stream;
+    if (stream == nullptr)
     {
+      // A peer that never started this stream cannot be sent on it. Refused
+      // rather than rerouted onto `Control`: that would do exactly the
+      // head-of-line damage the second channel exists to avoid, and it would
+      // do it silently.
       return false;
     }
     SendBuffer* send = MakeSendBuffer(_payload, true);
@@ -942,7 +1046,7 @@ bool QuicTransport::Send(ConnectionId _connection, TransportChannel _channel, st
     // returns.
     const std::uint64_t sentBytes = send->buffer.Length;
     // Non-blocking, and SEND_COMPLETE may run inline -- it takes no lock.
-    const QUIC_STATUS status = impl.m_api->StreamSend(connection->stream, &send->buffer, 1, QUIC_SEND_FLAG_NONE, send);
+    const QUIC_STATUS status = impl.m_api->StreamSend(stream, &send->buffer, 1, QUIC_SEND_FLAG_NONE, send);
     if (QUIC_FAILED(status))
     {
       delete send;
@@ -984,6 +1088,7 @@ void QuicTransport::Close(ConnectionId _connection, DisconnectReason _reason)
 
   HQUIC connectionHandle = nullptr;
   HQUIC streamHandle = nullptr;
+  HQUIC bulkHandle = nullptr;
   {
     const std::lock_guard<std::mutex> hold(impl.m_lock);
     Impl::Connection* connection = impl.Find(_connection);
@@ -999,11 +1104,20 @@ void QuicTransport::Close(ConnectionId _connection, DisconnectReason _reason)
     }
     connectionHandle = connection->connection;
     streamHandle = connection->stream;
+    bulkHandle = connection->bulkStream;
     if (streamHandle != nullptr)
     {
       connection->closeRequested = true;
       connection->closeReason = _reason;
     }
+  }
+
+  // `Bulk` flushes alongside, and the deferred close still waits on `Control`
+  // alone: a keyframe in flight is worth finishing, and two streams racing to
+  // issue one connection close would be two shutdowns for one connection.
+  if (bulkHandle != nullptr)
+  {
+    impl.m_api->StreamShutdown(bulkHandle, QUIC_STREAM_SHUTDOWN_FLAG_GRACEFUL, 0);
   }
 
   /*

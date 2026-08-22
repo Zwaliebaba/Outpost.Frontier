@@ -4,7 +4,10 @@
 `UdpTransport` deleted; §3's transport flag and §4's permanent-fallback decision are
 superseded below · Amended 2026-08-19 by **[ADR-022](ADR-022-interest-and-delta.md)** (§1's
 "exactly one reliable ordered channel" becomes two — `Bulk` carries keyframes so they never
-queue behind orders) and **[ADR-023](ADR-023-remote-play.md)** (§1's `Listen`/`Connect` take
+queue behind orders; **built 2026-08-22 with U3d-b**: the client's second bidirectional stream,
+id 4, told apart from the control stream by its QUIC stream id rather than by arrival order,
+with its own reassembly buffer and a `MAX_BULK_BYTES` cap of 65,535 — the two-byte length
+prefix's own ceiling — against `MAX_DATAGRAM_BYTES` on the other two channels) and **[ADR-023](ADR-023-remote-play.md)** (§1's `Listen`/`Connect` take
 descriptors, and §3's unconditional `NO_CERTIFICATE_VALIDATION` becomes a policy that is
 legal only against loopback)
 **Depends on:** ADR-002 (tick/snapshot cadence)

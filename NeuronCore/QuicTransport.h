@@ -12,7 +12,13 @@
  * The mapping is the one the interface was shaped for. The control channel is
  * stream 0, opened by the client, with a two-byte little-endian length prefix
  * turning the byte pipe back into messages; the state channel is QUIC DATAGRAM
- * frames, which keep message boundaries themselves. ALPN is `opf/1`; the
+ * frames, which keep message boundaries themselves. **The bulk channel is the
+ * client's second bidirectional stream** (id 4), same framing, a wider cap, and
+ * a separate reassembly buffer -- ADR-022 §3c's amendment to ADR-003 §1, so a
+ * keyframe does not park in front of the player's orders. The two are told
+ * apart by their QUIC stream id rather than by which `PEER_STREAM_STARTED`
+ * arrived first, because arrival order is not a thing this protocol should
+ * depend on. ALPN is `opf/1`; the
  * server presents an in-memory self-signed certificate
  * (`CertCreateSelfSignCertificate` + `QUIC_CREDENTIAL_TYPE_CERTIFICATE_CONTEXT`
  * -- the Schannel-flavour package cannot load PEM), and the client is told not

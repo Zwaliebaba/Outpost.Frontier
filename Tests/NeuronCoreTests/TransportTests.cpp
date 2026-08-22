@@ -161,10 +161,17 @@ public:
 
   TEST_METHOD(RefusesAPayloadLargerThanADatagram)
   {
-    // Nothing may depend on QUIC carrying more than the contract's datagram
-    // cap (ADR-003): the cap is enforced here, not discovered in the field --
-    // and it binds the reliable channel too, so nothing learns to lean on the
-    // stream being roomier.
+    /*
+     * Nothing may depend on QUIC carrying more than the contract's datagram cap
+     * (ADR-003): the cap is enforced here, not discovered in the field -- and it
+     * binds `Control` too, so nothing learns to lean on the stream being
+     * roomier.
+     *
+     * **`Bulk` is the one exception and it is a separate channel for exactly
+     * that reason** (ADR-022 §3c). A keyframe is not a datagram-shaped object,
+     * so the amendment buys it a wider cap -- and buys it on a channel of its
+     * own, so the exception cannot leak into the messages that must stay small.
+     */
     QuicTransport server;
     QuicTransport client;
     Assert::IsTrue(server.Listen(0));
@@ -173,9 +180,76 @@ public:
     const std::vector<std::uint8_t> oversize(MAX_DATAGRAM_BYTES + 1, 0xcd);
     Assert::IsFalse(client.Send(toServer, TransportChannel::State, oversize));
     Assert::IsFalse(client.Send(toServer, TransportChannel::Control, oversize));
+    Assert::IsTrue(client.Send(toServer, TransportChannel::Bulk, oversize), L"Bulk is what a keyframe is for");
 
     const std::vector<std::uint8_t> largest(MAX_DATAGRAM_BYTES, 0xcd);
     Assert::IsTrue(client.Send(toServer, TransportChannel::State, largest));
+
+    const std::vector<std::uint8_t> pastBulk(MAX_BULK_BYTES + 1, 0xcd);
+    Assert::IsFalse(client.Send(toServer, TransportChannel::Bulk, pastBulk), L"the two-byte prefix cannot express this");
+  }
+
+  TEST_METHOD(BulkIsAReliableStreamOfItsOwn)
+  {
+    /*
+     * ADR-022 §3c's amendment to ADR-003 §1, over a real connection.
+     *
+     * Three claims, and the third is the one the amendment exists for. A
+     * keyframe-sized message arrives whole and byte-for-byte, because `Bulk` is
+     * reliable and ordered like `Control`. It arrives **labelled `Bulk`**, so a
+     * receiver can tell a baseline from an order without a second type word.
+     * And it does not share `Control`'s reassembly buffer: the two streams
+     * interleave on the wire, and a shared buffer would splice one channel's
+     * frame into the other's, which the length prefix would then read as
+     * garbage. Sending both, large first, is what makes that a test rather than
+     * a hope.
+     */
+    QuicTransport server;
+    QuicTransport client;
+    Assert::IsTrue(server.Listen(0));
+    const ConnectionId toServer = client.Connect("127.0.0.1", server.BoundPort());
+    Assert::IsTrue(toServer != INVALID_CONNECTION);
+
+    // Roughly a keyframe at ADR-018 D4's 1,024-entity cap: past any datagram,
+    // and the size the second channel was decided for.
+    std::vector<std::uint8_t> keyframe(24000);
+    for (std::size_t index = 0; index < keyframe.size(); ++index)
+    {
+      keyframe[index] = static_cast<std::uint8_t>((index * 7u + 3u) & 0xffu);
+    }
+    Assert::IsTrue(client.Send(toServer, TransportChannel::Bulk, keyframe));
+
+    const std::array<std::uint8_t, 5> order{0xa1, 0xa2, 0xa3, 0xa4, 0xa5};
+    Assert::IsTrue(client.Send(toServer, TransportChannel::Control, order));
+
+    std::vector<std::uint8_t> gotBulk;
+    std::vector<std::uint8_t> gotControl;
+    const bool arrived = PumpUntil(server, client,
+                                   [&]
+                                   {
+                                     TransportEvent event;
+                                     while (server.NextEvent(event))
+                                     {
+                                       if (event.type != TransportEvent::Type::Message)
+                                       {
+                                         continue;
+                                       }
+                                       if (event.channel == TransportChannel::Bulk)
+                                       {
+                                         gotBulk.assign(event.payload.begin(), event.payload.end());
+                                       }
+                                       else if (event.channel == TransportChannel::Control)
+                                       {
+                                         gotControl.assign(event.payload.begin(), event.payload.end());
+                                       }
+                                     }
+                                     return !gotBulk.empty() && !gotControl.empty();
+                                   });
+
+    Assert::IsTrue(arrived, L"one of the two reliable channels never delivered");
+    Assert::IsTrue(gotBulk == keyframe, L"the bulk message did not arrive whole and unaltered");
+    Assert::AreEqual<std::size_t>(order.size(), gotControl.size(), L"the control frame was spliced by the bulk one");
+    Assert::AreEqual<std::uint8_t>(0xa1, gotControl.front());
   }
 
   TEST_METHOD(SendingOnADeadConnectionFailsQuietly)
