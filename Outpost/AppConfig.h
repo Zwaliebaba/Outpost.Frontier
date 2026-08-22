@@ -138,6 +138,25 @@ struct DiagnosticsSettings
 };
 
 /*
+ * A wing's call sign as the player left it (ADR-017 §6, ADR-012 §3).
+ *
+ * The one family in the user layer that is not a preference. A wing is a number
+ * a ship carries and the shard has no name for it, so a *rename* and a name for
+ * a wing the player composed are the same act -- presentation, client-side,
+ * never on the wire -- and this is where both survive a restart.
+ *
+ * `wing` is a `Game::WingId` widened to a type this header can spell. The
+ * configuration surface knows no game types on purpose: pulling `Ids.h` in here
+ * would cost `Tests/OutpostTests` the one property that lets it compile this
+ * file at all (Dependency-Map, "Outpost.exe -- composition root").
+ */
+struct WingName
+{
+  std::uint32_t wing = 0;
+  std::string name;
+};
+
+/*
  * Where the client's boot-time content lives, and which meshes it loads.
  *
  * The mesh list is ordered, and the order *is* the classId the renderer draws
@@ -245,6 +264,16 @@ struct AppConfig
   ClientSettings client;
   ContentSettings content;
   ScenarioSettings scenario;
+
+  /*
+   * Call signs the player has given wings (ADR-012 §3).
+   *
+   * **The user layer's, and only the user layer's.** The starting fleet's names
+   * are content in the composition root, so a `wings` key in `Outpost.json` is
+   * an unknown key and warns -- which is the right answer for a shipped file
+   * reaching for a player's vocabulary.
+   */
+  std::vector<WingName> wings;
 };
 
 struct ConfigDiagnostics
@@ -262,6 +291,29 @@ void ApplyConfigLayer(const Neuron::JsonValue& _root, AppConfig& _config, Config
 
 /// The user layer owns only what the settings screen writes; anything else there is ignored.
 void ApplyUserLayer(const Neuron::JsonValue& _root, AppConfig& _config, ConfigDiagnostics& _diagnostics);
+
+/*
+ * The user layer as text, ready for `SaveUserSettings` to put on disk
+ * (ADR-012 §A3).
+ *
+ * `ApplyUserLayer` read backwards: it emits exactly the keys that function
+ * accepts, so what this writes is what the next boot reads back. That symmetry
+ * is the thing worth testing, and it is why the two live beside each other
+ * rather than either living next to the file handle.
+ *
+ * **A preference is emitted only where `_config` differs from `_shipped`.**
+ * A settings file that captured the shipped values would go on overriding them
+ * after the shipped file moved on -- the player would be pinned to last year's
+ * defaults by a file they never edited. So the file records what was *changed*,
+ * and a section with nothing changed in it is not written at all. `wings` is
+ * the exception and not one: the shipped layer never carries wing names, so
+ * every one of them is a difference by construction.
+ *
+ * False if the writer was misused. `_outText` must not reach disk in that case:
+ * half-valid JSON is worse than no file, because the next boot backs it up as
+ * corrupt and the player silently loses the settings that were fine.
+ */
+[[nodiscard]] bool WriteUserLayer(const AppConfig& _config, const AppConfig& _shipped, std::string& _outText);
 
 [[nodiscard]] const char* HostModeText(HostMode _mode) noexcept;
 

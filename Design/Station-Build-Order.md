@@ -3,8 +3,9 @@
 **This document does not sequence** *(2026-08-22)*. It says what each T-slice contains, what its
 accept is, and — in the **Built** lines, which are most of its length — what landed and what that
 cost. **When a slice is built is [Plan-of-Record.md](Plan-of-Record.md)'s**, which sequences
-across all three phases and the work that belongs to none of them. T3's remaining half needs the user
-layer, which the plan schedules as N2.
+across all three phases and the work that belongs to none of them. T3's remaining half needed the user
+layer; **N2 built it on 2026-08-22**, so what remains of T3 is the rename control and the visual
+checkpoints rather than a dependency.
 
 **Status:** Session output 2026-08-19 · **T1 and T2 built in full** (2026-08-21) —
 **🏁 H0 is met: every named criterion is covered.** Docking, the transfer bus, undocking and its fifteen seconds,
@@ -579,16 +580,31 @@ its number; the wing the dock formed is the wing they undock into) and end to en
 real client and server in `RunDockingLoop`, which is where the last link lives — a split the
 roster records and the respawn then loses looks exactly like a split that never happened.
 
-**Still owed by T3:** wing *renames*, which do need the user settings layer; assigning to
-wing 0 to disband, which needs the print's stray column first, or the button would make ships
-vanish off the HUD; persistence of a created wing's name across sessions (ADR-012). And the
+~~**Still owed by T3:** wing *renames*, which do need the user settings layer;~~ **the layer
+landed 2026-08-22 as N2**, and with it the half of that debt that was not a control: a call sign
+the player composed now comes back next session, and a name they put on an authored wing outranks
+the content's without overwriting it — so deleting `Settings.json` restores TALON and ANVIL
+exactly. Gated in `RunWingNameLayerGate`, beside the assignment gate and for the same reason.
+
+**Still owed by T3:** the rename **control** — the layer is under it now, so what is left is the
+gesture and the text field, and T3a already built both; assigning to wing 0 to disband, which
+needs the print's stray column first, or the button would make ships vanish off the HUD. And the
 visual checkpoints above.
+
+**One thing N2 moved rather than closed, recorded so it is not counted twice.** The names the
+player owns are written at **shutdown**, not at the keystroke — a rename is a keypress and a save
+is a file rename, and doing the second on every one of the first would put the settings file in
+the path of a fast typist. The cost is that a session killed rather than closed loses the names it
+minted, which is the right trade for call signs and is the first thing to revisit when the
+settings screen (N3) puts a display mode in the same file.
 
 **Accept 🏁 H1:** the owner's loop in one sitting — fly to the station, DOCK from the
 context action, open the hangar, move three ships into a new wing, select a mixed
 composition, UNDOCK, and watch the new fleet appear at the undock point, shimmer, and park
 itself on a free berth clear of a fleet already parked; visual checkpoint against P1;
-rename a wing and see it survive a client restart (user layer); undock at an unviewed
+rename a wing and see it survive a client restart (user layer — **its layer is built as of
+2026-08-22 and the round trip is gated in two suites; what this clause still needs is the rename
+control and a person to press it**); undock at an unviewed
 station from the roster block and jump to it with VIEW.
 
 ---

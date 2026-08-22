@@ -49,6 +49,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace Outpost
@@ -1932,6 +1933,167 @@ void RunWingAssignmentGate(Checklist& _checks)
 }
 
 /*
+ * The wing names the player owns, across a restart (ADR-012 §3, ADR-017 §6, N2).
+ *
+ * Here for the reason the gate above it is: `ReplicatedWorldView` lives in the
+ * executable and has no test project, and this is behaviour rather than wiring
+ * -- a call sign handed to two wings, or an authored name quietly overwritten,
+ * is the kind of defect that only shows on a roster somebody is looking at.
+ *
+ * It opens no socket. The settings layer's own round trip is covered in
+ * `OutpostTests`; what is left, and what this is, is what the *view* does with
+ * the list of names it is handed at construction.
+ */
+void RunWingNameLayerGate(Checklist& _checks)
+{
+  constexpr Game::AnchorId STATION = 41;
+
+  // Wing 9 is one the player composed in an earlier session -- a number past
+  // anything the content named -- and wings 1 and 2 are the content's own.
+  const Game::RosterEntry docked[] = {
+    Game::RosterEntry{1, Game::HullClass::Interceptor, 1},
+    Game::RosterEntry{2, Game::HullClass::Bomber, 2},
+    Game::RosterEntry{3, Game::HullClass::Corvette, 9},
+  };
+
+  const auto feed = [&](Outpost::ReplicatedWorldView& _view)
+  {
+    const Game::FleetSummary rows[] = {
+      Game::FleetSummary{STATION, Game::FleetState::Docked, 3, Game::FLEET_ETA_NONE},
+    };
+    std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> bytes{};
+    Neuron::ByteWriter writer{bytes};
+    const bool wrote = Game::BeginSummaryFrame(2, writer) && Game::BeginSummaryRecord(Game::SummaryKind::FleetSummaries, writer) &&
+                       Game::WriteFleetSummaries(rows, writer) && Game::BeginSummaryRecord(Game::SummaryKind::StationRoster, writer) &&
+                       Game::WriteStationRoster(STATION, docked, writer);
+    return wrote && _view.ApplySummary(writer.Written());
+  };
+
+  const auto makeDesc = [](std::vector<std::pair<Game::WingId, std::string>> _saved)
+  {
+    Outpost::ReplicatedWorldView::Desc desc;
+    desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+    desc.wingNames = {"-", "TALON", "ANVIL"};
+    desc.spareWingNames = {"VERGE", "CINDER"};
+    desc.savedWingNames = std::move(_saved);
+    return desc;
+  };
+
+  /// The word on the row for `_group`, or empty if there is no such row.
+  const auto rowName = [](const std::array<Neuron::RosterRow, Neuron::MAX_ROSTER_ROWS>& _rows, std::uint32_t _count,
+                          std::uint16_t _group)
+  {
+    for (std::uint32_t index = 0; index < _count; ++index)
+    {
+      if (_rows[index].groupId == _group && _rows[index].name != nullptr)
+      {
+        return std::string_view{_rows[index].name};
+      }
+    }
+    return std::string_view{};
+  };
+
+  /*
+   * The control: the same content with no settings file behind it.
+   *
+   * Wing 9 is in the hangar and unnamed, so this view does what it has always
+   * done -- spends the first spare call sign on it, which is `EnsureWingName`
+   * covering a wing the player would otherwise not see. That is the *before*
+   * every claim below is a difference against.
+   */
+  Outpost::ReplicatedWorldView shipped{makeDesc({})};
+  std::array<Neuron::RosterRow, Neuron::MAX_ROSTER_ROWS> shippedRoster{};
+  const bool shippedFed = feed(shipped);
+  const std::uint32_t shippedRows = shippedFed ? shipped.BuildRoster(std::span<const Neuron::EntityId>{}, shippedRoster) : 0;
+  _checks.Record("without a settings layer a wing is called what the content calls it",
+                 shippedRows == 3 && rowName(shippedRoster, shippedRows, 2) == "ANVIL" &&
+                   rowName(shippedRoster, shippedRows, 9) == "VERGE");
+
+  Outpost::ReplicatedWorldView restored{makeDesc({{2, "ANVIL PRIME"}, {9, "VERGE"}})};
+  std::array<Neuron::RosterRow, Neuron::MAX_ROSTER_ROWS> roster{};
+  const bool restoredFed = feed(restored);
+  const std::uint32_t rowCount = restoredFed ? restored.BuildRoster(std::span<const Neuron::EntityId>{}, roster) : 0;
+
+  // A rename outranks the authored word; the authored table is never written
+  // to, which is what makes deleting the settings file restore the shipped
+  // names exactly.
+  _checks.Record("a renamed wing shows the player's word and an unrenamed one still shows the content's",
+                 rowCount == 3 && rowName(roster, rowCount, 2) == "ANVIL PRIME" && rowName(roster, rowCount, 1) == "TALON");
+
+  std::array<Neuron::StationAction, Neuron::MAX_STATION_ACTIONS> actions{};
+  const std::uint32_t actionCount = restoredFed ? restored.BuildStationActions(static_cast<std::uint16_t>(STATION), actions) : 0;
+  std::array<Neuron::OrderOption, Neuron::MAX_STATION_OPTIONS> options{};
+  const std::uint32_t optionCount = actionCount == 2 ? restored.StationActionOptions(actions[1].verb, options) : 0;
+
+  /*
+   * A rename costs a word and not a row.
+   *
+   * Three wings are named -- 1 and 2 from the content, 9 from the settings
+   * layer -- so the chip offers those three and the lowest number nobody is
+   * using, which is 3. The arithmetic this replaced counted the two name lists
+   * by adding them, and would have read the rename of wing 2 as a fourth named
+   * wing: eight renames would have closed the NEW WING chip for a reason the
+   * player could not see.
+   */
+  _checks.Record("a restored wing is offered like any other, and a rename spends no roster row",
+                 optionCount == 4 && options[0].parameter == 1 && options[1].parameter == 2 && options[2].parameter == 9 &&
+                   options[3].parameter == 3);
+
+  /*
+   * The failure this whole gate is here for.
+   *
+   * `spareWingNames` is consumed in order and never returned, so restoring
+   * VERGE without also *spending* it would hand the same word to the next wing
+   * the player composes -- one call sign on two things they had told apart. The
+   * next new wing has to be CINDER.
+   */
+  bool spentTheRightWord = false;
+  if (optionCount == 4)
+  {
+    Neuron::StationIntent intent;
+    intent.verb = actions[1].verb;
+    intent.parameter = options[3].parameter; // The unused number the chip offers.
+    intent.anchor = static_cast<std::uint16_t>(STATION);
+    intent.orderSeq = 1;
+    const std::uint32_t members[] = {1};
+    intent.shipIds = members;
+    intent.shipCount = 1;
+
+    std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> commandBytes{};
+    Neuron::ByteWriter commandWriter{commandBytes};
+    if (restored.EncodeStationCommand(intent, commandWriter) && commandWriter.Ok())
+    {
+      // Asked through the chip rather than through a back door: the name the
+      // player will read is the one the option carries.
+      std::array<Neuron::OrderOption, Neuron::MAX_STATION_OPTIONS> after{};
+      const std::uint32_t afterCount = restored.StationActionOptions(actions[1].verb, after);
+      for (std::uint32_t index = 0; index < afterCount; ++index)
+      {
+        if (after[index].parameter == intent.parameter && after[index].name != nullptr)
+        {
+          spentTheRightWord = std::string_view{after[index].name} == "CINDER";
+        }
+      }
+    }
+  }
+  _checks.Record("a call sign the player is already using is not handed to a second wing", spentTheRightWord);
+
+  /*
+   * And what goes back to the settings layer is exactly what the player owns:
+   * the two names restored plus the one just composed, and nothing the content
+   * named. TALON is not in this list, which is why deleting the file gives it
+   * back.
+   */
+  const std::vector<std::pair<Game::WingId, std::string>> toSave = restored.PlayerWingNames();
+  bool savesWhatIsOwned = toSave.size() == 3;
+  for (const std::pair<Game::WingId, std::string>& entry : toSave)
+  {
+    savesWhatIsOwned = savesWhatIsOwned && !entry.second.empty() && entry.first != Game::INVALID_WING_ID && entry.second != "TALON";
+  }
+  _checks.Record("and what is written back is every name the player owns and nothing the content owns", savesWhatIsOwned);
+}
+
+/*
  * The fleet is drawn at the size the game says it is (ADR-006 §5, ADR-016 §10).
  *
  * This check exists here and can exist nowhere else: it needs a mesh loader,
@@ -2800,6 +2962,7 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   RunMineAvailabilityGate(checks, _economy);
   RunLocationBlockGate(checks);
   RunWingAssignmentGate(checks);
+  RunWingNameLayerGate(checks);
 
   // U3c's accept, after the single-commander loop has proved the machinery it
   // builds on: two clients at once, on grids of their own.

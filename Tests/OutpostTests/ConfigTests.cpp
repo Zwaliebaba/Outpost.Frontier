@@ -77,6 +77,22 @@ void ApplyUser(std::string_view _text, AppConfig& _config, ConfigDiagnostics& _d
   return false;
 }
 
+/// A failure message that names the key it is about. `Assert` takes a wide
+/// string and these keys are narrow literals, so the widening happens once here
+/// rather than at nineteen call sites. ASCII throughout: they are JSON keys
+/// this file spells itself.
+[[nodiscard]] std::wstring KeyMessage(const char* _key, const wchar_t* _what)
+{
+  std::wstring message;
+  for (const char* c = _key; *c != '\0'; ++c)
+  {
+    message.push_back(static_cast<wchar_t>(*c));
+  }
+  message += L' ';
+  message += _what;
+  return message;
+}
+
 } // namespace
 
 TEST_CLASS(ConfigLayerTests)
@@ -398,6 +414,318 @@ public:
     ApplyUser(R"({"client": {"window": {"width": 2560}, "connect": {"port": 9000}}})", config, diagnostics);
     Assert::AreEqual<std::uint32_t>(2560, config.client.window.width, L"the player's window size wins");
     Assert::AreEqual<std::uint16_t>(8000, config.client.connectPort, L"and their connect settings never applied");
+  }
+};
+
+/*
+ * Writing the user layer (`WriteUserLayer`, N2 / ADR-012 §A3).
+ *
+ * A second class rather than more methods on the first, because the property
+ * under test is different in kind. The layer tests above ask what a *file* is
+ * allowed to say; these ask whether what this program writes is what it reads
+ * back -- and the answer has to be yes for every key, or a setting is one that
+ * silently does not survive a restart.
+ *
+ * Still pure: text out, text in, no file opened. `SaveUserSettings` owns the
+ * path, the temporary and the rename, and it is not this.
+ */
+TEST_CLASS(UserLayerWriterTests)
+{
+public:
+  /// Write `_config` against `_shipped`, then read the result back over a fresh
+  /// copy of `_shipped`. What comes out is what the next boot would see.
+  static void RoundTrip(const AppConfig& _config, const AppConfig& _shipped, AppConfig& _outReloaded, std::string& _outText)
+  {
+    Assert::IsTrue(WriteUserLayer(_config, _shipped, _outText), L"the writer did not finish its document");
+
+    _outReloaded = _shipped;
+    ConfigDiagnostics diagnostics;
+    ApplyUser(_outText, _outReloaded, diagnostics);
+    Assert::IsTrue(diagnostics.Ok(), L"the file this program wrote is one it refuses to read");
+  }
+
+  TEST_METHOD(APlayerWhoChangedNothingGetsAnEmptyDocument)
+  {
+    // The property that keeps an untouched installation free of a settings
+    // file at all: `SaveUserSettings` declines to create one for "{}".
+    const AppConfig shipped;
+    std::string text;
+    Assert::IsTrue(WriteUserLayer(shipped, shipped, text));
+    Assert::AreEqual(std::string("{}"), text);
+  }
+
+  TEST_METHOD(OnlyTheChangedKeyIsWritten)
+  {
+    /*
+     * The whole reason the writer takes a baseline. A file that captured the
+     * shipped values would go on overriding them after the shipped file moved
+     * on, and the player would be pinned to last year's defaults by a file they
+     * never edited.
+     */
+    AppConfig shipped;
+    shipped.client.window.width = 1920;
+    shipped.client.audio.master = 0.5;
+
+    AppConfig config = shipped;
+    config.client.audio.master = 0.25;
+
+    std::string text;
+    AppConfig reloaded;
+    RoundTrip(config, shipped, reloaded, text);
+
+    Assert::IsTrue(text.find("master") != std::string::npos, L"the value the player changed is not in the file");
+    Assert::IsTrue(text.find("width") == std::string::npos, L"a value the player never touched was captured");
+    Assert::IsTrue(text.find("window") == std::string::npos, L"an untouched section was written as an empty object");
+    Assert::AreEqual(0.25, reloaded.client.audio.master, 1e-9);
+  }
+
+  TEST_METHOD(EveryKeyTheUserLayerReadsIsAKeyItWrites)
+  {
+    /*
+     * The asymmetry this is here to catch is silent: a key `ApplyUserLayer`
+     * accepts and `WriteUserLayer` never emits is a setting the player can
+     * change, can see take effect, and loses on the next boot with nothing
+     * anywhere saying why.
+     *
+     * Every value below differs from the default, so every one of them has to
+     * make the round trip.
+     */
+    const AppConfig shipped;
+    AppConfig config = shipped;
+    config.client.window.width = 2560;
+    config.client.window.height = 1440;
+    config.client.window.mode = "borderless";
+    config.client.renderer.vsync = false;
+    config.client.renderer.msaa = 8;
+    config.client.renderer.frameCap = 144;
+    config.client.renderer.hullScale = 1.75;
+    config.client.audio.enabled = false;
+    config.client.audio.voiceCap3D = 64;
+    config.client.audio.voiceCap2D = 32;
+    config.client.audio.master = 0.9;
+    config.client.audio.world = 0.8;
+    config.client.audio.ui = 0.7;
+    config.client.audio.music = 0.35;
+    config.client.audio.alerts = 0.5;
+    config.client.audio.ambience = 0.4;
+    config.client.ui.scale = 1.25;
+    config.client.ui.palette = "high-contrast";
+    config.client.ui.font = "Cascadia Mono";
+    config.client.diagnostics.strip = true;
+
+    std::string text;
+    AppConfig reloaded;
+    RoundTrip(config, shipped, reloaded, text);
+
+    Assert::AreEqual<std::uint32_t>(2560, reloaded.client.window.width);
+    Assert::AreEqual<std::uint32_t>(1440, reloaded.client.window.height);
+    Assert::AreEqual(std::string("borderless"), reloaded.client.window.mode);
+    Assert::IsFalse(reloaded.client.renderer.vsync);
+    Assert::AreEqual<std::uint32_t>(8, reloaded.client.renderer.msaa);
+    Assert::AreEqual<std::uint32_t>(144, reloaded.client.renderer.frameCap);
+    Assert::AreEqual(1.75, reloaded.client.renderer.hullScale, 1e-9);
+    Assert::IsFalse(reloaded.client.audio.enabled);
+    Assert::AreEqual<std::uint32_t>(64, reloaded.client.audio.voiceCap3D);
+    Assert::AreEqual<std::uint32_t>(32, reloaded.client.audio.voiceCap2D);
+    Assert::AreEqual(0.9, reloaded.client.audio.master, 1e-9);
+    Assert::AreEqual(0.8, reloaded.client.audio.world, 1e-9);
+    Assert::AreEqual(0.7, reloaded.client.audio.ui, 1e-9);
+    Assert::AreEqual(0.35, reloaded.client.audio.music, 1e-9);
+    Assert::AreEqual(0.5, reloaded.client.audio.alerts, 1e-9);
+    Assert::AreEqual(0.4, reloaded.client.audio.ambience, 1e-9);
+    Assert::AreEqual(1.25, reloaded.client.ui.scale, 1e-9);
+    Assert::AreEqual(std::string("high-contrast"), reloaded.client.ui.palette);
+    Assert::AreEqual(std::string("Cascadia Mono"), reloaded.client.ui.font);
+    Assert::IsTrue(reloaded.client.diagnostics.strip);
+
+    /*
+     * And every key is actually *in* the file.
+     *
+     * The equality checks above are necessary and not sufficient: a value that
+     * happens to match the shipped default is not written, is not read, and
+     * still compares equal -- so a key the writer forgot passes silently. This
+     * caught exactly that while the slice was being built, on `music`, whose
+     * fixture value was the default.
+     */
+    for (const char* key : {"width", "height", "mode", "vsync", "msaa", "frameCap", "hullScale", "enabled", "voiceCap3D",
+                            "voiceCap2D", "master", "world", "music", "alerts", "ambience", "scale", "palette", "font", "strip"})
+    {
+      Assert::IsTrue(text.find(key) != std::string::npos,
+                     KeyMessage(key, L"is a key the user layer reads and the writer never emits").c_str());
+    }
+  }
+
+  TEST_METHOD(WingNamesSurviveTheRoundTrip)
+  {
+    // 🏁 H1's last clause, at the layer that has to hold it up: rename a wing
+    // and see it survive a restart.
+    const AppConfig shipped;
+    AppConfig config = shipped;
+    config.wings.push_back(WingName{9, "VERGE"});
+    config.wings.push_back(WingName{2, "TALON PRIME"});
+
+    std::string text;
+    AppConfig reloaded;
+    RoundTrip(config, shipped, reloaded, text);
+
+    Assert::AreEqual<std::size_t>(2, reloaded.wings.size());
+    // Sorted by number on the way out, so the file is the same file for the
+    // same settings however the session happened to mint them.
+    Assert::AreEqual<std::uint32_t>(2, reloaded.wings[0].wing);
+    Assert::AreEqual(std::string("TALON PRIME"), reloaded.wings[0].name);
+    Assert::AreEqual<std::uint32_t>(9, reloaded.wings[1].wing);
+    Assert::AreEqual(std::string("VERGE"), reloaded.wings[1].name);
+  }
+
+  TEST_METHOD(TheSameSettingsMintedInAnyOrderProduceTheSameFile)
+  {
+    /*
+     * What makes `SaveUserSettings`'s "write nothing when nothing changed"
+     * actually hold. Names arrive in the order the session minted them; without
+     * a canonical order the same settings would rewrite the file on every exit
+     * and a diff would show a reshuffle where nothing had changed.
+     */
+    const AppConfig shipped;
+    AppConfig first = shipped;
+    first.wings.push_back(WingName{9, "VERGE"});
+    first.wings.push_back(WingName{2, "ANVIL"});
+
+    AppConfig second = shipped;
+    second.wings.push_back(WingName{2, "ANVIL"});
+    second.wings.push_back(WingName{9, "VERGE"});
+
+    std::string firstText;
+    std::string secondText;
+    Assert::IsTrue(WriteUserLayer(first, shipped, firstText));
+    Assert::IsTrue(WriteUserLayer(second, shipped, secondText));
+    Assert::AreEqual(firstText, secondText);
+  }
+
+  TEST_METHOD(AWingNameWithAQuoteInItComesBackWhole)
+  {
+    // The player types the name, so it is the one string in this file that is
+    // not authored content. The writer escapes; the parser unescapes; nothing
+    // in between gets to be clever about it.
+    const AppConfig shipped;
+    AppConfig config = shipped;
+    config.wings.push_back(WingName{3, R"(THE "REAL" WING	\)"});
+
+    std::string text;
+    AppConfig reloaded;
+    RoundTrip(config, shipped, reloaded, text);
+
+    Assert::AreEqual<std::size_t>(1, reloaded.wings.size());
+    Assert::AreEqual(std::string(R"(THE "REAL" WING	\)"), reloaded.wings[0].name);
+  }
+};
+
+/*
+ * Reading the `wings` family (`ApplyUserLayer`, ADR-012 §3).
+ *
+ * Every refusal here drops the **whole** list rather than the bad entry. A
+ * partial roster of call signs is the failure hardest to see -- one wing renamed
+ * and one not, with nothing saying why -- while losing all of them says
+ * something is wrong with the file, which is true.
+ */
+TEST_CLASS(WingNameLayerTests)
+{
+public:
+  TEST_METHOD(AListOfIdAndNamePairsIsRead)
+  {
+    AppConfig config;
+    ConfigDiagnostics diagnostics;
+    ApplyUser(R"({"wings": [{"id": 9, "name": "VERGE"}, {"id": 14, "name": "SLATE"}]})", config, diagnostics);
+
+    Assert::IsTrue(diagnostics.Ok());
+    Assert::AreEqual<std::size_t>(2, config.wings.size());
+    Assert::AreEqual<std::uint32_t>(9, config.wings[0].wing);
+    Assert::AreEqual(std::string("VERGE"), config.wings[0].name);
+    Assert::AreEqual<std::uint32_t>(14, config.wings[1].wing);
+  }
+
+  TEST_METHOD(WingZeroIsRefused)
+  {
+    // `INVALID_WING_ID`: the wing the stations are in, which draws no row. A
+    // name for it would be a word nothing can ever show.
+    AppConfig config;
+    ConfigDiagnostics diagnostics;
+    ApplyUser(R"({"wings": [{"id": 0, "name": "NOWHERE"}]})", config, diagnostics);
+
+    Assert::IsFalse(diagnostics.Ok());
+    Assert::IsTrue(Mentions(diagnostics.errors, "wings[0].id"));
+    Assert::IsTrue(config.wings.empty());
+  }
+
+  TEST_METHOD(AWingPastTheIdRangeIsRefusedRatherThanWrapped)
+  {
+    // `Game::WingId` is a u8, so 256 is not a wing -- and narrowing it silently
+    // would rename wing 0.
+    AppConfig config;
+    ConfigDiagnostics diagnostics;
+    ApplyUser(R"({"wings": [{"id": 256, "name": "OVERFLOW"}]})", config, diagnostics);
+
+    Assert::IsFalse(diagnostics.Ok());
+    Assert::IsTrue(config.wings.empty());
+  }
+
+  TEST_METHOD(AnEmptyNameIsRefused)
+  {
+    // Worse than an unnamed wing: the roster would draw a row the player can
+    // neither read nor point at.
+    AppConfig config;
+    ConfigDiagnostics diagnostics;
+    ApplyUser(R"({"wings": [{"id": 4, "name": ""}]})", config, diagnostics);
+
+    Assert::IsFalse(diagnostics.Ok());
+    Assert::IsTrue(Mentions(diagnostics.errors, "wings[0].name"));
+  }
+
+  TEST_METHOD(TwoNamesForOneWingIsRefused)
+  {
+    // Which one wins would be an arbitrary answer to a question the file should
+    // not be able to ask.
+    AppConfig config;
+    ConfigDiagnostics diagnostics;
+    ApplyUser(R"({"wings": [{"id": 4, "name": "FIRST"}, {"id": 4, "name": "SECOND"}]})", config, diagnostics);
+
+    Assert::IsFalse(diagnostics.Ok());
+    Assert::IsTrue(config.wings.empty());
+  }
+
+  TEST_METHOD(ABadEntryLosesTheWholeListRatherThanItself)
+  {
+    AppConfig config;
+    ConfigDiagnostics diagnostics;
+    ApplyUser(R"({"wings": [{"id": 4, "name": "GOOD"}, {"id": 5, "name": 7}]})", config, diagnostics);
+
+    Assert::IsFalse(diagnostics.Ok());
+    Assert::IsTrue(config.wings.empty(), L"a partial roster of call signs is worse than none");
+  }
+
+  TEST_METHOD(WingsAreNotAKeyTheShippedConfigOwns)
+  {
+    // The starting fleet's names are content in the composition root. A shipped
+    // file reaching for the player's vocabulary is an unknown key.
+    AppConfig config;
+    ConfigDiagnostics diagnostics;
+    ApplyConfig(R"({"wings": [{"id": 9, "name": "VERGE"}]})", config, diagnostics);
+
+    Assert::IsTrue(diagnostics.Ok(), L"an unknown key must not stop an older build starting");
+    Assert::IsTrue(Mentions(diagnostics.warnings, "wings"));
+    Assert::IsTrue(config.wings.empty());
+  }
+
+  TEST_METHOD(AnUnknownKeyInsideAWingWarnsAndTheEntryStands)
+  {
+    // Forward compatibility, the same rule the rest of the file runs under: a
+    // newer build's extra field must not cost an older build the name.
+    AppConfig config;
+    ConfigDiagnostics diagnostics;
+    ApplyUser(R"({"wings": [{"id": 9, "name": "VERGE", "colour": "amber"}]})", config, diagnostics);
+
+    Assert::IsTrue(diagnostics.Ok());
+    Assert::IsTrue(Mentions(diagnostics.warnings, "wings[0].colour"));
+    Assert::AreEqual<std::size_t>(1, config.wings.size());
   }
 };
 

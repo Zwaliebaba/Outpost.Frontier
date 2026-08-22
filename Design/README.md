@@ -187,9 +187,12 @@ moves between the trees without a rename pass. Three things it changed in these 
   S15 shipped the sound bank). **T1 and T2 are built in full (2026-08-21), and T3 with them
   (2026-08-22, split into T3a's navigation machinery and T3b's hangar)** — so the phase's code
   is in the tree and what it still owes is a person looking at it: the visual checkpoints T2 and
-  T3a each recorded as owed, and the reorganisation room (wing assignment, creation and renames),
-  which is drawn disabled because a wing's *name* is client-side and there is no user settings
-  layer to put one in yet (ADR-017 §6a.4).
+  T3a each recorded as owed. **The reorganisation room is no longer among what it owes.** Wing
+  assignment and creation landed 2026-08-22 — they never needed the settings layer, which is what
+  had been holding all three (ADR-017 §6's note) — and the layer itself landed the same day as
+  **N2**, so a wing's *name* now has somewhere client-side to live (ADR-017 §6, the rule §6a.4
+  cites). What is left of that room is the rename **control**, and assigning to wing 0 to
+  disband, which wants the print's stray column first.
 - [Economy-Build-Order.md](Economy-Build-Order.md) — the mining and refining phase: E1a–E5
   slices delivering ADR-024 and ADR-025 (the economy content layer, sites in the bake and the
   epoch that moves them, the Mine order and the site ledger, cargo and the Bay and the wire

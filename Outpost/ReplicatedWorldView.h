@@ -97,12 +97,33 @@ public:
      * a used call sign to a second wing would put one word on two things the
      * player has told apart.
      *
-     * **They are the session's, not the save's.** ADR-017 §6 puts wing names in
-     * ADR-012's user settings layer, which does not exist yet, so a name minted
-     * today is gone tomorrow while the *number* on the ship persists. What
-     * covers that gap is `EnsureWingName`, not this list.
+     * **They are the save's now, not only the session's** (N2, 2026-08-22).
+     * ADR-017 §6 puts wing names in ADR-012's user settings layer, and that
+     * layer is written: a name minted today comes back tomorrow through
+     * `savedWingNames` below, and the call sign it spent is struck off this
+     * list at construction so a second wing is never handed the same word.
+     * `EnsureWingName`'s dull fallback is what covers a wing whose name did not
+     * survive -- a save from before the layer existed, or one a player deleted.
      */
     std::vector<std::string> spareWingNames;
+
+    /*
+     * The call signs the player has already chosen, from the user settings
+     * layer (ADR-012 §3, ADR-017 §6).
+     *
+     * **Renames and names-for-new-wings are the same thing here**, which is
+     * what ADR-017 §6 means by both living in that layer: an entry naming a
+     * wing the content already named is a rename and outranks the authored
+     * word, and an entry naming a number beyond the authored table is a wing
+     * the player composed. One list covers both because the player cannot tell
+     * them apart either -- they renamed a row.
+     *
+     * Applied by the constructor rather than merged into `wingNames` by the
+     * caller, because the row cap and the pointer-stability reserve are this
+     * class's invariants and an entry that breaks them has to be refused where
+     * they are enforced.
+     */
+    std::vector<std::pair<Game::WingId, std::string>> savedWingNames;
 
     /// The universe hash, which is what the handshake fails closed on.
     std::uint64_t contentHash = 0;
@@ -224,6 +245,19 @@ public:
    */
   [[nodiscard]] bool MakeStationCommand(const Neuron::StationIntent& _intent,
                                         Game::StationCommand& _outCommand) const noexcept;
+
+  /*
+   * The call signs the player owns, for the settings layer to keep
+   * (ADR-012 §3).
+   *
+   * Handed out as a copy rather than a span: the composition root reads this
+   * once, at shutdown, and a borrowed view of a member whose whole purpose is
+   * pointer stability is a loan nobody needs to take.
+   *
+   * Empty for a player who has renamed nothing and composed no wing, which is
+   * what keeps an untouched installation free of a settings file at all.
+   */
+  [[nodiscard]] std::vector<std::pair<Game::WingId, std::string>> PlayerWingNames() const;
 
   /// What the economy summaries last said, for a test or a diagnostic to assert
   /// against without going through a HUD span.
@@ -354,6 +388,11 @@ private:
   /// roster has no room for another row. What the composer offers as NEW WING.
   [[nodiscard]] Game::WingId FreeWingId() const noexcept;
 
+  /// How many wings have a name at all, authored and player-owned counted once
+  /// each. The row cap is a cap on *rows*, so a rename must not spend one -- an
+  /// entry that renames an authored wing adds a word, not a row.
+  [[nodiscard]] std::size_t NamedWingCount() const noexcept;
+
   /*
    * The docked place for this anchor, or null. Both station calls start here,
    * and neither should walk `m_places` on its own terms.
@@ -369,14 +408,21 @@ private:
   Game::ReplicatedView m_view;
 
   /*
-   * Call signs for wings the content did not name, by wing number.
+   * The call signs the **player** owns, by wing number -- minted here for a
+   * wing the content never named, or restored from the settings layer.
+   *
+   * It outranks `Desc::wingNames` in `WingName`, and that ordering is the whole
+   * of how a rename works: the authored table is content and stays as authored,
+   * while an entry here is the word the player put on that row. It is also
+   * exactly what is written back to the settings layer, so "what the player
+   * owns" is one list rather than a rule applied twice.
    *
    * A pair list rather than a map or an array: it holds a handful of entries at
    * most -- the roster's row cap is the ceiling on how many wings can be named
    * at all -- so a node per wing would be three allocations to avoid a scan of
    * six, and an array indexed by `WingId` would be 256 strings to hold them.
    */
-  std::vector<std::pair<Game::WingId, std::string>> m_mintedWingNames;
+  std::vector<std::pair<Game::WingId, std::string>> m_playerWingNames;
 
   /// Reused across frames rather than allocated per frame: this runs once per
   /// frame at whatever rate the display asks for.

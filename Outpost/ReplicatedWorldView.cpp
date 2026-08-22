@@ -243,7 +243,77 @@ ReplicatedWorldView::ReplicatedWorldView(Desc _desc)
    * that says it cannot be reached -- so the invariant is enforced where it is
    * relied on rather than argued for somewhere else.
    */
-  m_mintedWingNames.reserve(Neuron::MAX_ROSTER_ROWS);
+  m_playerWingNames.reserve(Neuron::MAX_ROSTER_ROWS);
+
+  /*
+   * The names the player chose in an earlier session (ADR-012 §3, N2).
+   *
+   * Applied here rather than by the caller because the two invariants above are
+   * this class's: an entry past the reserve would move the words already handed
+   * out, and an entry past the row cap would name a wing no roster can draw. A
+   * hand-edited settings file is exactly where a list too long for either comes
+   * from, so both are enforced against it rather than assumed of it.
+   *
+   * Silent about what it drops, and deliberately. `LoadAppConfig` has already
+   * refused a malformed file loudly; what reaches here is well-formed and merely
+   * too long, and the honest outcome for that is the first `MAX_ROSTER_ROWS`
+   * names taken in file order, which is `wings` sorted by number.
+   */
+  for (const std::pair<Game::WingId, std::string>& saved : m_desc.savedWingNames)
+  {
+    if (saved.first == Game::INVALID_WING_ID || saved.second.empty())
+    {
+      continue; // Wing 0 draws no row, and a row with no word on it cannot be pointed at.
+    }
+
+    // One word per wing. The parser refuses a repeated id, so this is about a
+    // caller composing its own list rather than about the file.
+    const auto already = std::find_if(m_playerWingNames.begin(), m_playerWingNames.end(),
+                                      [&saved](const std::pair<Game::WingId, std::string>& _entry) { return _entry.first == saved.first; });
+    if (already != m_playerWingNames.end())
+    {
+      continue;
+    }
+
+    if (m_playerWingNames.size() == m_playerWingNames.capacity())
+    {
+      break; // The pointer-stability reserve, and it is absolute: no entry is worth moving the words on screen.
+    }
+
+    /*
+     * The row cap costs a `continue` rather than a `break`, and the difference
+     * is a rename.
+     *
+     * An entry naming a wing the content already named adds a word to an
+     * existing row and no row at all, so it is legal at the cap -- and stopping
+     * at the first entry the cap refused would drop the renames sitting behind
+     * it in the list. Only an entry that would create a row the roster cannot
+     * draw is skipped.
+     */
+    if (saved.first >= m_desc.wingNames.size() && NamedWingCount() >= Neuron::MAX_ROSTER_ROWS)
+    {
+      continue;
+    }
+    m_playerWingNames.emplace_back(saved.first, saved.second);
+  }
+
+  /*
+   * A call sign the player is already using is struck off the pool.
+   *
+   * `spareWingNames` is consumed in order and never returned, so a word handed
+   * to wing 9 last session must not be handed to wing 10 in this one -- that
+   * would put one word on two things the player has told apart, which is the
+   * failure `Desc` names. Restoring the names without also spending them would
+   * do exactly that on the first new wing after a restart.
+   */
+  for (const std::pair<Game::WingId, std::string>& taken : m_playerWingNames)
+  {
+    const auto spare = std::find(m_desc.spareWingNames.begin(), m_desc.spareWingNames.end(), taken.second);
+    if (spare != m_desc.spareWingNames.end())
+    {
+      m_desc.spareWingNames.erase(spare);
+    }
+  }
 }
 
 bool ReplicatedWorldView::ApplyFrame(const Neuron::ReplicatedFrame& _frame)
@@ -1402,18 +1472,62 @@ const char* ReplicatedWorldView::AnchorNameFor(Game::AnchorId _anchor) const
  *
  * A wing is a number a ship carries and nothing else -- there is no wing table,
  * on this side or the authority's -- so "what is it called" is a question only
- * content can answer, and these three functions are the whole of that answer.
+ * this side can answer, and these five functions are the whole of that answer.
+ *
+ * Two sources, in one order: what the **player** called it, then what the
+ * content did. The first list is the settings layer's (ADR-012 §3) and the
+ * second is the composition root's, and every function below reads them through
+ * `WingName` so the precedence is stated once.
  */
 
 const char* ReplicatedWorldView::WingName(Game::WingId _wing) const noexcept
 {
-  if (_wing < m_desc.wingNames.size())
-  {
-    return m_desc.wingNames[_wing].c_str();
-  }
-  const auto found = std::find_if(m_mintedWingNames.begin(), m_mintedWingNames.end(),
+  /*
+   * The player's word first, and that ordering *is* the rename (ADR-017 §6).
+   *
+   * The authored table is content and stays as authored -- nothing overwrites
+   * TALON -- so a rename is a second word that outranks it rather than an edit
+   * to the first. Two things fall out of doing it this way. Deleting the
+   * settings file restores the shipped call signs exactly, because the content
+   * was never touched. And one list holds everything the player owns, which is
+   * what makes saving it a read rather than a diff against the content.
+   */
+  const auto found = std::find_if(m_playerWingNames.begin(), m_playerWingNames.end(),
                                   [_wing](const std::pair<Game::WingId, std::string>& _entry) { return _entry.first == _wing; });
-  return found == m_mintedWingNames.end() ? nullptr : found->second.c_str();
+  if (found != m_playerWingNames.end())
+  {
+    return found->second.c_str();
+  }
+  return _wing < m_desc.wingNames.size() ? m_desc.wingNames[_wing].c_str() : nullptr;
+}
+
+std::size_t ReplicatedWorldView::NamedWingCount() const noexcept
+{
+  /*
+   * Authored plus player-owned, counted once each -- not added.
+   *
+   * The two lists overlap the moment a player renames an authored wing, and the
+   * arithmetic this replaced (`wingNames.size() - 1 + playerNames.size()`) read
+   * that overlap as two named wings. It would have spent the roster's rows on
+   * words rather than on rows, so renaming eight wings would have stopped the
+   * hangar offering a ninth for no reason the player could see.
+   *
+   * Index 0 is `INVALID_WING_ID` and is never a row, which is the `- 1u`.
+   */
+  std::size_t count = m_desc.wingNames.empty() ? 0u : m_desc.wingNames.size() - 1u;
+  for (const std::pair<Game::WingId, std::string>& entry : m_playerWingNames)
+  {
+    if (entry.first >= m_desc.wingNames.size())
+    {
+      ++count; // A wing the content never named: a row the authored table has not already counted.
+    }
+  }
+  return count;
+}
+
+std::vector<std::pair<Game::WingId, std::string>> ReplicatedWorldView::PlayerWingNames() const
+{
+  return m_playerWingNames;
 }
 
 bool ReplicatedWorldView::EnsureWingName(Game::WingId _wing)
@@ -1437,8 +1551,7 @@ bool ReplicatedWorldView::EnsureWingName(Game::WingId _wing)
    * and costs the call sign it spent. Refusing here leaves the wing unnamed,
    * which is the state the roster already knows how to skip.
    */
-  const std::size_t named = m_desc.wingNames.size() - 1u + m_mintedWingNames.size();
-  if (named >= Neuron::MAX_ROSTER_ROWS || m_mintedWingNames.size() == m_mintedWingNames.capacity())
+  if (NamedWingCount() >= Neuron::MAX_ROSTER_ROWS || m_playerWingNames.size() == m_playerWingNames.capacity())
   {
     // The second clause is the pointer-stability guard, not a second row cap:
     // growing this vector would move the names already handed out. See the
@@ -1468,7 +1581,7 @@ bool ReplicatedWorldView::EnsureWingName(Game::WingId _wing)
     name = generated;
   }
 
-  m_mintedWingNames.emplace_back(_wing, std::move(name));
+  m_playerWingNames.emplace_back(_wing, std::move(name));
   return true;
 }
 
@@ -1486,8 +1599,7 @@ Game::WingId ReplicatedWorldView::FreeWingId() const noexcept
     const auto candidate = static_cast<Game::WingId>(wing);
     if (WingName(candidate) == nullptr)
     {
-      const std::size_t named = m_desc.wingNames.size() - 1u + m_mintedWingNames.size();
-      return named >= Neuron::MAX_ROSTER_ROWS ? Game::INVALID_WING_ID : candidate;
+      return NamedWingCount() >= Neuron::MAX_ROSTER_ROWS ? Game::INVALID_WING_ID : candidate;
     }
   }
   return Game::INVALID_WING_ID;

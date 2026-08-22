@@ -1,7 +1,7 @@
 # Plan of Record
 
 **Status:** standing document, **revised in place** · opened 2026-08-22 · current as of
-2026-08-22 (U3d-a and U3d-b built). **This is the only document that says what is built next.** The three build orders
+2026-08-22 (U3d-a, U3d-b and N2 built). **This is the only document that says what is built next.** The three build orders
 say what a slice *contains* and record what happened when it landed; this one says which slice,
 and when. Where it and an ADR disagree the ADR wins on *what*, which is the rule the build
 orders already run under.
@@ -130,7 +130,7 @@ is a decision rather than a surprise.
 | # | Slice | Why it has no home today | Size |
 |---|---|---|---|
 | ~~**N1**~~ | **Interest & delta** — now **[U3d](Universe-Build-Order.md)**, split a/b/c | ~~no build order absorbed it~~ **Homed 2026-08-22**; it is D6's implementation slice and takes A14's own "after U3c" as its number | large |
-| **N2** | **The user layer** | ADR-012 §3 calls `Settings.json` "the only file the game writes" and nothing writes it | small |
+| ~~**N2**~~ | ~~**The user layer**~~ — **built 2026-08-22** | ~~ADR-012 §3 calls `Settings.json` "the only file the game writes" and nothing writes it~~ | small |
 | **N3** | **The settings screen** | ADR-020 §8 names "the settings screen's first slice"; no build order contains it | medium |
 | **I1–I3** | **The input model** | §1 above | large |
 | **N4** | **D18, arrival contention** | Baked, parsed, hashed, never read — fell between U1 and U3a | small |
@@ -225,9 +225,26 @@ property of a viewer and the registry currently has no viewer to be a property o
 1. ~~**U3d — interest & delta**~~ — **U3d-a and U3d-b built 2026-08-22.** R19 is closed, the shared-grid gate (ADR-018 D3) is lifted, and A11's remainder landed with the `ShipId`/`EntityRecord::id` widening. What is left is **U3d-c's counted chip** — `culledCount` reaches `ReplicatedView::CulledCount()` and nothing draws it yet — and that is screen work, so it moves down to sit behind the input model with the rest of the screens. The client's ack, keyframe and delta-apply paths, which this plan listed under U3d-c, landed with U3d-b because the wire cannot be tested without a reader.
 
     Two decisions the slice had to take rather than find, both recorded with it: **tier 1 reads as "inside the camera's extent"** rather than ADR-022 §4's literal "a visible relationship *and* inside the extent", because the first conjunct has no producer until the combat phase; and **`ViewFocus` had to be invented** — §4's query needs a focus, an extent and a selection, and §5a's guarantee cannot be kept for a selection nobody told the server about, which amends ADR-016 §7's "the server has no business holding this".
-2. **N2 — the user layer.** Small, unblocks T3's reorganisation room and closes 🏁 H1.
+2. ~~**N2 — the user layer.**~~ **Built 2026-08-22.** `Settings.json` is written — atomically,
+    and carrying only what the player *changed* rather than a copy of the shipped values, because
+    a file that captured the defaults would pin a player to them through a file they never
+    edited. Wing names are its first family: a call sign the player composed comes back next
+    session, a rename outranks the authored word without overwriting it, and a restored name is
+    struck off the spare pool so it is never handed to a second wing. ADR-012 §A4's "backed up
+    beside itself" stopped being aspirational with it. **🏁 H1 is not closed by this** — its
+    clause needs the rename *control*, which is T3's remainder and is now a gesture rather than a
+    dependency. Two things the slice had to decide rather than look up are recorded with it: the
+    file records **changes and not state**, which §A3 did not say either way; and names are
+    written at **shutdown** rather than at the keystroke, which is the right trade for call signs
+    and the first thing N3 has to revisit.
 3. ~~**The item-taxonomy ADR.**~~ **Done 2026-08-22** — [ADR-027](ADR/ADR-027-item-taxonomy.md).
-4. **N4, N5, N6.** Three small slices, each closing a named gap; N6 before U5 as A20 requires.
+4. **N5, then N4, then N6** — three small slices, each closing a named gap; N6 before U5 as A20
+    requires. **N5 moved ahead of N4 on 2026-08-22, and U3d is why.** This document listed the
+    three as interchangeable and justified N5 as "small, and it grows teeth the moment N1 lands".
+    N1 has landed — and U3d-b built the very thing N5 was missing: `ViewFocus` carries a `gridId`
+    per session and `SnapshotSender` holds it, so the viewer the registry has no viewer for now
+    exists on the wire and on the session with nothing connecting it to `AddViewer`. It got
+    cheaper and more load-bearing in the same slice.
 
 **Then the input model, which is its own phase:** I1 → I2 → I3. I1 and I2 are device-free and
 can land before a touch device exists; I3 cannot be accepted without one.
@@ -290,6 +307,21 @@ named.
 ---
 
 ## Revision log
+
+- **2026-08-22 — N2 built, and N5 moved ahead of N4.** The user layer is written:
+  `WriteUserLayer` beside `ApplyUserLayer` in `AppConfig.cpp` — pure, and so covered by
+  `OutpostTests` — with the file handle, the temporary and the rename in `ConfigLoad.cpp`, which
+  is the split drawn exactly where that suite's reach ends. Wing names are its first family and
+  `ReplicatedWorldView` gained the invariants that go with them: the player's word outranks the
+  authored one rather than overwriting it, a rename costs a word and not a roster row (the cap
+  arithmetic added the two name lists and double-counted the overlap), and a restored call sign is
+  struck off the spare pool so it is never handed to a second wing. Three documentation defects
+  fell out that were older than the slice: ADR-012 §3 and README both cited **ADR-017 §6a.4** for
+  a rule that is §6's — §6a.4 only cites it — and README still described the reorganisation room
+  as drawn disabled, three days after it was built. What N2 did **not** do is named in ADR-012
+  §A3: the display and audio families are written the moment something changes them and nothing
+  does yet, and the F1 diagnostics strip has no way to tell the composition root it was pressed.
+  That write-back is N3's.
 
 - **2026-08-22 — opened.** From a gap analysis run across the corpus before the next slice
   started. Five owner decisions recorded; eight slices that had no home given one; the input

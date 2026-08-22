@@ -159,7 +159,8 @@ bool ReadTextFile(const std::string& _path, std::string& _outText)
   return true;
 }
 
-bool LoadAppConfig(AppConfig& _outConfig, ConfigPaths& _outPaths, ConfigDiagnostics& _diagnostics)
+bool LoadAppConfig(AppConfig& _outConfig, AppConfig& _outShipped, ConfigPaths& _outPaths,
+                   ConfigDiagnostics& _diagnostics)
 {
   // Working directory first, then beside the executable. The directory is what
   // replaces a command line: a runner chooses a configuration by choosing where
@@ -200,6 +201,12 @@ bool LoadAppConfig(AppConfig& _outConfig, ConfigPaths& _outPaths, ConfigDiagnost
     return false; // A shipped config with a wrong type is a build problem, not a runtime one.
   }
 
+  // The shipped values, kept before the player's are laid over them. This is
+  // the baseline `SaveUserSettings` writes a difference against, and taking the
+  // copy here is the only moment it exists -- one line later there is no way
+  // left to tell a value the player chose from one they inherited.
+  _outShipped = _outConfig;
+
   // The user layer is optional in every way: absent, empty or broken all leave
   // the game starting on the shipped values.
   const std::string userDirectory = UserSettingsDirectory();
@@ -235,10 +242,110 @@ bool LoadAppConfig(AppConfig& _outConfig, ConfigPaths& _outPaths, ConfigDiagnost
         {
           _diagnostics.warnings.push_back("user settings ignored: " + message);
         }
+
+        /*
+         * Kept beside itself before the next save overwrites it (ADR-012 §A4).
+         *
+         * This is the player's file, and "ignored" is about to become "gone":
+         * the game starts on the shipped values and `SaveUserSettings` will
+         * rename a new file over this one at the first change. A copy costs a
+         * few hundred bytes and is the difference between a person being able
+         * to open their settings in an editor and fix the stray comma, and
+         * finding out the file is simply not there any more.
+         *
+         * One backup and not a series. `.bad` is overwritten each time, because
+         * a directory accumulating `Settings.json.bad.7` is a mess nobody
+         * cleans and the interesting copy is the most recent one.
+         */
+        const std::string backup = _outPaths.userLayer + ".bad";
+        if (CopyFileW(ToWide(_outPaths.userLayer).c_str(), ToWide(backup).c_str(), FALSE) != FALSE)
+        {
+          _diagnostics.warnings.push_back("user settings backed up to " + backup);
+        }
       }
     }
   }
 
+  return true;
+}
+
+bool SaveUserSettings(const AppConfig& _config, const AppConfig& _shipped, const ConfigPaths& _paths, std::string& _outError)
+{
+  if (_paths.userLayer.empty())
+  {
+    // No LocalAppData, so there was never a path to write to. `LoadAppConfig`
+    // has already warned about it; saying it a second time on every exit would
+    // be noise about a condition nothing can act on.
+    _outError = "there is no user settings path";
+    return false;
+  }
+
+  std::string text;
+  if (!WriteUserLayer(_config, _shipped, text))
+  {
+    // The writer refuses rather than emitting half a document, and this is the
+    // check its `Complete()` exists for: what must never happen is that
+    // malformed JSON reaches disk, because the next boot would report the
+    // player's own settings as corrupt.
+    _outError = "the settings writer produced an incomplete document";
+    return false;
+  }
+
+  /*
+   * Nothing changed, so nothing is written -- and on a first run that also
+   * means no file is created at all.
+   *
+   * `WriteUserLayer` composes `{}` for a player who has changed nothing, and an
+   * absent file reads back as exactly that, so the comparison below is true and
+   * this returns having touched no disk. An installation nobody has configured
+   * stays an installation with no settings file in it, which is the state the
+   * shipped defaults are supposed to be read from.
+   */
+  std::string existing;
+  const bool haveExisting = ReadTextFile(_paths.userLayer, existing);
+  if (haveExisting ? existing == text : text == "{}")
+  {
+    return true;
+  }
+
+  /*
+   * Written to a temporary and renamed over the target, so the file is only
+   * ever whole (ADR-012 §A3).
+   *
+   * `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` is a rename on the same
+   * volume, which is what makes it the swap rather than a copy -- and the
+   * temporary is deliberately beside the target rather than in `%TEMP%`, since
+   * a rename across volumes is not atomic and would silently become one.
+   */
+  const std::string temporary = _paths.userLayer + ".tmp";
+  const HANDLE file = CreateFileW(ToWide(temporary).c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE)
+  {
+    _outError = "could not open " + temporary;
+    return false;
+  }
+
+  DWORD written = 0;
+  const BOOL wrote = text.empty() ? TRUE : WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
+  const bool complete = wrote != FALSE && written == text.size();
+  // Closed before the rename, always: a handle still open on the source is the
+  // one thing `MoveFileExW` will refuse for.
+  CloseHandle(file);
+
+  if (!complete)
+  {
+    DeleteFileW(ToWide(temporary).c_str());
+    _outError = "could not write " + temporary;
+    return false;
+  }
+
+  if (MoveFileExW(ToWide(temporary).c_str(), ToWide(_paths.userLayer).c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) ==
+      FALSE)
+  {
+    DeleteFileW(ToWide(temporary).c_str());
+    _outError = "could not replace " + _paths.userLayer;
+    return false;
+  }
   return true;
 }
 

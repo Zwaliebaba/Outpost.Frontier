@@ -143,9 +143,11 @@ for the atlas bake, **XAudio2 + X3DAudio**). No GameLogic (ADR-014).
 ### Outpost.exe — composition root
 Allowed deps: NeuronServer, NeuronClient, GameLogic (and transitively the rest). Files:
 `Main.cpp` (`wWinMain`, **arguments ignored**, and the `Neuron::Simulation` implementation),
-`ConfigLoad.h/.cpp` (locate + parse + merge `Outpost.json` and the user layer, and
-`ResolveContentPath`, the one rule for finding authored content), `AppConfig.h/.cpp`
-(JSON → `ServerConfig`/`ClientConfig` structs), `UniverseBake.h/.cpp` (the `"mode": "bake"` host mode -- runs the generator, round-trips its
+`ConfigLoad.h/.cpp` (locate + parse + merge `Outpost.json` and the user layer, **write** the
+user layer — `SaveUserSettings`, the only file this program creates, written to a temporary and
+renamed over its target — and `ResolveContentPath`, the one rule for finding authored content),
+`AppConfig.h/.cpp` (JSON → `ServerConfig`/`ClientConfig` structs, and the user layer both ways:
+`ApplyUserLayer` reads it and `WriteUserLayer` composes it), `UniverseBake.h/.cpp` (the `"mode": "bake"` host mode -- runs the generator, round-trips its
 output before trusting it, and writes the committed universe), `UniverseLoad.h/.cpp` (locate + read the
 universe definition, then hand the bytes to GameLogic's pure parser — file IO stays here so
 GameLogic stays OS-free, ADR-009 §7), `EconomyLoad.h/.cpp` (the same split for
@@ -168,9 +170,13 @@ one file rather than a dependency on the executable, and nothing depends on the 
 either.
 
 The arrangement has a stated limit, and the limit is the part worth keeping. It works because
-`AppConfig.cpp` needs `AppConfig.h`, `Json.h`, `Log.h` and the standard library and nothing
-else — no Windows, no device, no GameLogic — so it compiles under the suite's own bare
-precompiled header. **The day a second file here wants covering and does not have that
+`AppConfig.cpp` needs `AppConfig.h`, `Json.h`, `Log.h`, `JsonWriter.h` and the standard library
+and nothing else — no Windows, no device, no GameLogic — so it compiles under the suite's own
+bare precompiled header. **`JsonWriter.h` joined that list at N2 and the property survived**,
+which is the reason the user layer's *writer* lives in `AppConfig.cpp` beside its reader while
+the file handle, the temporary and the rename stay in `ConfigLoad.cpp`: the split is drawn where
+this suite's reach ends, so the round trip that decides whether a setting survives a restart is
+testable and only the four Win32 calls are not. **The day a second file here wants covering and does not have that
 property, the answer is not a wider header: it is splitting this project into a static library
 and a thin `wWinMain`**, which is what every other testable project in this tree already is.
 `ReplicatedWorldView.h/.cpp` is the file that will force the question — it is the `WorldView`

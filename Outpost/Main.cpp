@@ -1479,6 +1479,41 @@ void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
 }
 
 /*
+ * The player's settings on the way out (ADR-012 §A3, N2).
+ *
+ * **The one file this program writes**, and it is written here rather than at
+ * the moment a wing is renamed for a reason worth stating: a rename is a
+ * keystroke and a save is a file rename, and doing the second on every one of
+ * the first would put the settings file in the path of a fast typist. Shutdown
+ * is when the session's answer is final.
+ *
+ * The cost of that choice is that a session killed rather than closed loses the
+ * names it minted. That is the right trade while the layer holds call signs --
+ * they are cheap to redo, and `EnsureWingName` already covers a wing whose name
+ * did not survive -- and it is the thing to revisit first when the settings
+ * screen lands, because a display mode the player cannot get back to is not.
+ *
+ * A failure is a log line and nothing more. Preferences that could not be saved
+ * are never worth failing a shutdown over, and the exit code belongs to what the
+ * client did rather than to what its settings file did afterwards.
+ */
+void SaveUserLayer(Outpost::AppConfig& _config, const Outpost::AppConfig& _shipped, const Outpost::ConfigPaths& _paths,
+                   const Outpost::ReplicatedWorldView& _worldView)
+{
+  _config.wings.clear();
+  for (const std::pair<Game::WingId, std::string>& wing : _worldView.PlayerWingNames())
+  {
+    _config.wings.push_back(Outpost::WingName{static_cast<std::uint32_t>(wing.first), wing.second});
+  }
+
+  std::string error;
+  if (!Outpost::SaveUserSettings(_config, _shipped, _paths, error))
+  {
+    NEURON_LOG_WARNING("user settings not saved: %s", error.c_str());
+  }
+}
+
+/*
  * The client's half of the seam (ADR-014 §2a).
  *
  * The one table that maps the game's hull taxonomy onto the renderer's mesh
@@ -1505,6 +1540,22 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
   desc.contentHash = _contentHash;
   desc.wingNames = WingNames();
   desc.spareWingNames = SpareWingNames();
+
+  /*
+   * And what the player has called them since (ADR-012 §3).
+   *
+   * Widened on the way in and narrowed here, which is the seam working rather
+   * than a wart: `AppConfig` is spelled without game types so the composition
+   * root's own test suite can compile it, so `WingId` is put back on at the one
+   * point that knows both -- this project, which is the same reason
+   * `renderClassByHull` is built here.
+   */
+  desc.savedWingNames.reserve(_config.wings.size());
+  for (const Outpost::WingName& wing : _config.wings)
+  {
+    desc.savedWingNames.emplace_back(static_cast<Game::WingId>(wing.wing), wing.name);
+  }
+
   // Which grid this client watches, so a station has a number the client can
   // address it by (ADR-017 8). The same anchor the `Welcome` carries; taken
   // from the universe here because the composition root builds both.
@@ -1872,9 +1923,12 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   (void)Telemetry::RegisterLane("Main");
 
   Outpost::AppConfig config;
+  // The same configuration without the player's layer over it, kept for the
+  // whole run because it is what a save is a difference against (ADR-012 §A3).
+  Outpost::AppConfig shipped;
   Outpost::ConfigPaths paths;
   Outpost::ConfigDiagnostics diagnostics;
-  if (!Outpost::LoadAppConfig(config, paths, diagnostics))
+  if (!Outpost::LoadAppConfig(config, shipped, paths, diagnostics))
   {
     ReportStartupFailure(diagnostics);
     return 1;
@@ -2086,6 +2140,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
       // Client first, always: it must never render against a server that has
       // already gone (ADR-008 §6).
       client.Shutdown();
+      SaveUserLayer(config, shipped, paths, worldView);
       break;
     }
 
