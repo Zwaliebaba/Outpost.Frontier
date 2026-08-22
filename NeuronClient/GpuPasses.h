@@ -16,14 +16,15 @@
  * structs with Record(context), executed in order on one direct queue, whose
  * names are the corpus's target frame with the unbuilt nodes simply absent.
  *
- *   Clear -> Opaque -> Nebula -> OverlayWorld -> Ui -> Present
+ *   Clear -> UiWorld -> Opaque -> Nebula -> Lamps -> OverlayWorld -> Ui -> Present
  *
  * Slice S5 built Clear and Opaque; Nebula is the first insertion into the
  * reserved list, and it landed exactly as an insertion -- one struct, one line
  * in Record, and nothing else in this file moved. That was the claim the list
  * was written out for instead of being inlined into the frame loop, and it is
- * now a measured claim rather than a hopeful one. OverlayWorld (S8) and Ui (S11)
- * are still to come, as are the corpus's GpuCull, DepthPre, Effects and Tonemap.
+ * now a measured claim three times over: UiWorld was the second insertion and
+ * Lamps (ADR-006 §6a) the third, each of them one struct and one line. The
+ * corpus's GpuCull, DepthPre, Effects and Tonemap are still reserved.
  *
  * Barriers are not a pass. The back buffer's PRESENT/RENDER_TARGET transitions
  * belong to whoever owns the swapchain -- the frame loop -- and a pass that
@@ -35,6 +36,7 @@ namespace Neuron
 {
 
 class GlyphAtlas;
+class GpuLampTable;
 class GpuMeshTable;
 class GpuPipelines;
 class GpuUploadRing;
@@ -100,6 +102,10 @@ struct FrameContext
   /// tile size out of the pass constants, so this is the only thing it needs to
   /// be told directly: is there a texture at t1 or not.
   bool nebulaReady = false;
+
+  /// The signal lamps, built once at boot (ADR-006 §6a). Null is a client with
+  /// no lamps, which is the frame this renderer drew before they existed.
+  const GpuLampTable* lamps = nullptr;
 };
 
 /// Binds the targets, sets the viewport, and clears colour and depth.
@@ -117,9 +123,21 @@ struct OpaquePass
   [[nodiscard]] std::uint32_t DrawCount() const noexcept { return m_drawCount; }
   [[nodiscard]] std::uint32_t InstanceCount() const noexcept { return m_instanceCount; }
 
+  /*
+   * The instance stream this pass uploaded, for `LampPass` to draw over.
+   *
+   * Published rather than uploaded twice, and that is the point of the lamp
+   * pass's whole shape: the transform a lamp needs is the ship's, the ship's
+   * transform is already in the ring, and a second copy of it would be the only
+   * per-frame cost the lamps have. Zeroed when this pass drew nothing -- a ring
+   * too full for the hulls is a ring too full for their lights.
+   */
+  [[nodiscard]] const D3D12_VERTEX_BUFFER_VIEW& InstanceStream() const noexcept { return m_instanceView; }
+
 private:
   std::uint32_t m_drawCount = 0;
   std::uint32_t m_instanceCount = 0;
+  D3D12_VERTEX_BUFFER_VIEW m_instanceView{};
 };
 
 /*
@@ -144,6 +162,42 @@ struct NebulaPass
 
 private:
   bool m_drew = false;
+};
+
+/*
+ * Navigation lamps, landing sequences and hazard strobes (ADR-006 §6a).
+ *
+ * **After the nebula, and that is the "fog-exempt" in the brief made
+ * mechanical.** A lamp is the brightest thing in the frame and nothing atmos-
+ * pheric may sit in front of it; drawn before the haze it would be composited
+ * through it, and a strobe seen through cloud is a strobe nobody notices.
+ *
+ * Before the overlay, because the overlay is a readout and a glow may not
+ * composite over a health bar.
+ *
+ * **The draw is per class and per lamp, over the opaque pass's own instance
+ * stream.** That is the whole cost argument: the transform a lamp needs is the
+ * ship's, which the frame already uploaded, so a class with three lamps and
+ * four hundred ships is three `DrawInstanced` calls of four hundred instances
+ * each and not one byte of new per-frame data. The lamp itself comes from a
+ * root constant into a table that has not changed since boot. Adding a hundred
+ * ships costs the lamps nothing at all; adding a lamp costs one draw.
+ */
+struct LampPass
+{
+  /// `_instanceStream` is `OpaquePass::InstanceStream()` -- the very same
+  /// upload, bound a second time. A zeroed view draws nothing.
+  void Record(const FrameContext& _context, const D3D12_VERTEX_BUFFER_VIEW& _instanceStream);
+
+  /// What the last Record issued -- draws are (class x lamp) pairs, and the
+  /// glow count is how many billboards that came to. For the debug strip and
+  /// for a test that wants to know the pass ran.
+  [[nodiscard]] std::uint32_t DrawCount() const noexcept { return m_drawCount; }
+  [[nodiscard]] std::uint32_t GlowCount() const noexcept { return m_glowCount; }
+
+private:
+  std::uint32_t m_drawCount = 0;
+  std::uint32_t m_glowCount = 0;
 };
 
 /*
@@ -242,6 +296,7 @@ public:
 
   [[nodiscard]] const OpaquePass& Opaque() const noexcept { return m_opaque; }
   [[nodiscard]] const NebulaPass& Nebula() const noexcept { return m_nebula; }
+  [[nodiscard]] const LampPass& Lamps() const noexcept { return m_lamps; }
   [[nodiscard]] const OverlayWorldPass& OverlayWorld() const noexcept { return m_overlayWorld; }
   [[nodiscard]] const UiPass& Ui() const noexcept { return m_ui; }
 
@@ -252,6 +307,7 @@ private:
   UiPass m_uiWorldLayer;
   OpaquePass m_opaque;
   NebulaPass m_nebula;
+  LampPass m_lamps;
   OverlayWorldPass m_overlayWorld;
   UiPass m_ui;
 };

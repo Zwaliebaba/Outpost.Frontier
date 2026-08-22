@@ -1,102 +1,95 @@
-[   0.012] info  | Outpost: Frontier starting
-[   0.015] info  | config: Outpost.json
-[   0.015] info  | user settings: C:\Users\zwali\AppData\Local\Outpost.Frontier\Settings.json
-[   0.015] info  | mode: host
-[   0.015] info  | server: port 7777, max sessions 8
-[   0.015] info  | universe: GameData/Universe/Frontier.json
-[   0.015] info  | economy: GameData/Economy/Economy.json
-[   0.016] info  | content: 10 meshes from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Meshes
-[   0.016] info  | window: 1600x900 windowed, vsync on, ui scale 1.00
-[   4.003] info  | universe: read, parsed and hashed in 3987 ms (R17's threshold is ~1000 ms)
-[   4.004] info  | universe: 'Frontier' from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Universe/Frontier.json (2500 system(s), hash ad9555dd776008a6)
-[   4.004] info  | start: system 1 'Vesta-3', grid anchored at (-734132574593023943, -731859766588080745)
-[   4.007] info  | economy: read, parsed and hashed in 3 ms from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Economy/Economy.json
-[   4.008] info  | content: universe ad9555dd776008a6, economy 0b07707ec843431d, mixed 1965b853a23a5115
-[   4.011] info  | persistence is off: this shard keeps nothing across a restart
-[   4.013] info  | parked fleet: 40 hulls, tightest cross-wing clearance 90.3 m (LANTERN to ECHO)
-[   4.113] info  | quic transport listening on 127.0.0.1:7777 (alpn opf/1)
-[   4.114] info  | server host started on port 7777 at 20 Hz
-[   4.217] info  | window created: 1600x900 client
-[   4.237] info  | d3d12 debug layer enabled
-[   6.073] info  | d3d12 device created on NVIDIA GeForce RTX 3070 Ti Laptop GPU (tearing supported)
-[   6.163] info  | task pool started with 12 worker(s)
-[   6.170] info  | pipelines: opaque (5792 + 5088 B), nebula (3036 + 4732 B), overlay (6456 + 5056 B), ui (5892 + 4648 B) built
-[   6.249] info  | meshes: 10 classes, 6420 triangles
-[   6.254] info  | upload ring: 256 KiB x 3 frames
-[   6.263] info  | glyph atlas: Consolas, 4 sizes, 608 glyphs, 1024x256
-[   6.344] info  | nebula: 256x256 field over 96000 m (375 m/texel), seed 1
-[   6.717] info  | audio: 2 of 2 cue(s) loaded, 8 output channel(s) at 48000 Hz, 32 3D + 16 2D voices
-[   6.720] info  | task pool stopped after 14 task(s)
-[   6.722] info  | quic transport connecting to 127.0.0.1:7777
-[   6.723] info  | client initialised (NVIDIA GeForce RTX 3070 Ti Laptop GPU, vsync on)
-[   6.723] info  | entering frame loop
-[   6.767] info  | player 1 is known to this shard already; no starting fleet
-[   6.767] info  | client 1 joined as '(unnamed)' (player 1)
-[   6.776] info  | joined as client 1 (server at tick 52, 20 Hz)
-[   6.776] info  | world 1 anchored at (-734132574593023943, -731859766588080745)
-[   6.818] info  | first pong: server tick 53, round trip 41.048 ms
-[   9.116] info  | net(session 1): rtt 0.37 ms, resends 0, dropped 0, dgrams 60/10, bytes 41680/136
-[  11.781] info  | net(client 1): rtt 5.92 ms, ping loss 0.0% (0/20), resends 0, dgrams 20/126, bytes 236/89420
-[  14.116] info  | net(session 1): rtt 0.33 ms, resends 0, dropped 0, dgrams 184/29, bytes 130111/326
-[  16.786] info  | net(client 1): rtt 18.11 ms, ping loss 0.0% (0/40), resends 0, dgrams 40/251, bytes 473/174094
-[  19.116] info  | net(session 1): rtt 0.32 ms, resends 0, dropped 0, dgrams 309/49, bytes 210261/563
-[  21.791] info  | net(client 1): rtt 30.59 ms, ping loss 1.7% (1/60), resends 0, dgrams 60/375, bytes 673/252535
-[  24.166] info  | net(session 1): rtt 0.28 ms, resends 0, dropped 0, dgrams 435/69, bytes 289492/763
-[  26.798] info  | net(client 1): rtt 41.87 ms, ping loss 0.0% (0/79), resends 0, dgrams 79/500, bytes 863/330990
-[  29.216] info  | net(session 1): rtt 0.34 ms, resends 0, dropped 0, dgrams 561/89, bytes 368723/963
-[  31.802] info  | net(client 1): rtt 54.60 ms, ping loss 0.0% (0/99), resends 0, dgrams 99/625, bytes 1063/409445
-[  34.266] info  | net(session 1): rtt 0.33 ms, resends 0, dropped 0, dgrams 687/109, bytes 447954/1163
-[  36.802] info  | net(client 1): rtt 25.21 ms, ping loss 0.8% (1/119), resends 0, dgrams 119/749, bytes 1263/487886
-[  39.266] info  | net(session 1): rtt 0.34 ms, resends 0, dropped 0, dgrams 811/128, bytes 526395/1353
-[  41.882] info  | net(client 1): rtt 30.91 ms, ping loss 0.0% (0/138), resends 0, dgrams 138/875, bytes 1453/567117
-[  44.266] info  | net(session 1): rtt 0.30 ms, resends 0, dropped 0, dgrams 936/148, bytes 604850/1553
-[  46.884] info  | net(client 1): rtt 47.48 ms, ping loss 0.0% (0/158), resends 0, dgrams 158/1001, bytes 1653/646348
-[  49.316] info  | net(session 1): rtt 0.32 ms, resends 0, dropped 0, dgrams 1062/168, bytes 684081/1753
-[  51.890] info  | net(client 1): rtt 18.08 ms, ping loss 0.0% (0/178), resends 0, dgrams 178/1126, bytes 1853/724803
-[  54.366] info  | net(session 1): rtt 0.32 ms, resends 0, dropped 0, dgrams 1188/188, bytes 763312/1953
-[  56.895] info  | net(client 1): rtt 36.39 ms, ping loss 0.5% (1/198), resends 0, dgrams 198/1250, bytes 2053/803244
-[  59.366] info  | net(session 1): rtt 0.31 ms, resends 0, dropped 0, dgrams 1312/207, bytes 841753/2143
-[  61.900] info  | net(client 1): rtt 42.18 ms, ping loss 0.0% (0/217), resends 0, dgrams 217/1375, bytes 2243/881699
-[  64.416] info  | net(session 1): rtt 0.32 ms, resends 0, dropped 0, dgrams 1438/227, bytes 920984/2343
-[  66.906] info  | net(client 1): rtt 14.36 ms, ping loss 0.0% (0/237), resends 0, dgrams 237/1500, bytes 2443/960154
-[  69.466] info  | net(session 1): rtt 0.34 ms, resends 0, dropped 0, dgrams 1564/247, bytes 1000215/2543
-[  71.910] info  | net(client 1): rtt 24.27 ms, ping loss 0.4% (1/257), resends 0, dgrams 257/1624, bytes 2643/1038595
-[  74.466] info  | net(session 1): rtt 0.30 ms, resends 0, dropped 0, dgrams 1689/267, bytes 1078670/2743
-[  76.916] info  | net(client 1): rtt 36.26 ms, ping loss 0.0% (0/276), resends 0, dgrams 276/1749, bytes 2833/1117050
-[  79.516] info  | net(session 1): rtt 0.34 ms, resends 0, dropped 0, dgrams 1814/286, bytes 1157887/2933
-[  81.921] info  | net(client 1): rtt 42.02 ms, ping loss 0.0% (0/296), resends 0, dgrams 296/1875, bytes 3033/1196281
-[  84.516] info  | net(session 1): rtt 0.27 ms, resends 0, dropped 0, dgrams 1939/306, bytes 1236342/3133
-[  86.926] info  | net(client 1): rtt 11.95 ms, ping loss 0.0% (0/316), resends 0, dgrams 316/2000, bytes 3233/1274736
-[  89.516] info  | net(session 1): rtt 0.34 ms, resends 0, dropped 0, dgrams 2064/326, bytes 1314797/3333
-[  91.780] info  | surface: 0 -> 3
-[  91.932] info  | net(client 1): rtt 24.41 ms, ping loss 0.0% (0/335), resends 0, dgrams 335/2124, bytes 3423/1353177
-[  94.566] info  | net(session 1): rtt 0.33 ms, resends 0, dropped 0, dgrams 2190/346, bytes 1394028/3533
-[  96.938] info  | net(client 1): rtt 37.79 ms, ping loss 0.0% (0/355), resends 0, dgrams 355/2249, bytes 3623/1431632
-[  98.799] info  | surface: 3 -> 0
-[  99.616] info  | net(session 1): rtt 0.34 ms, resends 0, dropped 0, dgrams 2315/365, bytes 1473245/3723
-[ 101.943] info  | net(client 1): rtt 12.17 ms, ping loss 0.0% (0/375), resends 0, dgrams 375/2374, bytes 3823/1510087
-[ 103.009] info  | order 2 refused locally: nothing selected
-[ 104.666] info  | net(session 1): rtt 0.32 ms, resends 0, dropped 0, dgrams 2441/385, bytes 1552476/3923
-[ 106.947] info  | net(client 1): rtt 30.38 ms, ping loss 0.0% (0/394), resends 0, dgrams 394/2498, bytes 4013/1588528
-[ 109.716] info  | net(session 1): rtt 0.33 ms, resends 0, dropped 0, dgrams 2567/405, bytes 1631707/4123
-[ 111.953] info  | net(client 1): rtt 42.94 ms, ping loss 0.0% (0/414), resends 0, dgrams 414/2623, bytes 4213/1666983
-[ 114.716] info  | net(session 1): rtt 0.28 ms, resends 0, dropped 0, dgrams 2692/425, bytes 1710625/4360
-[ 115.086] info  | Formation: Wedge
-[ 116.953] info  | net(client 1): rtt 6.16 ms, ping loss 0.0% (0/434), resends 0, dgrams 434/2748, bytes 4450/1746531
-[ 117.129] info  | Formation: Claw
-[ 119.766] info  | net(session 1): rtt 0.31 ms, resends 0, dropped 0, dgrams 2818/445, bytes 1791270/4560
-[ 121.649] warn  | tick loop 434 ms behind; dropping the debt
-[ 121.958] info  | net(client 1): rtt 48.94 ms, ping loss 0.0% (0/452), resends 0, dgrams 452/2862, bytes 4630/1819248
-[ 124.799] info  | net(session 1): rtt 0.34 ms, resends 0, dropped 0, dgrams 2932/463, bytes 1863987/4740
-[ 126.962] info  | net(client 1): rtt 24.28 ms, ping loss 0.0% (0/471), resends 0, dgrams 471/2986, bytes 4820/1899089
-[ 129.800] info  | net(session 1): rtt 0.35 ms, resends 0, dropped 0, dgrams 3057/483, bytes 1943842/4940
-[ 131.968] info  | net(client 1): rtt 35.57 ms, ping loss 0.0% (0/491), resends 0, dgrams 491/3111, bytes 5020/1978636
-[ 134.850] info  | net(session 1): rtt 0.35 ms, resends 0, dropped 0, dgrams 3182/502, bytes 2023367/5130
-[ 136.973] info  | net(client 1): rtt 48.09 ms, ping loss 0.0% (0/511), resends 0, dgrams 511/3236, bytes 5257/2053926
-[ 139.900] info  | net(session 1): rtt 0.28 ms, resends 0, dropped 0, dgrams 3308/522, bytes 2093613/5367
-[ 140.851] info  | frame loop ended after 22021 frames
-[ 140.900] info  | connection 1 said goodbye
-[ 140.949] info  | client 1 left (reason 1); player 1 may resume for 120 s
-[ 141.013] info  | server host stopped after 2728 ticks (1 overruns)
-[ 141.013] info  | server ran 2728 ticks (1 overruns)
-[ 141.014] info  | Outpost: Frontier exiting cleanly (0)
+[   0.009] info  | Outpost: Frontier starting
+[   0.009] info  | config: Outpost.json
+[   0.009] info  | user settings: C:\Users\zwali\AppData\Local\Outpost.Frontier\Settings.json
+[   0.009] info  | mode: host
+[   0.009] info  | server: port 7777, max sessions 8
+[   0.009] info  | universe: GameData/Universe/Frontier.json
+[   0.009] info  | economy: GameData/Economy/Economy.json
+[   0.010] info  | content: 10 meshes from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Meshes
+[   0.010] info  | window: 1600x900 windowed, vsync on, ui scale 1.00
+[   3.808] info  | universe: read, parsed and hashed in 3799 ms (R17's threshold is ~1000 ms)
+[   3.809] info  | universe: 'Frontier' from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Universe/Frontier.json (2500 system(s), hash ad9555dd776008a6)
+[   3.810] info  | start: system 1 'Vesta-3', grid anchored at (-734132574593023943, -731859766588080745)
+[   3.814] info  | economy: read, parsed and hashed in 5 ms from C:\Users\zwali\source\repos\Outpost.Frontier\x64\Debug\GameData/Economy/Economy.json
+[   3.815] info  | content: universe ad9555dd776008a6, economy 0b07707ec843431d, mixed 1965b853a23a5115
+[   3.819] info  | persistence is off: this shard keeps nothing across a restart
+[   3.821] info  | parked fleet: 40 hulls, tightest cross-wing clearance 90.3 m (LANTERN to ECHO)
+[   3.901] info  | quic transport listening on 127.0.0.1:7777 (alpn opf/1)
+[   3.902] info  | server host started on port 7777 at 20 Hz
+[   4.040] info  | window created: 1600x900 client
+[   4.065] info  | d3d12 debug layer enabled
+[   5.360] info  | d3d12 device created on NVIDIA GeForce RTX 3070 Ti Laptop GPU (tearing supported)
+[   5.437] info  | task pool started with 12 worker(s)
+[   5.453] info  | pipelines: opaque (23128 + 21660 B), nebula (7560 + 14128 B), overlay (26460 + 27124 B), ui (21332 + 15060 B), lamps (7044 + 3504 B) built
+[   5.512] info  | mesh Interceptor.obj: 3.8 m authored -> 21.2 m drawn (x5.58)
+[   5.512] info  | mesh Bomber.obj: 10.8 m authored -> 31.2 m drawn (x2.89)
+[   5.513] info  | mesh Corvette.obj: 15.2 m authored -> 40.0 m drawn (x2.63)
+[   5.513] info  | mesh Frigate.obj: 24.6 m authored -> 62.5 m drawn (x2.54)
+[   5.513] info  | mesh Hauler.obj: 36.7 m authored -> 81.2 m drawn (x2.21)
+[   5.513] info  | mesh Miner.obj: 18.8 m authored -> 75.0 m drawn (x3.99)
+[   5.513] info  | mesh Carrier.obj: 118.0 m authored -> 133.8 m drawn (x1.13)
+[   5.513] info  | mesh Battleship.obj: 45.1 m authored -> 150.0 m drawn (x3.33)
+[   5.514] info  | mesh Structure.obj: 252.6 m authored -> 250.0 m drawn (x0.99)
+[   5.514] info  | mesh Stargate.obj: 168.0 m authored -> 168.8 m drawn (x1.00)
+[   5.530] info  | meshes: 10 classes, 6420 triangles
+[   5.533] info  | lamps: 59 across 10 classes
+[   5.534] info  | upload ring: 256 KiB x 3 frames
+[   5.541] info  | glyph atlas: Consolas, 4 sizes, 608 glyphs, 1024x256
+[   5.611] info  | nebula: 256x256 field over 96000 m (375 m/texel), seed 1
+[   6.001] info  | audio: 2 of 2 cue(s) loaded, 8 output channel(s) at 48000 Hz, 32 3D + 16 2D voices
+[   6.006] info  | task pool stopped after 14 task(s)
+[   6.009] info  | quic transport connecting to 127.0.0.1:7777
+[   6.010] info  | client initialised (NVIDIA GeForce RTX 3070 Ti Laptop GPU, vsync on)
+[   6.010] info  | entering frame loop
+[   6.060] info  | player 1 is known to this shard already; no starting fleet
+[   6.060] info  | client 1 joined as '(unnamed)' (player 1)
+[   6.065] info  | joined as client 1 (server at tick 42, 20 Hz)
+[   6.065] info  | world 1 anchored at (-734132574593023943, -731859766588080745)
+[   6.112] info  | first pong: server tick 43, round trip 46.718 ms
+[   8.909] info  | net(session 1): rtt 0.33 ms, resends 0, dropped 0, dgrams 72/12, bytes 50518/156
+[  11.070] info  | net(client 1): rtt 18.82 ms, ping loss 0.0% (0/20), resends 0, dgrams 20/126, bytes 236/89420
+[  13.909] info  | net(session 1): rtt 0.35 ms, resends 0, dropped 0, dgrams 195/30, bytes 138935/336
+[  16.074] info  | net(client 1): rtt 30.34 ms, ping loss 0.0% (0/39), resends 0, dgrams 39/250, bytes 457/176198
+[  18.959] info  | net(session 1): rtt 0.30 ms, resends 0, dropped 0, dgrams 321/50, bytes 223311/598
+[  20.080] info  | surface: 0 -> 3
+[  21.079] info  | net(client 1): rtt 43.06 ms, ping loss 1.7% (1/59), resends 0, dgrams 59/374, bytes 688/257888
+[  24.009] info  | net(session 1): rtt 0.29 ms, resends 0, dropped 0, dgrams 447/70, bytes 304573/798
+[  26.083] info  | net(client 1): rtt 5.83 ms, ping loss 0.0% (0/78), resends 0, dgrams 78/499, bytes 878/338353
+[  27.169] info  | station command 3 sent: 4 ship(s)
+[  29.009] info  | net(session 1): rtt 0.38 ms, resends 0, dropped 0, dgrams 572/90, bytes 388413/1040
+[  30.721] info  | surface: 3 -> 0
+[  31.089] info  | net(client 1): rtt 12.12 ms, ping loss 0.0% (0/98), resends 0, dgrams 98/624, bytes 1120/426141
+[  34.059] info  | net(session 1): rtt 0.37 ms, resends 0, dropped 0, dgrams 698/110, bytes 479153/1240
+[  36.094] info  | net(client 1): rtt 32.90 ms, ping loss 0.8% (1/118), resends 0, dgrams 118/748, bytes 1320/515972
+[  39.059] info  | net(session 1): rtt 0.32 ms, resends 0, dropped 0, dgrams 822/129, bytes 568984/1430
+[  41.100] info  | net(client 1): rtt 36.57 ms, ping loss 0.0% (0/137), resends 0, dgrams 137/873, bytes 1510/605817
+[  44.109] info  | net(session 1): rtt 0.31 ms, resends 0, dropped 0, dgrams 948/149, bytes 659724/1630
+[  46.105] info  | net(client 1): rtt 47.84 ms, ping loss 0.0% (0/157), resends 0, dgrams 157/998, bytes 1710/695662
+[  49.109] info  | net(session 1): rtt 0.33 ms, resends 0, dropped 0, dgrams 1073/169, bytes 749569/1830
+[  51.112] info  | net(client 1): rtt 11.79 ms, ping loss 0.0% (0/177), resends 0, dgrams 177/1124, bytes 1939/785721
+[  54.159] info  | net(session 1): rtt 0.33 ms, resends 0, dropped 0, dgrams 1199/189, bytes 838458/2059
+[  56.116] info  | net(client 1): rtt 42.67 ms, ping loss 0.0% (0/196), resends 0, dgrams 196/1248, bytes 2129/873602
+[  59.209] info  | net(session 1): rtt 0.37 ms, resends 0, dropped 0, dgrams 1324/208, bytes 927213/2249
+[  59.965] info  | surface: 0 -> 3
+[  61.120] info  | net(client 1): rtt 48.48 ms, ping loss 0.0% (0/216), resends 0, dgrams 216/1373, bytes 2329/961497
+[  62.435] info  | station command 5 sent: 1 ship(s)
+[  64.259] info  | net(session 1): rtt 0.32 ms, resends 0, dropped 0, dgrams 1450/228, bytes 1016637/2479
+[  64.526] info  | surface: 3 -> 0
+[  66.128] info  | net(client 1): rtt 12.57 ms, ping loss 0.0% (0/236), resends 0, dgrams 236/1498, bytes 2559/1050785
+[  69.259] info  | net(session 1): rtt 0.32 ms, resends 0, dropped 0, dgrams 1575/248, bytes 1106482/2679
+[  71.131] info  | net(client 1): rtt 22.92 ms, ping loss 0.0% (0/255), resends 0, dgrams 255/1622, bytes 2778/1140561
+[  74.309] info  | net(session 1): rtt 0.36 ms, resends 0, dropped 0, dgrams 1701/268, bytes 1195052/2908
+[  76.132] info  | net(client 1): rtt 42.72 ms, ping loss 0.0% (0/275), resends 0, dgrams 275/1747, bytes 2978/1227056
+[  79.309] info  | net(session 1): rtt 0.37 ms, resends 0, dropped 0, dgrams 1825/287, bytes 1278560/3131
+[  81.136] info  | net(client 1): rtt 6.42 ms, ping loss 0.0% (0/295), resends 0, dgrams 295/1872, bytes 3211/1308355
+[  82.579] info  | surface: 0 -> 3
+[  84.359] info  | net(session 1): rtt 0.27 ms, resends 0, dropped 0, dgrams 1951/307, bytes 1359822/3331
+[  86.141] info  | net(client 1): rtt 18.50 ms, ping loss 0.0% (0/314), resends 0, dgrams 314/1996, bytes 3401/1388806
+[  86.335] info  | station command 8 sent: 4 ship(s)
+[  88.474] info  | surface: 3 -> 0
+[  89.409] info  | net(session 1): rtt 0.33 ms, resends 0, dropped 0, dgrams 2077/327, bytes 1446825/3573
+[  91.142] info  | net(client 1): rtt 30.09 ms, ping loss 0.0% (0/334), resends 0, dgrams 334/2121, bytes 3643/1478274
+[  94.459] info  | net(session 1): rtt 0.35 ms, resends 0, dropped 0, dgrams 2203/347, bytes 1537565/3773
+[  96.145] info  | net(client 1): rtt 41.36 ms, ping loss 0.3% (1/354), resends 0, dgrams 354/2245, bytes 3843/1568105
+[  99.459] info  | net(session 1): rtt 0.33 ms, resends 0, dropped 0, dgrams 2328/367, bytes 1627410/3973
+[ 101.151] info  | net(client 1):

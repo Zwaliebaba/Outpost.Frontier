@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 
 namespace Neuron
@@ -606,6 +607,19 @@ float PlaneRadiusMetres(const ObjMesh& _mesh) noexcept
     radiusSquared = std::max(radiusSquared, x * x + z * z);
   }
   return std::sqrt(radiusSquared);
+}
+
+float LocalTopMetres(const ObjMesh& _mesh, float _x, float _z, float _halfExtentX, float _halfExtentZ, float _fallback) noexcept
+{
+  float top = -std::numeric_limits<float>::max();
+  for (const MeshVertex& vertex : _mesh.vertices)
+  {
+    if (std::fabs(vertex.position.x - _x) <= _halfExtentX && std::fabs(vertex.position.z - _z) <= _halfExtentZ)
+    {
+      top = std::max(top, vertex.position.y);
+    }
+  }
+  return top > -std::numeric_limits<float>::max() ? top : _fallback;
 }
 
 bool FitObjMeshToPlaneRadius(ObjMesh& _mesh, float _targetPlaneRadiusMetres) noexcept

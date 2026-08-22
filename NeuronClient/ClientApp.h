@@ -11,6 +11,7 @@
 #include "GlyphAtlas.h"
 #include "GpuCom.h"
 #include "GpuDevice.h"
+#include "GpuLamps.h"
 #include "GpuMeshes.h"
 #include "GpuNebula.h"
 #include "GpuPasses.h"
@@ -168,7 +169,16 @@ private:
    * player commits (`station-screen.png` §2), so the honest gesture is one
    * press per wave with the count on the button.
    */
-  void CommitUndock(double _nowSeconds);
+  /*
+   * Sends one wave of one composer action.
+   *
+   * By index into the action list rather than one function per verb, because
+   * this side does not know the verbs -- what differs between the two the game
+   * offers is a number, a parameter and one flag, and all three arrive in the
+   * `StationAction`. A screen that had a `CommitUndock` and a `CommitAssign`
+   * would have spelled both, which is the leak ADR-020 §6 is testing for.
+   */
+  void CommitStationAction(std::uint32_t _action, double _nowSeconds);
 
   /*
    * Follows the fleet when the grid being watched stops holding any of it
@@ -263,6 +273,11 @@ private:
 
   GpuPipelines m_pipelines;
   GpuMeshTable m_meshes;
+
+  /// The signal lamps, derived from the meshes at boot and never touched again
+  /// (ADR-006 §6a). After `m_meshes` in declaration order because it is built
+  /// from their bounds, and destroyed before them for the same reason.
+  GpuLampTable m_lamps;
   GlyphAtlas m_glyphAtlas;
   GpuNebula m_nebula;
 
@@ -530,13 +545,24 @@ private:
 
   StationAction m_stationActions[MAX_STATION_ACTIONS] = {};
   std::uint32_t m_stationActionCount = 0;
-  OrderOption m_stationOptions[MAX_ORDER_OPTIONS] = {};
-  std::uint32_t m_stationOptionCount = 0;
 
-  /// Which formation UNDOCK will leave in, as an index into the options above.
-  /// Cycled by pressing the chip, which is the command row's idiom for the
-  /// same shape of choice.
-  std::uint32_t m_stationOptionIndex = 0;
+  /*
+   * Each action's parameter values, its own -- a row per action rather than one
+   * list shared by all of them.
+   *
+   * Shared was right while there was one action and wrong the moment there were
+   * two: the primary's parameter is a formation and the secondary's is a wing,
+   * and a single list would be re-asked from a different verb every frame while
+   * a single index pointed into whichever answer arrived last. The player would
+   * cycle to a wing and watch the formation chip change.
+   */
+  OrderOption m_stationOptions[MAX_STATION_ACTIONS][MAX_STATION_OPTIONS] = {};
+  std::uint32_t m_stationOptionCount[MAX_STATION_ACTIONS] = {};
+
+  /// Which value each action's chip is showing, as an index into its own row
+  /// above. Cycled by pressing the chip, which is the command row's idiom for
+  /// the same shape of choice.
+  std::uint32_t m_stationOptionIndex[MAX_STATION_ACTIONS] = {};
 
   /// Which tab is live. The game's number, echoed from the tab that was
   /// pressed -- only the hangar has content today, and the client cannot tell.
@@ -550,17 +576,21 @@ private:
   StationRosterCounts m_stationLaid;
 
   /*
-   * This frame's answer from the authority's own validator, for UNDOCK's face.
+   * This frame's answer from the authority's own validator, per action.
    *
-   * The whole of the parity claim on this screen: the button greys for the
-   * reason the bounce would have carried, in the same words, because it is the
-   * same function (ADR-014 §3, `station-screen.png` §2).
+   * The whole of the parity claim on this screen: a button greys for the reason
+   * the bounce would have carried, in the same words, because it is the same
+   * function (ADR-014 §3, `station-screen.png` §2). Per action because the two
+   * verbs are refused for different things -- a selection can be perfectly good
+   * for a regrouping and too big for one undock command -- and one verdict
+   * would have greyed both for whichever question was asked last.
    */
-  OrderVerdict m_undockVerdict;
+  OrderVerdict m_stationVerdict[MAX_STATION_ACTIONS] = {};
 
   /// How many commands the composer's selection needs at the game's cap, and
-  /// stated before the press rather than after it.
-  std::uint32_t m_undockWaves = 0;
+  /// stated before the press rather than after it. Per action for the verdicts'
+  /// reason: the cap is the game's answer to a verb, not to a screen.
+  std::uint32_t m_stationWaves[MAX_STATION_ACTIONS] = {};
 
   /// The game's commands, asked once at startup: this list does not change
   /// while a session runs, and asking every frame would imply it could.

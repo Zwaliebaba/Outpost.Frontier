@@ -63,7 +63,7 @@ bool GpuPipelines::CreateRootSignature(ID3D12Device* _device)
   textureRange.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC;
   textureRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-  D3D12_ROOT_PARAMETER1 parameters[4]{};
+  D3D12_ROOT_PARAMETER1 parameters[5]{};
 
   // Root CBVs rather than a table: two descriptors that change every frame, and
   // DATA_STATIC_WHILE_SET_AT_EXECUTE is the honest promise -- the upload ring
@@ -93,6 +93,18 @@ bool GpuPipelines::CreateRootSignature(ID3D12Device* _device)
   textures.DescriptorTable.NumDescriptorRanges = 1;
   textures.DescriptorTable.pDescriptorRanges = &textureRange;
   textures.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+  // The lamp table at b3 (ADR-006 §6a). DATA_STATIC rather than the frame
+  // blocks' DATA_STATIC_WHILE_SET_AT_EXECUTE, and that is the honest flag: the
+  // buffer is written once at boot and never again, which is a stronger promise
+  // than the upload ring can make about a slice it recycles.
+  D3D12_ROOT_PARAMETER1& lamps = parameters[static_cast<std::uint32_t>(RootSlot::LampConstants)];
+  lamps.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+  lamps.Descriptor.ShaderRegister = 3;
+  lamps.Descriptor.Flags = D3D12_ROOT_DESCRIPTOR_FLAG_DATA_STATIC;
+  // Vertex only: the animation and the billboard are both there, and the pixel
+  // shader is handed the colour and opacity through the interpolants.
+  lamps.ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
 
   // Two static samplers, both linear and neither costing a descriptor heap slot.
   // They differ only in addressing, and that difference is load-bearing: a glyph
@@ -361,6 +373,95 @@ bool GpuPipelines::CreateOverlayPipelines(ID3D12Device* _device, const PipelineS
   return true;
 }
 
+/*
+ * The signal lamps (ADR-006 §6a).
+ *
+ * Additive and depth-tested but never depth-writing, which is the pair of
+ * decisions that makes a glow behave: additive because a light adds to what is
+ * behind it and never darkens it -- which is also why the lamps need no sorting
+ * against each other -- and tested-not-written because a lamp must be occluded
+ * by the hull it is bolted to while never occluding the lamp beside it.
+ *
+ * `LESS`, not `LESS_EQUAL`: the overlay's rings want the tie because they lie
+ * *on* a surface, and a lamp is deliberately placed clear of one
+ * (`SignalLamp.cpp`'s clearances), so a lamp that ties with geometry is a lamp
+ * behind it.
+ *
+ * Slot 0 is the instance stream and there is no slot 1: the quad comes from
+ * `SV_VertexID`, the same trick the overlay and the nebula use. Only four of
+ * `InstanceRecord`'s fields are declared -- the stride is the whole record, so
+ * the rest are simply not fetched.
+ */
+bool GpuPipelines::CreateLampPipeline(ID3D12Device* _device, const PipelineShaders& _shaders)
+{
+  if (_shaders.lampVertex.empty() || _shaders.lampPixel.empty())
+  {
+    // Not a failure. A build with no lamp shaders draws the frame it drew
+    // before they existed, and the pass reads a null pipeline as "nothing to
+    // do" -- unlike the four stages `AllPresent` gates on, whose absence is a
+    // frame with no hulls in it.
+    NEURON_LOG_WARNING("pipelines: no lamp shaders supplied; signal lights will not draw");
+    return true;
+  }
+
+  // The same second copy of `InstanceRecord`'s layout the opaque pipeline
+  // keeps, and the same asserts holding it honest. `INSTANCE_LAMPPHASE` is the
+  // field appended for this pass.
+  static_assert(offsetof(InstanceRecord, posWorld) == 0, "INSTANCE_POSITION is declared at offset 0");
+  static_assert(offsetof(InstanceRecord, heading) == 12, "INSTANCE_HEADING is declared at offset 12");
+  static_assert(offsetof(InstanceRecord, bank) == 20, "INSTANCE_BANK is declared at offset 20");
+  static_assert(offsetof(InstanceRecord, lampPhaseTurns) == 24,
+                "INSTANCE_LAMPPHASE is declared at offset 24 -- appended, so nothing above it moved");
+
+  const D3D12_INPUT_ELEMENT_DESC elements[] = {
+      {"INSTANCE_POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+      {"INSTANCE_HEADING", 0, DXGI_FORMAT_R32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+      {"INSTANCE_BANK", 0, DXGI_FORMAT_R32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+      {"INSTANCE_LAMPPHASE", 0, DXGI_FORMAT_R32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA, 1},
+  };
+
+  D3D12_GRAPHICS_PIPELINE_STATE_DESC desc{};
+  desc.pRootSignature = m_rootSignature.get();
+  desc.VS = Bytecode(_shaders.lampVertex);
+  desc.PS = Bytecode(_shaders.lampPixel);
+  desc.InputLayout = {elements, static_cast<UINT>(_countof(elements))};
+  desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+  desc.NumRenderTargets = 1;
+  desc.RTVFormats[0] = RENDER_TARGET_FORMAT;
+  desc.DSVFormat = DEPTH_FORMAT;
+  desc.SampleDesc.Count = m_sampleCount;
+  desc.SampleMask = UINT_MAX;
+
+  desc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+  // A quad built from a vertex id has one winding and no back to cull, and it
+  // is rebuilt to face the camera every frame -- so culling nothing means its
+  // winding never has to agree with the meshes'.
+  desc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+  desc.RasterizerState.FrontCounterClockwise = FALSE;
+  desc.RasterizerState.DepthClipEnable = TRUE;
+
+  D3D12_RENDER_TARGET_BLEND_DESC& blend = desc.BlendState.RenderTarget[0];
+  blend.BlendEnable = TRUE;
+  blend.SrcBlend = D3D12_BLEND_ONE; // The pixel shader premultiplies.
+  blend.DestBlend = D3D12_BLEND_ONE;
+  blend.BlendOp = D3D12_BLEND_OP_ADD;
+  // Colour only, as the nebula does: the back buffer's alpha is not a lamp's
+  // business, and accumulating into it would leave the flip model a surface the
+  // compositor may read differently.
+  blend.SrcBlendAlpha = D3D12_BLEND_ZERO;
+  blend.DestBlendAlpha = D3D12_BLEND_ONE;
+  blend.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+  blend.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+  desc.DepthStencilState.DepthEnable = TRUE;
+  desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+  desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+
+  check_hresult(_device->CreateGraphicsPipelineState(&desc, IID_PPV_ARGS(m_lamps.put())));
+  NAME_D3D12_OBJECT(m_lamps);
+  return true;
+}
+
 bool GpuPipelines::CreateUiPipeline(ID3D12Device* _device, const PipelineShaders& _shaders)
 {
   if (_shaders.uiVertex.empty() || _shaders.uiPixel.empty())
@@ -489,13 +590,19 @@ bool GpuPipelines::Create(ID3D12Device* _device, const PipelineShaders& _shaders
     return false;
   }
 
+  if (!CreateLampPipeline(_device, _shaders))
+  {
+    return false;
+  }
+
   // The sizes, because they are the one thing about a compiled-in shader worth
   // seeing at boot: a stage that shrank to nothing between builds shows up here
   // rather than as an empty screen.
-  NEURON_LOG_INFO("pipelines: opaque (%zu + %zu B), nebula (%zu + %zu B), overlay (%zu + %zu B), ui (%zu + %zu B) built",
+  NEURON_LOG_INFO("pipelines: opaque (%zu + %zu B), nebula (%zu + %zu B), overlay (%zu + %zu B), ui (%zu + %zu B), "
+                  "lamps (%zu + %zu B) built",
                   _shaders.opaqueVertex.size(), _shaders.opaquePixel.size(), _shaders.nebulaVertex.size(),
                   _shaders.nebulaPixel.size(), _shaders.overlayVertex.size(), _shaders.overlayPixel.size(),
-                  _shaders.uiVertex.size(), _shaders.uiPixel.size());
+                  _shaders.uiVertex.size(), _shaders.uiPixel.size(), _shaders.lampVertex.size(), _shaders.lampPixel.size());
   return true;
 }
 
@@ -506,6 +613,7 @@ void GpuPipelines::Destroy()
   // pipeline. Harmless in a run that creates its pipelines once and noticed
   // only when the world layer joined it, which is the usual way a leak in a
   // once-per-run path gets found.
+  m_lamps = nullptr;
   m_uiWorld = nullptr;
   m_ui = nullptr;
   m_overlayBars = nullptr;

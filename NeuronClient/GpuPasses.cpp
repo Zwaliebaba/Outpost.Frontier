@@ -3,6 +3,7 @@
 #include "GpuPasses.h"
 
 #include "GlyphAtlas.h"
+#include "GpuLamps.h"
 #include "GpuMeshes.h"
 #include "GpuPipelines.h"
 #include "GpuUploadRing.h"
@@ -94,6 +95,9 @@ void OpaquePass::Record(const FrameContext& _context)
 
   m_drawCount = 0;
   m_instanceCount = 0;
+  m_instanceView = D3D12_VERTEX_BUFFER_VIEW{}; // Cleared first: a frame that
+                                               // fails below must not leave the
+                                               // lamp pass last frame's stream.
 
   if (_context.scene == nullptr || _context.meshes == nullptr || _context.pipelines == nullptr || _context.uploadRing == nullptr)
   {
@@ -123,6 +127,7 @@ void OpaquePass::Record(const FrameContext& _context)
   instanceView.BufferLocation = instances.gpu;
   instanceView.SizeInBytes = instanceBytes;
   instanceView.StrideInBytes = static_cast<UINT>(sizeof(InstanceRecord));
+  m_instanceView = instanceView; // Published for LampPass -- see InstanceStream().
 
   ID3D12GraphicsCommandList* commandList = _context.commandList;
   commandList->SetGraphicsRootSignature(_context.pipelines->RootSignature());
@@ -204,6 +209,60 @@ void NebulaPass::Record(const FrameContext& _context)
   commandList->DrawInstanced(3, 1, 0, 0);
 
   m_drew = true;
+}
+
+void LampPass::Record(const FrameContext& _context, const D3D12_VERTEX_BUFFER_VIEW& _instanceStream)
+{
+  NEURON_SPAN("Lamps");
+
+  m_drawCount = 0;
+  m_glowCount = 0;
+
+  if (_context.lamps == nullptr || _context.lamps->Count() == 0 || _context.scene == nullptr || _context.pipelines == nullptr ||
+      _context.pipelines->Lamps() == nullptr || _instanceStream.SizeInBytes == 0)
+  {
+    return; // No rigs, no shaders, or a frame whose hulls did not upload.
+  }
+
+  const RenderScene& scene = *_context.scene;
+  const GpuLampTable& lamps = *_context.lamps;
+
+  ID3D12GraphicsCommandList* commandList = _context.commandList;
+  commandList->SetGraphicsRootSignature(_context.pipelines->RootSignature());
+  commandList->SetPipelineState(_context.pipelines->Lamps());
+  commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+  commandList->IASetVertexBuffers(0, 1, &_instanceStream);
+
+  // FrameConstants for the view-projection and the clock, and the lamp table.
+  // No PassConstants and no textures: the glow is procedural and the billboard
+  // is built from the projection's own columns, so this pass reads neither.
+  commandList->SetGraphicsRootConstantBufferView(static_cast<UINT>(RootSlot::FrameConstants), _context.frameConstants);
+  commandList->SetGraphicsRootConstantBufferView(static_cast<UINT>(RootSlot::LampConstants), lamps.Constants());
+
+  const std::uint32_t classCount = std::min(lamps.ClassCount(), static_cast<std::uint32_t>(scene.classRanges.size()));
+  for (std::uint32_t classId = 0; classId < classCount; ++classId)
+  {
+    const InstanceRange& instances = scene.classRanges[classId];
+    const LampRange rig = lamps.Range(classId);
+    if (instances.instanceCount == 0 || rig.lampCount == 0)
+    {
+      continue;
+    }
+
+    for (std::uint32_t lamp = 0; lamp < rig.lampCount; ++lamp)
+    {
+      // One root constant, one draw, and every ship of the class in it. This is
+      // the loop the pass exists to be: it is over *lamps per class*, not over
+      // lamps per ship, so a wing of forty and a fleet of four hundred record
+      // exactly the same number of commands.
+      commandList->SetGraphicsRoot32BitConstant(static_cast<UINT>(RootSlot::DrawConstants), rig.firstLamp + lamp, 0);
+      commandList->DrawInstanced(4, instances.instanceCount, 0, instances.firstInstance);
+      ++m_drawCount;
+      m_glowCount += instances.instanceCount;
+    }
+  }
+
+  NEURON_COUNTER("LampDraws", m_drawCount);
 }
 
 void OverlayWorldPass::Record(const FrameContext& _context)
@@ -491,6 +550,10 @@ void GpuPassList::RecordWorld(const FrameContext& _context)
   m_uiWorldLayer.Record(_context, true);
   m_opaque.Record(_context);
   m_nebula.Record(_context);
+  // After the haze and before the readout. A lamp is the brightest thing in the
+  // frame, so nothing atmospheric composites in front of it; and it is still
+  // world, so the overlay's bars composite in front of it.
+  m_lamps.Record(_context, m_opaque.InstanceStream());
   m_overlayWorld.Record(_context);
 }
 

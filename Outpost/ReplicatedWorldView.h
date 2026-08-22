@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 /*
@@ -78,6 +79,30 @@ public:
      * ships in one place and their call signs in another.
      */
     std::vector<std::string> wingNames;
+
+    /*
+     * Call signs held back for wings the *player* makes (ADR-017 §6).
+     *
+     * A wing is emergent -- it exists iff a ship carries its number -- so
+     * creating one costs nothing on the wire and everything on the screen: the
+     * roster draws the wings it has a *name* for, deliberately, so a wing with
+     * no call sign is a wing the player was never told about and cannot pick
+     * out of a list. Somebody therefore has to supply a word at the moment the
+     * player presses the button, and it is this project, for `wingNames`'
+     * reason exactly: the call signs are content, and the composition root is
+     * where this game's content is spelled.
+     *
+     * Consumed in order and never returned: a wing that empties keeps its name
+     * for the same reason an authored one does (see `BuildRoster`), so handing
+     * a used call sign to a second wing would put one word on two things the
+     * player has told apart.
+     *
+     * **They are the session's, not the save's.** ADR-017 §6 puts wing names in
+     * ADR-012's user settings layer, which does not exist yet, so a name minted
+     * today is gone tomorrow while the *number* on the ship persists. What
+     * covers that gap is `EnsureWingName`, not this list.
+     */
+    std::vector<std::string> spareWingNames;
 
     /// The universe hash, which is what the handshake fails closed on.
     std::uint64_t contentHash = 0;
@@ -297,6 +322,39 @@ private:
   [[nodiscard]] const char* AnchorNameFor(Game::AnchorId _anchor) const;
 
   /*
+   * --- what a wing is called (ADR-017 §6) ----------------------------------
+   *
+   * Two tables behind one lookup: the authored call signs the composition root
+   * handed over, and the ones this session has minted for wings that were not
+   * in it. They stay apart rather than being one growing vector because the
+   * authored table is indexed by `WingId` and dense from 1, and a player who
+   * picked wing 200 would otherwise cost 191 empty strings to say so.
+   */
+
+  /// This wing's call sign, or null for a wing nothing has named -- which is
+  /// what keeps it off the roster. Never asked about `INVALID_WING_ID`.
+  [[nodiscard]] const char* WingName(Game::WingId _wing) const noexcept;
+
+  /*
+   * Gives this wing a name if it has none, and answers whether it now has one.
+   *
+   * Called from the two places a wing id arrives from outside -- a snapshot and
+   * a station roster -- so a wing the player made in an earlier session, whose
+   * number survived in the save while its name did not, comes back as a row
+   * with a dull word on it rather than as ships that have left the roster
+   * entirely. That failure is the one worth engineering against: a fleet the
+   * player cannot see is worse than a fleet called WING 9.
+   *
+   * False past the roster's row cap. A name for a wing that can never be drawn
+   * is a name for nothing, and minting one would spend a call sign on it.
+   */
+  bool EnsureWingName(Game::WingId _wing);
+
+  /// The lowest wing number nothing has named, or `INVALID_WING_ID` when the
+  /// roster has no room for another row. What the composer offers as NEW WING.
+  [[nodiscard]] Game::WingId FreeWingId() const noexcept;
+
+  /*
    * The docked place for this anchor, or null. Both station calls start here,
    * and neither should walk `m_places` on its own terms.
    *
@@ -309,6 +367,16 @@ private:
 
   Desc m_desc;
   Game::ReplicatedView m_view;
+
+  /*
+   * Call signs for wings the content did not name, by wing number.
+   *
+   * A pair list rather than a map or an array: it holds a handful of entries at
+   * most -- the roster's row cap is the ceiling on how many wings can be named
+   * at all -- so a node per wing would be three allocations to avoid a scan of
+   * six, and an array indexed by `WingId` would be 256 strings to hold them.
+   */
+  std::vector<std::pair<Game::WingId, std::string>> m_mintedWingNames;
 
   /// Reused across frames rather than allocated per frame: this runs once per
   /// frame at whatever rate the display asks for.

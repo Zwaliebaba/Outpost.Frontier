@@ -102,8 +102,19 @@ struct StationScreenLayout
   UiRect formation;
   UiRect undock;
   UiRect parking;
+  /*
+   * The reorganisation room, under the diagram: the wing the secondary action
+   * targets, and the button that sends it.
+   *
+   * **The print draws the second of these as `+ NEW WING`, and it is `ASSIGN`
+   * here.** A new wing is not a different verb -- ADR-017 §6 defines it as
+   * picking an unused number -- so it is a *value* of the same parameter, and
+   * the chip above carries it as its last option. Two controls either way; the
+   * difference is that one of them is now a button that always does what it
+   * says rather than a shortcut whose result depends on which wings exist.
+   */
   UiRect assignWing;
-  UiRect newWing;
+  UiRect assign;
 
   float scale = 1.0f;
 };

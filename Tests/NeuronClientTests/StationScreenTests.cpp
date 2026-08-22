@@ -157,9 +157,8 @@ public:
     const StationScreenTuning tuning;
     const StationScreenLayout layout = ResolveStationScreen(200, 40, 1.0f, tuning);
 
-    const UiRect every[] = {layout.statusBar, layout.tabRow,  layout.roster,     layout.composer,
-                            layout.selectionHead, layout.formation, layout.undock, layout.parking,
-                            layout.assignWing,    layout.newWing};
+    const UiRect every[] = {layout.statusBar, layout.tabRow, layout.roster,  layout.composer,   layout.selectionHead,
+                            layout.formation, layout.undock, layout.parking, layout.assignWing, layout.assign};
     for (const UiRect& rect : every)
     {
       Assert::IsTrue(rect.width >= 0.0f, L"no negative width");
@@ -189,7 +188,7 @@ public:
     Assert::IsTrue(layout.formation.Bottom() <= layout.undock.y, L"formation above UNDOCK");
     Assert::IsTrue(layout.undock.Bottom() <= layout.parking.y, L"UNDOCK above the diagram");
     Assert::IsTrue(layout.parking.Bottom() <= layout.assignWing.y, L"diagram above the wing dropdown");
-    Assert::IsTrue(layout.assignWing.Bottom() <= layout.newWing.y, L"dropdown above NEW WING");
+    Assert::IsTrue(layout.assignWing.Bottom() <= layout.assign.y, L"wing chip above the button that sends it");
   }
 
   TEST_METHOD(EveryComposerControlIsInsideTheComposerPanel)
@@ -197,8 +196,7 @@ public:
     const StationScreenTuning tuning;
     const StationScreenLayout layout = ResolveStationScreen(PRINT_WIDTH, PRINT_HEIGHT, 1.0f, tuning);
 
-    const UiRect controls[] = {layout.selectionHead, layout.formation,  layout.undock,
-                               layout.parking,       layout.assignWing, layout.newWing};
+    const UiRect controls[] = {layout.selectionHead, layout.formation, layout.undock, layout.parking, layout.assignWing, layout.assign};
     for (const UiRect& rect : controls)
     {
       Assert::IsTrue(rect.x >= layout.composer.x, L"left");
@@ -218,7 +216,7 @@ public:
 
     Assert::AreEqual(68.0f, layout.undock.height, 1e-4f);
     Assert::IsTrue(layout.undock.height > layout.formation.height, L"taller than a dropdown");
-    Assert::IsTrue(layout.undock.height > layout.newWing.height, L"and than the secondary action");
+    Assert::IsTrue(layout.undock.height > layout.assign.height, L"and than the secondary action");
   }
 
   TEST_METHOD(TheParkingDiagramIsSquareAndCentredInTheSlackItIsGiven)
@@ -261,10 +259,10 @@ public:
     const StationScreenLayout tall = ResolveStationScreen(PRINT_WIDTH, PRINT_HEIGHT, 1.0f, tuning);
     const StationScreenLayout squat = ResolveStationScreen(PRINT_WIDTH, 560, 1.0f, tuning);
 
-    Assert::AreEqual(tall.newWing.height, squat.newWing.height, 1e-4f, L"NEW WING keeps its height");
+    Assert::AreEqual(tall.assign.height, squat.assign.height, 1e-4f, L"the secondary action keeps its height");
     Assert::AreEqual(tall.undock.height, squat.undock.height, 1e-4f, L"so does UNDOCK");
     Assert::IsTrue(squat.parking.height < tall.parking.height, L"the diagram is what paid");
-    Assert::IsTrue(squat.newWing.Bottom() <= 560.0f + 1e-3f, L"and nothing hangs off the bottom");
+    Assert::IsTrue(squat.assign.Bottom() <= 560.0f + 1e-3f, L"and nothing hangs off the bottom");
   }
 };
 

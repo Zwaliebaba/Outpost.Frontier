@@ -78,6 +78,9 @@
     <ClCompile Include="LaneTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="LampTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="UiTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

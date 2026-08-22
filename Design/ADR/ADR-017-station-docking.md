@@ -28,6 +28,8 @@ ships**); ADR-016 §4's transfer bus (it arrives with **this** phase — dock an
 its first records, and U3a inherits it for warp).
 **Delivery plan:** [Station-Build-Order.md](../Station-Build-Order.md) (T1–T3, milestones
 H0/H1), interleaved into the universe phase after U2.
+**§6's wing assignment reached the screen on 2026-08-22** — see the note in §6 for what had
+been holding it and for the two rulings the build made.
 **Built so far (2026-08-19, T1's sim half):** §1's roster, §2's `Dock` order and its
 footprint-derived radius, §3's `Undock` and §6's `AssignWing` as shared-validated station
 commands, §5's protection window and its player-command break, and §9's transfer bus with
@@ -287,6 +289,32 @@ is the same screen. That is the difference between a layout decision that antici
 and one that merely left room, and it is worth having on the page for whoever proposes the
 next tab: a service costs a tab and nothing else, and a service that would cost more than a
 tab is a service that has misread this decision.
+
+> **Note, 2026-08-22 — §6's wing assignment is built, and what delayed it was a wrong
+> dependency rather than a missing one.**
+> The hangar's two reorganisation controls were drawn dead with the reason "both need the user
+> settings layer, because a wing's *name* is client-side". **That is true of renaming and false
+> of creating.** A wing exists iff a ship carries its number — the paragraph below says so — so
+> making one is a command the authority already takes, and the call sign only has to outlive the
+> session that spent it. Three features were held behind a dependency one of them had.
+>
+> The cost was a player report, not a theory: dock two ships out of one wing and two out of
+> another, and there is no way to make the four of them a wing. **Undocking them together is not
+> the same answer** — §3 is right that the undock selection composes a *fleet*, but a fleet is
+> emergent from location and a wing is a number that rides on the ship, so the four flew
+> together and still read as two wings on the roster.
+>
+> Two rulings the build made, recorded so the print and the code do not disagree silently.
+> **The print's `+ NEW WING` button is now a value of the wing chip**, because "new wing is
+> picking an unused number" makes it a value of the same parameter rather than a second verb;
+> the rect it had holds the button that sends the command. And **new wings stop being offered at
+> `MAX_ROSTER_ROWS`**, because a wing past the roster's row cap would be created, carry ships and
+> never be drawn — the chip going quiet is the honest end of an emergent thing, where offering
+> the number would not be.
+>
+> **Assigning to wing 0 is still not offered.** It is how a wing disbands and the machinery takes
+> it, but `BuildRoster` draws no row for wing 0, so the control would make ships vanish off the
+> HUD. It arrives with the print's stray column, not before.
 
 **Wings while docked are emergent, like fleets.** `AssignWing` writes a ship's `WingId` —
 any value 1..255; a wing *exists* iff a ship carries its id, "new wing" is picking an

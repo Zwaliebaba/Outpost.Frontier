@@ -520,11 +520,39 @@ and the bug only ever showed in the list. It lives with the self test rather tha
 suite for the reason the decoder fix already gave: `ReplicatedWorldView` is in the executable
 and has no test project.
 
-**Still owed by T3:** the reorganisation room. Wing assignment, wing creation and renames are
-drawn and disabled with their reason, in the treatment the tab row already gives a service
-that has not landed — all three need the user settings layer, because a wing's *name* is
-client-side (ADR-017 §6a.4) and there is nowhere to put one yet. And the visual checkpoints
-above.
+**The reorganisation room landed 2026-08-22, and the note above it was wrong about why it
+had not.** It said wing assignment, wing creation and renames all needed the user settings
+layer. **Renaming does. The other two do not** — a wing exists iff a ship carries its number
+(ADR-017 §6), so creating one is a command the authority already takes, and all a new wing's
+call sign has to survive is the session that made it. Three things were being held behind a
+feature that only one of them depends on, and the cost of the mistake was the one a player
+reported: dock two ships out of one wing and two out of another, and there was no way to make
+the four of them a wing.
+
+Built as a second `StationAction` beside UNDOCK — `BuildStationActions` returned one where
+`MAX_STATION_ACTIONS` had been four since T3, and the screen read `[0]` in five places, so
+the verb had a format, a validator, a server path and a registry test and no line anywhere
+that could compose one. The screen now walks its actions, and each carries its own parameter
+list, option index, pre-check verdict and wave count.
+
+**Two decisions worth having on the page.** The print's `+ NEW WING` button is a *value* of
+the wing chip rather than a second control: §6 defines a new wing as picking an unused
+number, so it belongs in the same parameter list, and the rect the print gave it now holds
+the button that sends the command. And `StationAction` gained `consumesSelection`, because
+the two verbs disagree about what happens to the composer afterwards and the engine may not
+tell them apart by reading the verb.
+
+**Names come from the composition root**, which holds seven spare call signs beside the
+starting fleet's eight — the roster's row cap is what makes seven the right number, and a
+`static_assert` says so. A wing whose number outlived its name (a save reloaded without the
+settings layer) is given a dull generated one when its ships arrive, because a fleet the
+player cannot see is worse than a fleet called `WING 9`. Gated in `RunWingAssignmentGate`,
+for the reason every other client-side gate lives there.
+
+**Still owed by T3:** wing *renames*, which do need the user settings layer; assigning to
+wing 0 to disband, which needs the print's stray column first, or the button would make ships
+vanish off the HUD; persistence of a created wing's name across sessions (ADR-012). And the
+visual checkpoints above.
 
 **Accept 🏁 H1:** the owner's loop in one sitting — fly to the station, DOCK from the
 context action, open the hangar, move three ships into a new wing, select a mixed

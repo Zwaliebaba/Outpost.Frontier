@@ -2,6 +2,7 @@
 
 #include "GpuCom.h"
 #include "ObjMesh.h"
+#include "SignalLamp.h"
 
 #include <d3d12.h>
 
@@ -45,8 +46,34 @@ struct GpuMesh
   std::uint32_t vertexCount = 0;
   std::uint32_t indexCount = 0;
   float radiusMetres = 0.0f;
+
+  /*
+   * The same hull measured on the plane rather than in three dimensions --
+   * `PlaneRadiusMetres`, after the fit, so it is the silhouette radius the
+   * class table stated and the loader delivered.
+   *
+   * Carried alongside `radiusMetres` because they are different numbers and the
+   * difference is load-bearing for anything anchoring to the hull: the
+   * stargate's sphere radius is its spire, half again its footprint, so a
+   * fixture placed at a fraction of the sphere would sit well outside the ring
+   * it was meant to trim (`SignalLamp.h`).
+   */
+  float planeRadiusMetres = 0.0f;
+
   DirectX::XMFLOAT3 boundsMin = {0.0f, 0.0f, 0.0f};
   DirectX::XMFLOAT3 boundsMax = {0.0f, 0.0f, 0.0f};
+
+  /*
+   * What the signal lamps need to know about this hull (ADR-006 §6a), measured
+   * while the geometry was still on the CPU.
+   *
+   * Kept here because this is the last moment anything can measure it: the
+   * vertices go to a default heap and are dropped, so a later caller wanting to
+   * know how tall the deck is out at the beam would have no way to ask. It is
+   * three floats and a box, against the alternative of retaining every mesh's
+   * vertices for the life of the client.
+   */
+  MeshLampBounds lampBounds;
 
   [[nodiscard]] bool Valid() const noexcept { return indexCount != 0; }
 };

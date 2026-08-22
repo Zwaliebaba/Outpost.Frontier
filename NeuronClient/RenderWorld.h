@@ -87,9 +87,26 @@ struct InstanceRecord
   /// `UiInstance::axis`: every field above keeps the offset the input layout
   /// already declares for it.
   float bank = 0.0f;
+
+  /*
+   * Where in its blink cycle this hull's signal lamps are, in turns (0..1).
+   *
+   * Appended, on the same discipline as `bank`. It is here rather than in the
+   * lamp table because the table is per *class*: without a per-hull offset
+   * every ship of a class would strobe on the same frame and a parked wing
+   * would flash as one object (ADR-006 §6a). Hashed from the entity id by
+   * `Neuron::LampPhaseTurns`, so it is stable for a ship's whole life however
+   * the scene is sorted, and constant per frame rather than drifting with the
+   * hull's position.
+   *
+   * Filled by Extract and read only by the lamp pass. The opaque input layout
+   * does not declare it, which costs nothing: the stride is this struct's, so
+   * the bytes are simply not fetched.
+   */
+  float lampPhaseTurns = 0.0f;
 };
 
-static_assert(sizeof(InstanceRecord) == 24, "InstanceRecord is a vertex stream layout; its size is the stride the input "
+static_assert(sizeof(InstanceRecord) == 28, "InstanceRecord is a vertex stream layout; its size is the stride the input "
                                             "layout declares, so a change here is a change in three places");
 
 /// Where one class's instances sit in the scene's instance array. The opaque

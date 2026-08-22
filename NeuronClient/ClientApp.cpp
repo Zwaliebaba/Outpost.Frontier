@@ -73,8 +73,60 @@ constexpr float FLEET_FRAME_AIR = 0.12f;
  * *glows* is a renderer decision the exporter has no way to express. Accent and
  * thruster carry the emissive channel; glass is simply dark, which is what
  * makes a cockpit read as glass against a lit hull rather than as a hole.
+ *
+ * Read as a multiple of the material's own albedo, which is what the pixel
+ * shader does with it. `accent` glows *mildly* -- it is a stripe on a dark
+ * hull, and a stripe that outshines the hull stops being a marking -- while
+ * `thruster` glows past white, because an engine bell is the one place on a
+ * hull that is genuinely a light source. Both are unlit by the key light, so
+ * they hold their colour whichever way the ship is facing.
+ *
+ * They were 1.6 and 2.4 against the previous rig, whose fill was a fifth of
+ * this one's; the accents kept their contrast against a hull that is now four
+ * times brighter by coming down rather than by the hull going back.
  */
-constexpr float MATERIAL_EMISSIVE[MESH_MATERIAL_COUNT] = {0.0f, 0.0f, 0.0f, 1.6f, 2.4f};
+constexpr float MATERIAL_EMISSIVE[MESH_MATERIAL_COUNT] = {0.0f, 0.0f, 0.0f, 0.6f, 1.3f};
+
+/*
+ * The lighting rig (ADR-006 §6): a key, a hemispherical fill, and a bounce.
+ *
+ * Constants rather than content, and all of them here rather than spread down
+ * `BuildFrameConstants`, because they are one decision: the two fill tints and
+ * the bounce are quoted as *fractions of the key* and are meaningless read
+ * apart from it. The only thing content says about light is the nebula's tint,
+ * which is the field the fleet sits inside rather than what lands on a hull.
+ *
+ * Flat-shaded facets are the whole reason there are three terms. One light
+ * gives adjacent faces distinct tones; without the fill the faces turned away
+ * from it are holes; without the bounce a hull's shadow side has nothing to
+ * separate it from a background that is nearly the same colour.
+ */
+
+/// Where the key travels, in render space (east, up, north). ~55 degrees of
+/// elevation -- deliberately higher than the 30 the camera sits at, so the top
+/// facets of a hull carry warm light under a top-down view and the scene never
+/// reads as backlit. Normalised at use; the literal is a direction, not a unit
+/// vector somebody has to keep unit by hand.
+constexpr DirectX::XMFLOAT3 KEY_DIRECTION{-0.35f, -0.82f, 0.45f};
+
+/// Warm white. The one warm thing in the frame, which is what makes the green
+/// everywhere else read as green rather than as a colour cast.
+constexpr DirectX::XMFLOAT3 KEY_COLOUR{1.00f, 0.96f, 0.90f};
+constexpr float KEY_INTENSITY = 1.0f;
+
+/// The hemispherical fill's two ends: a green-white sky above, near-black
+/// ground below. Lerped by the normal's Y, which costs two constants and is the
+/// difference between a faceted hull and a flat unlit one.
+constexpr DirectX::XMFLOAT3 FILL_SKY_TINT{0.87f, 0.96f, 0.75f};
+constexpr DirectX::XMFLOAT3 FILL_GROUND_TINT{0.06f, 0.11f, 0.06f};
+constexpr float FILL_FRACTION_OF_KEY = 0.28f;
+
+/// The bounce, at the accent hue. Weak on purpose: enough that a shadow-side
+/// hull has an edge against the background, far too little to read as a hull
+/// painted green. It comes from the camera's side, so it is the one term that
+/// moves when the view orbits.
+constexpr DirectX::XMFLOAT3 BOUNCE_TINT{0.61f, 0.94f, 0.12f};
+constexpr float BOUNCE_FRACTION_OF_KEY = 0.17f;
 
 /// UPPERCASE into a fixed buffer, for the command verbs and the formation
 /// value: the game supplies mixed-case names and the print sets the chrome in
@@ -275,6 +327,10 @@ bool ClientApp::CreateContent()
   bool ok = m_pipelines.Create(m_device.Device(), m_shaders, m_swapChain.SampleCount());
   ok = ok && m_meshes.Create(m_device, m_config.meshDirectory, m_config.meshFiles, m_config.meshPlaneRadiiMetres,
                              m_taskPool);
+  // After the meshes and from nothing but them: every lamp is a fraction of a
+  // bounding box the loader has just measured, so this cannot be told a hull
+  // size the renderer is not drawing (ADR-006 §6a).
+  ok = ok && m_lamps.Create(m_device, m_meshes, m_config.meshLampRigs);
   ok = ok && m_uploadRing.Create(m_device.Device(), UPLOAD_BYTES_PER_FRAME, GpuSwapChain::BUFFER_COUNT);
 
   if (ok)
@@ -1382,14 +1438,29 @@ void ClientApp::UpdateStationSurface()
     }
   }
 
-  // The composer's action and the values its parameter may take -- the words
-  // and the verb both the game's (ADR-020 §6).
+  /*
+   * The composer's actions and the values their parameters may take -- the
+   * words and the verbs all the game's (ADR-020 §6).
+   *
+   * Asked per action rather than for the first one, which is what let the
+   * secondary verb exist at all: `MAX_STATION_ACTIONS` has been four since T3
+   * and this loop read `[0]`, so a game offering two actions had its second one
+   * silently dropped between the ask and the draw.
+   *
+   * **The index is clamped, not reset**, and the difference shows every frame:
+   * the list is re-asked at frame rate, and resetting to zero on any change
+   * would snap a player's chosen wing back to the first one the moment somebody
+   * else's ship docked and added a column.
+   */
   m_stationActionCount = m_worldView->BuildStationActions(m_stationAnchor, m_stationActions);
-  m_stationOptionCount =
-      m_stationActionCount > 0 ? m_worldView->StationActionOptions(m_stationActions[0].verb, m_stationOptions) : 0;
-  if (m_stationOptionIndex >= m_stationOptionCount)
+  for (std::uint32_t action = 0; action < MAX_STATION_ACTIONS; ++action)
   {
-    m_stationOptionIndex = 0;
+    m_stationOptionCount[action] =
+      action < m_stationActionCount ? m_worldView->StationActionOptions(m_stationActions[action].verb, m_stationOptions[action]) : 0;
+    if (m_stationOptionIndex[action] >= m_stationOptionCount[action])
+    {
+      m_stationOptionIndex[action] = 0;
+    }
   }
 
   /*
@@ -1426,18 +1497,24 @@ void ClientApp::UpdateStationSurface()
    * would refuse a gesture that is going to work.
    */
   const std::uint32_t cap = m_worldView->ShipsPerStationCommand();
-  m_undockWaves = m_composer.WaveCount(cap);
-  m_undockVerdict = OrderVerdict{};
-  if (m_stationActionCount > 0 && m_undockWaves > 0)
+  const std::uint32_t waves = m_composer.WaveCount(cap);
+  for (std::uint32_t action = 0; action < MAX_STATION_ACTIONS; ++action)
   {
+    m_stationWaves[action] = action < m_stationActionCount ? waves : 0;
+    m_stationVerdict[action] = OrderVerdict{};
+    if (m_stationWaves[action] == 0)
+    {
+      continue;
+    }
+
     const std::span<const std::uint32_t> wave = m_composer.Wave(0, cap);
     StationIntent probe;
-    probe.verb = m_stationActions[0].verb;
-    probe.parameter = m_stationOptionCount > 0 ? m_stationOptions[m_stationOptionIndex].parameter : 0;
+    probe.verb = m_stationActions[action].verb;
+    probe.parameter = m_stationOptionCount[action] > 0 ? m_stationOptions[action][m_stationOptionIndex[action]].parameter : 0;
     probe.anchor = m_stationAnchor;
     probe.shipIds = wave.data();
     probe.shipCount = static_cast<std::uint32_t>(wave.size());
-    m_undockVerdict = m_worldView->PreCheckStation(probe);
+    m_stationVerdict[action] = m_worldView->PreCheckStation(probe);
   }
 
   // --- and now the gesture, in ADR-020 §2's order -------------------------
@@ -1507,16 +1584,39 @@ void ClientApp::UpdateStationSurface()
       // The first gesture: tap toggles.
       (void)m_composer.Toggle(m_stationChips[chip->chip].shipId);
     }
-    else if (m_stationOptionCount > 0 && m_stationLayout.formation.Contains(cursorX, cursorY))
+    else if (m_stationOptionCount[0] > 0 && m_stationLayout.formation.Contains(cursorX, cursorY))
     {
       // Cycled rather than dropped down, which is the command row's idiom for
       // the same shape of choice -- three values with words for them, and a
       // list that opened would be a second surface over a full-screen one.
-      m_stationOptionIndex = (m_stationOptionIndex + 1) % m_stationOptionCount;
+      m_stationOptionIndex[0] = (m_stationOptionIndex[0] + 1) % m_stationOptionCount[0];
     }
-    else if (m_undockVerdict.accepted && m_stationLayout.undock.Contains(cursorX, cursorY))
+    else if (m_stationVerdict[0].accepted && m_stationLayout.undock.Contains(cursorX, cursorY))
     {
-      CommitUndock(Clock::SecondsSinceStart());
+      CommitStationAction(0, Clock::SecondsSinceStart());
+    }
+    /*
+     * And the secondary pair, which is the same two gestures over the same two
+     * shapes of control -- a chip that cycles and a button that sends.
+     *
+     * The screen binds the game's actions to its control pairs by position:
+     * action 0 gets the print's primary controls, action 1 gets the ones under
+     * the diagram. That is a layout fact rather than a fact about the verbs, and
+     * it is why this side can offer a wing assignment without knowing that is
+     * what it is offering.
+     *
+     * **The wing chip cycles even when the button is dead.** A player whose
+     * selection is empty has nothing to assign and every reason to be reading
+     * which wings exist; greying the chip with the button would hide the list at
+     * exactly the moment it is being consulted.
+     */
+    else if (m_stationOptionCount[1] > 0 && m_stationLayout.assignWing.Contains(cursorX, cursorY))
+    {
+      m_stationOptionIndex[1] = (m_stationOptionIndex[1] + 1) % m_stationOptionCount[1];
+    }
+    else if (m_stationVerdict[1].accepted && m_stationLayout.assign.Contains(cursorX, cursorY))
+    {
+      CommitStationAction(1, Clock::SecondsSinceStart());
     }
   }
 
@@ -1532,17 +1632,23 @@ void ClientApp::UpdateStationSurface()
  *
  * `CommitOrder`'s shape without the ghost: an order bounces in the world
  * because there is a world to bounce it in, and a docked ship is in no
- * snapshot -- so a refused undock is a toast and nothing else.
+ * snapshot -- so a refused station command is a toast and nothing else.
  *
  * The pre-check has already run this frame, against this wave, with this
- * formation; what follows is the send. Refusing again here would be asking the
+ * parameter; what follows is the send. Refusing again here would be asking the
  * same function the same question twice in one frame.
+ *
+ * **Nothing below names a verb**, which is the point of taking an index. The
+ * two things that differ between the game's actions -- what goes in the intent
+ * and what happens to the composer afterwards -- both arrive in the
+ * `StationAction`, so this function sends a wing assignment and an undock with
+ * the same lines and cannot tell which it just sent.
  */
-void ClientApp::CommitUndock(double _nowSeconds)
+void ClientApp::CommitStationAction(std::uint32_t _action, double _nowSeconds)
 {
   const std::uint32_t cap = m_worldView->ShipsPerStationCommand();
   const std::span<const std::uint32_t> picked = m_composer.Wave(0, cap);
-  if (m_stationActionCount == 0 || picked.empty())
+  if (_action >= m_stationActionCount || picked.empty())
   {
     return;
   }
@@ -1558,8 +1664,8 @@ void ClientApp::CommitUndock(double _nowSeconds)
   }
 
   StationIntent intent;
-  intent.verb = m_stationActions[0].verb;
-  intent.parameter = m_stationOptionCount > 0 ? m_stationOptions[m_stationOptionIndex].parameter : 0;
+  intent.verb = m_stationActions[_action].verb;
+  intent.parameter = m_stationOptionCount[_action] > 0 ? m_stationOptions[_action][m_stationOptionIndex[_action]].parameter : 0;
   intent.anchor = m_stationAnchor;
   intent.orderSeq = m_nextOrderSeq++;
   intent.shipIds = wave;
@@ -1573,24 +1679,45 @@ void ClientApp::CommitUndock(double _nowSeconds)
   if (!m_worldView->EncodeStationCommand(intent, writer) || !writer.Ok() ||
       !m_connection.SendOrder(writer.Written()))
   {
-    (void)m_toasts.Raise(ToastPriority::Urgent, 0, "UNDOCK NOT SENT", "the link did not take it", _nowSeconds);
+    /*
+     * The game's word for the action, in the failure the player reads.
+     *
+     * A fixed "UNDOCK NOT SENT" was correct while there was one action and is a
+     * lie about the other, and this side has no business writing either word --
+     * so the title is composed from `StationAction::name`, which is the same
+     * string the button that was just pressed is drawn with.
+     */
+    char title[64] = {};
+    const char* verb = m_stationActions[_action].name;
+    std::snprintf(title, sizeof(title), "%s NOT SENT", verb != nullptr ? verb : "COMMAND");
+    (void)m_toasts.Raise(ToastPriority::Urgent, 0, title, "the link did not take it", _nowSeconds);
     NEURON_LOG_WARNING("station command %u could not be sent", intent.orderSeq);
     return;
   }
 
   /*
-   * The ships that just left stop being pickable, and the composer drops them.
+   * The ships this action consumed stop being pickable, and the composer drops
+   * them -- if it consumed any.
    *
    * Cleared by the action that consumed them rather than by navigation --
    * §6a.2's other half. Only this wave: a selection of sixty-six is two
    * presses, and clearing all of it on the first would lose the second.
+   *
+   * **Whether it consumed them is the game's answer**, not a guess from the
+   * verb this side cannot read. An undock sends the ships away and the ids must
+   * go with them; a regrouping leaves them docked, and dropping the selection
+   * would charge the player a fresh thirty taps for the next thing they wanted
+   * to do to the same thirty ships.
    */
-  for (std::uint32_t index = 0; index < waveCount; ++index)
+  if (m_stationActions[_action].consumesSelection)
   {
-    m_composer.Remove(wave[index]);
+    for (std::uint32_t index = 0; index < waveCount; ++index)
+    {
+      m_composer.Remove(wave[index]);
+    }
   }
 
-  NEURON_LOG_INFO("station command %u sent: %u ship(s) undocking", intent.orderSeq, intent.shipCount);
+  NEURON_LOG_INFO("station command %u sent: %u ship(s)", intent.orderSeq, intent.shipCount);
 }
 
 void ClientApp::OnViewChanged(std::uint16_t _gridAnchor, double _nowSeconds)
@@ -1849,17 +1976,42 @@ FrameConstants ClientApp::BuildFrameConstants() const
   FrameConstants constants{};
   constants.viewProjection = m_camera.ViewProjectionMatrix();
 
-  // One directional light from high and behind the default camera, so a hull
-  // reads by its top faces and its silhouette rather than by a rim.
-  XMFLOAT3 direction;
-  XMStoreFloat3(&direction, XMVector3Normalize(XMVectorSet(-0.35f, -0.82f, 0.45f, 0.0f)));
-  constants.sunDirection = XMFLOAT4{direction.x, direction.y, direction.z, 0.0f};
-  constants.sunColour = XMFLOAT4{0.62f, 0.70f, 0.66f, 1.0f};
+  // The key: one hard directional from high on one side, fixed in world space.
+  // Fixed, and not attached to the camera, because that is what makes orbiting
+  // worth doing -- a hull's lit side is a property of the hull's facing, so
+  // turning the view shows a ship from its dark side and says something.
+  XMFLOAT3 key;
+  XMStoreFloat3(&key, XMVector3Normalize(XMLoadFloat3(&KEY_DIRECTION)));
+  constants.sunDirection = XMFLOAT4{key.x, key.y, key.z, 0.0f};
+  constants.sunColour = XMFLOAT4{KEY_COLOUR.x, KEY_COLOUR.y, KEY_COLOUR.z, KEY_INTENSITY};
 
-  // Near-black space, with just enough sky term that an unlit face is a shape
-  // rather than a hole (ADR-006: the look is silhouette, not shading detail).
-  constants.ambientSky = XMFLOAT4{0.055f, 0.085f, 0.110f, 1.0f};
-  constants.ambientGround = XMFLOAT4{0.014f, 0.018f, 0.024f, 1.0f};
+  // The fill, as a fraction of the key. Folded in here rather than in the
+  // shader so the pixel cost stays two constants and a lerp, and so the numbers
+  // the constants declare are the numbers the rig was tuned in.
+  const float fill = KEY_INTENSITY * FILL_FRACTION_OF_KEY;
+  constants.ambientSky = XMFLOAT4{FILL_SKY_TINT.x * fill, FILL_SKY_TINT.y * fill, FILL_SKY_TINT.z * fill, 1.0f};
+  constants.ambientGround = XMFLOAT4{FILL_GROUND_TINT.x * fill, FILL_GROUND_TINT.y * fill, FILL_GROUND_TINT.z * fill, 1.0f};
+
+  /*
+   * The bounce, arriving from where the camera is.
+   *
+   * `ScreenUpOnPlane` is the view direction flattened onto the plane and
+   * pointing away from the camera, which is exactly the horizontal direction a
+   * light shining from behind the viewer travels; the vertical part is the
+   * camera's own elevation, so the term is "what the viewer's side of the
+   * scene is lit by" rather than a fourth arbitrary angle.
+   *
+   * Sim space is (east, north) and render space is (east, up, north), so the
+   * plane vector's y becomes the render z.
+   */
+  const XMFLOAT2 awayFromCamera = m_camera.ScreenUpOnPlane();
+  const float elevation = IsoCamera::ELEVATION_DEGREES * XM_PI / 180.0f;
+  const float horizontal = std::cos(elevation);
+  XMFLOAT3 bounce;
+  XMStoreFloat3(&bounce,
+                XMVector3Normalize(XMVectorSet(awayFromCamera.x * horizontal, -std::sin(elevation), awayFromCamera.y * horizontal, 0.0f)));
+  constants.bounceDirection = XMFLOAT4{bounce.x, bounce.y, bounce.z, 0.0f};
+  constants.bounceColour = XMFLOAT4{BOUNCE_TINT.x, BOUNCE_TINT.y, BOUNCE_TINT.z, KEY_INTENSITY * BOUNCE_FRACTION_OF_KEY};
 
   const MeshMaterialPalette& palette = m_meshes.Palette();
   for (std::uint32_t i = 0; i < MESH_MATERIAL_COUNT; ++i)
@@ -1875,6 +2027,24 @@ FrameConstants ClientApp::BuildFrameConstants() const
   constants.teamEmissive[1] = XMFLOAT4{1.00f, 0.42f, 0.28f, 1.0f};
   constants.teamEmissive[2] = XMFLOAT4{0.42f, 0.62f, 1.00f, 1.0f};
   constants.teamEmissive[3] = XMFLOAT4{0.82f, 0.70f, 1.00f, 1.0f};
+
+  /*
+   * The clock the signal lamps blink on (ADR-006 §6a).
+   *
+   * `Clock::SecondsSinceStart` and deliberately not the tick: the lamps are
+   * cosmetic, so two clients watching the same fleet should see it blinking
+   * differently rather than in lockstep, and a synchronised one would be a
+   * per-frame float on the wire for no gameplay at all.
+   *
+   * Narrowed to float here, once. It is a double because the frame loop times
+   * itself with it, and after a few hours of uptime a float's ulp is bigger
+   * than a strobe's on-window -- so the narrowing is wrapped to the hour rather
+   * than taken raw. An hour is over two thousand cycles of the slowest lamp, so
+   * the wrap lands mid-blink and nothing about it is visible.
+   */
+  constexpr double LAMP_CLOCK_WRAP_SECONDS = 3600.0;
+  const double seconds = Clock::SecondsSinceStart();
+  constants.frameTime = XMFLOAT4{static_cast<float>(std::fmod(seconds, LAMP_CLOCK_WRAP_SECONDS)), 0.0f, 0.0f, 0.0f};
   return constants;
 }
 
@@ -3320,31 +3490,49 @@ void ClientApp::BuildStationSurface()
   }
 
   /*
-   * The formation, as a cycling chip rather than a dropdown.
+   * A parameter, as a cycling chip rather than a dropdown.
    *
-   * The print draws a list; this is three values with words for them, which is
-   * exactly the shape the command row already cycles through in place -- and a
-   * list that opened would be a second surface floating over a full-screen one,
-   * for a choice that fits on the control.
+   * The print draws a list; this cycles values with words for them in place,
+   * which is exactly the shape the command row already uses -- and a list that
+   * opened would be a second surface floating over a full-screen one, for a
+   * choice that fits on the control.
+   *
+   * **One lambda, called twice**: the primary's chip under the selection head,
+   * the secondary's under the diagram. They are the same control -- a label the
+   * game wrote and a value the game named -- and the only thing that varies is
+   * which rect and which option row. The formation list is three values and the
+   * wing list is as many wings as there are, which is the one place the shape
+   * stretches; it stays a chip because the wing list is bounded by the roster's
+   * row cap and so is never long either.
+   *
+   * The label falls back to nothing rather than to a word: this side spelling
+   * FORMATION when the game went quiet would be spelling a word it may not
+   * know, which is the leak the whole file is arranged to avoid.
    */
-  const StationAction* action = m_stationActionCount > 0 ? &m_stationActions[0] : nullptr;
-  const bool hasFormation = m_stationOptionCount > 0 && m_stationOptionIndex < m_stationOptionCount;
-  m_ui.AddBorder(screen.formation, line, hasFormation ? m_palette.border : m_palette.phosphorGhost);
+  const auto drawOptionChip = [&](const UiRect& _rect, std::uint32_t _action)
   {
-    const char* label = (action != nullptr && action->parameterName != nullptr) ? action->parameterName : "FORMATION";
-    const float textY = screen.formation.y + (screen.formation.height - smallPx) * 0.5f;
-    m_ui.AddText(screen.formation.x + cell, textY, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, label);
+    const StationAction* chipAction = _action < m_stationActionCount ? &m_stationActions[_action] : nullptr;
+    const bool hasValue = m_stationOptionCount[_action] > 0 && m_stationOptionIndex[_action] < m_stationOptionCount[_action];
+    m_ui.AddBorder(_rect, line, hasValue ? m_palette.border : m_palette.phosphorGhost);
 
-    if (hasFormation)
+    if (chipAction != nullptr && chipAction->parameterName != nullptr)
     {
-      UpperCaseInto(m_stationOptions[m_stationOptionIndex].name, upper);
+      m_ui.AddText(_rect.x + cell, _rect.y + (_rect.height - smallPx) * 0.5f, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel,
+                   chipAction->parameterName);
+    }
+
+    if (hasValue)
+    {
+      UpperCaseInto(m_stationOptions[_action][m_stationOptionIndex[_action]].name, upper);
       std::snprintf(buffer, sizeof(buffer), "%s \xE2\x96\xB8", upper);
       const float valueWidth = static_cast<float>(TextCellCount(buffer)) * cell;
-      m_ui.AddText(screen.formation.Right() - cell - valueWidth,
-                   screen.formation.y + (screen.formation.height - bodyPx) * 0.5f, m_uiTuning.bodySizeIndex,
+      m_ui.AddText(_rect.Right() - cell - valueWidth, _rect.y + (_rect.height - bodyPx) * 0.5f, m_uiTuning.bodySizeIndex,
                    m_palette.phosphor, buffer);
     }
-  }
+  };
+
+  const StationAction* action = m_stationActionCount > 0 ? &m_stationActions[0] : nullptr;
+  drawOptionChip(screen.formation, 0);
 
   /*
    * UNDOCK: the only primary action on the screen, always drawn, and disabled
@@ -3355,14 +3543,14 @@ void ClientApp::BuildStationSurface()
    * so the words under a greyed button are the words the bounce would have
    * carried. That is what the print means by "a tappable UNDOCK is a promise".
    */
-  const bool live = m_undockVerdict.accepted;
+  const bool live = m_stationVerdict[0].accepted;
   m_ui.AddQuad(screen.undock, live ? m_palette.rule : m_palette.chipBg);
   m_ui.AddBorder(screen.undock, live ? 2.0f * scale : line, live ? m_palette.phosphor : m_palette.phosphorGhost);
 
   const char* verb = (action != nullptr && action->name != nullptr) ? action->name : "UNDOCK";
-  if (m_undockWaves > 1)
+  if (m_stationWaves[0] > 1)
   {
-    std::snprintf(buffer, sizeof(buffer), "%s \xC2\xB7 WAVE 1 OF %u", verb, m_undockWaves);
+    std::snprintf(buffer, sizeof(buffer), "%s \xC2\xB7 WAVE 1 OF %u", verb, m_stationWaves[0]);
   }
   else
   {
@@ -3376,7 +3564,7 @@ void ClientApp::BuildStationSurface()
   const char* under = nullptr;
   if (live)
   {
-    under = m_undockWaves > 1 ? "PRESS AGAIN FOR THE REST" : nullptr;
+    under = m_stationWaves[0] > 1 ? "PRESS AGAIN FOR THE REST" : nullptr;
   }
   else if (m_composer.Empty())
   {
@@ -3384,7 +3572,7 @@ void ClientApp::BuildStationSurface()
   }
   else
   {
-    under = m_worldView->ReasonText(m_undockVerdict.reasonCode);
+    under = m_worldView->ReasonText(m_stationVerdict[0].reasonCode);
   }
 
   if (under != nullptr)
@@ -3460,25 +3648,62 @@ void ClientApp::BuildStationSurface()
   }
 
   /*
-   * The reorganisation room, drawn and disabled with its reason -- the same
-   * treatment the tab row gives a service that has not landed, and for the same
-   * argument: a control that appears when it starts working is a control the
-   * player has to discover twice.
+   * The reorganisation room (ADR-017 §6), which is what the hangar is *for*
+   * once the ships are inside it.
    *
-   * Both need the user settings layer, because a wing's *name* is client-side
-   * (ADR-017 §6a.4) and neither renaming nor creating one has anywhere to be
-   * stored yet.
+   * It read SOON here until the game grew a second action, and the two controls
+   * were drawn dead for a reason that had stopped being true: the note said
+   * both needed ADR-012's user settings layer, "because a wing's name is
+   * client-side and neither renaming nor creating one has anywhere to be
+   * stored yet". Renaming does still need it. **Creating does not** -- a wing
+   * exists iff a ship carries its number, so making one is a command the
+   * authority already takes, and all the name has to survive is the session
+   * that made it. Waiting for durable storage before allowing the gesture was
+   * holding a working verb behind a feature it does not depend on.
+   *
+   * Drawn as the pair above it: a chip that cycles the game's values, and a
+   * button that greys with the authority's own reason. Nothing here is a
+   * special case -- if the game stopped offering a second action tomorrow, both
+   * controls would go quiet on their own.
    */
-  const UiRect deferred[] = {screen.assignWing, screen.newWing};
-  const char* deferredLabels[] = {"ASSIGN TO WING", "+ NEW WING"};
-  for (std::uint32_t index = 0; index < 2; ++index)
+  drawOptionChip(screen.assignWing, 1);
+
+  const StationAction* secondary = m_stationActionCount > 1 ? &m_stationActions[1] : nullptr;
+  const bool secondaryLive = m_stationVerdict[1].accepted;
+  m_ui.AddQuad(screen.assign, secondaryLive ? m_palette.rule : m_palette.chipBg);
+  m_ui.AddBorder(screen.assign, line, secondaryLive ? m_palette.phosphor : m_palette.phosphorGhost);
+
+  if (secondary != nullptr && secondary->name != nullptr)
   {
-    m_ui.AddBorder(deferred[index], line, m_palette.phosphorGhost);
-    m_ui.AddText(deferred[index].x + cell, deferred[index].y + (deferred[index].height - smallPx) * 0.5f,
-                 m_uiTuning.smallSizeIndex, m_palette.phosphorDead, deferredLabels[index]);
-    m_ui.AddText(deferred[index].Right() - cell - 4.0f * cell,
-                 deferred[index].y + (deferred[index].height - smallPx) * 0.5f, m_uiTuning.smallSizeIndex,
-                 m_palette.phosphorGhost, "SOON");
+    /*
+     * The word the game wrote -- and the same string `CommitStationAction` puts
+     * in the toast when the link drops the command, so the player reads one name
+     * for one action rather than two for the same press.
+     *
+     * Left, where UNDOCK's is centred, because this row is a third the height
+     * and has to share it with the refusal beside it.
+     */
+    m_ui.AddText(screen.assign.x + cell, screen.assign.y + (screen.assign.height - smallPx) * 0.5f, m_uiTuning.smallSizeIndex,
+                 secondaryLive ? m_palette.phosphorHot : m_palette.phosphorDead, secondary->name);
+  }
+
+  /*
+   * And why it is dark, in the authority's words -- the rule the print states
+   * for UNDOCK, applied to the control beside it because a dead button with no
+   * reason is the thing that rule exists to forbid.
+   *
+   * Nothing when the composer is empty. The primary button directly above is
+   * already saying SELECT SHIPS TO UNDOCK in letters twice this size, and a
+   * second copy of that sentence is noise rather than information.
+   */
+  if (!secondaryLive && !m_composer.Empty())
+  {
+    if (const char* why = m_worldView->ReasonText(m_stationVerdict[1].reasonCode); why != nullptr)
+    {
+      const float whyWidth = static_cast<float>(TextCellCount(why)) * cell;
+      m_ui.AddText(screen.assign.Right() - cell - whyWidth, screen.assign.y + (screen.assign.height - smallPx) * 0.5f,
+                   m_uiTuning.smallSizeIndex, m_palette.caution, why);
+    }
   }
 }
 
@@ -3526,7 +3751,11 @@ void ClientApp::CollectDiagnostics(double _nowSeconds)
   // issued last frame. Never a world-truth count (debug-hud.png §1).
   m_stripReadout.replicated = static_cast<std::uint32_t>(m_scene.entities.size());
   m_stripReadout.drawnInstances = m_passes.Opaque().InstanceCount();
-  m_stripReadout.drawCalls = m_passes.Opaque().DrawCount();
+  // Hulls *and* their signal lamps, because the field says what the passes
+  // issued and the lamp pass issues draws (ADR-006 §6a). Counting only the
+  // opaque pass would make the strip quietly understate the frame the moment a
+  // second world pass started drawing -- which is now.
+  m_stripReadout.drawCalls = m_passes.Opaque().DrawCount() + m_passes.Lamps().DrawCount();
   m_stripReadout.glyphQuads = m_passes.Ui().GlyphCount();
   m_stripReadout.missingGlyphs = m_passes.Ui().MissingGlyphCount();
   m_stripReadout.snapshotDrops = m_connection.SnapshotOverflowCount();
@@ -3599,6 +3828,7 @@ void ClientApp::RenderFrame()
   context.uiWorld = &m_uiWorld;
   context.glyphAtlas = &m_glyphAtlas;
   context.meshes = &m_meshes;
+  context.lamps = &m_lamps;
   context.scene = &m_scene;
   // The world's target: the MSAA offscreen when one exists, the back buffer
   // otherwise. The Ui pass never reads this -- it draws on whatever the frame
@@ -3740,6 +3970,7 @@ void ClientApp::Shutdown()
   m_audio.Destroy();
 
   m_glyphAtlas.Destroy();
+  m_lamps.Destroy(); // Before the meshes it was built from, mirroring Initialise.
   m_meshes.Destroy();
   m_uploadRing.Destroy();
   m_pipelines.Destroy();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NebulaField.h"
+#include "SignalLamp.h"
 
 #include <cstdint>
 #include <string>
@@ -104,6 +105,23 @@ struct ClientConfig
    * that file exactly as authored.
    */
   std::vector<float> meshPlaneRadiiMetres;
+
+  /*
+   * Which signal-light fixture each mesh carries, in the same order
+   * (ADR-006 §6a).
+   *
+   * The engine cannot work this out either, and for the same reason the radii
+   * are here: "this file is a station and that one is a strike craft" is a
+   * sentence only the game can say (ADR-014). What it says is a *rig* and not a
+   * list of lamps -- where the lamps actually go is derived from the mesh's own
+   * bounding box, so a re-export moves them with the art.
+   *
+   * Empty, or a shorter list than `meshFiles`, means `None` for the classes it
+   * does not reach: a client whose game has no opinion about signal lights
+   * draws none and is missing nothing.
+   */
+  std::vector<LampRig> meshLampRigs;
+
   float cameraYawSnapDegrees = 45.0f;
 
   /// A multiplier on HUD sizes, honoured from day one because the settings

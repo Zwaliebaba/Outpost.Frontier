@@ -108,6 +108,7 @@
     <ClCompile Include="PuckTests.cpp" />
     <ClCompile Include="CommandTests.cpp" />
     <ClCompile Include="LaneTests.cpp" />
+    <ClCompile Include="LampTests.cpp" />
     <ClCompile Include="UiTests.cpp" />
     <ClCompile Include="SceneTests.cpp" />
     <ClCompile Include="NebulaTests.cpp" />

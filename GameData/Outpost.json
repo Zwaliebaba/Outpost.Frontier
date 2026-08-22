@@ -54,9 +54,9 @@
     // octaves, coverage, contrast and seed change the field itself and are
     // re-baked at boot. `coverage` is how much of the tile is pushed to black --
     // raise it for emptier space.
-    "nebula":   { "tintRed": 0.06, "tintGreen": 0.22, "tintBlue": 0.10, "intensity": 0.35,
+    "nebula":   { "tintRed": 0.04, "tintGreen": 0.20, "tintBlue": 0.08, "intensity": 0.32,
                   "tileMetres": 96000, "resolution": 256, "octaves": 4,
-                  "coverage": 0.55, "contrast": 2.0, "seed": 1 },
+                  "coverage": 0.62, "contrast": 2.0, "seed": 1 },
     "audio":    { "master": 1.0, "world": 1.0, "ui": 0.8, "music": 0.6, "alerts": 1.0, "ambience": 0.7 },
     "ui":       { "scale": 1.0, "palette": "default", "font": "Consolas" },
 

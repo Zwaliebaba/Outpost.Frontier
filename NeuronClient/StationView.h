@@ -192,10 +192,42 @@ struct StationAction
 
   /// What goes in `StationIntent::verb`. Opaque, echoed, never read here.
   std::uint16_t verb = 0;
+
+  /*
+   * Whether pressing this takes its ships out of the composer.
+   *
+   * The game answers it, and the engine acts on it without learning why --
+   * `LocationBlock::inScene`'s arrangement exactly. It exists because the two
+   * verbs on this screen differ on it and the client may not tell them apart:
+   * one sends ships away, so a composer still naming them would build a second
+   * command against a roster row that has gone; the other rewrites a number on
+   * ships that stay docked, and clearing after it would make reorganising a
+   * wing cost a fresh selection every time.
+   *
+   * `Reconcile` would eventually drop the departed ids anyway -- but the roster
+   * arrives at about 1 Hz, and "eventually" is a whole second in which a second
+   * press bounces.
+   */
+  bool consumesSelection = false;
 };
 
-/// How many actions a composer will ask for. One today; the room is for the
-/// verbs ADR-024 adds, which arrive as siblings rather than as a second panel.
+/// How many actions a composer will ask for. Two today -- the print's primary
+/// and its secondary -- and the room is for the verbs ADR-024 adds, which
+/// arrive as siblings rather than as a second panel.
 inline constexpr std::uint32_t MAX_STATION_ACTIONS = 4;
+
+/*
+ * How many values one station verb's parameter may take.
+ *
+ * `MAX_ORDER_OPTIONS` is eight because that is the command wheel's sector count
+ * -- an argument about *that* surface, and this is not it. A wing number is not
+ * a short authored list the way a formation is: wings are emergent, a player
+ * may use any of 1..255, and the composer's parameter is a chip in a
+ * full-screen panel rather than a sector on a wheel. So the bound is this
+ * screen's own, and it is the roster's row cap plus the values that are not
+ * existing wings -- past `MAX_ROSTER_ROWS` a wing has no row to appear on, so
+ * offering it would be offering a wing the player could not then see.
+ */
+inline constexpr std::uint32_t MAX_STATION_OPTIONS = 20;
 
 } // namespace Neuron

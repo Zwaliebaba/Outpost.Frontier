@@ -21,6 +21,12 @@
     <FxCompile Include="Shaders\OpaquePS.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
+    <FxCompile Include="Shaders\LampVS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\LampPS.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
     <FxCompile Include="Shaders\NebulaVS.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
@@ -51,6 +57,9 @@
       <Filter>Shaders</Filter>
     </None>
     <None Include="Shaders\PassConstants.hlsli">
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="Shaders\Lamp.hlsli">
       <Filter>Shaders</Filter>
     </None>
     <None Include="Shaders\Opaque.hlsli">

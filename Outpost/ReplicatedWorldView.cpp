@@ -14,6 +14,7 @@
 #include "Validate.h"
 
 #include "EntityRecord.h"
+#include "SignalLamp.h"
 
 #include <algorithm>
 #include <array>
@@ -226,6 +227,23 @@ void FillPreviewLabel(const Game::OrderSubmit& _order, OrderPreview& _outPreview
 ReplicatedWorldView::ReplicatedWorldView(Desc _desc)
   : m_desc(std::move(_desc))
 {
+  /*
+   * The one line that makes a minted wing name safe to hand out as a pointer.
+   *
+   * `RosterRow::name` and `OrderOption::name` are borrowed `const char*` that
+   * the seam says stay valid for the view's lifetime, and a short call sign
+   * lives *inside* its `std::string` -- so a `push_back` that reallocated would
+   * move every existing one and leave the words already on screen pointing at
+   * freed storage. It would not even need two frames to bite: the options are
+   * asked at the top of a frame and drawn at the bottom, and `BuildScene` mints
+   * in between.
+   *
+   * Reserving the ceiling removes the reallocation rather than racing it, and
+   * `EnsureWingName` refuses at capacity rather than trusting the arithmetic
+   * that says it cannot be reached -- so the invariant is enforced where it is
+   * relied on rather than argued for somewhere else.
+   */
+  m_mintedWingNames.reserve(Neuron::MAX_ROSTER_ROWS);
 }
 
 std::uint32_t ReplicatedWorldView::ApplySnapshot(std::span<const std::uint8_t> _payload)
@@ -256,6 +274,15 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
   std::uint32_t renderClassCount = 0;
   for (const Game::ReplicatedShip& ship : m_sampled)
   {
+    /*
+     * Before the exclusions, and it is the roster this is for rather than the
+     * scene: a wing whose number arrived without a name gets one, so ships the
+     * player grouped in an earlier session come back as a row instead of
+     * silently leaving the roster (see `EnsureWingName`). Above the mesh check
+     * because a hull this build cannot draw is still a hull in a wing.
+     */
+    (void)EnsureWingName(ship.wing);
+
     if (ship.classId >= m_desc.renderClassByHull.size())
     {
       continue; // A hull class this build has no mapping for.
@@ -292,6 +319,11 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
     const float speed = std::sqrt(ship.velocityMetresPerSec.x * ship.velocityMetresPerSec.x +
                                   ship.velocityMetresPerSec.y * ship.velocityMetresPerSec.y);
     instance.bank = Game::CosmeticBankRadians(hull, ship.headingRateRadiansPerSec, speed);
+    // Where this hull is in its own blink cycle (ADR-006 §6a). Hashed from the
+    // ship's id and nothing else, so it is the same every frame for as long as
+    // the ship lives -- a phase taken from the position would drift as the ship
+    // moved and the strobe would speed up and slow down with it.
+    instance.lampPhaseTurns = Neuron::LampPhaseTurns(ship.id);
     _outScene.instances.push_back(instance);
 
     // The same ship again, in the shape picking and the overlay want. `id`
@@ -917,13 +949,27 @@ std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const std::uint16_t> _s
    * table and then never emitted, which is the right way round: the roster is
    * a list of the wings the game declared, and a row whose label had to be
    * invented would be a row naming something the player was never told about.
+   *
+   * **Declared, not authored** -- and the distinction arrived with the hangar's
+   * wing assignment. A wing the player creates is one the game declared too:
+   * they picked the number and were shown the call sign at the moment they
+   * pressed it. So the loop walks every number a `WingId` can hold and asks
+   * `WingName`, which knows both tables, rather than walking the authored one.
+   * The invented-label objection stands unchanged -- `EnsureWingName` is the
+   * only thing that invents, and only where the alternative is ships with no
+   * row at all.
    */
   std::uint32_t rows = 0;
-  for (std::size_t wingId = 1; wingId < m_desc.wingNames.size(); ++wingId)
+  for (std::uint32_t wingId = 1; wingId <= std::numeric_limits<Game::WingId>::max(); ++wingId)
   {
     if (rows >= _outRows.size())
     {
       break;
+    }
+    const char* wingName = WingName(static_cast<Game::WingId>(wingId));
+    if (wingName == nullptr)
+    {
+      continue;
     }
     const Accumulator& wing = byWing[wingId];
 
@@ -937,7 +983,7 @@ std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const std::uint16_t> _s
      * most need to know. The gauges read zero, which is what an empty wing has.
      */
     RosterRow& row = _outRows[rows];
-    row.name = m_desc.wingNames[wingId].c_str();
+    row.name = wingName;
     row.groupId = static_cast<std::uint16_t>(wingId);
     row.shipCount = wing.ships;
     row.selectedCount = wing.selected;
@@ -1213,6 +1259,20 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
   std::sort(staged.begin(), staged.end(),
             [](const FleetPlace& _left, const FleetPlace& _right) { return _left.anchor < _right.anchor; });
 
+  /*
+   * The docked half of `BuildScene`'s sweep, and it needs its own because a
+   * docked ship is in no snapshot -- docking despawned it. Without this a
+   * player who reconnected to a hangar holding a wing they made last session
+   * would get a column with no header word and no roster row to match it.
+   */
+  for (const FleetPlace& block : staged)
+  {
+    for (const Game::RosterEntry& row : block.docked)
+    {
+      (void)EnsureWingName(row.wing);
+    }
+  }
+
   NoteRosterChanges(staged);
   m_places = std::move(staged);
 
@@ -1325,6 +1385,102 @@ const char* ReplicatedWorldView::AnchorNameFor(Game::AnchorId _anchor) const
   const auto found = std::find_if(m_desc.anchorNames.begin(), m_desc.anchorNames.end(),
                                   [&](const AnchorName& _entry) { return _entry.anchor == _anchor; });
   return found == m_desc.anchorNames.end() ? nullptr : found->name.c_str();
+}
+
+/*
+ * --- what a wing is called (ADR-017 §6) -----------------------------------
+ *
+ * A wing is a number a ship carries and nothing else -- there is no wing table,
+ * on this side or the authority's -- so "what is it called" is a question only
+ * content can answer, and these three functions are the whole of that answer.
+ */
+
+const char* ReplicatedWorldView::WingName(Game::WingId _wing) const noexcept
+{
+  if (_wing < m_desc.wingNames.size())
+  {
+    return m_desc.wingNames[_wing].c_str();
+  }
+  const auto found = std::find_if(m_mintedWingNames.begin(), m_mintedWingNames.end(),
+                                  [_wing](const std::pair<Game::WingId, std::string>& _entry) { return _entry.first == _wing; });
+  return found == m_mintedWingNames.end() ? nullptr : found->second.c_str();
+}
+
+bool ReplicatedWorldView::EnsureWingName(Game::WingId _wing)
+{
+  if (_wing == Game::INVALID_WING_ID)
+  {
+    // Wing zero belongs to nothing and is never a row, so a name for it would
+    // be a word nothing draws -- `BuildRoster` skips it before it looks one up.
+    return false;
+  }
+  if (WingName(_wing) != nullptr)
+  {
+    return true;
+  }
+
+  /*
+   * The cap, and it counts *names* rather than wings in play.
+   *
+   * `MAX_ROSTER_ROWS` is how many rows the HUD will ask for, and a wing with no
+   * row is a wing the player cannot see -- so a name past the cap buys nothing
+   * and costs the call sign it spent. Refusing here leaves the wing unnamed,
+   * which is the state the roster already knows how to skip.
+   */
+  const std::size_t named = m_desc.wingNames.size() - 1u + m_mintedWingNames.size();
+  if (named >= Neuron::MAX_ROSTER_ROWS || m_mintedWingNames.size() == m_mintedWingNames.capacity())
+  {
+    // The second clause is the pointer-stability guard, not a second row cap:
+    // growing this vector would move the names already handed out. See the
+    // constructor.
+    return false;
+  }
+
+  /*
+   * An authored call sign if the content held one back, and a dull one if not.
+   *
+   * The fallback is not a failure mode to be ashamed of: it is what a wing
+   * whose name did not survive the session looks like, and `WING 9` is a word
+   * the player can point at and re-name once ADR-012's settings layer gives
+   * them somewhere to put the new one. The alternative -- no name -- is the
+   * ships vanishing off the roster, which is the outcome this exists to stop.
+   */
+  std::string name;
+  if (!m_desc.spareWingNames.empty())
+  {
+    name = std::move(m_desc.spareWingNames.front());
+    m_desc.spareWingNames.erase(m_desc.spareWingNames.begin());
+  }
+  else
+  {
+    char generated[16] = {};
+    std::snprintf(generated, sizeof(generated), "WING %u", static_cast<unsigned>(_wing));
+    name = generated;
+  }
+
+  m_mintedWingNames.emplace_back(_wing, std::move(name));
+  return true;
+}
+
+Game::WingId ReplicatedWorldView::FreeWingId() const noexcept
+{
+  /*
+   * The lowest unnamed number, which is also the lowest number no *row* is
+   * about -- and those are the same question, because a wing exists on this
+   * screen iff it has a name. A player who disbanded wing 3 does not get 3 back
+   * until its name is released, and names are never released (see `Desc`), so
+   * in practice this counts upward for the life of the session.
+   */
+  for (std::uint32_t wing = 1; wing <= std::numeric_limits<Game::WingId>::max(); ++wing)
+  {
+    const auto candidate = static_cast<Game::WingId>(wing);
+    if (WingName(candidate) == nullptr)
+    {
+      const std::size_t named = m_desc.wingNames.size() - 1u + m_mintedWingNames.size();
+      return named >= Neuron::MAX_ROSTER_ROWS ? Game::INVALID_WING_ID : candidate;
+    }
+  }
+  return Game::INVALID_WING_ID;
 }
 
 /*
@@ -1568,7 +1724,7 @@ Neuron::StationRosterCounts ReplicatedWorldView::BuildStationRoster(std::uint16_
       Neuron::StationGroup& fresh = _outGroups[counts.groups];
       fresh = Neuron::StationGroup{};
       fresh.idTag = entry.wing;
-      fresh.name = entry.wing < m_desc.wingNames.size() ? m_desc.wingNames[entry.wing].c_str() : nullptr;
+      fresh.name = WingName(entry.wing);
       ++counts.groups;
     }
 
@@ -1673,7 +1829,51 @@ std::uint32_t ReplicatedWorldView::BuildStationActions(std::uint16_t _anchor,
   _outActions[0].name = "UNDOCK";
   _outActions[0].parameterName = "FORMATION";
   _outActions[0].verb = static_cast<std::uint16_t>(Game::StationVerb::Undock);
-  return 1;
+  // The ships leave the roster the moment this is accepted, so a composer that
+  // still named them would build its next command against rows that have gone.
+  _outActions[0].consumesSelection = true;
+  if (_outActions.size() < 2)
+  {
+    return 1;
+  }
+
+  /*
+   * And the reorganisation room's own verb (ADR-017 §6).
+   *
+   * It was the last thing on this screen that the authority could do and the
+   * player could not ask for: `AssignWing` has had a format, a validator, a
+   * server path and a test since T1, and no control anywhere that emitted one.
+   * The consequence was narrow and unmistakable in play -- dock two ships out
+   * of one wing and two out of another, and there was no way to make the four
+   * of them a wing, because the only thing that could rewrite a `WingId` was a
+   * command with no button.
+   *
+   * **Undocking them together was never the same answer.** ADR-017 §3 is right
+   * that the undock selection composes a *fleet* -- fleets are emergent from
+   * location, and four ships leaving on one command arrive as one. A wing is
+   * not: it is a number that rides on the ship, it is what the roster groups
+   * by, and it survives the fleet dispersing. So the four ships flew together
+   * and still read as two wings on the HUD, which is the player's report.
+   *
+   * Second rather than first because it is the secondary action: the print
+   * gives the primary a 68 px button and this a 30 px one, and the order here
+   * is the order the screen fills its two control pairs in.
+   */
+  _outActions[1] = Neuron::StationAction{};
+  _outActions[1].name = "ASSIGN TO WING";
+  _outActions[1].parameterName = "WING";
+  _outActions[1].verb = static_cast<std::uint16_t>(Game::StationVerb::AssignWing);
+  /*
+   * And it leaves the selection alone, which is the opposite of UNDOCK's answer
+   * and the reason that flag exists.
+   *
+   * These ships are still docked, still on the roster, still pickable -- the
+   * command rewrote a number on them. Clearing here would make the obvious next
+   * gesture, assign-then-undock, cost the whole selection twice; worse, it
+   * would make a mis-picked wing unrecoverable without re-tapping every chip.
+   */
+  _outActions[1].consumesSelection = false;
+  return 2;
 }
 
 /*
@@ -1684,14 +1884,69 @@ std::uint32_t ReplicatedWorldView::BuildStationActions(std::uint16_t _anchor,
  * way a fleet crossing a grid does, and two lists of formations that could
  * drift apart would be two.
  *
- * Every other verb answers zero. `AssignWing`'s parameter is a wing number
- * rather than a value out of a table, and the economy's four are ores, alloys
- * and quantities: none of them is a short fixed list, so none of them is a
- * cycling chip, and a screen for them is E5's rather than a longer table here.
+ * **`AssignWing`'s list is built rather than authored, and that is the whole
+ * difference between the two verbs here.** A formation is a short fixed table
+ * and always the same three words; a wing is emergent, so the values are
+ * whatever wings currently have names plus the next number that does not --
+ * which is exactly ADR-017 §6's "new wing is picking an unused number", offered
+ * as a value rather than as a second verb. It is still a cycling chip: the list
+ * is bounded by the roster's row cap, which is what makes it short.
+ *
+ * Wing zero is **not** offered, and its absence is a decision. Assigning to it
+ * is how a wing disbands, but `BuildRoster` draws no row for it -- strays
+ * belong to nothing -- so the button would be one that made ships disappear
+ * off the HUD, which is a worse affordance than not having it. The stray column
+ * the print reserves is what makes that offerable, and it is not built.
+ *
+ * The economy's four answer zero: they carry ores, alloys and quantities, none
+ * of them a short list, so a screen for them is E5's rather than a longer table
+ * here.
  */
 std::uint32_t ReplicatedWorldView::StationActionOptions(std::uint16_t _verb,
                                                         std::span<Neuron::OrderOption> _outOptions) const
 {
+  if (_verb == static_cast<std::uint16_t>(Game::StationVerb::AssignWing))
+  {
+    std::uint32_t wings = 0;
+    for (std::uint32_t wing = 1; wing <= std::numeric_limits<Game::WingId>::max(); ++wing)
+    {
+      if (wings >= _outOptions.size())
+      {
+        break;
+      }
+      if (const char* name = WingName(static_cast<Game::WingId>(wing)); name != nullptr)
+      {
+        _outOptions[wings].parameter = static_cast<std::uint16_t>(wing);
+        _outOptions[wings].name = name;
+        ++wings;
+      }
+    }
+
+    /*
+     * And the one at the end that is not a wing yet.
+     *
+     * Its number is real -- `FreeWingId` picks it, the intent carries it, and
+     * the authority writes it into the roster row like any other -- so this is
+     * a value in the same list rather than a special case the command has to
+     * know about. What is not real yet is the *name*, which nothing mints until
+     * the command is actually sent (`EncodeStationCommand`): a player who
+     * cycles past this option and settles on something else must not have
+     * spent a call sign doing it.
+     *
+     * Absent when the roster has no room for another row, which is the honest
+     * shape of that limit: the chip simply stops offering new wings, rather
+     * than offering one that would go somewhere the player cannot see.
+     */
+    const Game::WingId fresh = FreeWingId();
+    if (wings < _outOptions.size() && fresh != Game::INVALID_WING_ID)
+    {
+      _outOptions[wings].parameter = fresh;
+      _outOptions[wings].name = "NEW WING";
+      ++wings;
+    }
+    return wings;
+  }
+
   if (_verb != static_cast<std::uint16_t>(Game::StationVerb::Undock))
   {
     return 0;
@@ -1751,6 +2006,31 @@ bool ReplicatedWorldView::EncodeStationCommand(const Neuron::StationIntent& _int
   {
     return false;
   }
+
+  /*
+   * A wing the player just invented gets its call sign here, and here is the
+   * only place it could go.
+   *
+   * The number went on the wire and the word did not -- the server knows wings
+   * as numbers and nothing else (ADR-017 §6) -- so the name has to be recorded
+   * on this side, and the moment to record it is the moment the command is
+   * committed to. Not while the chip is being cycled, which would spend a call
+   * sign on every option the player looked at; and not when the roster comes
+   * back carrying the new number, which is a round trip later and would leave
+   * the wing nameless on the screen that just created it.
+   *
+   * Its answer is deliberately not checked. `EnsureWingName` refuses past the
+   * roster's row cap, and the right response to that is to send the command
+   * anyway: the player asked for a regrouping the authority will perform, and
+   * refusing it here would be this side vetoing a valid command over a display
+   * limit. The wing exists, carries ships, and draws no row -- which is what an
+   * unnamed wing has always done.
+   */
+  if (command.verb == Game::StationVerb::AssignWing)
+  {
+    (void)EnsureWingName(command.wing);
+  }
+
   return Game::WriteCommandKind(Game::CommandKind::Station, _writer) && Game::WriteStationCommand(command, _writer);
 }
 

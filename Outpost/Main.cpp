@@ -925,6 +925,31 @@ constexpr FleetWing STARTING_FLEET[] = {
 };
 
 constexpr std::size_t WING_COUNT = std::size(STARTING_FLEET);
+
+/*
+ * Call signs kept back for wings the player composes in a hangar (ADR-017 §6).
+ *
+ * Here rather than beside a name generator, because these are the same kind of
+ * thing as the eight above: content, in the composition root, in the table that
+ * would move wholesale the day a fleet file exists. A wing the player makes is
+ * as much a part of this game's vocabulary as TALON is -- it is only later.
+ *
+ * **Seven, and the number is derived rather than picked.** The roster draws at
+ * most `MAX_ROSTER_ROWS` rows and the starting fleet already spends eight of
+ * them, so this is what is left before a wing would be created with nowhere to
+ * appear. Running out is not an error -- `EnsureWingName` falls back to a dull
+ * generated word -- but running out *quietly* while rows were still free would
+ * be, which is why the count is checked below rather than trusted.
+ *
+ * In the same register as the eight: one word, no digits, nothing that reads as
+ * a serial number, because the player is going to be looking at these beside
+ * ANVIL and SPUR on the same panel.
+ */
+constexpr const char* SPARE_WING_NAMES[] = {"VERGE", "CINDER", "HALYARD", "TESSERA", "QUILL", "BRAMBLE", "SLATE"};
+
+static_assert(1u + WING_COUNT + std::size(SPARE_WING_NAMES) <= Neuron::MAX_ROSTER_ROWS,
+              "more call signs than the roster has rows to draw them on: the extra wings would be "
+              "created, carry ships, and never appear");
 constexpr std::uint32_t SHIPS_PER_WING = 5;
 
 /// The tangential room a wing takes up on the ring: its line from end to end,
@@ -1072,6 +1097,14 @@ void ReportParkedFleet(const std::vector<ParkedHull>& _parked)
     names.emplace_back(entry.name);
   }
   return names;
+}
+
+/// The unspent ones, in the order the hangar will hand them out. A second
+/// function rather than a second argument to the first, because the two lists
+/// are indexed differently: that one by `WingId`, this one by nothing at all.
+[[nodiscard]] std::vector<std::string> SpareWingNames()
+{
+  return std::vector<std::string>{std::begin(SPARE_WING_NAMES), std::end(SPARE_WING_NAMES)};
 }
 
 Game::AnchorId UniverseSimulation::HomeAnchorFor(Neuron::PlayerId _player) const
@@ -1329,16 +1362,33 @@ WorldMeta MakeWorldMeta(const Game::UniverseDef& _universe)
  * means reordering the list in `Outpost.json` reorders the meshes and nothing
  * breaks.
  */
+/*
+ * ... and which signal-light fixture it carries (ADR-006 §6a).
+ *
+ * In the same table because it is the same sentence -- "this file is the
+ * station" -- said once. A flyable hull gets navigation lights whatever its
+ * size; the two things that never move get the fixtures that suit what they
+ * are, which is the only place in this build where a mesh's *identity* reaches
+ * the renderer at all, and it reaches it as one enumerator per class rather
+ * than as a list of lamp positions the engine would then have to be trusted
+ * with (`SignalLamp.h` derives those from the mesh's own bounding box).
+ */
 constexpr struct
 {
   Game::HullClass hullClass;
   std::string_view meshFile;
+  Neuron::LampRig lampRig;
 } MESH_FOR_HULL[] = {
-  {Game::HullClass::Interceptor, "Interceptor.obj"}, {Game::HullClass::Bomber, "Bomber.obj"},
-  {Game::HullClass::Corvette, "Corvette.obj"},       {Game::HullClass::Frigate, "Frigate.obj"},
-  {Game::HullClass::Hauler, "Hauler.obj"},           {Game::HullClass::Miner, "Miner.obj"},
-  {Game::HullClass::Carrier, "Carrier.obj"},         {Game::HullClass::Battleship, "Battleship.obj"},
-  {Game::HullClass::Structure, "Structure.obj"},     {Game::HullClass::Gate, "Stargate.obj"},
+  {Game::HullClass::Interceptor, "Interceptor.obj", Neuron::LampRig::Ship},
+  {Game::HullClass::Bomber, "Bomber.obj", Neuron::LampRig::Ship},
+  {Game::HullClass::Corvette, "Corvette.obj", Neuron::LampRig::Ship},
+  {Game::HullClass::Frigate, "Frigate.obj", Neuron::LampRig::Ship},
+  {Game::HullClass::Hauler, "Hauler.obj", Neuron::LampRig::Ship},
+  {Game::HullClass::Miner, "Miner.obj", Neuron::LampRig::Ship},
+  {Game::HullClass::Carrier, "Carrier.obj", Neuron::LampRig::Ship},
+  {Game::HullClass::Battleship, "Battleship.obj", Neuron::LampRig::Ship},
+  {Game::HullClass::Structure, "Structure.obj", Neuron::LampRig::Station},
+  {Game::HullClass::Gate, "Stargate.obj", Neuron::LampRig::Gate},
 };
 
 void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
@@ -1379,6 +1429,7 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
   desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, Outpost::ReplicatedWorldView::INVALID_RENDER_CLASS);
   desc.contentHash = _contentHash;
   desc.wingNames = WingNames();
+  desc.spareWingNames = SpareWingNames();
   // Which grid this client watches, so a station has a number the client can
   // address it by (ADR-017 8). The same anchor the `Welcome` carries; taken
   // from the universe here because the composition root builds both.
@@ -1636,6 +1687,10 @@ ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
    * answer for content this table has no opinion about.
    */
   client.meshPlaneRadiiMetres.assign(_config.content.meshes.size(), 0.0f);
+  // And which fixture it carries (ADR-006 §6a). `None` for a file the table has
+  // no row for, on the same argument as the zero radius above: silence is the
+  // right answer for content this build has no opinion about.
+  client.meshLampRigs.assign(_config.content.meshes.size(), Neuron::LampRig::None);
   for (const auto& mapping : MESH_FOR_HULL)
   {
     for (std::size_t index = 0; index < _config.content.meshes.size(); ++index)
@@ -1644,6 +1699,7 @@ ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
       {
         client.meshPlaneRadiiMetres[index] =
           Game::SilhouetteRadiusMetres(mapping.hullClass) * static_cast<float>(_config.client.renderer.hullScale);
+        client.meshLampRigs[index] = mapping.lampRig;
         break;
       }
     }

@@ -132,8 +132,17 @@ bool GpuMeshTable::UploadMesh(GpuDevice& _device, ID3D12GraphicsCommandList* _co
   _outMesh.vertexCount = static_cast<std::uint32_t>(_source.vertices.size());
   _outMesh.indexCount = static_cast<std::uint32_t>(_source.indices.size());
   _outMesh.radiusMetres = _source.radiusMetres;
+  // Measured here rather than carried on `ObjMesh`, because it is a question
+  // the loader answers with a function and only this side has a reason to keep
+  // the answer: after the fit it is exactly the radius the caller asked for,
+  // and for a mesh with no opinion it is the authored one.
+  _outMesh.planeRadiusMetres = PlaneRadiusMetres(_source);
   _outMesh.boundsMin = _source.boundsMin;
   _outMesh.boundsMax = _source.boundsMax;
+  // The last moment the vertices exist on this side (ADR-006 §6a). Measuring
+  // afterwards would mean keeping every mesh's geometry resident for the sake
+  // of three floats.
+  _outMesh.lampBounds = LampBoundsFor(_source);
   return true;
 }
 

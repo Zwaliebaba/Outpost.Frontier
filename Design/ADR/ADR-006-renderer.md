@@ -27,10 +27,13 @@ loader refuses a material outside the five and this shading model reads albedo o
 ## Decision
 
 ### Frame structure
-1. **No frame graph.** A frame graph schedules resource churn across many passes; MVP had five (six since §1c).
-   Instead: a **fixed, named pass list** — `Clear → UiWorld → Opaque → Nebula → OverlayWorld →
-   Ui → Present` — each pass a struct with `Record(ctx)`, executed in order on one direct
-   queue. (`UiWorld` arrived after the MVP; §1c.) The
+1. **No frame graph.** A frame graph schedules resource churn across many passes; MVP had five (seven since §1c
+   and §6a).
+   Instead: a **fixed, named pass list** — `Clear → UiWorld → Opaque → Nebula → Lamps →
+   OverlayWorld → Ui → Present` — each pass a struct with `Record(ctx)`, executed in order on one
+   direct queue. (`UiWorld` arrived after the MVP, §1c; `Lamps` with §6a, and it landed as the
+   third insertion into the reserved list: one struct, one line in `RecordWorld`, and nothing
+   else in the file moved.) The
    names and order are the corpus target list with unbuilt nodes absent; `GpuCull`, `DepthPre`,
    `Effects`, `Tonemap` are **reserved slots** documented in code, so growth is insertion, not
    redesign. Revisit a real graph only when transient-resource management hurts.
@@ -184,7 +187,8 @@ loader refuses a material outside the five and this shading model reads albedo o
    S14 — appended, so every earlier field keeps the offset the input layout declares, the same
    discipline `UiInstance::axis` set). Per-submesh root constants pick
    one of the **5 canonical materials** (albedo, emissive strength — `accent`/`thruster` carry
-   emissive; `glass` is just dark). Lighting: one fixed directional + hemispherical ambient.
+   emissive; `glass` is just dark). Lighting: one fixed directional + hemispherical ambient —
+   superseded by the three-term rig in the second amendment below.
    Cosmetic banking/hover (ADR-001) computed in Extract from replicated quantities only — and
    S14 recorded what "only" turned out to mean: the sim's velocity is always along its heading
    (the no-strafing rule), so a slip angle is identically zero and the bank derives from the
@@ -242,6 +246,127 @@ loader refuses a material outside the five and this shading model reads albedo o
 > Gated by `RunHullScaleGate` in the self test, which is the only place that can see both a mesh
 > loader and a class table. The ratio itself is a `static_assert` against the two authored
 > silhouettes: moving it fails the build rather than a test.
+
+> **Amendment, 2026-08-22 — the rig is three terms, not two, because flat shading needs it to
+> be.**
+>
+> §6 said "one fixed directional + hemispherical ambient", and that is what shipped. Against
+> the adopted low-poly direction it produced hulls whose facets were nearly the same tone as
+> each other and whose shadow sides were the same colour as the background — which is the
+> failure mode flat shading has and smooth shading does not. A faceted hull is only
+> three-dimensional if adjacent faces are lit *differently*; there is no gradient across a face
+> to do the work.
+>
+> **Three terms, and each answers one of those.** All three are pass constants in
+> `ClientApp::BuildFrameConstants`, quoted as fractions of the key so they are read together:
+>
+> - **Key** — one hard directional, warm white (1.0, 0.96, 0.90) at full intensity, from ~55°
+>   of elevation. Cheated *above* the camera's 30° on purpose: under a top-down view the top
+>   facets are most of what a hull shows, and a key nearer the horizon leaves them dark and the
+>   scene reading as backlit. Fixed in world space, not attached to the camera — a hull's lit
+>   side being a property of the *hull's* facing is what makes orbiting worth doing.
+> - **Fill** — the hemispherical ambient §6 already had, retinted and raised to 28% of the key:
+>   sky (0.87, 0.96, 0.75) above, near-black ground (0.06, 0.11, 0.06) below, lerped by the
+>   normal's Y. Two constants and a lerp; it is what keeps an unkeyed face a shape.
+> - **Bounce** — new. A weak directional at the accent hue (0.61, 0.94, 0.12), 17% of the key,
+>   arriving from the camera's own side (`ScreenUpOnPlane` plus the camera's elevation). It is
+>   the one term that moves when the view orbits, and it exists so a hull's shadow side has an
+>   edge against a background that is nearly the same colour. Weak on purpose: louder and the
+>   hulls read as painted green rather than as dark hulls with green markings.
+>
+> **A visible sun disc was proposed with this and rejected.** The sun exists as the key's
+> direction and colour and as nothing else. Nor is it content: an earlier draft put a
+> per-system sun direction and colour in the universe definition, which was dropped — the
+> universe model carries no float by design (ADR-009), and light that nothing in `Tick` reads
+> has no business in the file the content hash is taken over. The only art direction that stays
+> content is the nebula block, which is the field the fleet sits inside rather than what lands
+> on a hull.
+>
+> **Emissive materials take no key.** `accent` at 0.6 × albedo and `thruster` at 1.3 × albedo
+> (down from 1.6 and 2.4, because the fill they sit against is now four times what it was), and
+> the key term is switched off for any material with a non-zero emissive strength. A stripe lit
+> *and* glowing would be brightest exactly where the hull already is, so the markings would
+> come and go as a ship turned; unlit, they hold their colour at every heading, which is what
+> makes them read as markings. Fill and bounce still land on them, so an engine bell keeps its
+> own facets.
+>
+> Emissive strength stays a renderer decision and never enters the `.mtl` (§5's
+> `MeshMaterialPalette` note). The committed palette is authored in **linear** floats — the RTV
+> is `_SRGB`, so a `Kd` reaches the target unconverted — and
+> `TheCorpusAuthorsTheCanonicalPaletteAndNotSomeOtherGreen` in `NeuronClientTests` pins the five
+> values so that "correcting" them to sRGB fails a test rather than a review.
+>
+> **What this does not fix, and is not the renderer's to fix.** The corpus assigns most of a
+> hull's faces to `plate` (412 of the Battleship's 664), whose design colour #5c6b55 is the
+> light one of the five. So a capital reads sage-green overall, with `hull` #27332b appearing as
+> the recesses and understructure rather than as the body. That is a material-assignment
+> decision in the art, not a lighting one: measured off a capture, a fully keyed `plate` facet
+> lands at #617354 against its #5c6b55 albedo, which is the material doing exactly what it says.
+> Making a fleet read darker means moving faces from `plate` to `hull` in the meshes.
+
+> **Amendment, 2026-08-22 — §6a, animated signal lamps.**
+>
+> Navigation lights on every hull, landing and hazard sequences on the station and
+> the gate. Presentation only: nothing is replicated, nothing reaches `Tick`, no wire or schema
+> field moved, and a lamp is invisible to picking and to selection-ring sizing because both read
+> `SceneEntity`, which knows nothing about them.
+>
+> **Four colours, four modes.** Red (255, 60, 60), green (120, 255, 80), white (235, 255, 220),
+> amber (255, 190, 70) — authored in sRGB in the design and converted **once**, in
+> `SignalLamp.h`, to the linear floats the `_SRGB` target wants. Steady, strobe (8% duty), pulse
+> (sinusoidal, floor 45%), chase (18% duty, floor 38%, phase = index/count so the flash travels).
+> Brightness is opacity 0.18–0.80 plus a ±28% size swell; the floor is not zero, because an
+> unlit lamp is still a fitting and one that vanishes reads as a hole in the hull.
+>
+> **A new pass, after Nebula and before OverlayWorld.** After the haze because a lamp is the
+> brightest thing in the frame and nothing atmospheric may composite in front of it (the
+> proposal's "fog-exempt"); before the overlay because the overlay is a readout. Additive
+> ONE/ONE, depth-tested and never depth-writing, so a hull occludes its own far-side lamps while
+> no lamp occludes another and none need sorting. The glow is **procedural** — a radial falloff
+> with a blown-out core, two `pow`s in `LampPS` — rather than the sprite atlas the proposal
+> sketched: a texture for it would be a bake to maintain, a descriptor to bind and a resolution
+> to be wrong at some zoom, and the atlas earns its place the day a lamp stops being radially
+> symmetric.
+>
+> **The cost argument, which is the reason for the shape.** The lamp table is *static* and
+> hull-local — 59 lamps across the ten classes, one root CBV at `b3` written once at boot. The
+> transform a lamp needs is the ship's, and the frame has already uploaded that: `LampPass` binds
+> `OpaquePass::InstanceStream()` a second time rather than composing anything of its own. So the
+> pass loops over **classes × lamps** and never over instances — one `DrawInstanced` per (class,
+> lamp) pair, 49 draws for the shipped corpus whether the fleet is forty hulls or four hundred,
+> and not one byte of new per-frame data. Measured at the shipped fleet, Release, vsync off: 0.45
+> ms/frame without the pass and 0.46 ms with it, which is run-to-run noise.
+>
+> `InstanceRecord` grew a fourth appended field for this, `lampPhaseTurns` (24 → 28 bytes), and
+> the growth is load-bearing rather than convenient: the table is per *class*, so without a
+> per-hull offset every ship of a class would strobe on the same frame and a parked wing would
+> flash as one object. It is hashed from the entity id — stable for a ship's whole life however
+> the scene is sorted, and unlike a hash of position it does not drift as the ship moves.
+> `FrameConstants` likewise gained `g_frameTime`, an **unsynced** wall clock: two clients showing
+> the same fleet blinking differently is correct, and a replicated one would be a per-frame float
+> on the wire for no gameplay at all.
+>
+> **Placement is derived, never authored — and the proposal's rule for it was wrong.** Every
+> anchor is a fraction of something the loader measured: the hull's bounding box, or its
+> silhouette radius on the plane (`GpuMesh::planeRadiusMetres`, carried separately from the
+> sphere radius because the stargate's sphere is its spire and half again its footprint). The
+> proposal put the navigation lamps "just above bbox top". On this corpus that is wrong by a wide
+> margin — a `Battleship`'s box has its ceiling 100 m up because a thin antenna reaches there,
+> while the deck out at the beam where the lamp goes is 37 m — so the wing lamps hung four
+> lamp-widths clear of the hull in open space. Visibly wrong from every angle, and *invisible* to
+> a "never inside geometry" check, which it passes with room to spare. So the nav lamps anchor to
+> the deck measured **locally at that beam** (`LocalTopMetres`, sampled at load and carried on
+> `GpuMesh::lampBounds` because that is the last moment the vertices exist on this side). Still
+> derived, so a re-export still moves the lamps with the art; it is the same rule the proposal's
+> own acceptance states ("above the deck line") rather than the one its implementation note did.
+>
+> **The acceptance that matters is a test, not a screenshot.** A lamp whose centre is inside a
+> hull is either half-buried, which reads as an explosion, or gone entirely, because the depth
+> test discards it against the hull it is bolted to — and neither is visible from the one angle
+> somebody happened to capture. `NoLampOnAnyShippedHullSitsInsideItsGeometry` ray-casts every
+> lamp of every shipped class against that mesh's own triangles, at the *drawn* scale, and votes
+> parity over six directions. That is a claim about three-dimensional space, so it holds at every
+> camera angle at once, which is strictly more than orbiting and looking would establish.
 
 ### Overlay & UI
 8. **OverlayWorld pass** adopts the corpus two-mechanism split now:

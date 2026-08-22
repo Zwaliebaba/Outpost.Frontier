@@ -172,4 +172,21 @@ struct ObjDiagnostic
  */
 [[nodiscard]] bool FitObjMeshToPlaneRadius(ObjMesh& _mesh, float _targetPlaneRadiusMetres) noexcept;
 
+/*
+ * How tall the hull actually is *at one place on it* -- the highest vertex
+ * inside a box of `_halfExtentX` by `_halfExtentZ` around (`_x`, `_z`).
+ *
+ * `boundsMax.y` answers a different question, and the difference is not
+ * academic. A `Battleship`'s bounding box has its ceiling 100 m up because a
+ * thin antenna reaches there; the deck out at the beam, where a navigation
+ * lamp belongs, is 37 m. Anything anchoring a fitting to the hull's *surface*
+ * needs the second number, and the first one is four lamp-widths of empty
+ * space away from it (ADR-006 §6a).
+ *
+ * `_fallback` for a box with nothing in it -- a caller that probes off the end
+ * of the hull gets an answer rather than a sentinel to test for.
+ */
+[[nodiscard]] float LocalTopMetres(const ObjMesh& _mesh, float _x, float _z, float _halfExtentX, float _halfExtentZ,
+                                   float _fallback) noexcept;
+
 } // namespace Neuron

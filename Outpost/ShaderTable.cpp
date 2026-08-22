@@ -9,6 +9,8 @@
 // This is the only translation unit that includes them, which is deliberate:
 // the arrays have internal linkage, so a second includer would be a second copy
 // of every shader in the binary.
+#include "LampPS.h"
+#include "LampVS.h"
 #include "NebulaPS.h"
 #include "NebulaVS.h"
 #include "OpaquePS.h"
@@ -50,6 +52,8 @@ Neuron::PipelineShaders ShaderTable() noexcept
   shaders.overlayPixel = Bytes(g_pOverlayPS);
   shaders.uiVertex = Bytes(g_pUiVS);
   shaders.uiPixel = Bytes(g_pUiPS);
+  shaders.lampVertex = Bytes(g_pLampVS);
+  shaders.lampPixel = Bytes(g_pLampPS);
   return shaders;
 }
 

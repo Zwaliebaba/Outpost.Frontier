@@ -44,19 +44,26 @@ constexpr float PLAY_AREA_HALF_EXTENT_METRES = 20000.0f;
 TEST_CLASS(RenderSceneTests)
 {
 public:
-  TEST_METHOD(InstanceRecordIsTheTwentyFourByteVertexStream)
+  TEST_METHOD(InstanceRecordIsTheTwentyEightByteVertexStream)
   {
     // It is the per-instance vertex stream, so its size is the stride the input
     // layout declares and the shader reads. A field added here is a change in
-    // three places, and this is the one that notices. S14 appended the cosmetic
-    // bank -- appended, so every earlier field keeps its declared offset.
-    Assert::AreEqual<std::size_t>(24, sizeof(InstanceRecord));
+    // three places, and this is the one that notices.
+    //
+    // Two fields have been added in the life of this struct and both were
+    // *appended*: S14's cosmetic bank at 20, and the signal lamps' per-hull
+    // phase at 24 (ADR-006 §6a). That discipline is what these offsets are
+    // really asserting -- every earlier field keeps the offset two input
+    // layouts already declare for it, so a growth costs one element in one of
+    // them and nothing at all in the other.
+    Assert::AreEqual<std::size_t>(28, sizeof(InstanceRecord));
     Assert::AreEqual<std::size_t>(0, offsetof(InstanceRecord, posWorld));
     Assert::AreEqual<std::size_t>(12, offsetof(InstanceRecord, heading));
     Assert::AreEqual<std::size_t>(16, offsetof(InstanceRecord, teamColorId));
     Assert::AreEqual<std::size_t>(17, offsetof(InstanceRecord, selectionAndLodBias));
     Assert::AreEqual<std::size_t>(18, offsetof(InstanceRecord, classId));
     Assert::AreEqual<std::size_t>(20, offsetof(InstanceRecord, bank));
+    Assert::AreEqual<std::size_t>(24, offsetof(InstanceRecord, lampPhaseTurns));
   }
 
   TEST_METHOD(SortingByClassPartitionsTheInstanceArray)

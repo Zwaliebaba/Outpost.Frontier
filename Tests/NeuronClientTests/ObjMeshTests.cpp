@@ -461,6 +461,72 @@ public:
     Assert::IsTrue(compared > 5000, L"the comparison must actually have run over the corpus");
   }
 
+  TEST_METHOD(TheCorpusAuthorsTheCanonicalPaletteAndNotSomeOtherGreen)
+  {
+    /*
+     * The palette the art direction names, to the digit the `.mtl` files carry.
+     *
+     * `OnlyFrigateLacksGlassAndTheRestSharePalettes` proves the ten files agree
+     * with *each other*, which is a different and weaker claim: a re-export
+     * that recoloured every hull to grey would pass it unanimously. This one
+     * pins what the colours actually are.
+     *
+     * The numbers are **linear**, which is the part worth stating rather than
+     * discovering. The render target is `_SRGB`, so a Kd reaches the screen
+     * unconverted and the files author the linear floats directly -- 0.0203
+     * 0.0331 0.0242 is the #27332b of the design table, not a second opinion
+     * about it. Anyone "correcting" these to sRGB fails here, which is the
+     * point of writing them down twice.
+     */
+    struct Expected
+    {
+      MeshMaterial material;
+      float red;
+      float green;
+      float blue;
+      const wchar_t* designHex;
+    };
+
+    const Expected palette[] = {
+        {MeshMaterial::Hull, 0.0203f, 0.0331f, 0.0242f, L"hull #27332b"},
+        {MeshMaterial::Plate, 0.1070f, 0.1470f, 0.0908f, L"plate #5c6b55"},
+        {MeshMaterial::Glass, 0.0044f, 0.0116f, 0.0080f, L"glass #0e1c16"},
+        {MeshMaterial::Accent, 0.3278f, 0.8632f, 0.0130f, L"accent #9bef1e"},
+        {MeshMaterial::Thruster, 0.5029f, 0.9301f, 0.1301f, L"thruster #bcf765"},
+    };
+
+    const std::string directory = FindMeshDirectory();
+    const char* files[] = {"Interceptor.obj", "Bomber.obj",  "Corvette.obj",   "Frigate.obj",   "Hauler.obj",
+                           "Miner.obj",       "Carrier.obj", "Battleship.obj", "Structure.obj", "Stargate.obj"};
+
+    std::uint32_t checked = 0;
+    for (const char* file : files)
+    {
+      ObjMesh mesh;
+      ObjDiagnostic error;
+      Assert::IsTrue(LoadObjMesh(directory, file, mesh, error));
+
+      for (const Expected& expected : palette)
+      {
+        const auto index = static_cast<std::uint32_t>(expected.material);
+        if (!mesh.palette.defined[index])
+        {
+          continue; // Frigate authors no glass, and a mesh need not use all five.
+        }
+        Assert::AreEqual(expected.red, mesh.palette.albedo[index].x, 1e-6f, expected.designHex);
+        Assert::AreEqual(expected.green, mesh.palette.albedo[index].y, 1e-6f, expected.designHex);
+        Assert::AreEqual(expected.blue, mesh.palette.albedo[index].z, 1e-6f, expected.designHex);
+        ++checked;
+      }
+    }
+
+    // Ten files times five materials, less the one glass the Frigate does not
+    // author. A floor rather than the exact count, so a mesh added to the
+    // corpus does not fail here instead of failing the count test -- but high
+    // enough that a loop that silently found nothing cannot pass.
+    Assert::IsTrue(checked >= 49, L"every material every mesh authors must have been compared");
+  }
+
   TEST_METHOD(OnlyFrigateLacksGlassAndTheRestSharePalettes)
   {
     // The corpus authors one palette across ten files; a mesh that drifts is a

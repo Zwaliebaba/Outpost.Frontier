@@ -52,8 +52,15 @@ struct FrameConstants
   DirectX::XMFLOAT4 sunColour;
   DirectX::XMFLOAT4 ambientSky;
   DirectX::XMFLOAT4 ambientGround;
+  DirectX::XMFLOAT4 bounceDirection;
+  DirectX::XMFLOAT4 bounceColour;
   DirectX::XMFLOAT4 materialAlbedo[MESH_MATERIAL_COUNT];
   DirectX::XMFLOAT4 teamEmissive[TEAM_COLOUR_COUNT];
+
+  /// x = seconds since the client started, for the signal lamps' animation
+  /// (ADR-006 §6a); yzw reserved. Appended after the arrays, so nothing above
+  /// it moved.
+  DirectX::XMFLOAT4 frameTime;
 };
 
 /*
@@ -101,6 +108,12 @@ struct PipelineShaders
   std::span<const std::uint8_t> overlayPixel;
   std::span<const std::uint8_t> uiVertex;
   std::span<const std::uint8_t> uiPixel;
+
+  /// The signal lamps (ADR-006 §6a). Empty is a client with no lamp pipeline,
+  /// which draws no lamps and boots -- unlike the four stages `AllPresent`
+  /// gates on, a missing glow is a look rather than a broken frame.
+  std::span<const std::uint8_t> lampVertex;
+  std::span<const std::uint8_t> lampPixel;
 };
 
 /// Root parameter slots. Named because a bare index at a Set call site is the
@@ -110,7 +123,15 @@ enum class RootSlot : std::uint32_t
   FrameConstants = 0,
   PassConstants = 1,
   DrawConstants = 2,
-  Textures = 3
+  Textures = 3,
+
+  /// The signal lamp table at b3 (ADR-006 §6a) -- a root CBV over a buffer
+  /// written once at boot, bound only by the lamp pass. A slot of its own
+  /// rather than a growth of `FrameConstants`, because it is the one constant
+  /// block in the frame that is *not* per frame, and putting five kilobytes of
+  /// static data through the upload ring sixty times a second to avoid one root
+  /// parameter is the wrong trade.
+  LampConstants = 4
 };
 
 class GpuPipelines
@@ -162,12 +183,18 @@ public:
   /// the ships rather than across them.
   [[nodiscard]] ID3D12PipelineState* UiWorld() const noexcept { return m_uiWorld.get(); }
 
+  /// The signal lamps (ADR-006 §6a): additive glow billboards, depth-tested
+  /// against hulls and never depth-writing. Null when the composition root
+  /// supplied no lamp shaders, which the pass reads as "draw nothing".
+  [[nodiscard]] ID3D12PipelineState* Lamps() const noexcept { return m_lamps.get(); }
+
 private:
   [[nodiscard]] bool CreateRootSignature(ID3D12Device* _device);
   [[nodiscard]] bool CreateOpaquePipeline(ID3D12Device* _device, const PipelineShaders& _shaders);
   [[nodiscard]] bool CreateNebulaPipeline(ID3D12Device* _device, const PipelineShaders& _shaders);
   [[nodiscard]] bool CreateOverlayPipelines(ID3D12Device* _device, const PipelineShaders& _shaders);
   [[nodiscard]] bool CreateUiPipeline(ID3D12Device* _device, const PipelineShaders& _shaders);
+  [[nodiscard]] bool CreateLampPipeline(ID3D12Device* _device, const PipelineShaders& _shaders);
 
   /// The world passes' sample count, stored between Create's helpers. 1 or the
   /// MSAA count; never read after Create returns.
@@ -180,6 +207,7 @@ private:
   GpuPtr<ID3D12PipelineState> m_overlayBars;
   GpuPtr<ID3D12PipelineState> m_ui;
   GpuPtr<ID3D12PipelineState> m_uiWorld;
+  GpuPtr<ID3D12PipelineState> m_lamps;
 };
 
 } // namespace Neuron

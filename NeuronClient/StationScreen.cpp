@@ -77,9 +77,9 @@ StationScreenLayout ResolveStationScreen(std::uint32_t _viewportWidth, std::uint
   pen += _tuning.undockHeight * scale + rowGap;
   const float diagramTop = pen;
 
-  // Up from the bottom: NEW WING, then the wing dropdown above it.
+  // Up from the bottom: the assign button, then the wing chip above it.
   float floorPen = layout.composer.Bottom() - padY;
-  layout.newWing = UiRect{innerX, floorPen - rowHeight, innerWidth, rowHeight};
+  layout.assign = UiRect{innerX, floorPen - rowHeight, innerWidth, rowHeight};
   floorPen -= rowHeight + rowGap;
   layout.assignWing = UiRect{innerX, floorPen - rowHeight, innerWidth, rowHeight};
   floorPen -= rowHeight + _tuning.headingHeight * scale + rowGap;

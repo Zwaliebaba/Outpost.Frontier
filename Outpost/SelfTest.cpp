@@ -47,6 +47,7 @@
 #include <filesystem>
 #include <span>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -1167,6 +1168,79 @@ void RunDockingLoop(Checklist& _checks, Neuron::ClientConnection& _client)
   _checks.Record("and holds every ship that docked", holds(docked, docking[0]) && holds(docked, docking[1]) && holds(docked, docking[2]));
 
   /*
+   * --- and the reorganisation the hangar is for (ADR-017 §6) ---------------
+   *
+   * Two of the three go into a wing nobody is using, and then those two undock.
+   * It is here rather than in a gate of its own because it is the same session:
+   * the question is not "does `AssignWing` apply" -- `RegistryTests` pins that
+   * without a socket -- but **does the wing survive the round trip and the
+   * respawn**, which needs a real client, a real server and a real undock.
+   *
+   * That is the seam the player's report landed in. The command encodes, the
+   * validator takes it and the registry rewrites the roster row; if the number
+   * is dropped anywhere between the wire and the snapshot, the ships come back
+   * from the hangar still wearing the wing they went in with, and every check
+   * either side of this one still passes.
+   */
+  constexpr Game::WingId FRESH_WING = 9;
+
+  Game::StationCommand assign;
+  assign.orderSeq = 5003;
+  assign.verb = Game::StationVerb::AssignWing;
+  assign.station = station;
+  assign.wing = FRESH_WING;
+  (void)assign.AddShip(docking[0]);
+  (void)assign.AddShip(docking[1]);
+
+  std::array<std::uint8_t, Game::MAX_STATION_COMMAND_BYTES + Game::COMMAND_KIND_BYTES> assignBuffer{};
+  Neuron::ByteWriter assignWriter{assignBuffer};
+  const bool assignSent = Game::WriteCommandKind(Game::CommandKind::Station, assignWriter) &&
+                          Game::WriteStationCommand(assign, assignWriter) && _client.SendOrder(assignWriter.Written());
+  _checks.Record("a wing assignment goes up the same stream an undock does", assignSent);
+
+  bool assignAccepted = false;
+  if (assignSent)
+  {
+    (void)PumpUntil(_client,
+                    [&]
+                    {
+                      for (const Neuron::OrderVerdict& verdict : _client.PendingVerdicts())
+                      {
+                        assignAccepted = assignAccepted || (verdict.orderSeq == assign.orderSeq && verdict.accepted);
+                      }
+                      _client.ClearPendingVerdicts();
+                      return assignAccepted;
+                    });
+  }
+  _checks.Record("the authority accepts it and acks it", assignAccepted);
+
+  // The roster is the authority's own statement about the hangar, so this is
+  // where the rewrite becomes visible before anything undocks.
+  const auto wingOf = [](const std::vector<Game::RosterEntry>& _rows, Game::ShipId _id) -> Game::WingId
+  {
+    for (const Game::RosterEntry& row : _rows)
+    {
+      if (row.shipId == _id)
+      {
+        return row.wing;
+      }
+    }
+    return Game::INVALID_WING_ID;
+  };
+
+  const bool rosterRewritten =
+    PumpUntil(_client,
+              [&]
+              {
+                return readRoster([&](const std::vector<Game::RosterEntry>& _rows)
+                                  { return wingOf(_rows, docking[0]) == FRESH_WING; });
+              });
+  _checks.Record("the docked roster shows the two ships in their new wing",
+                 rosterRewritten && wingOf(docked, docking[1]) == FRESH_WING);
+  _checks.Record("and leaves the ship that was not named in the wing it was in",
+                 wingOf(docked, docking[2]) != FRESH_WING);
+
+  /*
    * Undock a subset -- two of the three -- as a station command on the same
    * acked stream the orders use (ADR-017 §8). This is the message that had no
    * wire path at all before this slice.
@@ -1226,6 +1300,29 @@ void RunDockingLoop(Checklist& _checks, Neuron::ClientConnection& _client)
                                    });
   _checks.Record("the undocked ships are back on the grid, with their own ids", respawned);
   _checks.Record("and arrive protected (statusBits bit 0)", protectedSeen);
+
+  /*
+   * **And they came back in the wing the hangar put them in.**
+   *
+   * The check the player's report is about, and the last link in the chain: a
+   * wing that is rewritten on the roster and then lost at the respawn looks
+   * exactly like a wing assignment that never happened -- the ships undock as a
+   * fleet, fly as a fleet, and read on the roster as the two wings they were
+   * composed from.
+   *
+   * Read off `ReplicatedShip::wing`, which is what `BuildRoster` groups by, so
+   * this asserts the number the HUD will actually draw rather than one the
+   * server merely holds.
+   */
+  bool bothInTheNewWing = respawned;
+  for (const Game::ReplicatedShip& ship : ships)
+  {
+    if (ship.id == docking[0] || ship.id == docking[1])
+    {
+      bothInTheNewWing = bothInTheNewWing && ship.wing == FRESH_WING;
+    }
+  }
+  _checks.Record("and they undock into the wing the hangar put them in", bothInTheNewWing);
 
   /*
    * The bit is *per ship*, not a mood the grid is in.
@@ -1609,6 +1706,161 @@ void RunLocationBlockGate(Checklist& _checks)
     everyStateNamed = everyStateNamed && blocks[index].stateLabel != nullptr;
   }
   _checks.Record("and every block was given its state in the game's own words", everyStateNamed);
+}
+
+/*
+ * The hangar can make a wing out of what is docked in it (ADR-017 §6).
+ *
+ * **This gate exists because the verb was finished and unreachable.**
+ * `AssignWing` has had a wire format, a shared validator, a server path and a
+ * registry test since T1; what it never had was a control. The hangar screen
+ * offered exactly one action, `BuildStationActions` returned exactly one, and
+ * `MAX_STATION_ACTIONS` had been four the whole time -- so the only thing that
+ * could rewrite a `WingId` was a command nothing could compose.
+ *
+ * Nothing caught it, and nothing was going to. Every layer was individually
+ * correct: the validator's tests pass, the registry's apply is covered, and the
+ * screen's layout tests assert the two rects are in the right place. The defect
+ * lived in the *absence* of a line joining them, which is the class of fault
+ * this file exists for -- the same shape as T2's inert Dock pre-check, one
+ * section down.
+ *
+ * It reads as a play report rather than as a stack trace: dock two ships out of
+ * one wing and two out of another, and there is no way to make the four of them
+ * a wing. So the gate is written the way that session went -- a hangar holding
+ * two wings, four ships picked across both, one command -- and asserts the
+ * whole path a press takes: the action is offered, its values include a number
+ * nobody is using, the authority accepts it, sending it spends a call sign, and
+ * the wing that results has a roster row to appear on. That last one is not a
+ * flourish: a wing with no name draws no row (`BuildRoster`), so a command that
+ * worked and left the ships invisible would have looked exactly like the bug it
+ * replaced.
+ */
+void RunWingAssignmentGate(Checklist& _checks)
+{
+  constexpr Game::AnchorId STATION = 41;
+  constexpr Game::ShipId TALON_A = 1;
+  constexpr Game::ShipId TALON_B = 2;
+  constexpr Game::ShipId ANVIL_A = 3;
+  constexpr Game::ShipId ANVIL_B = 4;
+
+  const Game::RosterEntry docked[] = {
+    Game::RosterEntry{TALON_A, Game::HullClass::Interceptor, 1},
+    Game::RosterEntry{TALON_B, Game::HullClass::Interceptor, 1},
+    Game::RosterEntry{ANVIL_A, Game::HullClass::Bomber, 2},
+    Game::RosterEntry{ANVIL_B, Game::HullClass::Bomber, 2},
+  };
+
+  /*
+   * The frame the server would send about that hangar: the fleet row that makes
+   * the place exist, and the roster that says who is in it. Both, because the
+   * decoder hands a roster to the *docked* block, and a client given only the
+   * second record has a roster belonging to no place.
+   */
+  const auto feed = [&](Outpost::ReplicatedWorldView& _view)
+  {
+    const Game::FleetSummary rows[] = {
+      Game::FleetSummary{STATION, Game::FleetState::Docked, 4, Game::FLEET_ETA_NONE},
+    };
+    std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> bytes{};
+    Neuron::ByteWriter writer{bytes};
+    const bool wrote = Game::BeginSummaryFrame(2, writer) && Game::BeginSummaryRecord(Game::SummaryKind::FleetSummaries, writer) &&
+                       Game::WriteFleetSummaries(rows, writer) && Game::BeginSummaryRecord(Game::SummaryKind::StationRoster, writer) &&
+                       Game::WriteStationRoster(STATION, docked, writer);
+    return wrote && _view.ApplySummary(writer.Written());
+  };
+
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  desc.wingNames = {"-", "TALON", "ANVIL"};
+  desc.spareWingNames = {"VERGE"};
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  _checks.Record("the wing gate can state a hangar holding two wings", feed(view));
+
+  std::array<Neuron::StationAction, Neuron::MAX_STATION_ACTIONS> actions{};
+  const std::uint32_t actionCount = view.BuildStationActions(static_cast<std::uint16_t>(STATION), actions);
+  _checks.Record("the hangar offers a second action beside UNDOCK", actionCount == 2);
+  if (actionCount != 2)
+  {
+    return; // Everything below is about that action; without it there is nothing to say.
+  }
+
+  /*
+   * The flag the screen reads instead of the verb. UNDOCK sends its ships away
+   * and the composer must drop them; this one leaves them docked, and a screen
+   * that cleared after it would charge the player a fresh selection for the
+   * assign-then-undock they were obviously in the middle of.
+   */
+  _checks.Record("and only the one that sends ships away consumes the selection",
+                 actions[0].consumesSelection && !actions[1].consumesSelection);
+
+  const Neuron::StationAction& assign = actions[1];
+  std::array<Neuron::OrderOption, Neuron::MAX_STATION_OPTIONS> options{};
+  const std::uint32_t optionCount = view.StationActionOptions(assign.verb, options);
+  _checks.Record("its values are the wings that have names, plus one number nobody is using",
+                 optionCount == 3 && options[0].parameter == 1 && options[1].parameter == 2 && options[2].parameter == 3);
+
+  const std::uint32_t everyone[] = {TALON_A, TALON_B, ANVIL_A, ANVIL_B};
+  Neuron::StationIntent intent;
+  intent.verb = assign.verb;
+  intent.parameter = optionCount == 3 ? options[2].parameter : 0;
+  intent.anchor = static_cast<std::uint16_t>(STATION);
+  intent.orderSeq = 1;
+  intent.shipIds = everyone;
+  intent.shipCount = 4;
+
+  // The player's report, as an assertion: four ships out of two wings, one wing.
+  _checks.Record("four ships picked across both wings may become one new wing", view.PreCheckStation(intent).accepted);
+
+  const std::uint32_t stranger[] = {TALON_A, 99};
+  Neuron::StationIntent elsewhere = intent;
+  elsewhere.shipIds = stranger;
+  elsewhere.shipCount = 2;
+  const Neuron::OrderVerdict refused = view.PreCheckStation(elsewhere);
+  _checks.Record("while a ship this hangar does not hold is refused in the authority's own words",
+                 !refused.accepted && refused.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::NotDocked));
+
+  /*
+   * Sending it is what mints the name -- not cycling the chip, which would
+   * spend a call sign on every value the player looked at.
+   */
+  std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> commandBytes{};
+  Neuron::ByteWriter commandWriter{commandBytes};
+  const bool sent = view.EncodeStationCommand(intent, commandWriter) && commandWriter.Ok();
+
+  const std::uint32_t afterCount = view.StationActionOptions(assign.verb, options);
+  _checks.Record("sending it spends a call sign on the new wing and offers the next number",
+                 sent && afterCount == 4 && options[2].name != nullptr && std::string_view{options[2].name} == "VERGE" &&
+                   options[3].parameter == 4);
+
+  std::array<Neuron::RosterRow, Neuron::MAX_ROSTER_ROWS> roster{};
+  const std::uint32_t rowCount = view.BuildRoster(std::span<const std::uint16_t>{}, roster);
+  _checks.Record("and the wing the player just made has a roster row to appear on",
+                 rowCount == 3 && roster[2].groupId == 3 && roster[2].name != nullptr && std::string_view{roster[2].name} == "VERGE");
+
+  /*
+   * And the limit, which is the honest end of an emergent thing.
+   *
+   * A wing past the roster's row cap would be created, carry ships, and never be
+   * drawn -- so the chip stops offering new numbers rather than offering one
+   * that goes somewhere the player cannot see. The existing wings stay on the
+   * list: assigning *between* them costs no row.
+   */
+  Outpost::ReplicatedWorldView::Desc fullDesc;
+  fullDesc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  fullDesc.wingNames.emplace_back("-");
+  for (std::uint32_t index = 0; index < Neuron::MAX_ROSTER_ROWS; ++index)
+  {
+    fullDesc.wingNames.emplace_back("FULL");
+  }
+  Outpost::ReplicatedWorldView fullView{std::move(fullDesc)};
+
+  std::array<Neuron::StationAction, Neuron::MAX_STATION_ACTIONS> fullActions{};
+  const bool fullFed = feed(fullView) && fullView.BuildStationActions(static_cast<std::uint16_t>(STATION), fullActions) == 2;
+  const std::uint32_t fullOptions = fullFed ? fullView.StationActionOptions(fullActions[1].verb, options) : 0;
+  _checks.Record("a roster with no room for another row offers no new wing, only the ones it has",
+                 fullFed && fullOptions == Neuron::MAX_ROSTER_ROWS);
 }
 
 /*
@@ -2474,6 +2726,7 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   RunClientDockPreCheckGate(checks, _simulation);
   RunMineAvailabilityGate(checks, _economy);
   RunLocationBlockGate(checks);
+  RunWingAssignmentGate(checks);
 
   // U3c's accept, after the single-commander loop has proved the machinery it
   // builds on: two clients at once, on grids of their own.
