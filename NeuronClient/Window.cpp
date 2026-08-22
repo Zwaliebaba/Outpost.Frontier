@@ -3,6 +3,7 @@
 #include "Window.h"
 
 #include "Log.h"
+#include "TextEditState.h"
 
 namespace Neuron
 {
@@ -215,8 +216,62 @@ InputFrame Window::ConsumeInput() noexcept
   {
     pressed = false;
   }
+  m_input.characterCount = 0;
 
   return frame;
+}
+
+void Window::AppendCharacter(WPARAM _codeUnit) noexcept
+{
+  const auto unit = static_cast<std::uint32_t>(_codeUnit) & 0xFFFFu;
+
+  /*
+   * UTF-16 arrives one code unit per message, so an astral character is two of
+   * them and has to be assembled before it is a codepoint. Pairing it here is
+   * the only place the pairing is unambiguous -- downstream, two adjacent
+   * halves are indistinguishable from one half followed by a new character.
+   */
+  if (unit >= 0xD800u && unit <= 0xDBFFu)
+  {
+    m_pendingHighSurrogate = unit; // A lead half; the character is not here yet.
+    return;
+  }
+
+  char32_t codepoint = 0;
+  if (unit >= 0xDC00u && unit <= 0xDFFFu)
+  {
+    if (m_pendingHighSurrogate == 0)
+    {
+      // A trail half with no lead. Nothing can be made of it, and passing it on
+      // would put an unpaintable value in a name.
+      return;
+    }
+    codepoint = static_cast<char32_t>(0x10000u + ((m_pendingHighSurrogate - 0xD800u) << 10) + (unit - 0xDC00u));
+    m_pendingHighSurrogate = 0;
+  }
+  else
+  {
+    // A lead half followed by anything other than a trail half was never a
+    // character; dropping it is what stops it joining the next one.
+    m_pendingHighSurrogate = 0;
+    codepoint = static_cast<char32_t>(unit);
+  }
+
+  // Control characters come through this door too -- `\b`, `\r` and `\t` among
+  // them -- and belong to the editing keys rather than to any buffer
+  // (ADR-020 §3). The same filter the edit state applies, applied before the
+  // frame carries them, so nothing unpaintable is ever in flight.
+  if (!IsStorableCodepoint(codepoint))
+  {
+    return;
+  }
+
+  if (m_input.characterCount >= MAX_FRAME_CHARACTERS)
+  {
+    return; // Keep the earliest: they are the ones the player typed first.
+  }
+  m_input.characters[m_input.characterCount] = codepoint;
+  ++m_input.characterCount;
 }
 
 void Window::SetButton(InputButton _button, bool _down) noexcept
@@ -314,8 +369,14 @@ void Window::SetKey(WPARAM _virtualKey, bool _down) noexcept
   case VK_F10:
     actions[count++] = InputAction::ToggleFeedFreeze;
     break;
+  case VK_ESCAPE:
+    // Where this goes is the router's decision and not this file's (ADR-020
+    // §2): a focused field cancels its edit with it, and only if none does
+    // it reach the surface as "back".
+    actions[count++] = InputAction::Back;
+    break;
   default:
-    return; // Not a camera, selection or order key.
+    return; // Not a camera, selection, order or navigation key.
   }
 
   for (std::uint32_t slot = 0; slot < count; ++slot)
@@ -447,12 +508,26 @@ LRESULT Window::HandleMessage(HWND _window, UINT _message, WPARAM _wParam, LPARA
     m_input.wheelSteps += static_cast<float>(GET_WHEEL_DELTA_WPARAM(_wParam)) / static_cast<float>(WHEEL_DELTA);
     return 0;
 
+  case WM_CHAR:
+    // What the player *typed*, which is the layout's answer rather than the
+    // key's -- so it arrives here and not through `SetKey`, and a dead key or a
+    // composition path produces one with no key edge of its own. No `WM_IME_*`
+    // message is handled and the window makes no IME arrangement: ADR-020 §3
+    // defers that explicitly, and anything reaching this door by such a path
+    // meets the same filter as everything else.
+    AppendCharacter(_wParam);
+    return 0;
+
   case WM_KILLFOCUS:
     // Every held state is a lie the moment focus goes, and a key released over
     // another window never sends its WM_KEYUP here. The cursor reference goes
     // too, so coming back at a different point is not a drag of the difference.
     m_input = InputFrame{};
     m_haveCursor = false;
+    // A lead surrogate waiting for its trail half is held state like any other:
+    // the trail half is going to another window now, and joining this one to
+    // whatever is typed on return would invent a character nobody pressed.
+    m_pendingHighSurrogate = 0;
     if (m_captureCount != 0)
     {
       m_captureCount = 0;

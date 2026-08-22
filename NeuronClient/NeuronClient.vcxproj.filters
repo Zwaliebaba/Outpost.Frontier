@@ -62,6 +62,18 @@
     <ClCompile Include="InputMap.cpp">
       <Filter>Input</Filter>
     </ClCompile>
+    <ClCompile Include="InputRouter.cpp">
+      <Filter>Input</Filter>
+    </ClCompile>
+    <ClCompile Include="SurfaceStack.cpp">
+      <Filter>App</Filter>
+    </ClCompile>
+    <ClCompile Include="TextEditState.cpp">
+      <Filter>Input</Filter>
+    </ClCompile>
+    <ClCompile Include="UiScrollState.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
     <ClCompile Include="IsoCamera.cpp">
       <Filter>Camera</Filter>
     </ClCompile>
@@ -187,6 +199,21 @@
     </ClInclude>
     <ClInclude Include="InputMap.h">
       <Filter>Input</Filter>
+    </ClInclude>
+    <ClInclude Include="InputRouter.h">
+      <Filter>Input</Filter>
+    </ClInclude>
+    <ClInclude Include="SurfaceStack.h">
+      <Filter>App</Filter>
+    </ClInclude>
+    <ClInclude Include="TextEditState.h">
+      <Filter>Input</Filter>
+    </ClInclude>
+    <ClInclude Include="UiFocus.h">
+      <Filter>Input</Filter>
+    </ClInclude>
+    <ClInclude Include="UiScrollState.h">
+      <Filter>Hud</Filter>
     </ClInclude>
     <ClInclude Include="IsoCamera.h">
       <Filter>Camera</Filter>
