@@ -215,10 +215,43 @@ and the hangar's composer get one answer and nobody asks a third time.
      puck also acting on a click that opened the menu. It is the input-claim rule of §2 in one
      bool, on a surface that predates §2's router.
 
-   **What this does not mean.** The surface stack (§1), the input router (§2), focus and text
-   editing (§3) and the scrolling list (§4) are still unbuilt — the HUD is one surface, and a
+   **What this did not mean.** The surface stack (§1), the input router (§2), focus and text
+   editing (§3) and the scrolling list (§4) were unbuilt — the HUD is one surface, and a
    single live surface needs none of them. They arrive with the first screen that navigates,
    which is T3.
+
+5b. **Built (2026-08-22, T3a): all four, and the client navigates.** They landed together
+   because they are one mechanism seen from four angles, and because the first screen to need
+   any of them needs all of them.
+
+   - **§1 is a value and a stack, with no base class under it.** `SurfaceChange` reports one
+     exit and one entry rather than a list, which falls out of "at most one surface is live":
+     only the live one can have an exit to run, so a push that pops back past two breadcrumbs
+     still exits one screen. At full depth the *oldest breadcrumb* goes rather than the push
+     being refused — a control that does nothing is worse than any depth policy, and dropping
+     from the bottom keeps ◀ BACK meaning "undo the step I just took".
+   - **§2 replaced `m_uiConsumedPress`**, which was §5.4's frame-lifetime bool and exactly
+     right for one surface. Three channels now claim independently. The keyboard rule is a
+     **table** (`ActionSurvivesTextEditing`) with a static assert on `INPUT_ACTION_COUNT`
+     behind it, so an action added without an answer fails the build rather than defaulting
+     quietly. Writing it turned up something this section had left implicit: printability is a
+     property of a *key* and the rule is written per *action*, and the two only agree because
+     every suppressed action is also bound to an editing key — `PanForward` is `W` and `↑`,
+     `ResetView` is `Home`. A future binding that broke that pairing would need the rule to
+     move to the key.
+   - **§3 arrived without a field to hold focus**, which is honest rather than premature: the
+     router's shape is what enforces "at most one owner", so `Characters()` returns nothing
+     unless an editable field has focus, and a widget that is not the owner cannot read a
+     keystroke even by asking. `Window` gained `WM_CHAR` and assembles surrogate pairs there.
+   - **§4 closed `HudRoster.h`'s deferral.** One correction to what this section assumed: the
+     wheel's fractional accumulation has to be *dropped at an end* rather than banked, or a
+     wheel spun against the bottom of a list stores travel the player cannot see and has to
+     spend again before the list comes back.
+
+   §5.1 was the rule that did the most work, and it did it retroactively: the ELSEWHERE
+   column's blocks had been laid out inside the draw, which was invisible while the button on
+   them was paint. The moment it opened a screen, the layout had to move to where the press is
+   judged.
 
 ### 6. The screen-data contract across the ADR-014 seam
 

@@ -8,11 +8,22 @@ acked order stream are on the wire; and `selfTest` drives the whole headless loo
 QUIC loopback — dock, roster, undock, respawn, shimmer bit, roster follows. **T2's client
 half landed 2026-08-21**: the DOCK context action, the approach chain and its chip, the
 DOCKED blocks, the dock/undock toasts, the protection shimmer and the ~1 s transit fades.
-**One thing is owed and it is not code** — nobody has looked at the four new marks on a
+**One thing was owed and it is not code** — nobody has looked at the four new marks on a
 screen (R1), and they are listed below as such. **P1 exists** — `ScreenPrints/
 station-screen.png`, landed 2026-08-19 — and its four open review questions were answered
 2026-08-20 ([ADR-017 §6a](ADR/ADR-017-station-docking.md)), so **T3 has no design gate left**:
-what remains of this phase is screen work. The design it delivers is
+what remains of this phase is screen work.
+
+**T3 has started, and it split (2026-08-22).** **T3a is built** — the client *navigates*:
+ADR-020's surface stack, input router, focus, text editing and scrolling list, all
+device-free and tested; the ELSEWHERE column laid out where it is pressed rather than inside
+the draw; its block button live and opening a station surface; and a frame that skips the
+world half beneath a full-screen screen. **T3b is the hangar itself** and is not built — and
+one thing it needs is older than it is: `StationCommand` has been on the wire since T2 and
+has no *client* path, so UNDOCK still cannot be sent from the client at all. The split's
+rationale is with the slice. **What T3a owes is R1's category again** — the station surface
+and the live button have never been on a screen — which now makes **two** visual checkpoints
+this phase is carrying rather than one. The design it delivers is
 [ADR-017](ADR/ADR-017-station-docking.md); where this document and that one disagree, the
 ADR wins on *what* and this one on *when*.
 
@@ -351,6 +362,89 @@ plus "new wing" picking an unused id; names for new wings and renames in the use
 layer, client-side only), repair/refit/market as visible stubs, handoff and keybinding in
 the settings screen. Remote hangars: the screen opens for any station holding the player's
 ships, viewed or not.
+**T3 splits in two, and the seam is the one this repo already respects.** **T3a** is the
+client that *navigates* — the machinery ADR-020 §5a said would arrive with the first screen
+that needs it, and the column that reaches it. **T3b** is the hangar itself: its tab row, its
+roster, the composer and UNDOCK. The split is not tidiness. Everything in T3a is arithmetic
+over structs and can be held by tests on a machine with no GPU; everything in T3b is a screen
+whose acceptance is a person looking at it. Landing them together would have put the first
+behind the second's checkpoint, which is how a device-free defect ends up waiting on a device.
+
+**Built (T3a, 2026-08-22).** Four types, a column, and a frame that does less under a screen.
+
+`SurfaceStack` is §1's, and the rule that carries it is not the depth cap: a surface already
+in the stack is **returned to** rather than pushed again, so `◀ TACTICAL` from the hangar and
+`◀ BACK` from settings are one call and a player circling between two screens twenty times is
+still one step from home. `SurfaceChange` is two ids rather than a list because at most one
+surface is live, so at most one can have an exit to run — popping back past two breadcrumbs
+still exits one screen, since the others ran their exits when they were covered. At full depth
+the oldest breadcrumb is dropped rather than the push refused: a control that does nothing is
+worse than any depth policy.
+
+`InputRouter` is §2's, and it replaces `m_uiConsumedPress` — which said the one thing a
+client with a single surface needed to say and could say neither of the other two: that a
+wheel notch was spoken for while the click was not, and that a key belongs to a field rather
+than to the camera. Three channels, claimed independently. The keyboard rule is the one that
+had to be written down, and `ActionSurvivesTextEditing` is a **table** rather than a habit, so
+adding an action fails the build until somebody has answered for it. Reading it beside
+`Window`'s binding table is what makes it sound per action although printability is per key:
+`PanForward` is `W` *and* `↑`, and `ResetView` is `Home`, so a focused field takes all three
+on both counts.
+
+`UiFocus` names the surface as well as the widget, so an exit clears its own field rather than
+one two screens down. `TextEditState` is §3's machinery — bytes outside, codepoints inside,
+and the cap in codepoints because a cap in bytes fits sixteen Latin letters and five of
+something else. `UiScrollState` is §4's, and it closes `HudRoster.h`'s deferred "scrolling is
+a surface rather than a bigger number": it is neither. Two additions to the input frame came
+with them — `Escape` as `InputAction::Back`, an *action* because it is the one input with a
+routing order in the design, and `WM_CHAR` on `Window`, assembling UTF-16 surrogate pairs
+where the messages are, which is the only place the pairing is unambiguous.
+
+**The ELSEWHERE column stopped being drawn and started being laid out.** Its blocks were
+positioned inside `BuildHud` by a running total, which was fine while the button on them was
+paint: nothing pressed it, so nothing could disagree with it. It opens the hangar now, so the
+column's arithmetic moved into `HudRoster` as functions of the row index, `UpdateHud` measures
+the column and lays the blocks out, and the draw takes what it is handed (§5.1). A test writes
+out the running total the draw used to keep and asserts the replacement lands in the same
+place — the move did not also move the column.
+
+**The station surface is thin, and one part of it is blocked rather than deferred.** The
+ground, the way back, and which place this is — read by anchor rather than remembered, because
+the roster arrives at ~1 Hz and a hangar whose ships all left should say so rather than hold
+the count it opened with. Its **tab row cannot exist yet**: ADR-020 §6's leak test forbids
+`NeuronClient` learning that a tab is called REFIT, so the words have to cross the seam as
+data, and that call is T3b's.
+
+Two defects found by writing it rather than by running it. A full-screen surface has to claim
+the pointer **ahead of** the left-press gate: gating on a left press first leaves the *right*
+button unclaimed, and the order puck lives there, so a right-drag across the hangar would have
+sent a fleet somewhere on a grid the player cannot see. And a navigation unwinds the puck as
+well as the selection box — a half-made gesture must not finish itself against the next
+screen.
+
+`RenderFrame` now chooses between the two calls it already made: a full-screen surface clears
+the back buffer directly, skips Opaque, Nebula and OverlayWorld and the resolve between them,
+and records `Ui`. No pass is added, removed, reordered or branched. Extract goes with it; the
+*network* half still runs on every surface, so returning to tactical costs no refill and owes
+no settle.
+
+**Seventy-seven tests in `NeuronClientTests`, none of which needs a device** — the surface
+stack, the router's three channels and its keyboard rule, the caret's arithmetic over UTF-8,
+the scrolling list, and the column's layout against the running total it replaced.
+
+**Owed by T3a, and it is the R1 category exactly:** nobody has looked at the station surface
+or the live block button on a screen. Also owed, and smaller: the tactical chrome is still
+built underneath a surface that covers it — a `UiDrawList` fill nobody sees, whose fix is an
+early return once T3b makes that half a function of its own.
+
+**Still owed by T3 (T3b):** the hangar. The tab row and its seam call, the docked roster
+grouped by wing, multi-selection, the formation dropdown, UNDOCK and its wave pacing
+(ADR-017 §6a.1), wing assignment and renames in the user layer, and the two seam calls the
+screen cannot work without — **a client path for `StationCommand`** (the format and its
+validator have been on the wire since T2 and `ReplicatedWorldView::EncodeOrder` still writes
+only `CommandKind::Order`, so UNDOCK cannot be sent from the client at all) and a builder that
+hands the hangar its ship-chip rows (§6's "group rows plus ship-chip rows, keyed by station").
+
 **Accept 🏁 H1:** the owner's loop in one sitting — fly to the station, DOCK from the
 context action, open the hangar, move three ships into a new wing, select a mixed
 composition, UNDOCK, and watch the new fleet appear at the undock point, shimmer, and park
