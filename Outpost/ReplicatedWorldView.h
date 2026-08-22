@@ -177,10 +177,6 @@ public:
   /// against without going through the HUD's span.
   [[nodiscard]] std::uint16_t DockedCountAt(Game::AnchorId _anchor) const noexcept;
 
-  /// The docked place for this anchor, or null. Both station calls start here,
-  /// and neither should walk `m_places` on its own terms.
-  [[nodiscard]] const FleetPlace* DockedAt(Game::AnchorId _anchor) const noexcept;
-
   /*
    * A `StationIntent` as the game's own command, or false.
    *
@@ -287,6 +283,17 @@ private:
   /// What the universe calls this anchor, or null for one the content does not
   /// name.
   [[nodiscard]] const char* AnchorNameFor(Game::AnchorId _anchor) const;
+
+  /*
+   * The docked place for this anchor, or null. Both station calls start here,
+   * and neither should walk `m_places` on its own terms.
+   *
+   * Declared here rather than beside the other station calls because it names
+   * `FleetPlace`, which is private and defined below them: a member function's
+   * return type is looked up where the declaration is written, so this one has
+   * to come after the type it returns.
+   */
+  [[nodiscard]] const FleetPlace* DockedAt(Game::AnchorId _anchor) const noexcept;
 
   Desc m_desc;
   Game::ReplicatedView m_view;
