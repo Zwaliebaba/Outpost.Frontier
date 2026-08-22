@@ -50,6 +50,7 @@
     <ClCompile Include="Picking.cpp" />
     <ClCompile Include="Selection.cpp" />
     <ClCompile Include="RenderWorld.cpp" />
+    <ClCompile Include="RosterSelection.cpp" />
     <ClCompile Include="SnapshotBuffer.cpp" />
     <ClCompile Include="SoundBank.cpp" />
     <ClCompile Include="SurfaceStack.cpp" />
@@ -98,6 +99,8 @@
     <ClInclude Include="Picking.h" />
     <ClInclude Include="Selection.h" />
     <ClInclude Include="RenderWorld.h" />
+    <ClInclude Include="RosterSelection.h" />
+    <ClInclude Include="StationView.h" />
     <ClInclude Include="SoundBank.h" />
     <ClInclude Include="SurfaceStack.h" />
     <ClInclude Include="TextEditState.h" />

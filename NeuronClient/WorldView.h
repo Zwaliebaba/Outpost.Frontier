@@ -3,6 +3,8 @@
 #include "ByteWriter.h"
 #include "HudRoster.h"
 #include "OrderIntent.h"
+#include "StationIntent.h"
+#include "StationView.h"
 #include "RenderWorld.h"
 
 #include <cstdint>
@@ -296,6 +298,109 @@ public:
     (void)_outNotices;
     return 0;
   }
+
+  /*
+   * --- the station surface (ADR-017 §6, ADR-020 §6) ------------------------
+   *
+   * Three calls, which is ADR-020 §6's seam budget for a screen spent exactly:
+   * one asked-once builder (the tab row), one row builder at the roster's own
+   * rate, and pure query functions. A screen wanting a fourth shape is that
+   * section's tripwire rather than a fourth method.
+   *
+   * All three carry defaults rather than being pure, so a view that has no
+   * station to describe -- `NullWorldView`, a test's stub -- inherits an honest
+   * nothing instead of having to write one.
+   */
+
+  /*
+   * The tab row for this station.
+   *
+   * Asked once on entry rather than per frame: the row is fixed, and a service
+   * arriving is a build rather than an event. The words and the reasons are
+   * the game's, which is the whole reason this is a call and not a table in
+   * the client (ADR-020 §6's leak test).
+   *
+   * Returns how many were written, never more than the span holds.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildStationTabs(std::uint16_t _anchor, std::span<StationTab> _outTabs) const
+  {
+    (void)_anchor;
+    (void)_outTabs;
+    return 0;
+  }
+
+  /*
+   * The docked roster: group rows and chip rows, together.
+   *
+   * One call rather than two because it is one walk over one roster, and two
+   * would be two chances to disagree about which group a chip is in.
+   *
+   * `_selectedIds` are the composer's, and the game counts them into
+   * `StationGroup::selectedCount` for the reason `BuildRoster` does: the
+   * engine matching ids against group membership would be the aggregation it
+   * is not supposed to be doing.
+   *
+   * Sorted by the game, and the order is a decision rather than a convenience
+   * -- ADR-017 §6a.4 puts class first and **ship id** second, not name, because
+   * names are client-side and two clients must not read the same hangar in two
+   * orders.
+   */
+  [[nodiscard]] virtual StationRosterCounts BuildStationRoster(std::uint16_t _anchor,
+                                                               std::span<const std::uint32_t> _selectedIds,
+                                                               std::span<StationGroup> _outGroups,
+                                                               std::span<StationChip> _outChips) const
+  {
+    (void)_anchor;
+    (void)_selectedIds;
+    (void)_outGroups;
+    (void)_outChips;
+    return StationRosterCounts{};
+  }
+
+  /*
+   * Whether this command would be taken, and why not.
+   *
+   * The station half of ADR-014 §3's parity claim, and the print asks for it in
+   * as many words: "the pre-check runs against the same `RosterView` the server
+   * validates with, so a tappable UNDOCK is a promise". The verdict type is the
+   * order stream's because the reason enum is (ADR-017 §8).
+   *
+   * The default refuses. A view that cannot judge must not wave a command
+   * through -- the posture `ValidationView`'s optional fields already take.
+   */
+  [[nodiscard]] virtual OrderVerdict PreCheckStation(const StationIntent& _intent)
+  {
+    (void)_intent;
+    return OrderVerdict{};
+  }
+
+  /*
+   * The bytes for a station command, or false and nothing written.
+   *
+   * `EncodeOrder`'s twin, and it exists because until it did the format had a
+   * validator, a server path and a `selfTest` that hand-assembled it, and no
+   * line in the client that could send one -- so UNDOCK could be validated,
+   * acked and replayed, and never issued.
+   */
+  [[nodiscard]] virtual bool EncodeStationCommand(const StationIntent& _intent, ByteWriter& _writer)
+  {
+    (void)_intent;
+    (void)_writer;
+    return false;
+  }
+
+  /*
+   * How many ships one station command may name.
+   *
+   * The game's cap, asked rather than assumed, because the screen has to
+   * declare the consequence *before* the player commits: a selection past it
+   * undocks as waves, and `station-screen.png` §2 is explicit that the cap "is
+   * a wire constant the player should never meet as an error".
+   *
+   * Zero from a view with no game, which the caller reads as "nothing can be
+   * sent" rather than as "no limit".
+   */
+  [[nodiscard]] virtual std::uint32_t ShipsPerStationCommand() const { return 0; }
 
   /*
    * The diagnostic text for a reason code.

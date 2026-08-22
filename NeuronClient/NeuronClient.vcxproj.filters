@@ -242,6 +242,15 @@
     <ClInclude Include="HudRoster.h">
       <Filter>Hud</Filter>
     </ClInclude>
+    <ClInclude Include="StationView.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClInclude Include="RosterSelection.h">
+      <Filter>Input</Filter>
+    </ClInclude>
+    <ClCompile Include="RosterSelection.cpp">
+      <Filter>Input</Filter>
+    </ClCompile>
     <ClCompile Include="HudRoster.cpp">
       <Filter>Hud</Filter>
     </ClCompile>

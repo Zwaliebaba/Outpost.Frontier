@@ -1200,6 +1200,275 @@ std::uint32_t ReplicatedWorldView::BuildLocationBlocks(std::span<LocationBlock> 
   return written;
 }
 
+/*
+ * One intent, one command, and both callers read it from here.
+ *
+ * `verb` and `parameter` are the game's numbers coming back through the seam
+ * unread, which is the contract `OrderIntent::kind` has: the client offered a
+ * verb the game listed and hands the same number back, so nothing in
+ * `NeuronClient` ever had to know what it meant.
+ *
+ * The parameter is a formation for one verb and a wing for another, and the
+ * switch below is the only place that distinction exists on this side.
+ */
+bool ReplicatedWorldView::MakeStationCommand(const Neuron::StationIntent& _intent,
+                                             Game::StationCommand& _outCommand) const noexcept
+{
+  _outCommand = Game::StationCommand{};
+  _outCommand.orderSeq = _intent.orderSeq;
+  _outCommand.verb = static_cast<Game::StationVerb>(_intent.verb);
+  _outCommand.station = static_cast<Game::AnchorId>(_intent.anchor);
+
+  switch (_outCommand.verb)
+  {
+  case Game::StationVerb::Undock:
+    _outCommand.formation = static_cast<Game::FormationId>(_intent.parameter);
+    break;
+  case Game::StationVerb::AssignWing:
+    _outCommand.wing = static_cast<Game::WingId>(_intent.parameter);
+    break;
+  default:
+    // The economy's transfer verbs carry an ore and a count rather than one
+    // number, so they are not expressible as a `StationIntent` and E5's screens
+    // will need their own shape. Refusing here is better than sending a command
+    // with a default ore in it.
+    return false;
+  }
+
+  for (std::uint32_t index = 0; index < _intent.shipCount; ++index)
+  {
+    if (!_outCommand.AddShip(static_cast<Game::ShipId>(_intent.shipIds[index])))
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
+/*
+ * The station's tab row (`station-screen.png` §2, ADR-020 §6).
+ *
+ * The words are spelled here because this is the composition root, which is the
+ * one project entitled to know both vocabularies (ADR-014 §2a) -- the same
+ * licence `ReasonText` uses. `NeuronClient` gets a name, a reason and a number,
+ * and never learns that one of them opens a hangar.
+ *
+ * **A tab with no service behind it is drawn and disabled with its reason**,
+ * rather than hidden, exactly as the strategic map stubs its unbuilt overlays.
+ * Which is why REPAIR reads FREE and not FUTURE: repair is not missing, it is
+ * free, because the roster holds no damage and undocking repairs by
+ * construction (ADR-017 §1). The tag says which kind of absence this is.
+ *
+ * CARGO and REFINERY are E5's and are stubbed here until it lands; the print
+ * already reserves their place in the row, which is the point of a fixed row.
+ */
+std::uint32_t ReplicatedWorldView::BuildStationTabs(std::uint16_t _anchor, std::span<Neuron::StationTab> _outTabs) const
+{
+  // Nothing of this commander's is docked there, so there is no screen to tab
+  // across. Refusing here rather than drawing an empty row is the same rule the
+  // location blocks take: a place holding nothing of yours is not a place.
+  if (DockedAt(static_cast<Game::AnchorId>(_anchor)) == nullptr)
+  {
+    return 0;
+  }
+
+  struct Entry
+  {
+    const char* name;
+    const char* tag;
+    bool enabled;
+  };
+
+  // The seven the print draws, in the print's order.
+  static constexpr Entry ROW[] = {
+      {"HANGAR", nullptr, true},   {"CARGO", "SOON", false},   {"REFINERY", "SOON", false},
+      {"REPAIR", "FREE", false},   {"REFIT", "FUTURE", false}, {"CONSTRUCT", "FUTURE", false},
+      {"MARKET", "FUTURE", false},
+  };
+
+  std::uint32_t written = 0;
+  for (std::uint32_t index = 0; index < std::size(ROW) && written < _outTabs.size(); ++index)
+  {
+    Neuron::StationTab& tab = _outTabs[written];
+    tab = Neuron::StationTab{};
+    tab.name = ROW[index].name;
+    tab.tag = ROW[index].tag;
+    tab.id = static_cast<std::uint16_t>(index);
+    tab.enabled = ROW[index].enabled;
+    ++written;
+  }
+  return written;
+}
+
+/*
+ * The docked roster, grouped by wing (ADR-017 §6, ADR-020 §6).
+ *
+ * One walk that fills both spans, because a chip's group is an index into the
+ * groups this same call wrote and two walks would be two chances to disagree
+ * about it.
+ *
+ * **The sort is ADR-017 §6a.4's and it is a decision rather than a
+ * convenience:** class descending, then **ship id** -- not name. Names live in
+ * the user settings layer, so sorting by them would give two clients two
+ * different readings of one hangar, and the id is the part they agree on.
+ *
+ * `StationChip::name` is left null, and that is honest rather than unfinished:
+ * **nothing in this game names an individual ship.** The print draws a name
+ * beside the class, and what would fill it -- a call sign scheme, or authored
+ * names in the fleet file -- is a content decision nobody has taken. A null
+ * name is the arrangement `LocationBlock::buttonLabel` already uses for "the
+ * game supplied nothing", and the screen draws what it does have.
+ */
+Neuron::StationRosterCounts ReplicatedWorldView::BuildStationRoster(std::uint16_t _anchor,
+                                                                    std::span<const std::uint32_t> _selectedIds,
+                                                                    std::span<Neuron::StationGroup> _outGroups,
+                                                                    std::span<Neuron::StationChip> _outChips) const
+{
+  Neuron::StationRosterCounts counts;
+
+  const FleetPlace* place = DockedAt(static_cast<Game::AnchorId>(_anchor));
+  if (place == nullptr)
+  {
+    return counts;
+  }
+
+  // Sorted into a scratch list rather than in place: `m_places` is what the
+  // wire wrote and a draw call must not reorder it.
+  m_rosterSort.assign(place->docked.begin(), place->docked.end());
+  std::sort(m_rosterSort.begin(), m_rosterSort.end(), [](const Game::RosterEntry& _a, const Game::RosterEntry& _b) {
+    if (_a.hullClass != _b.hullClass)
+    {
+      return static_cast<int>(_a.hullClass) > static_cast<int>(_b.hullClass);
+    }
+    return _a.shipId < _b.shipId;
+  });
+
+  const auto isSelected = [_selectedIds](Game::ShipId _shipId) {
+    return std::find(_selectedIds.begin(), _selectedIds.end(), static_cast<std::uint32_t>(_shipId)) !=
+           _selectedIds.end();
+  };
+
+  for (const Game::RosterEntry& entry : m_rosterSort)
+  {
+    // Which column this ship's wing is, adding one if it has not been seen.
+    std::uint32_t group = 0;
+    for (; group < counts.groups; ++group)
+    {
+      if (_outGroups[group].idTag == entry.wing)
+      {
+        break;
+      }
+    }
+    if (group == counts.groups)
+    {
+      if (counts.groups == _outGroups.size())
+      {
+        // More wings than the caller has columns for. The ships in them are
+        // dropped rather than folded into another column, because a chip in the
+        // wrong wing is worse than a chip that is not drawn.
+        continue;
+      }
+      Neuron::StationGroup& fresh = _outGroups[counts.groups];
+      fresh = Neuron::StationGroup{};
+      fresh.idTag = entry.wing;
+      fresh.name = entry.wing < m_desc.wingNames.size() ? m_desc.wingNames[entry.wing].c_str() : nullptr;
+      ++counts.groups;
+    }
+
+    Neuron::StationGroup& column = _outGroups[group];
+    ++column.chipCount;
+
+    const bool selected = isSelected(entry.shipId);
+    if (selected)
+    {
+      ++column.selectedCount;
+    }
+
+    if (counts.chips == _outChips.size())
+    {
+      // Counted in its column and not drawn: the column's total stays true even
+      // when the caller's chip array runs out, which is what lets the screen say
+      // "12" over eight chips rather than lying about both.
+      continue;
+    }
+
+    Neuron::StationChip& chip = _outChips[counts.chips];
+    chip = Neuron::StationChip{};
+    chip.shipId = static_cast<std::uint32_t>(entry.shipId);
+    chip.className = Game::HullClassName(entry.hullClass).data();
+    chip.group = static_cast<std::uint16_t>(group);
+    chip.selected = selected;
+    ++counts.chips;
+  }
+
+  return counts;
+}
+
+/*
+ * Would this command be taken? (ADR-014 §3, extended to station commands.)
+ *
+ * The same `ValidateStationCommand` over the same `RosterView` the authority
+ * judges with -- which is what the print means by "a tappable UNDOCK is a
+ * promise". The roster this side is the replicated one, arriving at about 1 Hz,
+ * so the two views can differ by a second; that is the ordinary staleness every
+ * pre-check on this seam has, and the ack is still what decides.
+ */
+Neuron::OrderVerdict ReplicatedWorldView::PreCheckStation(const Neuron::StationIntent& _intent)
+{
+  Game::StationCommand command;
+  if (!MakeStationCommand(_intent, command))
+  {
+    // More ships than one command can name. The screen is supposed to have
+    // split them into waves before reaching here, so this is a refusal rather
+    // than a truncation -- sending 64 of 66 would undock most of a fleet and
+    // report success.
+    return Neuron::OrderVerdict{};
+  }
+
+  const FleetPlace* place = DockedAt(command.station);
+  Game::RosterView view;
+  view.station = command.station;
+  if (place != nullptr)
+  {
+    view.docked = place->docked;
+  }
+
+  const Game::OrderVerdict decided = Game::ValidateStationCommand(view, command);
+  return ToSeam(decided, _intent.orderSeq);
+}
+
+/*
+ * The bytes, and the reason this function is the one T3b could not start
+ * without.
+ *
+ * `StationCommand` has had a format, a validator, a server path and a
+ * `selfTest` since T2 -- and no line in the client that could produce one, so
+ * UNDOCK was a verb the authority knew and nobody could speak. `EncodeOrder`
+ * writes `CommandKind::Order`; this writes the other one.
+ */
+bool ReplicatedWorldView::EncodeStationCommand(const Neuron::StationIntent& _intent, Neuron::ByteWriter& _writer)
+{
+  Game::StationCommand command;
+  if (!MakeStationCommand(_intent, command))
+  {
+    return false;
+  }
+  return Game::WriteCommandKind(Game::CommandKind::Station, _writer) && Game::WriteStationCommand(command, _writer);
+}
+
+std::uint32_t ReplicatedWorldView::ShipsPerStationCommand() const
+{
+  return Game::MAX_SHIPS_PER_ORDER;
+}
+
+const ReplicatedWorldView::FleetPlace* ReplicatedWorldView::DockedAt(Game::AnchorId _anchor) const noexcept
+{
+  const auto found = std::find_if(m_places.begin(), m_places.end(), [&](const FleetPlace& _entry) {
+    return _entry.anchor == _anchor && _entry.state == Game::FleetState::Docked;
+  });
+  return found == m_places.end() ? nullptr : &*found;
+}
+
 std::uint16_t ReplicatedWorldView::DockedCountAt(Game::AnchorId _anchor) const noexcept
 {
   const auto found = std::find_if(m_places.begin(), m_places.end(), [&](const FleetPlace& _entry) {
