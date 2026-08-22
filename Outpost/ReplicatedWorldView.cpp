@@ -1174,6 +1174,31 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
 
   for (FleetPlace& block : staged)
   {
+    /*
+     * The anchor **and the state**, because one anchor can be two places.
+     *
+     * `WorldRegistry::Summaries` walks the grids and then the rosters, so a
+     * commander flying at a station while some of their hulls sit inside it
+     * gets two rows for that anchor -- `OnGrid` first, `Docked` second -- and
+     * one `StationRoster` record, because a roster is a fact about a station
+     * rather than about a fleet.
+     *
+     * Matching on the anchor alone therefore handed the roster to the *grid*
+     * row and, because it is moved rather than copied, left the docked row with
+     * an empty list. The hangar drew NOTHING DOCKED HERE over a station holding
+     * a full roster while its own status bar read the count off the other row
+     * and said the ships were there -- one screen contradicting itself, which
+     * is what two sources for one fact buys.
+     *
+     * The state is the client comparing an enumerator it was given rather than
+     * a word it was told, which is the line `LocationBlock::stateLabel` draws:
+     * the *number* is the game's and this side may key on it, the *vocabulary*
+     * is the game's and this side may not read it.
+     */
+    if (block.state != Game::FleetState::Docked)
+    {
+      continue;
+    }
     const auto match = std::find_if(stagedRosters.begin(), stagedRosters.end(),
                                     [&](const FleetPlace& _entry) { return _entry.anchor == block.anchor; });
     if (match != stagedRosters.end())
@@ -1518,6 +1543,10 @@ Neuron::StationRosterCounts ReplicatedWorldView::BuildStationRoster(std::uint16_
 
   for (const Game::RosterEntry& entry : m_rosterSort)
   {
+    // Counted first, and before every cap below it: this is how many ships are
+    // *there*, which stays true however little of the roster fits.
+    ++counts.docked;
+
     // Which column this ship's wing is, adding one if it has not been seen.
     std::uint32_t group = 0;
     for (; group < counts.groups; ++group)

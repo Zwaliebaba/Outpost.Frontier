@@ -54,6 +54,22 @@ struct RendererSettings
   bool vsync = true;
   std::uint32_t msaa = 4;
   std::uint32_t frameCap = 0;
+
+  /*
+   * How big hulls are drawn, against the size the class table says they are.
+   *
+   * Art direction, which is why it is content and not a constant: 1.0 draws
+   * every hull at exactly its own silhouette radius -- contact radius times
+   * `Game::SILHOUETTE_RADIUS_PER_CONTACT_RADIUS` -- which is the size the sim
+   * already treats it as having, and the size the two structures were authored
+   * at. Above 1.0 trades physical honesty for presence, and the ceiling is
+   * where a formation starts overlapping itself: the gap between neighbours at
+   * their own spacing is 3/8 of it at 1.0, so it closes at about 2.6.
+   *
+   * It scales *hulls*, never chrome. Selection rings come off `pickRadius`,
+   * lanes and pucks are screen-space, and neither reads this.
+   */
+  double hullScale = 1.0;
 };
 
 struct CameraSettings

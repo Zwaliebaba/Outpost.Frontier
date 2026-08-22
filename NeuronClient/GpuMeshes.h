@@ -60,12 +60,25 @@ public:
   GpuMeshTable(const GpuMeshTable&) = delete;
   GpuMeshTable& operator=(const GpuMeshTable&) = delete;
 
-  /// Loads and uploads every file in _fileNames, in order: index i becomes
-  /// classId i. One unreadable or malformed file fails the whole call, with the
-  /// diagnostic already logged -- a fleet missing a hull is not a degraded mode
-  /// worth supporting.
+  /*
+   * Loads and uploads every file in _fileNames, in order: index i becomes
+   * classId i. One unreadable or malformed file fails the whole call, with the
+   * diagnostic already logged -- a fleet missing a hull is not a degraded mode
+   * worth supporting.
+   *
+   * `_planeRadiiMetres` is how wide each of them should be **drawn** on the
+   * plane, in the same order, and it is the caller's business entirely: this
+   * table has no idea which index is a Carrier (ADR-014) and cannot know how
+   * big one is. Each mesh is scaled about its origin to the radius it is given,
+   * so the art may be authored at any scale and a re-export at a different one
+   * still lands correctly.
+   *
+   * A zero, or a shorter span than the file list, means "as authored" for that
+   * mesh. An empty span therefore loads exactly what the files contain, which
+   * is what every caller that has no opinion should pass.
+   */
   [[nodiscard]] bool Create(GpuDevice& _device, std::string_view _directory, std::span<const std::string> _fileNames,
-                            TaskPool& _taskPool);
+                            std::span<const float> _planeRadiiMetres, TaskPool& _taskPool);
   void Destroy();
 
   [[nodiscard]] std::uint32_t Count() const noexcept { return static_cast<std::uint32_t>(m_meshes.size()); }

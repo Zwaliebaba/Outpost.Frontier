@@ -142,12 +142,27 @@ struct StationChip
  */
 inline constexpr std::uint32_t MAX_STATION_CHIPS = 128;
 
-/// What one `BuildStationRoster` filled in. Two counts rather than a return
-/// value, because the call fills two spans and a caller needs both.
+/// What one `BuildStationRoster` filled in. Counts rather than a return value,
+/// because the call fills two spans and a caller needs both.
 struct StationRosterCounts
 {
   std::uint32_t groups = 0;
   std::uint32_t chips = 0;
+
+  /*
+   * How many ships are docked there, before any of this side's caps.
+   *
+   * **Not the sum of the columns, and not `chips`**, which is the whole reason
+   * it is here. A ship in a wing past the column cap is skipped before it is
+   * counted anywhere, and a ship past the chip cap is counted in its column but
+   * not emitted -- so both of the numbers a caller could add up understate a
+   * hangar that overflowed, in two different ways.
+   *
+   * A status bar saying how many ships are at a station must not be one of
+   * those: it is a statement about the *station*, not about what fitted on the
+   * screen. The screen says how much of it it could draw by other means.
+   */
+  std::uint32_t docked = 0;
 };
 
 /*

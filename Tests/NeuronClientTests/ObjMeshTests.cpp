@@ -208,6 +208,75 @@ public:
     Assert::AreEqual(4.0f, mesh.radiusMetres, 1e-4f, L"the radius is the furthest vertex from the origin");
   }
 
+  TEST_METHOD(ThePlaneRadiusIsTheFootprintAndNotTheSphere)
+  {
+    /*
+     * A ring standing up in Y reads as its footprint from a fixed-elevation
+     * camera, not as its height -- so the silhouette is measured on the plane.
+     * Measured in three dimensions the mesh below would answer 5, which is a
+     * number about how tall it is.
+     */
+    constexpr const char* text = "usemtl hull\nv 3 4 0\nv 0 4 0\nv 0 0 0\nvn 0 1 0\nf 1//1 2//1 3//1\n";
+    ObjMesh mesh;
+    ObjDiagnostic error;
+    Assert::IsTrue(ParseObjMesh(text, mesh, error));
+
+    Assert::AreEqual(3.0f, PlaneRadiusMetres(mesh), 1e-4f, L"hypot(x, z), never y");
+    Assert::AreEqual(5.0f, mesh.radiusMetres, 1e-4f, L"the sphere still answers about the sphere");
+  }
+
+  TEST_METHOD(FittingScalesEveryVertexAndRecomputesWhatDependsOnThem)
+  {
+    constexpr const char* text = "usemtl hull\nv 3 4 0\nv 0 4 0\nv 0 0 0\nvn 0 1 0\nf 1//1 2//1 3//1\n";
+    ObjMesh mesh;
+    ObjDiagnostic error;
+    Assert::IsTrue(ParseObjMesh(text, mesh, error));
+
+    Assert::IsTrue(FitObjMeshToPlaneRadius(mesh, 12.0f));
+    Assert::AreEqual(12.0f, PlaneRadiusMetres(mesh), 1e-4f, L"the target is met exactly");
+
+    // Uniform, so height goes with width: a hull that grew wider and stayed
+    // flat would read as a decal rather than a ship.
+    Assert::AreEqual(16.0f, mesh.boundsMax.y, 1e-3f, L"y scaled by the same factor");
+    Assert::AreEqual(20.0f, mesh.radiusMetres, 1e-3f, L"and the sphere was recomputed, not left stale");
+
+    // The normal is untouched and still unit: a uniform scale does not rotate
+    // or stretch a direction, so normalising again would be work to arrive
+    // back where it started.
+    const DirectX::XMFLOAT3& normal = mesh.vertices[0].normal;
+    const float length = std::sqrt(normal.x * normal.x + normal.y * normal.y + normal.z * normal.z);
+    Assert::AreEqual(1.0f, length, 1e-5f);
+  }
+
+  TEST_METHOD(NoOpinionLeavesTheArtExactlyAsAuthored)
+  {
+    /*
+     * Zero has to mean "as authored" rather than "scale to nothing", because it
+     * is what a caller with no answer passes -- a mesh the game has no hull
+     * for, or a shorter list than the file list. The failure this pins is a
+     * fleet that loads and draws at the origin as points.
+     */
+    constexpr const char* text = "usemtl hull\nv 3 4 0\nv 0 4 0\nv 0 0 0\nvn 0 1 0\nf 1//1 2//1 3//1\n";
+    for (const float target : {0.0f, -1.0f})
+    {
+      ObjMesh mesh;
+      ObjDiagnostic error;
+      Assert::IsTrue(ParseObjMesh(text, mesh, error));
+      Assert::IsFalse(FitObjMeshToPlaneRadius(mesh, target), L"nothing asked, nothing done");
+      Assert::AreEqual(3.0f, PlaneRadiusMetres(mesh), 1e-4f);
+      Assert::AreEqual(5.0f, mesh.radiusMetres, 1e-4f);
+    }
+
+    // And a mesh with no width on the plane cannot be given one. Dividing by
+    // its zero radius would take the whole fleet with it.
+    constexpr const char* upright = "usemtl hull\nv 0 4 0\nv 0 2 0\nv 0 0 0\nvn 0 1 0\nf 1//1 2//1 3//1\n";
+    ObjMesh flat;
+    ObjDiagnostic error;
+    Assert::IsTrue(ParseObjMesh(upright, flat, error));
+    Assert::IsFalse(FitObjMeshToPlaneRadius(flat, 12.0f));
+    Assert::AreEqual(4.0f, flat.radiusMetres, 1e-4f, L"left exactly as authored");
+  }
+
   TEST_METHOD(MalformedContentIsADiagnosticWithALineAndAColumn)
   {
     struct Case

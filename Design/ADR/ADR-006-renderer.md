@@ -195,6 +195,54 @@ loader refuses a material outside the five and this shading model reads albedo o
 7. **Selection tint/rings never recolour hulls** — relationship colour and selection live in
    the Overlay pass (rings, bars), per the icon sheet's channel separation.
 
+> **Amendment, 2026-08-22 — a mesh is drawn at the size the class table says it is, and
+> nothing used to make that true.**
+>
+> The owner reported that the station and the fleet read as very small, and asked for a camera
+> that gave big ships presence. **It was not the camera.** Measured against
+> `Game::SilhouetteRadiusMetres`, `Structure.obj` and `Stargate.obj` were within 1% of their
+> rows — §10 of [ADR-016](ADR-016-procedural-universe-and-warp.md) wrote those rows *from*
+> those two meshes — and **every flyable hull was between a quarter and a twelfth of the size
+> its own row describes**. An Interceptor was a 3.8 m silhouette sitting inside a 53 m
+> selection ring. No zoom fixes that: at `MIN_ZOOM_METRES` it is still six pixels, and the
+> config had already spent the camera lever once (`zoomMetres` went 8,000 → 2,667 because "the
+> fleet parked around the station read as a scatter of specks").
+>
+> **The rule.** A hull's drawn silhouette radius on the plane is its **contact radius × 1.25**.
+> That ratio is measured rather than chosen: it is what the station (253 over 200) and the
+> stargate (168 over 135) were authored at, so the fleet is now scaled to the two pieces of
+> content this corpus already treats as correct. It has to be roughly that: contact is a circle
+> *inside* the hull, and formation spacing is four contact radii, so a wider silhouette would
+> put neighbouring ships in a formation through each other. At 1.25 the gap between two hulls at
+> their own spacing is 3/8 of it, whatever the class.
+>
+> **Applied at load, not baked into the files.** `FitObjMeshToPlaneRadius` scales each mesh
+> about its origin after parse and before upload, so a re-export at any scale still lands
+> correctly and the rule is *stated* rather than being a property somebody has to remember not
+> to break. It is the last moment the geometry is on the CPU and the cheapest place to do it:
+> the scale is a per-class constant, so it costs no instance field, no input-layout change and
+> nothing per frame. §6's `InstanceRecord` is untouched.
+>
+> **The seam holds.** `GpuMeshTable::Create` takes a span of plane radii in file order and has
+> no idea which index is a Carrier (ADR-014); the composition root fills it from the class
+> table. A zero means "as authored", which is what a file with no hull gets.
+>
+> **Chrome does not scale, and that is the point.** Selection rings come off `pickRadiusMetres`
+> (`pickRadius + ringPadMetres`), lanes, pucks and station ticks are screen-space, and none of
+> them reads this. `pickRadius` is deliberately generous for small hulls — an Interceptor's is
+> 2.6 contact radii against a Battleship's 1.5 — so the ring stays outside the silhouette by
+> the widest margin exactly where the scale factor is largest. A GameLogicTests case asserts
+> both ceilings (clear in formation, inside its own ring) for every class.
+>
+> **`client.renderer.hullScale` is the dial**, defaulting to 1.0 — honest, and the size the sim
+> already treats a hull as having. It is art direction, so it is content, the way the nebula
+> block is. Above about 2 a formation starts overlapping itself, which is where the config
+> comment and the parse range stop.
+>
+> Gated by `RunHullScaleGate` in the self test, which is the only place that can see both a mesh
+> loader and a class table. The ratio itself is a `static_assert` against the two authored
+> silhouettes: moving it fails the build rather than a test.
+
 ### Overlay & UI
 8. **OverlayWorld pass** adopts the corpus two-mechanism split now:
    *(A)* per-entity instanced marks — selection ellipses (world-space circles on the plane,

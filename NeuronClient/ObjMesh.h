@@ -135,4 +135,41 @@ struct ObjDiagnostic
 /// directory. A missing or unreadable file is a diagnostic, not an exception.
 [[nodiscard]] bool LoadObjMesh(std::string_view _directory, std::string_view _fileName, ObjMesh& _outMesh, ObjDiagnostic& _outError);
 
+/*
+ * How wide this mesh is *on the plane* -- the largest `hypot(x, z)` over its
+ * vertices, about the origin the hull pivots on.
+ *
+ * The plane and not the sphere, because a silhouette is what a top-down camera
+ * at a fixed elevation shows: a ring standing up in Y reads as its footprint
+ * and not as its height, so measuring in three dimensions would call the
+ * stargate half again as wide as the picture of it. It is also the number the
+ * corpus already quotes when it sizes content against content (ADR-016 §10 --
+ * "168 m of silhouette on the plane against the station's 253", which is this
+ * function's answer for those two files to the metre).
+ */
+[[nodiscard]] float PlaneRadiusMetres(const ObjMesh& _mesh) noexcept;
+
+/*
+ * Scales a mesh about its origin so `PlaneRadiusMetres` comes out at
+ * `_targetPlaneRadiusMetres`, and reports whether it did anything.
+ *
+ * **A content rule applied at load, rather than baked into the files.** The
+ * game states how big every hull is -- it has to, because contact, formation
+ * spacing and picking are all derived from that number -- while a mesh is
+ * authored at whatever scale the modelling package handed back. Normalising
+ * here means a re-export at any scale still lands correctly, and the rule is
+ * *stated* somewhere rather than being a property somebody has to remember not
+ * to break.
+ *
+ * The whole mesh moves together: positions scale, normals do not (a uniform
+ * scale leaves them unit), and bounds and radius are recomputed rather than
+ * multiplied, so nothing downstream can hold a stale opinion about how big the
+ * result is.
+ *
+ * A non-positive target, or a mesh with no width on the plane, is left exactly
+ * as authored and reported `false`. "No opinion" has to be expressible, or a
+ * caller with nothing to say would scale a hull to a point.
+ */
+[[nodiscard]] bool FitObjMeshToPlaneRadius(ObjMesh& _mesh, float _targetPlaneRadiusMetres) noexcept;
+
 } // namespace Neuron

@@ -144,6 +144,40 @@ struct ShipClassInfo
 [[nodiscard]] bool HullClassHasContent(HullClass _hullClass) noexcept;
 
 /*
+ * How much wider a hull's *drawn silhouette* is than the circle it collides on.
+ *
+ * Measured, not chosen. `Structure.obj` and `Stargate.obj` are the two meshes
+ * ADR-016 §10 says were authored deliberately and had the class table written
+ * *from* them -- "168 m of silhouette on the plane against the station's 253",
+ * against contact radii of 135 and 200. Both come out at 1.25 to two figures,
+ * which makes this the corpus's own answer rather than a new opinion, and it is
+ * why the two structures are the only meshes the renderer's fit barely moves.
+ *
+ * The relationship has to exist somewhere: contact is a circle *inside* the
+ * hull (a ship whose art touched before its collision did would read as
+ * clipping), and formation spacing is four contact radii, so a silhouette wider
+ * than this would put neighbouring hulls in a formation through each other.
+ * At 1.25 the gap between two ships at their spacing is 3/8 of it, whatever
+ * the class.
+ */
+inline constexpr float SILHOUETTE_RADIUS_PER_CONTACT_RADIUS = 1.25f;
+
+/*
+ * How wide a hull of this class should be drawn, on the plane, in metres.
+ *
+ * **Presentation only, like `pickRadiusMetres` and `hoverMetres`** -- nothing
+ * in `Tick` may read it, and no wire field carries it. It exists because the
+ * sim already states how big a hull is and the art has no way of knowing: a
+ * mesh arrives at whatever scale it was modelled at, and only this side knows
+ * that an Interceptor is a 17 m hull and a Battleship a 120 m one.
+ *
+ * Zero for a class with no content, which is the honest answer for a hull that
+ * has no mesh to size -- and, at the renderer, the value that means "leave the
+ * art as authored".
+ */
+[[nodiscard]] float SilhouetteRadiusMetres(HullClass _class) noexcept;
+
+/*
  * Cosmetic banking (ADR-001 §2, ADR-006 §6): how far a hull rolls into the turn
  * it is observed making, in radians. Positive drops the starboard wing, which
  * is the roll a turn to starboard (heading rate < 0, CCW-positive) earns.

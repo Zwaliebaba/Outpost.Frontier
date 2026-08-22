@@ -38,7 +38,11 @@
   "client": {
     "connect":  { "host": "127.0.0.1", "port": 7777 },
     "window":   { "width": 1600, "height": 900, "mode": "windowed" },
-    "renderer": { "vsync": true, "msaa": 4, "frameCap": 0 },
+    // `hullScale` is how big hulls are drawn against the size the sim already
+    // treats them as having (contact radius x 1.25, which is what the station
+    // and the stargate were authored at). 1.0 is honest; raise it for presence,
+    // and a formation starts overlapping itself somewhere above 2.
+    "renderer": { "vsync": true, "msaa": 4, "frameCap": 0, "hullScale": 1.0 },
     // Where the camera starts, as the ortho half-height in metres. 2667 is a
     // third of the 8000 this shipped with -- the fleet parked around the
     // station read as a scatter of specks from that far out.

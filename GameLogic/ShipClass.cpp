@@ -79,6 +79,17 @@ constexpr std::array<ShipClassInfo, HULL_CLASS_COUNT> CLASS_TABLE = {{
     {"Gate", 0.0f, 0.0f, 0.0f, 175.0f, 0.0f, 135.0f, 0.0f, 0.0f, 0.0f, true},
 }};
 
+// The silhouette rule has to hold for the two meshes it was measured from, or
+// it is a number somebody typed. Contact radii of 200 and 135 against authored
+// plane silhouettes of 253 and 168 (ADR-016 §10): both within a metre and a
+// half of the ratio, which is what makes it a rule.
+static_assert(200.0f * SILHOUETTE_RADIUS_PER_CONTACT_RADIUS > 248.0f &&
+                  200.0f * SILHOUETTE_RADIUS_PER_CONTACT_RADIUS < 258.0f,
+              "the station's authored silhouette is 253 m over a 200 m contact radius");
+static_assert(135.0f * SILHOUETTE_RADIUS_PER_CONTACT_RADIUS > 163.0f &&
+                  135.0f * SILHOUETTE_RADIUS_PER_CONTACT_RADIUS < 173.0f,
+              "the stargate's authored silhouette is 168 m over a 135 m contact radius");
+
 // The table is indexed by the enum, so the two have to stay in step. Spelling
 // the ends out means a class inserted in the middle fails to compile rather
 // than quietly shifting every row after it.
@@ -115,6 +126,18 @@ std::string_view HullClassName(HullClass _hullClass) noexcept
 bool HullClassHasContent(HullClass _hullClass) noexcept
 {
   return ShipClass(_hullClass).hasContent;
+}
+
+float SilhouetteRadiusMetres(HullClass _hullClass) noexcept
+{
+  const ShipClassInfo& info = ShipClass(_hullClass);
+  if (!info.hasContent)
+  {
+    // A reserved class has no mesh to size, and answering a number for one
+    // would be this table having an opinion about art that does not exist.
+    return 0.0f;
+  }
+  return info.collisionRadiusMetres * SILHOUETTE_RADIUS_PER_CONTACT_RADIUS;
 }
 
 float CosmeticBankRadians(HullClass _hullClass, float _headingRateRadiansPerSec, float _speedMetresPerSec) noexcept

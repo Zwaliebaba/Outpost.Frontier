@@ -140,10 +140,14 @@ void ReadRenderer(const JsonValue& _parent, RendererSettings& _settings, ConfigD
   {
     return;
   }
-  WarnUnknownKeys(renderer, {"vsync", "msaa", "frameCap"}, "client.renderer", _diagnostics);
+  WarnUnknownKeys(renderer, {"vsync", "msaa", "frameCap", "hullScale"}, "client.renderer", _diagnostics);
   ReadBool(renderer, "vsync", _settings.vsync, "client.renderer", _diagnostics);
   ReadUInt(renderer, "msaa", _settings.msaa, 1, 8, "client.renderer", _diagnostics);
   ReadUInt(renderer, "frameCap", _settings.frameCap, 0, 1000, "client.renderer", _diagnostics);
+  // The floor is not zero: a scale of nothing is a fleet that does not draw,
+  // which is a way to lose an evening. The ceiling is where a formation begins
+  // to overlap itself.
+  ReadDouble(renderer, "hullScale", _settings.hullScale, 0.25, 2.5, "client.renderer", _diagnostics);
 }
 
 void ReadAudio(const JsonValue& _parent, AudioSettings& _settings, ConfigDiagnostics& _diagnostics)

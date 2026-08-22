@@ -273,7 +273,8 @@ bool ClientApp::CreateContent()
   // The world pipelines take the sample count the swapchain actually built --
   // which may be 1 if the requested MSAA was unsupported and it fell back.
   bool ok = m_pipelines.Create(m_device.Device(), m_shaders, m_swapChain.SampleCount());
-  ok = ok && m_meshes.Create(m_device, m_config.meshDirectory, m_config.meshFiles, m_taskPool);
+  ok = ok && m_meshes.Create(m_device, m_config.meshDirectory, m_config.meshFiles, m_config.meshPlaneRadiiMetres,
+                             m_taskPool);
   ok = ok && m_uploadRing.Create(m_device.Device(), UPLOAD_BYTES_PER_FRAME, GpuSwapChain::BUFFER_COUNT);
 
   if (ok)
@@ -3115,12 +3116,25 @@ void ClientApp::BuildStationSurface()
    *
    * The way back, and which place this is.
    *
-   * The name and the count are the game's answer and are drawn rather than
-   * interpreted -- and they are found by the anchor rather than remembered,
-   * because the roster arrives at about 1 Hz and the fleet may have moved since
-   * the press. A hangar whose ships all undocked from another surface has a
-   * block that no longer exists, and the honest screen for that is one that
-   * says so rather than one still showing the count it opened with.
+   * The name is the game's answer and is drawn rather than interpreted -- and
+   * it is found by the anchor rather than remembered, because the roster
+   * arrives at about 1 Hz and the fleet may have moved since the press. A
+   * hangar whose ships all undocked from another surface has a block that no
+   * longer exists, and the honest screen for that is one that says so rather
+   * than one still showing the count it opened with.
+   *
+   * **The count is the roster's own, and that is a correction.** It used to
+   * come from the block beside the name, which is a different fact from a
+   * different record: a commander with ships on a grid *and* docked at one
+   * anchor has two blocks there, this loop takes the first, and the word
+   * `DOCKED` was written under it regardless -- so the bar reported a fleet in
+   * space as docked and disagreed with the list underneath it. Taking it from
+   * the roster this screen is drawing makes the bar and the list one statement,
+   * which is the only arrangement in which they cannot contradict each other.
+   *
+   * `StationRosterCounts::docked` rather than the columns' sum, because the bar
+   * is a statement about the station and not about what fitted: a hangar with
+   * more wings than there are columns drops ships out of both other totals.
    */
   m_ui.AddBorder(m_backChipRect, line, m_palette.border);
   centred(m_backChipRect, m_uiTuning.bodySizeIndex, m_palette.phosphor, BACK_CHIP_LABEL);
@@ -3142,8 +3156,8 @@ void ClientApp::BuildStationSurface()
     UpperCaseInto(here->name != nullptr ? here->name : "?", upper);
     m_ui.AddText(titleX, statusTextY, m_uiTuning.bodySizeIndex, m_palette.phosphorHot, upper);
 
-    std::snprintf(buffer, sizeof(buffer), "%u SHIP%s DOCKED", static_cast<unsigned>(here->shipCount),
-                  here->shipCount == 1 ? "" : "S");
+    std::snprintf(buffer, sizeof(buffer), "%u SHIP%s DOCKED", static_cast<unsigned>(m_stationRoster.docked),
+                  m_stationRoster.docked == 1 ? "" : "S");
     const float countWidth = static_cast<float>(TextCellCount(buffer)) * cell;
     m_ui.AddText(screen.statusBar.Right() - pad * 2.0f - countWidth,
                  screen.statusBar.y + (screen.statusBar.height - smallPx) * 0.5f, m_uiTuning.smallSizeIndex,

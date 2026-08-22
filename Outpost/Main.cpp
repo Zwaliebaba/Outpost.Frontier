@@ -1319,6 +1319,28 @@ WorldMeta MakeWorldMeta(const Game::UniverseDef& _universe)
   return meta;
 }
 
+/*
+ * Which hull class each mesh file draws.
+ *
+ * At file scope because **two** things need it and they must not drift: the
+ * world view's `renderClassByHull`, which turns a hull into a classId, and the
+ * client config's per-mesh silhouette radii, which turn a classId back into how
+ * big that hull is. Matching on the authored file name rather than on position
+ * means reordering the list in `Outpost.json` reorders the meshes and nothing
+ * breaks.
+ */
+constexpr struct
+{
+  Game::HullClass hullClass;
+  std::string_view meshFile;
+} MESH_FOR_HULL[] = {
+  {Game::HullClass::Interceptor, "Interceptor.obj"}, {Game::HullClass::Bomber, "Bomber.obj"},
+  {Game::HullClass::Corvette, "Corvette.obj"},       {Game::HullClass::Frigate, "Frigate.obj"},
+  {Game::HullClass::Hauler, "Hauler.obj"},           {Game::HullClass::Miner, "Miner.obj"},
+  {Game::HullClass::Carrier, "Carrier.obj"},         {Game::HullClass::Battleship, "Battleship.obj"},
+  {Game::HullClass::Structure, "Structure.obj"},     {Game::HullClass::Gate, "Stargate.obj"},
+};
+
 void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
 {
   const Game::GridAnchor anchor = _universe.universe.StartAnchor();
@@ -1353,21 +1375,6 @@ void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
 Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _config, const Outpost::UniverseLoadResult& _universe,
                                                      std::uint64_t _contentHash, const Game::EconomyDef& _economy)
 {
-  // The mesh list, by name, is the renderer's classId order. Matching on the
-  // authored file name rather than on position means reordering the list in
-  // `Outpost.json` reorders the meshes and nothing breaks.
-  static constexpr struct
-  {
-    Game::HullClass hullClass;
-    std::string_view meshFile;
-  } MESH_FOR_HULL[] = {
-    {Game::HullClass::Interceptor, "Interceptor.obj"}, {Game::HullClass::Bomber, "Bomber.obj"},
-    {Game::HullClass::Corvette, "Corvette.obj"},       {Game::HullClass::Frigate, "Frigate.obj"},
-    {Game::HullClass::Hauler, "Hauler.obj"},           {Game::HullClass::Miner, "Miner.obj"},
-    {Game::HullClass::Carrier, "Carrier.obj"},         {Game::HullClass::Battleship, "Battleship.obj"},
-    {Game::HullClass::Structure, "Structure.obj"}, {Game::HullClass::Gate, "Stargate.obj"},
-  };
-
   Outpost::ReplicatedWorldView::Desc desc;
   desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, Outpost::ReplicatedWorldView::INVALID_RENDER_CLASS);
   desc.contentHash = _contentHash;
@@ -1608,6 +1615,39 @@ ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
   const std::string meshDirectory = Outpost::ResolveContentPath(_config.content.meshDirectory);
   client.meshDirectory = meshDirectory.empty() ? _config.content.meshDirectory : meshDirectory;
   client.meshFiles = _config.content.meshes;
+
+  /*
+   * And how big each of them is, which the engine has no way of knowing
+   * (ADR-014): a mesh is authored at whatever scale the modelling package
+   * handed back, and only this side knows that one file is a 17 m interceptor
+   * and another a 200 m station.
+   *
+   * **This is why the fleet read as specks.** The class table has always stated
+   * a contact radius per hull -- formation spacing is four of them, and picking
+   * rounds a silhouette up to reach its own -- but nothing enforced that the
+   * art agreed. Measured against `Game::SilhouetteRadiusMetres`, `Structure`
+   * and `Stargate` were within 1% (ADR-016 §10 wrote the class rows *from*
+   * those two meshes), and every flyable hull was between a quarter and a
+   * twelfth of the size its own row describes. An Interceptor was a 7 m dart
+   * sitting inside a 90 m selection ring.
+   *
+   * A file with no hull -- one the list names and `MESH_FOR_HULL` does not --
+   * gets a zero, which the loader reads as "as authored". Silence is the right
+   * answer for content this table has no opinion about.
+   */
+  client.meshPlaneRadiiMetres.assign(_config.content.meshes.size(), 0.0f);
+  for (const auto& mapping : MESH_FOR_HULL)
+  {
+    for (std::size_t index = 0; index < _config.content.meshes.size(); ++index)
+    {
+      if (_config.content.meshes[index] == mapping.meshFile)
+      {
+        client.meshPlaneRadiiMetres[index] =
+          Game::SilhouetteRadiusMetres(mapping.hullClass) * static_cast<float>(_config.client.renderer.hullScale);
+        break;
+      }
+    }
+  }
   client.fontFamily = _config.client.ui.font;
 
   // The audio content, resolved by the same rule the meshes are: a bare

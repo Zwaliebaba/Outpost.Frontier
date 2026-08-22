@@ -596,6 +596,50 @@ bool ParseMeshMaterials(std::string_view _text, MeshMaterialPalette& _outPalette
   return true;
 }
 
+float PlaneRadiusMetres(const ObjMesh& _mesh) noexcept
+{
+  float radiusSquared = 0.0f;
+  for (const MeshVertex& vertex : _mesh.vertices)
+  {
+    const float x = vertex.position.x;
+    const float z = vertex.position.z;
+    radiusSquared = std::max(radiusSquared, x * x + z * z);
+  }
+  return std::sqrt(radiusSquared);
+}
+
+bool FitObjMeshToPlaneRadius(ObjMesh& _mesh, float _targetPlaneRadiusMetres) noexcept
+{
+  if (_targetPlaneRadiusMetres <= 0.0f)
+  {
+    return false; // The caller has no opinion. Leave the art alone.
+  }
+
+  const float authored = PlaneRadiusMetres(_mesh);
+  if (authored <= 0.0f)
+  {
+    return false; // Nothing on the plane to measure -- a mesh with no width
+                  // cannot be given one, and dividing by it would be worse.
+  }
+
+  const float factor = _targetPlaneRadiusMetres / authored;
+  for (MeshVertex& vertex : _mesh.vertices)
+  {
+    // Positions only. A *uniform* scale leaves a unit normal unit, so touching
+    // them would cost a normalise per vertex to arrive back where they started
+    // -- and would quietly stop being true the day somebody wanted a
+    // non-uniform one, which is the version worth failing loudly.
+    vertex.position.x *= factor;
+    vertex.position.y *= factor;
+    vertex.position.z *= factor;
+  }
+
+  // Recomputed rather than multiplied through: one function decides how big a
+  // mesh is, and it is the one that decided before.
+  ComputeBounds(_mesh);
+  return true;
+}
+
 bool LoadObjMesh(std::string_view _directory, std::string_view _fileName, ObjMesh& _outMesh, ObjDiagnostic& _outError)
 {
   const std::string meshPath = JoinPath(_directory, _fileName);

@@ -486,6 +486,40 @@ least a chip tall and short of a chip and a gap, and `UpdateCamera` — which ru
 the router exists and so cannot be reached by any claim — was zooming and panning a camera
 under a screen that covers the world.
 
+**And the owner found the one nothing device-free could (2026-08-22): an empty hangar over a
+full station.** The screen drew `35 SHIPS DOCKED` in its status bar and `NOTHING DOCKED HERE`
+in the roster beneath it — one surface contradicting itself, which is the shape of a bug worth
+reading before its fix.
+
+The cause was in the *decode*, not the screen. `WorldRegistry::Summaries` walks the grids and
+then the rosters, so a commander flying at a station while some of their hulls sit inside it is
+**two rows at one anchor** — `OnGrid` first, `Docked` second — against exactly **one**
+`StationRoster` record, because a roster is a fact about a station rather than about a fleet.
+`ApplySummary`'s merge matched the roster to a block on the anchor alone, so the grid row
+claimed it, and because the list is *moved* rather than copied the docked row was left holding
+an empty one. The hangar then reported the station honestly: there was nothing in the roster it
+was given.
+
+Two things made it invisible until somebody docked. It needs a commander in **two states at one
+anchor**, which no test built and no gate exercised — the family's own gate wrote a single
+docked row, which is the arrangement in which the bug cannot happen. And **U3b widened the block
+list to every row** where T2 had kept only the docked ones; that was right for the ELSEWHERE
+panel, and it silently introduced the duplicate anchor the merge was written before there could
+be one.
+
+The status bar was a second defect with the same root: it found its block by anchor alone, took
+the first, and printed the word `DOCKED` under whatever count that block carried — so a fleet
+in space read as docked. It takes `StationRosterCounts::docked` now, which is the roster's own
+count *before* the client's caps, so the bar and the list are one statement about one place.
+Not the columns' sum and not `chips`: a ship in a wing past the column cap is counted in
+neither, and a bar about a station must not be a bar about what fitted on the screen.
+
+Gated in `RunSummaryFamilyGate` — the frame with two rows at one anchor, asserted through
+`BuildStationRoster` rather than through the count, because the count was right the whole time
+and the bug only ever showed in the list. It lives with the self test rather than in a unit
+suite for the reason the decoder fix already gave: `ReplicatedWorldView` is in the executable
+and has no test project.
+
 **Still owed by T3:** the reorganisation room. Wing assignment, wing creation and renames are
 drawn and disabled with their reason, in the treatment the tab row already gives a service
 that has not landed — all three need the user settings layer, because a wing's *name* is

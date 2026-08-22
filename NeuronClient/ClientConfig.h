@@ -93,6 +93,17 @@ struct ClientConfig
 
   /// Camera start state and detent spacing (ADR-006 §4).
   float cameraZoomMetres = 8000.0f;
+
+  /*
+   * How wide each mesh in `meshFiles` should be drawn on the plane, in metres
+   * and in the same order.
+   *
+   * The engine cannot work this out: a mesh arrives at whatever scale it was
+   * modelled at, and only the game knows that one of these files is a 17 m
+   * interceptor and another a 200 m station. Empty, or a zero in a slot, loads
+   * that file exactly as authored.
+   */
+  std::vector<float> meshPlaneRadiiMetres;
   float cameraYawSnapDegrees = 45.0f;
 
   /// A multiplier on HUD sizes, honoured from day one because the settings

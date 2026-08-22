@@ -8,6 +8,8 @@
 #include "TickSoak.h"
 
 #include "ClientConnection.h"
+#include "ObjMesh.h"
+#include "StationView.h"
 
 #include "DurableStore.h"
 #include "ServerConfig.h"
@@ -1609,6 +1611,76 @@ void RunLocationBlockGate(Checklist& _checks)
   _checks.Record("and every block was given its state in the game's own words", everyStateNamed);
 }
 
+/*
+ * The fleet is drawn at the size the game says it is (ADR-006 §5, ADR-016 §10).
+ *
+ * This check exists here and can exist nowhere else: it needs a mesh loader,
+ * which is `NeuronClient`'s, and a class table, which is `GameLogic`'s, and the
+ * composition root is the one project entitled to see both (ADR-014 §2a).
+ *
+ * **What it is guarding against is silence.** Nothing used to relate the two,
+ * so the art drifted: `Structure.obj` and `Stargate.obj` matched their rows to
+ * within a per cent -- their rows were written from them -- and every flyable
+ * hull was between a quarter and a twelfth of the size its own row described.
+ * That is invisible to every test either project can write on its own, and on
+ * screen it reads as a camera problem rather than as a content one.
+ *
+ * A tolerance rather than an equality, because the fit is applied to whatever
+ * the file contains: this asserts the *result*, so a re-export at any scale
+ * still passes and a fit that silently stopped running does not.
+ */
+void RunHullScaleGate(Checklist& _checks, const Outpost::AppConfig& _config)
+{
+  const std::string directory = Outpost::ResolveContentPath(_config.content.meshDirectory);
+
+  struct Expected
+  {
+    const char* file;
+    Game::HullClass hullClass;
+  };
+  const Expected fleet[] = {
+      {"Interceptor.obj", Game::HullClass::Interceptor}, {"Bomber.obj", Game::HullClass::Bomber},
+      {"Corvette.obj", Game::HullClass::Corvette},       {"Frigate.obj", Game::HullClass::Frigate},
+      {"Hauler.obj", Game::HullClass::Hauler},           {"Miner.obj", Game::HullClass::Miner},
+      {"Carrier.obj", Game::HullClass::Carrier},         {"Battleship.obj", Game::HullClass::Battleship},
+      {"Structure.obj", Game::HullClass::Structure},     {"Stargate.obj", Game::HullClass::Gate},
+  };
+
+  bool everyHullFits = true;
+  bool anythingLoaded = false;
+  for (const Expected& expected : fleet)
+  {
+    Neuron::ObjMesh mesh;
+    Neuron::ObjDiagnostic error;
+    if (!Neuron::LoadObjMesh(directory.empty() ? _config.content.meshDirectory : directory, expected.file, mesh, error))
+    {
+      NEURON_LOG_WARNING("hull scale gate: %s", error.Text().c_str());
+      everyHullFits = false;
+      continue;
+    }
+    anythingLoaded = true;
+
+    const float target = Game::SilhouetteRadiusMetres(expected.hullClass);
+    const float authored = Neuron::PlaneRadiusMetres(mesh);
+    (void)Neuron::FitObjMeshToPlaneRadius(mesh, target);
+    const float drawn = Neuron::PlaneRadiusMetres(mesh);
+
+    // A tenth of a metre over targets that run from 21 m to 250 m, which is
+    // float noise rather than a tolerance for drift.
+    if (std::fabs(drawn - target) > 0.1f)
+    {
+      NEURON_LOG_ERROR("hull scale gate: %s draws at %.1f m, the class table says %.1f m", expected.file,
+                       static_cast<double>(drawn), static_cast<double>(target));
+      everyHullFits = false;
+    }
+    NEURON_LOG_INFO("self test: %-16s %6.1f m authored -> %6.1f m drawn (x%.2f)", expected.file,
+                    static_cast<double>(authored), static_cast<double>(drawn),
+                    static_cast<double>(authored > 0.0f ? drawn / authored : 1.0f));
+  }
+
+  _checks.Record("every hull is drawn at the size the class table states", anythingLoaded && everyHullFits);
+}
+
 void RunSummaryFamilyGate(Checklist& _checks)
 {
   std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> payload{};
@@ -1666,6 +1738,52 @@ void RunSummaryFamilyGate(Checklist& _checks)
   // And the record *before* them still lands, which is the half that was
   // visibly broken: a frame refused mid-walk never committed its blocks.
   _checks.Record("the docked block the frame opened with is still there", view.DockedCountAt(STATION) == 3);
+
+  /*
+   * And the case that emptied the hangar: **two rows for one anchor**.
+   *
+   * `WorldRegistry::Summaries` reports where a commander's ships are, and a
+   * commander flying at a station while some of their hulls sit inside it is in
+   * two places at one anchor -- one `OnGrid` row from the live world and one
+   * `Docked` row from the roster, in that order, because grids are walked
+   * first. There is still exactly one `StationRoster` record, because a roster
+   * is a fact about a station rather than about a fleet.
+   *
+   * The merge that attaches the roster to its block therefore has to match on
+   * the **state as well as the anchor**. Matching on the anchor alone hands the
+   * roster to whichever row came first -- the grid -- and moves it there, so
+   * the docked block is left with an empty list and the hangar draws NOTHING
+   * DOCKED HERE over a station holding a full roster, while its own status bar
+   * reads the count off the other row and says the ships are there.
+   *
+   * Asserted through `BuildStationRoster` rather than through the count,
+   * because the count came from the *summary* and was right the whole time:
+   * this bug was only ever visible in the list.
+   */
+  Neuron::ByteWriter both{payload};
+  const Game::FleetSummary twoPlaces[] = {
+    Game::FleetSummary{STATION, Game::FleetState::OnGrid, 12, Game::FLEET_ETA_NONE},
+    Game::FleetSummary{STATION, Game::FleetState::Docked, 3, Game::FLEET_ETA_NONE},
+  };
+  bool pair = Game::BeginSummaryFrame(2, both);
+  pair = pair && Game::BeginSummaryRecord(Game::SummaryKind::FleetSummaries, both) &&
+         Game::WriteFleetSummaries(twoPlaces, both);
+  pair = pair && Game::BeginSummaryRecord(Game::SummaryKind::StationRoster, both) &&
+         Game::WriteStationRoster(STATION, docked, both);
+  _checks.Record("a commander both on a grid and docked at one anchor is two rows and one roster",
+                 pair && both.Ok() && view.ApplySummary(both.Written()));
+
+  _checks.Record("the docked row still carries the count", view.DockedCountAt(STATION) == 3);
+
+  std::array<Neuron::StationGroup, Neuron::MAX_STATION_GROUPS> groups{};
+  std::array<Neuron::StationChip, Neuron::MAX_STATION_CHIPS> chips{};
+  const Neuron::StationRosterCounts counts = view.BuildStationRoster(STATION, {}, groups, chips);
+  _checks.Record("and the hangar behind it is not empty -- the grid row did not take its roster",
+                 counts.chips == 3 && counts.groups == 2);
+
+  // And the number the status bar prints is the roster's own rather than the
+  // block's, so the bar and the list are one statement about one place.
+  _checks.Record("the station's own docked count is what the bar can read", counts.docked == 3);
 }
 
 /*
@@ -2352,6 +2470,7 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   // The client-side gates first: they are pure decode and validation, so they
   // run whether or not a second commander could be brought up.
   RunSummaryFamilyGate(checks);
+  RunHullScaleGate(checks, _config);
   RunClientDockPreCheckGate(checks, _simulation);
   RunMineAvailabilityGate(checks, _economy);
   RunLocationBlockGate(checks);

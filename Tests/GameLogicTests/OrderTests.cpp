@@ -2546,6 +2546,70 @@ public:
     Assert::IsFalse(OrderKindHasContent(OrderKind::Abilities));
   }
 
+  TEST_METHOD(EveryDrawnHullClearsItsNeighbourAndSitsInsideItsOwnRing)
+  {
+    /*
+     * The two ceilings on `SilhouetteRadiusMetres`, as arithmetic rather than
+     * as a comment, because the renderer scales the art to whatever this
+     * answers and both failures would be visible before they were diagnosable.
+     *
+     * **Clear in formation.** Spacing is roughly four contact radii and a
+     * silhouette is 1.25 of one, so two hulls at their own spacing keep about
+     * three eighths of it between them. A fleet whose ships intersect on
+     * arrival would be trading one wrong picture for another.
+     *
+     * **Inside its ring.** A selection ring is `pickRadius` plus the overlay's
+     * pad, all of it from this table, and it must stay *outside* the hull or a
+     * selected ship bursts through its own marker -- which reads as the ring
+     * having shrunk, and the ring is the thing that must not appear to change.
+     * `pickRadius` is deliberately generous for small hulls (an Interceptor's
+     * is 2.6 contact radii, a Battleship's 1.5), so the margin is widest
+     * exactly where the scaling factor is largest.
+     */
+    for (std::uint8_t index = 0; index < HULL_CLASS_COUNT; ++index)
+    {
+      const auto hullClass = static_cast<HullClass>(index);
+      const ShipClassInfo& info = ShipClass(hullClass);
+      const std::wstring name(info.name.begin(), info.name.end());
+
+      if (!info.hasContent)
+      {
+        Assert::AreEqual(0.0f, SilhouetteRadiusMetres(hullClass), name.c_str());
+        continue; // No mesh to size, so no opinion to have about one.
+      }
+
+      const float silhouette = SilhouetteRadiusMetres(hullClass);
+      Assert::IsTrue(silhouette > info.collisionRadiusMetres, name.c_str());
+
+      if (info.formationSpacingMetres > 0.0f)
+      {
+        Assert::IsTrue(info.formationSpacingMetres - 2.0f * silhouette > 0.0f, name.c_str());
+      }
+
+      // 8 m is `OverlayTuning::ringPadMetres`, restated rather than included:
+      // GameLogic may not read a client header, and the number crossing as a
+      // literal in a test is the honest way to assert against it.
+      Assert::IsTrue(info.pickRadiusMetres + 8.0f > silhouette, name.c_str());
+    }
+  }
+
+  TEST_METHOD(TheSilhouetteRuleIsTheOneTheTwoStructuresWereAuthoredTo)
+  {
+    /*
+     * ADR-016 §10 records that `Structure.obj` and `Stargate.obj` had their
+     * class rows written *from* the meshes -- "168 m of silhouette on the plane
+     * against the station's 253" -- so those two files are the corpus's own
+     * statement of how big a hull is next to the circle it collides on, and
+     * every other hull is now drawn to match them.
+     *
+     * Asserted here against the numbers the ADR quotes; the *files* are checked
+     * against this rule by the self test, which is the only place that can see
+     * both a mesh loader and a class table.
+     */
+    Assert::AreEqual(253.0f, SilhouetteRadiusMetres(HullClass::Structure), 5.0f);
+    Assert::AreEqual(168.0f, SilhouetteRadiusMetres(HullClass::Gate), 5.0f);
+  }
+
   TEST_METHOD(OnlyMineHasAWordForWhatItIsDoingAfterItsLegsAreSpent)
   {
     /*

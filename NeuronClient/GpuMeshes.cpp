@@ -137,7 +137,8 @@ bool GpuMeshTable::UploadMesh(GpuDevice& _device, ID3D12GraphicsCommandList* _co
   return true;
 }
 
-bool GpuMeshTable::Create(GpuDevice& _device, std::string_view _directory, std::span<const std::string> _fileNames, TaskPool& _taskPool)
+bool GpuMeshTable::Create(GpuDevice& _device, std::string_view _directory, std::span<const std::string> _fileNames,
+                          std::span<const float> _planeRadiiMetres, TaskPool& _taskPool)
 {
   NEURON_SPAN("MeshLoad");
   Destroy();
@@ -180,6 +181,33 @@ bool GpuMeshTable::Create(GpuDevice& _device, std::string_view _directory, std::
   if (!allLoaded)
   {
     return false;
+  }
+
+  /*
+   * Sized to what the caller says these things are, before anything is
+   * uploaded (`FitObjMeshToPlaneRadius`).
+   *
+   * Here rather than in the parse tasks because it is not parsing, and after
+   * the failure check rather than inside it because a mesh that did not load
+   * has nothing to scale. The buffers are static and one per class, so this is
+   * the last moment the geometry is on the CPU and the cheapest possible place
+   * to do it: the scale is a per-class constant, so baking it into the vertices
+   * costs nothing per frame and no instance field.
+   *
+   * Logged per mesh that actually moved, because a hull silently drawn at four
+   * times the size it was exported at is exactly the kind of thing somebody
+   * should be able to find in a log rather than by measuring a screenshot.
+   */
+  for (std::uint32_t i = 0; i < count; ++i)
+  {
+    const float target = i < _planeRadiiMetres.size() ? _planeRadiiMetres[i] : 0.0f;
+    const float authored = PlaneRadiusMetres(parsed[i]);
+    if (FitObjMeshToPlaneRadius(parsed[i], target))
+    {
+      NEURON_LOG_INFO("mesh %s: %.1f m authored -> %.1f m drawn (x%.2f)", _fileNames[i].c_str(),
+                      static_cast<double>(authored), static_cast<double>(target),
+                      static_cast<double>(authored > 0.0f ? target / authored : 1.0f));
+    }
   }
 
   // One command list for every mesh: nine copies is one submission, and the
