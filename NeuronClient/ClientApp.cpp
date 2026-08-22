@@ -7,8 +7,10 @@
 #include "Telemetry.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 
 namespace Neuron
 {
@@ -503,7 +505,28 @@ void ClientApp::PollNetwork()
 
 void ClientApp::UpdateCamera(float _deltaSeconds)
 {
+  // Latched first and unconditionally: the frame has to be consumed whatever
+  // is on screen, or the next one arrives holding two frames of edges.
   m_input = m_window.ConsumeInput();
+
+  /*
+   * A full-screen surface has no world to move the camera over (ADR-020 §1).
+   *
+   * This runs *before* `UpdateHud`, so it reads the frame directly rather than
+   * through the router -- which means a claim made downstream cannot reach it,
+   * and the surface has to be asked here. Without it, a wheel spun over the
+   * hangar's wing columns scrolls the list *and* zooms a camera nobody can see,
+   * and W pans the same invisible view a rename box will want the key for.
+   *
+   * Asked of the surface rather than solved by reordering the frame, because
+   * the reason is not a routing accident: there is no world on screen, so
+   * there is nothing for a camera move to mean.
+   */
+  if (!SurfaceRecordsWorld(m_surfaces.Active()))
+  {
+    return;
+  }
+
   const CameraIntent intent = MapCameraInput(m_input, m_cameraTuning, _deltaSeconds);
   ApplyCameraIntent(m_camera, intent);
 }
@@ -692,14 +715,7 @@ void ClientApp::UpdateHud()
    */
   if (!SurfaceRecordsWorld(m_surfaces.Active()))
   {
-    if (m_router.ClaimPointerIn(m_backChipRect))
-    {
-      OnSurfaceChanged(m_surfaces.Back());
-    }
-    else
-    {
-      (void)m_router.ClaimPointer();
-    }
+    UpdateStationSurface();
     return;
   }
 
@@ -1120,7 +1136,303 @@ void ClientApp::OnSurfaceChanged(const SurfaceChange& _change)
   m_selection.CancelDrag();
   m_puck.Cancel();
 
+  if (_change.entered == SurfaceId::Station)
+  {
+    /*
+     * The scroll resets and the composer does not, and the pair is ADR-017
+     * §6a.2 in two lines.
+     *
+     * A different station's hangar is not the same list scrolled, so an offset
+     * carried across would open a screen forty rows down a column that has
+     * four. The *selection* is the opposite case: re-picking thirty ships
+     * after one glance at the map is the cost the section weighed, and
+     * `Reconcile` -- which `UpdateStationSurface` runs on every look -- is
+     * what makes keeping it safe rather than stale.
+     */
+    m_stationScroll.Reset();
+  }
+
   NEURON_LOG_INFO("surface: %u -> %u", static_cast<unsigned>(_change.exited), static_cast<unsigned>(_change.entered));
+}
+
+/*
+ * The station surface's frame (`station-screen.png` §1-§2, ADR-020 §5.1, §5.4).
+ *
+ * The whole screen in one function, in the order a frame has to happen: ask,
+ * reconcile, lay out, judge, then take the gesture. Every rect a press is
+ * tested against below is a rect this function put in a member, and the draw
+ * takes the same members -- which is §5.1's rule and the reason a hit test on
+ * this screen can be tested at all.
+ *
+ * It owns the whole pointer while it runs. There is no world underneath to
+ * fall through to, and a press that reached the tactical command row would be
+ * a button nobody could see being pressed.
+ */
+void ClientApp::UpdateStationSurface()
+{
+  const float scale = m_uiLayout.scale;
+  m_stationLayout =
+      ResolveStationScreen(m_input.viewportWidth, m_input.viewportHeight, scale, m_stationTuning);
+
+  /*
+   * What the game says about this place.
+   *
+   * Asked every frame the screen is up rather than once on entry, and the
+   * difference is the point: the roster arrives at about 1 Hz and a fleet can
+   * leave from somewhere else, so a hangar that answered once would keep
+   * drawing ships that are no longer in it.
+   */
+  m_stationTabCount = m_worldView->BuildStationTabs(m_stationAnchor, m_stationTabs);
+  m_stationRoster =
+      m_worldView->BuildStationRoster(m_stationAnchor, m_composer.Ids(), m_stationGroups, m_stationChips);
+
+  /*
+   * ADR-017 §6a.2's clause, and what makes a composer that outlives navigation
+   * safe: the ids the roster no longer holds are dropped.
+   *
+   * Skipped when the roster did not fit, because a truncated list is not a
+   * statement that the missing ships have gone -- reconciling against one
+   * would silently shrink a selection the player built. Two ways it can not
+   * fit and both are checked: more chips than the span holds, which shows up
+   * as counted-but-not-emitted, and more wings than there are columns, which
+   * shows up as nothing at all -- a ship in an unrepresented wing is skipped
+   * before it is counted, so only the group cap itself gives it away.
+   */
+  std::uint32_t held = 0;
+  for (std::uint32_t group = 0; group < m_stationRoster.groups; ++group)
+  {
+    held += m_stationGroups[group].chipCount;
+  }
+
+  if (held == m_stationRoster.chips && m_stationRoster.groups < MAX_STATION_GROUPS)
+  {
+    std::uint32_t available[MAX_STATION_CHIPS] = {};
+    for (std::uint32_t index = 0; index < m_stationRoster.chips; ++index)
+    {
+      available[index] = m_stationChips[index].shipId;
+    }
+
+    const std::size_t before = m_composer.Count();
+    m_composer.Reconcile(std::span<const std::uint32_t>{available, m_stationRoster.chips});
+    if (m_composer.Count() != before)
+    {
+      // Asked again rather than left as it is: the counts the game just filled
+      // were counted against a selection that has since lost ships, and a
+      // column reading `. 3` over two highlighted chips is a wrong number.
+      m_stationRoster =
+          m_worldView->BuildStationRoster(m_stationAnchor, m_composer.Ids(), m_stationGroups, m_stationChips);
+    }
+  }
+
+  // The composer's action and the values its parameter may take -- the words
+  // and the verb both the game's (ADR-020 §6).
+  m_stationActionCount = m_worldView->BuildStationActions(m_stationAnchor, m_stationActions);
+  m_stationOptionCount =
+      m_stationActionCount > 0 ? m_worldView->StationActionOptions(m_stationActions[0].verb, m_stationOptions) : 0;
+  if (m_stationOptionIndex >= m_stationOptionCount)
+  {
+    m_stationOptionIndex = 0;
+  }
+
+  /*
+   * What the columns scroll over, and how much of it shows.
+   *
+   * Both from `StationScreen`, and both from the same arithmetic the layout
+   * uses -- a visible count derived separately would let the scroll believe in
+   * a row the layout had already drawn.
+   */
+  m_stationScroll.SetExtent(
+      StationColumnRows(std::span<const StationChip>{m_stationChips, m_stationRoster.chips}, m_stationRoster.groups),
+      StationVisibleRows(m_stationLayout.roster, scale, m_stationTuning));
+
+  m_stationTabButtonCount =
+      BuildStationTabRow(std::span<const StationTab>{m_stationTabs, m_stationTabCount}, m_stationLayout.tabRow, scale,
+                         m_stationTuning, m_stationTabButtons);
+  m_stationLaid = BuildStationColumns(std::span<const StationGroup>{m_stationGroups, m_stationRoster.groups},
+                                      std::span<const StationChip>{m_stationChips, m_stationRoster.chips},
+                                      m_stationLayout.roster, m_stationScroll.FirstVisibleRow(), scale, m_stationTuning,
+                                      m_stationColumns, m_stationChipRects);
+
+  /*
+   * Whether UNDOCK is a promise, from the authority's own validator.
+   *
+   * `PreCheckStation` runs `ValidateStationCommand` over the same `RosterView`
+   * the server judges with, so the button greys for the reason the bounce would
+   * have carried and in the same words. That is the whole of ADR-014 §3's
+   * parity claim on this screen, and the print states it as a rule: "a tappable
+   * UNDOCK is a promise".
+   *
+   * Judged on the *first wave* rather than on the whole selection, because the
+   * first wave is what a press sends. Sixty-six ships is two commands and the
+   * screen says so before the press; asking the validator about all sixty-six
+   * would refuse a gesture that is going to work.
+   */
+  const std::uint32_t cap = m_worldView->ShipsPerStationCommand();
+  m_undockWaves = m_composer.WaveCount(cap);
+  m_undockVerdict = OrderVerdict{};
+  if (m_stationActionCount > 0 && m_undockWaves > 0)
+  {
+    const std::span<const std::uint32_t> wave = m_composer.Wave(0, cap);
+    StationIntent probe;
+    probe.verb = m_stationActions[0].verb;
+    probe.parameter = m_stationOptionCount > 0 ? m_stationOptions[m_stationOptionIndex].parameter : 0;
+    probe.anchor = m_stationAnchor;
+    probe.shipIds = wave.data();
+    probe.shipCount = static_cast<std::uint32_t>(wave.size());
+    m_undockVerdict = m_worldView->PreCheckStation(probe);
+  }
+
+  // --- and now the gesture, in ADR-020 §2's order -------------------------
+  //
+  // The wheel first, and by position rather than by press: a list under the
+  // cursor claims the notch before anything else sees it, and hovering is the
+  // whole gesture (§4).
+  if (const float notches = m_router.ClaimWheelIn(m_stationLayout.roster); notches != 0.0f)
+  {
+    m_stationScroll.ScrollByWheel(notches);
+  }
+
+  // The way back, before anything else can take the press.
+  if (m_router.ClaimPointerIn(m_backChipRect))
+  {
+    OnSurfaceChanged(m_surfaces.Back());
+    return;
+  }
+
+  const float cursorX = m_router.CursorX();
+  const float cursorY = m_router.CursorY();
+
+  if (m_router.Pressed(InputButton::Left))
+  {
+    if (const StationTabButton* tab = HitStationTab(
+            std::span<const StationTabButton>{m_stationTabButtons, m_stationTabButtonCount}, cursorX, cursorY);
+        tab != nullptr)
+    {
+      // Only the hangar is live today and this client cannot tell which one it
+      // is -- the tab hands back the game's number and the screen echoes it.
+      // A disabled tab never reaches here; the hit test refused it.
+      m_stationTab = tab->id;
+    }
+    else if (const StationColumnRect* column = HitStationColumnHeader(
+                 std::span<const StationColumnRect>{m_stationColumns, m_stationLaid.groups}, cursorX, cursorY);
+             column != nullptr)
+    {
+      /*
+       * The print's second gesture: taking a whole wing.
+       *
+       * **A press rather than a hold**, which is a departure from the print
+       * and worth naming. A hold needs a dwell timer this frame loop does not
+       * otherwise keep, and it earns its cost on a *chip*, where holding has
+       * to be told apart from tapping. A header has no competing gesture: it
+       * is not a chip, and nothing else on it does anything.
+       *
+       * Additive, which is the part that matters: taking a wing extends the
+       * composition rather than replacing it, so "Talon plus two spare
+       * Battleships from Reserve" stays three gestures.
+       */
+      std::uint32_t wing[MAX_STATION_CHIPS] = {};
+      std::uint32_t count = 0;
+      for (std::uint32_t index = 0; index < m_stationRoster.chips; ++index)
+      {
+        if (m_stationChips[index].group == column->group)
+        {
+          wing[count] = m_stationChips[index].shipId;
+          ++count;
+        }
+      }
+      m_composer.AddAll(std::span<const std::uint32_t>{wing, count});
+    }
+    else if (const StationChipRect* chip = HitStationChip(
+                 std::span<const StationChipRect>{m_stationChipRects, m_stationLaid.chips}, cursorX, cursorY);
+             chip != nullptr && chip->chip < m_stationRoster.chips)
+    {
+      // The first gesture: tap toggles.
+      (void)m_composer.Toggle(m_stationChips[chip->chip].shipId);
+    }
+    else if (m_stationOptionCount > 0 && m_stationLayout.formation.Contains(cursorX, cursorY))
+    {
+      // Cycled rather than dropped down, which is the command row's idiom for
+      // the same shape of choice -- three values with words for them, and a
+      // list that opened would be a second surface over a full-screen one.
+      m_stationOptionIndex = (m_stationOptionIndex + 1) % m_stationOptionCount;
+    }
+    else if (m_undockVerdict.accepted && m_stationLayout.undock.Contains(cursorX, cursorY))
+    {
+      CommitUndock(Clock::SecondsSinceStart());
+    }
+  }
+
+  // Whatever the press landed on is the surface's own air. Claimed after the
+  // stages above rather than instead of them, and unconditionally, because a
+  // full-screen surface owns every button of the pointer for as long as it is
+  // up (ADR-020 §1).
+  (void)m_router.ClaimPointer();
+}
+
+/*
+ * One wave onto the wire.
+ *
+ * `CommitOrder`'s shape without the ghost: an order bounces in the world
+ * because there is a world to bounce it in, and a docked ship is in no
+ * snapshot -- so a refused undock is a toast and nothing else.
+ *
+ * The pre-check has already run this frame, against this wave, with this
+ * formation; what follows is the send. Refusing again here would be asking the
+ * same function the same question twice in one frame.
+ */
+void ClientApp::CommitUndock(double _nowSeconds)
+{
+  const std::uint32_t cap = m_worldView->ShipsPerStationCommand();
+  const std::span<const std::uint32_t> picked = m_composer.Wave(0, cap);
+  if (m_stationActionCount == 0 || picked.empty())
+  {
+    return;
+  }
+
+  // Copied out of the composer rather than referenced into it: the last thing
+  // this function does is remove these ids, and a span into the vector it is
+  // erasing from would be a span into a vector that has moved.
+  std::uint32_t wave[MAX_STATION_CHIPS] = {};
+  const std::uint32_t waveCount = static_cast<std::uint32_t>(std::min(picked.size(), std::size(wave)));
+  for (std::uint32_t index = 0; index < waveCount; ++index)
+  {
+    wave[index] = picked[index];
+  }
+
+  StationIntent intent;
+  intent.verb = m_stationActions[0].verb;
+  intent.parameter = m_stationOptionCount > 0 ? m_stationOptions[m_stationOptionIndex].parameter : 0;
+  intent.anchor = m_stationAnchor;
+  intent.orderSeq = m_nextOrderSeq++;
+  intent.shipIds = wave;
+  intent.shipCount = waveCount;
+
+  // The game writes its own bytes and the connection frames them; neither
+  // looks at the other's half (ADR-004 ruling 4). Station commands ride the
+  // order stream, which is why this is `SendOrder` (ADR-017 §8).
+  std::array<std::uint8_t, MAX_DATAGRAM_BYTES> payload{};
+  ByteWriter writer{payload};
+  if (!m_worldView->EncodeStationCommand(intent, writer) || !writer.Ok() ||
+      !m_connection.SendOrder(writer.Written()))
+  {
+    (void)m_toasts.Raise(ToastPriority::Urgent, 0, "UNDOCK NOT SENT", "the link did not take it", _nowSeconds);
+    NEURON_LOG_WARNING("station command %u could not be sent", intent.orderSeq);
+    return;
+  }
+
+  /*
+   * The ships that just left stop being pickable, and the composer drops them.
+   *
+   * Cleared by the action that consumed them rather than by navigation --
+   * §6a.2's other half. Only this wave: a selection of sixty-six is two
+   * presses, and clearing all of it on the first would lose the second.
+   */
+  for (std::uint32_t index = 0; index < waveCount; ++index)
+  {
+    m_composer.Remove(wave[index]);
+  }
+
+  NEURON_LOG_INFO("station command %u sent: %u ship(s) undocking", intent.orderSeq, intent.shipCount);
 }
 
 void ClientApp::OnViewChanged(std::uint16_t _gridAnchor, double _nowSeconds)
@@ -2330,10 +2642,24 @@ void ClientApp::BuildHud()
 
 void ClientApp::BuildStationSurface()
 {
-  const UiLayout& layout = m_uiLayout;
-  const float pad = m_uiTuning.padding * layout.scale;
-  const float cell = 8.0f * layout.scale;
-  const float bodyPx = BASE_FONT_SIZES_PIXELS[m_uiTuning.bodySizeIndex] * layout.scale;
+  const StationScreenLayout& screen = m_stationLayout;
+  const float scale = screen.scale;
+  const float cell = 8.0f * scale;
+  const float pad = m_uiTuning.padding * scale;
+  const float line = 1.0f * scale;
+  const float bodyPx = BASE_FONT_SIZES_PIXELS[m_uiTuning.bodySizeIndex] * scale;
+  const float smallPx = BASE_FONT_SIZES_PIXELS[m_uiTuning.smallSizeIndex] * scale;
+
+  char buffer[96] = {};
+  char upper[96] = {};
+
+  /// A line of text centred in a rect, which every chip on this screen wants.
+  const auto centred = [&](const UiRect& _rect, std::uint8_t _size, std::uint32_t _colour, const char* _text) {
+    const float width = static_cast<float>(TextCellCount(_text)) * cell;
+    const float height = BASE_FONT_SIZES_PIXELS[_size] * scale;
+    m_ui.AddText(_rect.x + (_rect.width - width) * 0.5f, _rect.y + (_rect.height - height) * 0.5f, _size, _colour,
+                 _text);
+  };
 
   /*
    * The ground, at full alpha across the whole viewport.
@@ -2344,16 +2670,12 @@ void ClientApp::BuildStationSurface()
    * the world half), so anything showing through would be the last thing the
    * back buffer happened to hold.
    */
-  m_ui.AddQuad(layout.viewport, WithAlpha(m_palette.panel, 0xFF));
-
-  m_ui.AddBorder(m_backChipRect, 1.0f * layout.scale, m_palette.border);
-  const float backWidth = static_cast<float>(TextCellCount(BACK_CHIP_LABEL)) * cell;
-  m_ui.AddText(m_backChipRect.x + (m_backChipRect.width - backWidth) * 0.5f,
-               m_backChipRect.y + (m_backChipRect.height - bodyPx) * 0.5f, m_uiTuning.bodySizeIndex, m_palette.phosphor,
-               BACK_CHIP_LABEL);
+  m_ui.AddQuad(screen.viewport, WithAlpha(m_palette.panel, 0xFF));
 
   /*
-   * Which place this is, from the block that opened it.
+   * --- the status bar -------------------------------------------------------
+   *
+   * The way back, and which place this is.
    *
    * The name and the count are the game's answer and are drawn rather than
    * interpreted -- and they are found by the anchor rather than remembered,
@@ -2362,6 +2684,9 @@ void ClientApp::BuildStationSurface()
    * block that no longer exists, and the honest screen for that is one that
    * says so rather than one still showing the count it opened with.
    */
+  m_ui.AddBorder(m_backChipRect, line, m_palette.border);
+  centred(m_backChipRect, m_uiTuning.bodySizeIndex, m_palette.phosphor, BACK_CHIP_LABEL);
+
   const LocationBlock* here = nullptr;
   for (std::uint32_t index = 0; index < m_locationBlockCount; ++index)
   {
@@ -2372,22 +2697,336 @@ void ClientApp::BuildStationSurface()
     }
   }
 
-  const float titleY = m_backChipRect.Bottom() + pad * 2.0f;
-  char buffer[64] = {};
-  char upper[64] = {};
-
+  const float statusTextY = screen.statusBar.y + (screen.statusBar.height - bodyPx) * 0.5f;
+  const float titleX = m_backChipRect.Right() + pad * 2.0f;
   if (here != nullptr)
   {
     UpperCaseInto(here->name != nullptr ? here->name : "?", upper);
-    m_ui.AddText(layout.viewport.x + pad * 2.0f, titleY, m_uiTuning.headSizeIndex, m_palette.phosphor, upper);
+    m_ui.AddText(titleX, statusTextY, m_uiTuning.bodySizeIndex, m_palette.phosphorHot, upper);
 
-    std::snprintf(buffer, sizeof(buffer), "%u SHIP%s", here->shipCount, here->shipCount == 1 ? "" : "S");
-    m_ui.AddText(layout.viewport.x + pad * 2.0f, titleY + 28.0f * layout.scale, m_uiTuning.smallSizeIndex,
+    std::snprintf(buffer, sizeof(buffer), "%u SHIP%s DOCKED", static_cast<unsigned>(here->shipCount),
+                  here->shipCount == 1 ? "" : "S");
+    const float countWidth = static_cast<float>(TextCellCount(buffer)) * cell;
+    m_ui.AddText(screen.statusBar.Right() - pad * 2.0f - countWidth,
+                 screen.statusBar.y + (screen.statusBar.height - smallPx) * 0.5f, m_uiTuning.smallSizeIndex,
                  m_palette.phosphorLabel, buffer);
   }
   else
   {
-    m_ui.AddText(layout.viewport.x + pad * 2.0f, titleY, m_uiTuning.headSizeIndex, m_palette.phosphorDim, "NO SHIPS");
+    m_ui.AddText(titleX, statusTextY, m_uiTuning.bodySizeIndex, m_palette.phosphorDim, "NO SHIPS HERE");
+  }
+  m_ui.AddSegment(screen.statusBar.x, screen.statusBar.Bottom(), screen.statusBar.Right(), screen.statusBar.Bottom(),
+                  line, m_palette.rule);
+
+  /*
+   * --- the tab row ----------------------------------------------------------
+   *
+   * Every tab the game reported, drawn whether or not it has a service behind
+   * it: "tabs, not tiles", so the station's future arrives as siblings in a
+   * fixed row and the layout never reshuffles when one lands. A tab with
+   * nothing behind it is dimmed and carries its reason -- FREE, SOON, FUTURE --
+   * which is the game's word and one this file never spells.
+   */
+  for (std::uint32_t index = 0; index < m_stationTabButtonCount; ++index)
+  {
+    const StationTabButton& button = m_stationTabButtons[index];
+    const StationTab& tab = m_stationTabs[button.tab];
+    const bool live = button.enabled && tab.id == m_stationTab;
+
+    if (live)
+    {
+      m_ui.AddQuad(button.rect, m_palette.rule);
+    }
+    m_ui.AddBorder(button.rect, line, button.enabled ? m_palette.border : m_palette.phosphorGhost);
+
+    const float textY = button.rect.y + (button.rect.height - bodyPx) * 0.5f;
+    const float textX = button.rect.x + m_stationTuning.tabPaddingCells * cell;
+    const std::uint32_t nameColour =
+        !button.enabled ? m_palette.phosphorDead : (live ? m_palette.phosphorHot : m_palette.phosphor);
+    m_ui.AddText(textX, textY, m_uiTuning.bodySizeIndex, nameColour, tab.name != nullptr ? tab.name : "");
+
+    if (tab.tag != nullptr)
+    {
+      const float nameWidth = static_cast<float>(TextCellCount(tab.name != nullptr ? tab.name : "")) * cell;
+      m_ui.AddText(textX + nameWidth + cell, button.rect.y + (button.rect.height - smallPx) * 0.5f,
+                   m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, tab.tag);
+    }
+  }
+
+  /*
+   * --- the wing columns -----------------------------------------------------
+   *
+   * A column per wing, chips down it, and the vocabulary is the whole of it: a
+   * class word and a wing. **No gauges, and their absence is a rule rather
+   * than an omission** -- the roster holds no damage state, which is what makes
+   * undocking repair a ship by construction (ADR-017 §1). A hull bar here would
+   * be drawing a number that does not exist.
+   */
+  for (std::uint32_t index = 0; index < m_stationLaid.groups; ++index)
+  {
+    const StationColumnRect& column = m_stationColumns[index];
+    const StationGroup& group = m_stationGroups[column.group];
+
+    UpperCaseInto(group.name != nullptr ? group.name : "UNASSIGNED", upper);
+    m_ui.AddText(column.header.x, column.header.y + (column.header.height - bodyPx) * 0.5f - 2.0f * scale,
+                 m_uiTuning.bodySizeIndex, m_palette.phosphor, upper);
+
+    // The count beside the name is the game's, and it is on screen at all
+    // because names live in the user settings layer: two clients without
+    // shared settings see different words for one wing, and the number is the
+    // part they agree on.
+    if (group.selectedCount > 0)
+    {
+      std::snprintf(buffer, sizeof(buffer), "%u/%u", static_cast<unsigned>(group.selectedCount),
+                    static_cast<unsigned>(group.chipCount));
+    }
+    else
+    {
+      std::snprintf(buffer, sizeof(buffer), "%u", static_cast<unsigned>(group.chipCount));
+    }
+    const float countWidth = static_cast<float>(TextCellCount(buffer)) * cell;
+    m_ui.AddText(column.header.Right() - countWidth, column.header.y + (column.header.height - smallPx) * 0.5f,
+                 m_uiTuning.smallSizeIndex, group.selectedCount > 0 ? m_palette.phosphorHot : m_palette.phosphorLabel,
+                 buffer);
+    m_ui.AddSegment(column.header.x, column.header.Bottom() - line, column.header.Right(),
+                    column.header.Bottom() - line, line, m_palette.rule);
+  }
+
+  for (std::uint32_t index = 0; index < m_stationLaid.chips; ++index)
+  {
+    const StationChipRect& laid = m_stationChipRects[index];
+    if (laid.chip >= m_stationRoster.chips)
+    {
+      continue; // The roster shrank between the layout and the draw. Cannot
+                // happen in one frame; costs one compare to be sure of.
+    }
+    const StationChip& chip = m_stationChips[laid.chip];
+
+    m_ui.AddQuad(laid.rect, chip.selected ? m_palette.rule : m_palette.chipBg);
+    if (chip.selected)
+    {
+      m_ui.AddBorder(laid.rect, line, m_palette.border);
+    }
+
+    const float textY = laid.rect.y + (laid.rect.height - smallPx) * 0.5f;
+    m_ui.AddText(laid.rect.x + cell, textY, m_uiTuning.smallSizeIndex,
+                 chip.selected ? m_palette.phosphorHot : m_palette.phosphorBody,
+                 chip.className != nullptr ? chip.className : "?");
+
+    // The durable roster id, small and to the right. Nothing in this game names
+    // an individual ship (`StationChip::name` is null and that is honest rather
+    // than unfinished), so the number is what a player can point at.
+    std::snprintf(buffer, sizeof(buffer), "%u", chip.shipId);
+    const float idWidth = static_cast<float>(TextCellCount(buffer)) * cell;
+    m_ui.AddText(laid.rect.Right() - cell - idWidth, textY, m_uiTuning.smallSizeIndex, m_palette.phosphorGhost, buffer);
+  }
+
+  // That the list continues, in the two directions it can. A marker rather than
+  // a bar: the wheel is the gesture and a scrollbar nobody drags would be a
+  // control that does nothing (ADR-020 §4).
+  if (m_stationScroll.CanScrollUp())
+  {
+    m_ui.AddText(screen.roster.Right() - pad * 2.0f, screen.roster.y + pad, m_uiTuning.smallSizeIndex,
+                 m_palette.phosphorDim, "\xE2\x96\xB2");
+  }
+  if (m_stationScroll.CanScrollDown())
+  {
+    m_ui.AddText(screen.roster.Right() - pad * 2.0f, screen.roster.Bottom() - pad - smallPx,
+                 m_uiTuning.smallSizeIndex, m_palette.phosphorDim, "\xE2\x96\xBC");
+  }
+
+  if (m_stationRoster.chips == 0)
+  {
+    m_ui.AddText(screen.roster.x + m_stationTuning.rosterPaddingX * scale,
+                 screen.roster.y + m_stationTuning.rosterPaddingY * scale, m_uiTuning.bodySizeIndex,
+                 m_palette.phosphorDim, "NOTHING DOCKED HERE");
+  }
+
+  /*
+   * --- the composer ---------------------------------------------------------
+   *
+   * The station screen "is not a management screen over fleet objects; there
+   * are none. It is a selection surface: pick docked ships, pick a formation,
+   * UNDOCK." This is the second half of that sentence.
+   */
+  m_ui.AddSegment(screen.composer.x, screen.composer.y, screen.composer.x, screen.composer.Bottom(), line,
+                  m_palette.rule);
+
+  m_ui.AddText(screen.selectionHead.x, screen.composer.y + m_stationTuning.composerPaddingY * scale,
+               m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, "COMPOSER");
+
+  if (m_composer.Empty())
+  {
+    m_ui.AddText(screen.selectionHead.x, screen.selectionHead.y + (screen.selectionHead.height - bodyPx) * 0.5f,
+                 m_uiTuning.bodySizeIndex, m_palette.phosphorDim, "NOTHING SELECTED");
+  }
+  else
+  {
+    std::snprintf(buffer, sizeof(buffer), "%u SELECTED", static_cast<unsigned>(m_composer.Count()));
+    m_ui.AddText(screen.selectionHead.x, screen.selectionHead.y + (screen.selectionHead.height - bodyPx) * 0.5f,
+                 m_uiTuning.bodySizeIndex, m_palette.phosphorHot, buffer);
+  }
+
+  /*
+   * The formation, as a cycling chip rather than a dropdown.
+   *
+   * The print draws a list; this is three values with words for them, which is
+   * exactly the shape the command row already cycles through in place -- and a
+   * list that opened would be a second surface floating over a full-screen one,
+   * for a choice that fits on the control.
+   */
+  const StationAction* action = m_stationActionCount > 0 ? &m_stationActions[0] : nullptr;
+  const bool hasFormation = m_stationOptionCount > 0 && m_stationOptionIndex < m_stationOptionCount;
+  m_ui.AddBorder(screen.formation, line, hasFormation ? m_palette.border : m_palette.phosphorGhost);
+  {
+    const char* label = (action != nullptr && action->parameterName != nullptr) ? action->parameterName : "FORMATION";
+    const float textY = screen.formation.y + (screen.formation.height - smallPx) * 0.5f;
+    m_ui.AddText(screen.formation.x + cell, textY, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, label);
+
+    if (hasFormation)
+    {
+      UpperCaseInto(m_stationOptions[m_stationOptionIndex].name, upper);
+      std::snprintf(buffer, sizeof(buffer), "%s \xE2\x96\xB8", upper);
+      const float valueWidth = static_cast<float>(TextCellCount(buffer)) * cell;
+      m_ui.AddText(screen.formation.Right() - cell - valueWidth,
+                   screen.formation.y + (screen.formation.height - bodyPx) * 0.5f, m_uiTuning.bodySizeIndex,
+                   m_palette.phosphor, buffer);
+    }
+  }
+
+  /*
+   * UNDOCK: the only primary action on the screen, always drawn, and disabled
+   * with a reason rather than hidden.
+   *
+   * The reason is the authority's -- `PreCheckStation` ran
+   * `ValidateStationCommand` over the same `RosterView` the server judges with,
+   * so the words under a greyed button are the words the bounce would have
+   * carried. That is what the print means by "a tappable UNDOCK is a promise".
+   */
+  const bool live = m_undockVerdict.accepted;
+  m_ui.AddQuad(screen.undock, live ? m_palette.rule : m_palette.chipBg);
+  m_ui.AddBorder(screen.undock, live ? 2.0f * scale : line, live ? m_palette.phosphor : m_palette.phosphorGhost);
+
+  const char* verb = (action != nullptr && action->name != nullptr) ? action->name : "UNDOCK";
+  if (m_undockWaves > 1)
+  {
+    std::snprintf(buffer, sizeof(buffer), "%s \xC2\xB7 WAVE 1 OF %u", verb, m_undockWaves);
+  }
+  else
+  {
+    std::snprintf(buffer, sizeof(buffer), "%s", verb);
+  }
+
+  const float verbWidth = static_cast<float>(TextCellCount(buffer)) * cell;
+  m_ui.AddText(screen.undock.x + (screen.undock.width - verbWidth) * 0.5f, screen.undock.y + pad,
+               m_uiTuning.bodySizeIndex, live ? m_palette.phosphorHot : m_palette.phosphorDead, buffer);
+
+  const char* under = nullptr;
+  if (live)
+  {
+    under = m_undockWaves > 1 ? "PRESS AGAIN FOR THE REST" : nullptr;
+  }
+  else if (m_composer.Empty())
+  {
+    under = "SELECT SHIPS TO UNDOCK";
+  }
+  else
+  {
+    under = m_worldView->ReasonText(m_undockVerdict.reasonCode);
+  }
+
+  if (under != nullptr)
+  {
+    const float underWidth = static_cast<float>(TextCellCount(under)) * cell;
+    m_ui.AddText(screen.undock.x + (screen.undock.width - underWidth) * 0.5f,
+                 screen.undock.Bottom() - pad - smallPx, m_uiTuning.smallSizeIndex,
+                 live ? m_palette.phosphorLabel : m_palette.caution, under);
+  }
+
+  /*
+   * The parking diagram (ADR-017 §4).
+   *
+   * A readout of a promise the game made -- ships that dock park themselves,
+   * deterministically, in rings around the station -- and it is on the screen
+   * because a promise the player cannot see is one they have to take on trust.
+   *
+   * **The rings and the population are drawn; the arrangement is not claimed.**
+   * Which berth a given hull ends up in is the authority's solve and this
+   * client does not run it, so the dots say "this many are parked here" and
+   * nothing about which is which. Square and centred rather than stretched to
+   * fill, which is §7's letterbox: a ring system drawn out of round would be a
+   * readout of a different arrangement.
+   */
+  if (screen.parking.width > 4.0f * cell)
+  {
+    const float cx = screen.parking.x + screen.parking.width * 0.5f;
+    const float cy = screen.parking.y + screen.parking.height * 0.5f;
+    const float outer = screen.parking.width * 0.42f;
+
+    const auto ring = [&](float _radius, std::uint32_t _colour) {
+      constexpr std::uint32_t SEGMENTS = 36;
+      float lastX = cx + _radius;
+      float lastY = cy;
+      for (std::uint32_t step = 1; step <= SEGMENTS; ++step)
+      {
+        const float angle = 6.2831853f * static_cast<float>(step) / static_cast<float>(SEGMENTS);
+        const float nextX = cx + _radius * std::cos(angle);
+        const float nextY = cy + _radius * std::sin(angle);
+        m_ui.AddSegment(lastX, lastY, nextX, nextY, line, _colour);
+        lastX = nextX;
+        lastY = nextY;
+      }
+    };
+
+    ring(outer, m_palette.phosphorGhost);
+    ring(outer * 0.62f, m_palette.phosphorGhost);
+
+    const float hub = 3.0f * scale;
+    m_ui.AddQuad(UiRect{cx - hub, cy - hub, hub * 2.0f, hub * 2.0f}, m_palette.phosphor);
+
+    // One dot per docked ship, spread evenly and spilling outward, capped so a
+    // full hangar stays a diagram rather than a ring of solid pixels.
+    constexpr std::uint32_t MAX_DOTS = 24;
+    const std::uint32_t parked = std::min<std::uint32_t>(m_stationRoster.chips, MAX_DOTS);
+    const float dot = 2.0f * scale;
+    for (std::uint32_t index = 0; index < parked; ++index)
+    {
+      const bool spilled = index >= MAX_DOTS / 2;
+      const float radius = spilled ? outer : outer * 0.62f;
+      const std::uint32_t onRing = MAX_DOTS / 2;
+      const float angle = 6.2831853f * static_cast<float>(index % onRing) / static_cast<float>(onRing);
+      const float x = cx + radius * std::cos(angle);
+      const float y = cy + radius * std::sin(angle);
+      m_ui.AddQuad(UiRect{x - dot, y - dot, dot * 2.0f, dot * 2.0f}, m_palette.phosphorDim);
+    }
+
+    if (m_stationRoster.chips > MAX_DOTS)
+    {
+      std::snprintf(buffer, sizeof(buffer), "+%u", m_stationRoster.chips - MAX_DOTS);
+      m_ui.AddText(cx + outer * 0.7f, cy + outer * 0.7f, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, buffer);
+    }
+  }
+
+  /*
+   * The reorganisation room, drawn and disabled with its reason -- the same
+   * treatment the tab row gives a service that has not landed, and for the same
+   * argument: a control that appears when it starts working is a control the
+   * player has to discover twice.
+   *
+   * Both need the user settings layer, because a wing's *name* is client-side
+   * (ADR-017 §6a.4) and neither renaming nor creating one has anywhere to be
+   * stored yet.
+   */
+  const UiRect deferred[] = {screen.assignWing, screen.newWing};
+  const char* deferredLabels[] = {"ASSIGN TO WING", "+ NEW WING"};
+  for (std::uint32_t index = 0; index < 2; ++index)
+  {
+    m_ui.AddBorder(deferred[index], line, m_palette.phosphorGhost);
+    m_ui.AddText(deferred[index].x + cell, deferred[index].y + (deferred[index].height - smallPx) * 0.5f,
+                 m_uiTuning.smallSizeIndex, m_palette.phosphorDead, deferredLabels[index]);
+    m_ui.AddText(deferred[index].Right() - cell - 4.0f * cell,
+                 deferred[index].y + (deferred[index].height - smallPx) * 0.5f, m_uiTuning.smallSizeIndex,
+                 m_palette.phosphorGhost, "SOON");
   }
 }
 

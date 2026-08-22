@@ -150,4 +150,37 @@ struct StationRosterCounts
   std::uint32_t chips = 0;
 };
 
+/*
+ * The composer's primary action, as the game states it.
+ *
+ * `OrderKindOption`'s shape, moved from a row to a screen and for the identical
+ * reason: **UNDOCK is a verb the client sends and may not name.** The word on
+ * the button, the number that goes on the wire, and the word for whatever the
+ * verb's parameter means all come from the side entitled to have an opinion
+ * about them -- which is the same rule that keeps REFIT out of `StationTab`.
+ *
+ * **No `available` and no reason here**, unlike `OrderKindOption`, and the
+ * absence is the design: whether UNDOCK is live depends on *this frame's*
+ * selection, and `PreCheckStation` already answers that from
+ * `ValidateStationCommand` -- the authority's own function. A second answer
+ * built here would be a second opinion, which is exactly what bounce parity
+ * forbids.
+ */
+struct StationAction
+{
+  /// The word on the button. Never null in an action the game reports.
+  const char* name = nullptr;
+
+  /// What the verb's parameter is called -- the print's `FORMATION`. Null for a
+  /// verb that takes none, the way `OrderKindOption::parameterName` is.
+  const char* parameterName = nullptr;
+
+  /// What goes in `StationIntent::verb`. Opaque, echoed, never read here.
+  std::uint16_t verb = 0;
+};
+
+/// How many actions a composer will ask for. One today; the room is for the
+/// verbs ADR-024 adds, which arrive as siblings rather than as a second panel.
+inline constexpr std::uint32_t MAX_STATION_ACTIONS = 4;
+
 } // namespace Neuron

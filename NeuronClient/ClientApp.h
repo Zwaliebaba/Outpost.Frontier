@@ -28,7 +28,10 @@
 #include "OrderPuck.h"
 #include "OverlayMark.h"
 #include "RenderWorld.h"
+#include "RosterSelection.h"
 #include "Selection.h"
+#include "StationScreen.h"
+#include "StationView.h"
 #include "SurfaceStack.h"
 #include "SnapshotBuffer.h"
 #include "TextEditState.h"
@@ -145,6 +148,27 @@ private:
    * and a caller that had to check `changed` itself would eventually not.
    */
   void OnSurfaceChanged(const SurfaceChange& _change);
+
+  /*
+   * The station surface's frame: what the game says, where it goes, and what
+   * the player just did to it (ADR-020 §5.1).
+   *
+   * `UpdateHud`'s station half, split out rather than inlined because the
+   * tactical half already fills that function and because this one owns the
+   * whole pointer while it runs -- there is no world underneath to fall
+   * through to.
+   */
+  void UpdateStationSurface();
+
+  /*
+   * Sends the composer's first wave.
+   *
+   * One command per press rather than the whole selection at once: the cap is
+   * the *game's* and a selection past it is announced as waves before the
+   * player commits (`station-screen.png` §2), so the honest gesture is one
+   * press per wave with the count on the button.
+   */
+  void CommitUndock(double _nowSeconds);
 
   /*
    * Follows the fleet when the grid being watched stops holding any of it
@@ -454,6 +478,75 @@ private:
    * true without a round trip.
    */
   std::uint16_t m_stationAnchor = 0;
+
+  /// The station screen's sizes, and the one table its layout and its hit tests
+  /// both read.
+  StationScreenTuning m_stationTuning;
+
+  /// Where its zones landed this frame. Resolved once, read by the presses and
+  /// by the draw.
+  StationScreenLayout m_stationLayout;
+
+  /*
+   * What the player has picked out of the roster.
+   *
+   * Session lifetime, reconciled on every look (ADR-017 §6a.2): re-picking
+   * thirty ships after one glance at the map is a real cost on the one screen
+   * whose whole purpose is composing selections, and `Reconcile` is what makes
+   * keeping it safe.
+   */
+  RosterSelection m_composer;
+
+  /// The wing columns' shared offset. One for the panel rather than one per
+  /// column -- two wings scrolling out of step would put a chip beside the
+  /// wrong header.
+  UiScrollState m_stationScroll;
+
+  /*
+   * The game's words for this station, asked once a frame while the surface is
+   * up. Every one of them is drawn and none is read: the tab row's words, the
+   * wings' names, the hull classes and the action's verb are all the game's
+   * (ADR-020 §6's leak test).
+   */
+  StationTab m_stationTabs[MAX_STATION_TABS] = {};
+  std::uint32_t m_stationTabCount = 0;
+  StationGroup m_stationGroups[MAX_STATION_GROUPS] = {};
+  StationChip m_stationChips[MAX_STATION_CHIPS] = {};
+  StationRosterCounts m_stationRoster;
+
+  StationAction m_stationActions[MAX_STATION_ACTIONS] = {};
+  std::uint32_t m_stationActionCount = 0;
+  OrderOption m_stationOptions[MAX_ORDER_OPTIONS] = {};
+  std::uint32_t m_stationOptionCount = 0;
+
+  /// Which formation UNDOCK will leave in, as an index into the options above.
+  /// Cycled by pressing the chip, which is the command row's idiom for the
+  /// same shape of choice.
+  std::uint32_t m_stationOptionIndex = 0;
+
+  /// Which tab is live. The game's number, echoed from the tab that was
+  /// pressed -- only the hangar has content today, and the client cannot tell.
+  std::uint16_t m_stationTab = 0;
+
+  /// Where the screen's controls landed this frame.
+  StationTabButton m_stationTabButtons[MAX_STATION_TABS] = {};
+  std::uint32_t m_stationTabButtonCount = 0;
+  StationColumnRect m_stationColumns[MAX_STATION_GROUPS] = {};
+  StationChipRect m_stationChipRects[MAX_STATION_CHIPS] = {};
+  StationRosterCounts m_stationLaid;
+
+  /*
+   * This frame's answer from the authority's own validator, for UNDOCK's face.
+   *
+   * The whole of the parity claim on this screen: the button greys for the
+   * reason the bounce would have carried, in the same words, because it is the
+   * same function (ADR-014 §3, `station-screen.png` §2).
+   */
+  OrderVerdict m_undockVerdict;
+
+  /// How many commands the composer's selection needs at the game's cap, and
+  /// stated before the press rather than after it.
+  std::uint32_t m_undockWaves = 0;
 
   /// The game's commands, asked once at startup: this list does not change
   /// while a session runs, and asking every frame would imply it could.

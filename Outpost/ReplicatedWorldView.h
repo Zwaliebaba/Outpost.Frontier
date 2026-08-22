@@ -157,6 +157,10 @@ public:
                                                                std::span<const std::uint32_t> _selectedIds,
                                                                std::span<Neuron::StationGroup> _outGroups,
                                                                std::span<Neuron::StationChip> _outChips) const override;
+  [[nodiscard]] std::uint32_t BuildStationActions(std::uint16_t _anchor,
+                                                  std::span<Neuron::StationAction> _outActions) const override;
+  [[nodiscard]] std::uint32_t StationActionOptions(std::uint16_t _verb,
+                                                   std::span<Neuron::OrderOption> _outOptions) const override;
   [[nodiscard]] Neuron::OrderVerdict PreCheckStation(const Neuron::StationIntent& _intent) override;
   [[nodiscard]] bool EncodeStationCommand(const Neuron::StationIntent& _intent, Neuron::ByteWriter& _writer) override;
   [[nodiscard]] std::uint32_t ShipsPerStationCommand() const override;

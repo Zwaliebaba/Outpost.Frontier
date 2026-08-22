@@ -358,6 +358,46 @@ public:
   }
 
   /*
+   * The composer's actions for this station: what the primary button says, and
+   * which verb it sends.
+   *
+   * `OrderKinds`' asked-once shape, and ADR-020 §6's budget is three *shapes*
+   * rather than three methods -- this is the first of them again, for a screen
+   * rather than for a row. It exists because a screen that could not ask would
+   * have to spell `StationVerb::Undock` itself, which is the leak test's whole
+   * subject: the client sends the verb and must not know the word.
+   *
+   * Zero from a view with nothing docked here, which greys the composer rather
+   * than offering an action against an empty hangar.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildStationActions(std::uint16_t _anchor,
+                                                          std::span<StationAction> _outActions) const
+  {
+    (void)_anchor;
+    (void)_outActions;
+    return 0;
+  }
+
+  /*
+   * The values a station verb's parameter may take, with words for them.
+   *
+   * `OrderOptions` exactly -- same `OrderOption`, same contract: the number is
+   * copied into a `StationIntent` and the name is drawn, and neither is
+   * interpreted. Undock's parameter is a formation, which is why the type is
+   * the order side's rather than one of this file's.
+   *
+   * An empty answer is legitimate and means the verb takes no parameter, the
+   * path `OrderOptions` already keeps open for a kind with none.
+   */
+  [[nodiscard]] virtual std::uint32_t StationActionOptions(std::uint16_t _verb,
+                                                           std::span<OrderOption> _outOptions) const
+  {
+    (void)_verb;
+    (void)_outOptions;
+    return 0;
+  }
+
+  /*
    * Whether this command would be taken, and why not.
    *
    * The station half of ADR-014 §3's parity claim, and the print asks for it in

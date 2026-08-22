@@ -1413,6 +1413,67 @@ Neuron::StationRosterCounts ReplicatedWorldView::BuildStationRoster(std::uint16_
  * so the two views can differ by a second; that is the ordinary staleness every
  * pre-check on this seam has, and the ack is still what decides.
  */
+/*
+ * The composer's primary action (`station-screen.png` §2, ADR-020 §6).
+ *
+ * One verb today, and the word for it lives here rather than in the client for
+ * the reason the tab row's words do: `NeuronClient` may send `Undock` and must
+ * not be able to spell it.
+ *
+ * Refused for a station this commander has nothing docked at, which is the
+ * same gate `BuildStationTabs` opens with. An action against an empty hangar
+ * would be a live button whose every press bounced.
+ */
+std::uint32_t ReplicatedWorldView::BuildStationActions(std::uint16_t _anchor,
+                                                       std::span<Neuron::StationAction> _outActions) const
+{
+  if (_outActions.empty() || DockedAt(static_cast<Game::AnchorId>(_anchor)) == nullptr)
+  {
+    return 0;
+  }
+
+  _outActions[0] = Neuron::StationAction{};
+  _outActions[0].name = "UNDOCK";
+  _outActions[0].parameterName = "FORMATION";
+  _outActions[0].verb = static_cast<std::uint16_t>(Game::StationVerb::Undock);
+  return 1;
+}
+
+/*
+ * And what its parameter may be.
+ *
+ * `OrderOptions`' body for `OrderKind::Move`, over the same `FORMATION_IDS` and
+ * naming them with the same function -- a fleet leaving a hangar forms up the
+ * way a fleet crossing a grid does, and two lists of formations that could
+ * drift apart would be two.
+ *
+ * Every other verb answers zero. `AssignWing`'s parameter is a wing number
+ * rather than a value out of a table, and the economy's four are ores, alloys
+ * and quantities: none of them is a short fixed list, so none of them is a
+ * cycling chip, and a screen for them is E5's rather than a longer table here.
+ */
+std::uint32_t ReplicatedWorldView::StationActionOptions(std::uint16_t _verb,
+                                                        std::span<Neuron::OrderOption> _outOptions) const
+{
+  if (_verb != static_cast<std::uint16_t>(Game::StationVerb::Undock))
+  {
+    return 0;
+  }
+
+  std::uint32_t count = 0;
+  for (const Game::FormationId formation : Game::FORMATION_IDS)
+  {
+    if (count >= _outOptions.size())
+    {
+      break;
+    }
+    _outOptions[count].parameter = static_cast<std::uint16_t>(formation);
+    _outOptions[count].name = Game::FormationName(formation);
+    ++count;
+  }
+  return count;
+}
+
 Neuron::OrderVerdict ReplicatedWorldView::PreCheckStation(const Neuron::StationIntent& _intent)
 {
   Game::StationCommand command;
