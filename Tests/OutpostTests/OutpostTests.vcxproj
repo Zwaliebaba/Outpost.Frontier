@@ -14,12 +14,12 @@
     <VCProjectVersion>18.0</VCProjectVersion>
     <ProjectGuid>{35DBE233-2AA7-F136-1C4C-22927C80606B}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>OutpostTest</RootNamespace>
+    <RootNamespace>OutpostTests</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <ProjectSubType>NativeUnitTestProject</ProjectSubType>
   </PropertyGroup>
   <!-- The toolset is pinned in one file (ADR-018 A24); a CI step holds it there. -->
-  <Import Project="$(MSBuildThisFileDirectory)..\Outpost.Toolset.props" />
+  <Import Project="$(MSBuildThisFileDirectory)..\..\Outpost.Toolset.props" />
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>DynamicLibrary</ConfigurationType>
@@ -41,11 +41,11 @@
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-    <Import Project="$(MSBuildThisFileDirectory)..\Outpost.Compile.props" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\Outpost.Compile.props" />
   </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
-    <Import Project="$(MSBuildThisFileDirectory)..\Outpost.Compile.props" />
+    <Import Project="$(MSBuildThisFileDirectory)..\..\Outpost.Compile.props" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -95,7 +95,22 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="OutpostTest.cpp" />
+    <ClCompile Include="ConfigTests.cpp" />
+    <!--
+      The subject, compiled into the suite rather than linked from it.
+
+      `Outpost` is an Application, so it cannot be a ProjectReference the way
+      every other test project reaches its library. Naming the one file under
+      test is the smaller of the two answers. The other is splitting the
+      composition root into a static library and a thin `wWinMain`, which is a
+      change to the Dependency Map's own layout and wants deciding on its own.
+
+      It compiles here because it depends on nothing but `AppConfig.h`,
+      `Json.h`, `Log.h` and the standard library: no Windows, no device, no
+      GameLogic. A file added here that does not have that property is the
+      signal that the split has become the right answer.
+    -->
+    <ClCompile Include="..\..\Outpost\AppConfig.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
@@ -103,6 +118,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\NeuronCore\NeuronCore.vcxproj">
+      <Project>{8ef8956e-dda2-4723-8184-47ae36c6f5fd}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

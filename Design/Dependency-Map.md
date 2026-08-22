@@ -26,6 +26,7 @@ flowchart BT
     TNC["Tests/NeuronCoreTests"] --> NC
     TNS["Tests/NeuronServerTests"] --> NS
     TNCL["Tests/NeuronClientTests"] --> NCL
+    TEXE["Tests/OutpostTests<br/><i>compiles what it tests; see below</i>"] -.-> EXE
 ```
 
 Rules (hard): GameLogic depends **only** on NeuronCore. GameLogic never references
@@ -155,8 +156,24 @@ the self test so the number is re-taken in Release on every push — ADR-018 A4/
 `ShaderTable.h/.cpp` (the compiled shaders, from
 `Outpost/Shaders` via `dxc` (SM 6.7, both configs — ADR-018 D12) into
 `Outpost/CompiledShaders` — the engine builds pipeline states
-and the game says which shaders go in them, ADR-013 §1a). **Nothing else.** Nothing depends on
-it.
+and the game says which shaders go in them, ADR-013 §1a). **Nothing else.**
+
+**Nothing *links* it, and one thing compiles part of it.** `Tests/OutpostTests` covers
+`AppConfig.h/.cpp` — the configuration layers — and reaches them by naming that one source
+file in its own `ClCompile` list rather than through a project reference, because `Outpost` is
+an Application and an Application cannot be referenced the way the four library suites
+reference theirs. The arrow above is dotted for that reason: it is a compile-time borrow of
+one file rather than a dependency on the executable, and nothing depends on the test project
+either.
+
+The arrangement has a stated limit, and the limit is the part worth keeping. It works because
+`AppConfig.cpp` needs `AppConfig.h`, `Json.h`, `Log.h` and the standard library and nothing
+else — no Windows, no device, no GameLogic — so it compiles under the suite's own bare
+precompiled header. **The day a second file here wants covering and does not have that
+property, the answer is not a wider header: it is splitting this project into a static library
+and a thin `wWinMain`**, which is what every other testable project in this tree already is.
+`ReplicatedWorldView.h/.cpp` is the file that will force the question — it is the `WorldView`
+implementation, it is the largest body of logic here, and `selfTest` is its only coverage.
 
 `CopyGameData.cmd` sits in the folder but is not one of those files and is not a dependency of
 anything: it is the script the project's post-build event calls, putting `GameData/` and
