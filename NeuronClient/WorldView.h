@@ -358,6 +358,34 @@ public:
   }
 
   /*
+   * Which ships are in a roster group, by the id the row handed back.
+   *
+   * `RosterRow::groupId` has always been documented as "what a click on the row
+   * would hand back to the game, once rows are clickable" -- this is the other
+   * end of that sentence. The engine echoes an opaque number and gets entity
+   * ids; it never learns that a group is a wing, or that a wing is a number
+   * between 1 and 255.
+   *
+   * A pure query, asked on the press rather than per frame, which is the third
+   * of ADR-020 §6's three shapes. Per-frame would put a walk over the fleet in
+   * every frame to answer a question nobody asked.
+   *
+   * **Counted from the same population `BuildRoster` counts**, which is the
+   * frame's own sampled fleet rather than the newest snapshot. A row saying
+   * three and a press selecting four would be a row about a different fleet
+   * from the one on screen.
+   *
+   * Returns how many were written, never more than the span holds.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildGroupMembers(std::uint16_t _groupId,
+                                                        std::span<std::uint16_t> _outIds) const
+  {
+    (void)_groupId;
+    (void)_outIds;
+    return 0;
+  }
+
+  /*
    * The composer's actions for this station: what the primary button says, and
    * which verb it sends.
    *

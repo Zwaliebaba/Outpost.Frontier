@@ -1457,6 +1457,46 @@ Neuron::StationRosterCounts ReplicatedWorldView::BuildStationRoster(std::uint16_
  * pre-check on this seam has, and the ack is still what decides.
  */
 /*
+ * Who is in a roster group (ADR-020 §6, `tactical-hud.png` §1).
+ *
+ * `BuildRoster`'s other half: that one counts the sampled fleet per wing and
+ * hands back a row with an opaque `groupId`, and this turns the number back
+ * into the ships it stood for.
+ *
+ * **The same population, walked the same way.** `m_sampled` rather than the
+ * newest snapshot's records, exactly as `BuildRoster` does and for the same
+ * reason -- these are the ships the frame drew, including the exclusions
+ * `BuildScene` makes. Answering from anywhere else would let a press select a
+ * ship the player cannot see, or miss one they can.
+ *
+ * Wing zero is `INVALID_WING_ID` and never a row, so it can never be asked for
+ * here either; a group id no wing carries answers zero, which the caller reads
+ * as "nothing to select".
+ */
+std::uint32_t ReplicatedWorldView::BuildGroupMembers(std::uint16_t _groupId, std::span<std::uint16_t> _outIds) const
+{
+  if (_groupId == Game::INVALID_WING_ID)
+  {
+    return 0;
+  }
+
+  std::uint32_t count = 0;
+  for (const Game::ReplicatedShip& ship : m_sampled)
+  {
+    if (count >= _outIds.size())
+    {
+      break;
+    }
+    if (ship.wing == _groupId)
+    {
+      _outIds[count] = ship.id;
+      ++count;
+    }
+  }
+  return count;
+}
+
+/*
  * The composer's primary action (`station-screen.png` §2, ADR-020 §6).
  *
  * One verb today, and the word for it lives here rather than in the client for

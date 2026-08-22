@@ -47,6 +47,20 @@ std::uint32_t RosterChipsThatFit(const UiRect& _column, std::uint32_t _rowCount,
   return fitted;
 }
 
+std::uint32_t HitRosterChip(const UiRect& _column, std::uint32_t _rowCount, float _scale,
+                            const RosterColumnTuning& _tuning, float _x, float _y) noexcept
+{
+  const std::uint32_t drawn = RosterChipsThatFit(_column, _rowCount, _scale, _tuning);
+  for (std::uint32_t row = 0; row < drawn; ++row)
+  {
+    if (RosterChipRect(_column, _scale, _tuning, row).Contains(_x, _y))
+    {
+      return row;
+    }
+  }
+  return _rowCount;
+}
+
 float RosterBlocksTop(const UiRect& _column, std::uint32_t _rowCount, float _scale,
                       const RosterColumnTuning& _tuning) noexcept
 {

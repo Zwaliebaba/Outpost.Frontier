@@ -581,6 +581,9 @@ public:
     RosterRow rows[MAX_ROSTER_ROWS] = {};
     Assert::AreEqual<std::uint32_t>(0, view.BuildRoster(std::span<const std::uint16_t>{}, rows),
                                     L"a world with no fleet has no roster");
+    std::uint16_t members[8] = {};
+    Assert::AreEqual<std::uint32_t>(0, view.BuildGroupMembers(1, members),
+                                    L"and no group in it to press, so no ships behind one");
     Assert::IsNotNull(view.ReasonText(0), L"and still never a null string to draw");
 
     Assert::AreEqual<std::uint64_t>(0, view.SchemaHash());

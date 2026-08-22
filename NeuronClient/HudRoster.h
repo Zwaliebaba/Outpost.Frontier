@@ -205,6 +205,17 @@ struct RosterColumnTuning
  * only when a block actually fitted -- "no ships anywhere but here" is not a
  * place at all, and a heading over nothing says it is.
  */
+/*
+ * Which roster chip a press landed on, or `_rowCount` when none.
+ *
+ * The same rect the draw takes from `RosterChipRect`, and bounded by the same
+ * `RosterChipsThatFit` -- a press must not land on a row the column had no room
+ * to draw, which is the one way a list that clips can lie about what is under a
+ * finger (ADR-020 §5.1).
+ */
+[[nodiscard]] std::uint32_t HitRosterChip(const UiRect& _column, std::uint32_t _rowCount, float _scale,
+                                          const RosterColumnTuning& _tuning, float _x, float _y) noexcept;
+
 [[nodiscard]] float RosterBlocksTop(const UiRect& _column, std::uint32_t _rowCount, float _scale,
                                     const RosterColumnTuning& _tuning) noexcept;
 

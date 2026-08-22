@@ -568,6 +568,17 @@ private:
   RosterColumnTuning m_rosterTuning;
 
   /*
+   * Scratch for the ids behind one roster row, refilled on the press that asks
+   * for them.
+   *
+   * A member rather than a local for `m_liveIds`' reason -- a press should not
+   * allocate -- and sized from the row's own `shipCount`, which is the game's
+   * count of that wing in this frame. Exact by construction, so the seam call
+   * can never truncate and no cap has to be invented for it.
+   */
+  std::vector<std::uint16_t> m_groupMembers;
+
+  /*
    * Where the ELSEWHERE blocks landed this frame.
    *
    * Resolved in `UpdateHud` and read by both the press and the draw, which is

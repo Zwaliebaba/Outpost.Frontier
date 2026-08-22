@@ -769,6 +769,78 @@ void ClientApp::UpdateHud()
    * screen has to know which hangar it is; the engine echoes it and never reads
    * it.
    */
+  /*
+   * A press on a roster row takes that wing and looks at it.
+   *
+   * The row already knew how: `RosterRow::groupId` has been documented since
+   * S11 as "what a click on the row would hand back to the game, once rows are
+   * clickable", and `BuildGroupMembers` is the other end of that sentence. The
+   * engine hands back an opaque number and gets entity ids; it never learns
+   * that a group is a wing.
+   *
+   * **The rows are the fleets on *this* grid, which is what makes the gesture
+   * whole.** `BuildRoster` counts the frame's own sampled fleet, so a row is by
+   * construction a group the camera can be pointed at -- ships anywhere else
+   * are ELSEWHERE blocks below, and those open the station screen instead. An
+   * empty row is still a row (a wing whose ships all left is drawn at zero), and
+   * that is the one case here that does nothing: there is nothing to select and
+   * nowhere to look.
+   *
+   * Additive on the same modifier the box-select uses, because "Talon plus
+   * Reserve" is a composition a player builds the same way whichever surface
+   * they build it on.
+   */
+  if (const std::uint32_t row = HitRosterChip(m_uiLayout.roster, m_rosterRowCount, m_uiLayout.scale, m_rosterTuning,
+                                              cursorX, cursorY);
+      row < m_rosterRowCount && m_router.ClaimPointerIn(RosterChipRect(m_uiLayout.roster, m_uiLayout.scale,
+                                                                       m_rosterTuning, row)))
+  {
+    const RosterRow& fleet = m_rosterRows[row];
+
+    // Sized from the game's own count of this wing in this frame, so the call
+    // below cannot truncate.
+    m_groupMembers.assign(fleet.shipCount, 0);
+    const std::uint32_t members = m_worldView->BuildGroupMembers(fleet.groupId, m_groupMembers);
+    m_groupMembers.resize(members);
+
+    if (members > 0)
+    {
+      if (m_router.Down(InputAction::SelectAdd))
+      {
+        for (const std::uint16_t id : m_groupMembers)
+        {
+          m_selection.Add(id);
+        }
+      }
+      else
+      {
+        m_selection.Set(m_groupMembers);
+      }
+
+      /*
+       * And put the camera on what was just selected.
+       *
+       * The *selection's* centre rather than the wing's, which is the same
+       * thing on a plain press and the honest answer on an additive one: a
+       * player who has just taken a second wing wants to see both, not the one
+       * they pressed last.
+       *
+       * A snap rather than a glide, which is `ResetView`'s idiom -- the one
+       * other thing in this client that puts the camera somewhere. `SetFocus`
+       * clamps to the play area, so a fleet at the edge cannot pan the view
+       * into empty float space. The zoom is left alone deliberately: it is a
+       * setting the player chose, and a control that quietly changed it would
+       * cost them the framing they were working at.
+       */
+      DirectX::XMFLOAT2 centre{};
+      if (SelectionCentre(m_scene.entities, m_selection.Ids(), centre))
+      {
+        m_camera.SetFocus(centre);
+      }
+    }
+    return;
+  }
+
   if (const LocationBlockLayout* block =
           HitLocationBlockButton(std::span<const LocationBlockLayout>{m_locationLayouts, m_locationLayoutCount},
                                  cursorX, cursorY);

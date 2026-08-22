@@ -52,6 +52,119 @@ namespace
 
 } // namespace
 
+TEST_CLASS(RosterChipHitTests)
+{
+public:
+  TEST_METHOD(APressFindsTheRowUnderIt)
+  {
+    // The gesture the print promised and S11 left open: `RosterRow::groupId`
+    // has been "what a click on the row would hand back to the game, once rows
+    // are clickable" since it was written.
+    const RosterColumnTuning tuning;
+    const UiRect column = Column();
+
+    for (std::uint32_t row = 0; row < 5; ++row)
+    {
+      const UiRect chip = RosterChipRect(column, 1.0f, tuning, row);
+      const std::uint32_t hit =
+          HitRosterChip(column, 5, 1.0f, tuning, chip.x + chip.width * 0.5f, chip.y + chip.height * 0.5f);
+      Assert::AreEqual<std::uint32_t>(row, hit, L"the row under the press is the row the draw put there");
+    }
+  }
+
+  TEST_METHOD(APressInTheGapBetweenRowsHitsNothing)
+  {
+    const RosterColumnTuning tuning;
+    const UiRect column = Column();
+
+    const UiRect first = RosterChipRect(column, 1.0f, tuning, 0);
+    const UiRect second = RosterChipRect(column, 1.0f, tuning, 1);
+    Assert::IsTrue(second.y > first.Bottom(), L"there is a gap to press in");
+
+    Assert::AreEqual<std::uint32_t>(
+        4, HitRosterChip(column, 4, 1.0f, tuning, first.x + 4.0f, first.Bottom() + 1.0f), L"and it is not a row");
+  }
+
+  TEST_METHOD(APressOutsideTheColumnHitsNothing)
+  {
+    const RosterColumnTuning tuning;
+    const UiRect column = Column();
+    const UiRect chip = RosterChipRect(column, 1.0f, tuning, 0);
+
+    Assert::AreEqual<std::uint32_t>(4, HitRosterChip(column, 4, 1.0f, tuning, column.Right() + 20.0f, chip.y + 4.0f),
+                                    L"right of the column");
+    Assert::AreEqual<std::uint32_t>(4, HitRosterChip(column, 4, 1.0f, tuning, chip.x + 4.0f, column.y - 10.0f),
+                                    L"above the heading");
+  }
+
+  TEST_METHOD(APressCannotLandOnARowTheColumnHadNoRoomToDraw)
+  {
+    /*
+     * The one way a clipped list lies about what is under a finger. The draw
+     * stops at the panel's bottom edge; a hit test that did not would select a
+     * wing whose row is not on screen, from a press on whatever *is* down
+     * there -- and no screenshot would show it.
+     */
+    const RosterColumnTuning tuning;
+    const UiRect shallow = Column(120.0f);
+    constexpr std::uint32_t ROWS = 12;
+
+    const std::uint32_t drawn = RosterChipsThatFit(shallow, ROWS, 1.0f, tuning);
+    Assert::IsTrue(drawn > 0 && drawn < ROWS, L"the column clips, which is what this test is about");
+
+    const UiRect lastDrawn = RosterChipRect(shallow, 1.0f, tuning, drawn - 1);
+    Assert::AreEqual<std::uint32_t>(
+        drawn - 1, HitRosterChip(shallow, ROWS, 1.0f, tuning, lastDrawn.x + 4.0f, lastDrawn.y + 4.0f),
+        L"the last row that fitted is pressable");
+
+    const UiRect firstDropped = RosterChipRect(shallow, 1.0f, tuning, drawn);
+    Assert::AreEqual<std::uint32_t>(
+        ROWS, HitRosterChip(shallow, ROWS, 1.0f, tuning, firstDropped.x + 4.0f, firstDropped.y + 4.0f),
+        L"and the first one that did not is nothing at all");
+  }
+
+  TEST_METHOD(AColumnWithNoRoomAnswersNoRow)
+  {
+    const RosterColumnTuning tuning;
+    const UiRect flat = Column(0.0f);
+    Assert::AreEqual<std::uint32_t>(0, RosterChipsThatFit(flat, 4, 1.0f, tuning));
+    Assert::AreEqual<std::uint32_t>(4, HitRosterChip(flat, 4, 1.0f, tuning, flat.x + 4.0f, flat.y + 4.0f));
+  }
+
+  TEST_METHOD(AnEmptyRosterIsNotPressable)
+  {
+    const RosterColumnTuning tuning;
+    const UiRect column = Column();
+    const UiRect where = RosterChipRect(column, 1.0f, tuning, 0);
+    Assert::AreEqual<std::uint32_t>(0, HitRosterChip(column, 0, 1.0f, tuning, where.x + 4.0f, where.y + 4.0f),
+                                    L"no rows means the miss answer, which is the count");
+  }
+
+  TEST_METHOD(TheRowsMoveWithTheUiScaleAndSoDoesTheHit)
+  {
+    // R9's whole permitted flexibility, and the reason the hit test takes the
+    // scale rather than remembering one: a press is tested against the rect the
+    // draw used *this* frame.
+    const RosterColumnTuning tuning;
+    const UiRect column = Column();
+
+    const UiRect atOne = RosterChipRect(column, 1.0f, tuning, 2);
+    const UiRect atTwo = RosterChipRect(column, 2.0f, tuning, 2);
+    Assert::IsTrue(atTwo.y > atOne.y, L"the third row is further down at twice the scale");
+
+    const float x = atTwo.x + 4.0f;
+    const float y = atTwo.y + 4.0f;
+    Assert::AreEqual<std::uint32_t>(2, HitRosterChip(column, 8, 2.0f, tuning, x, y));
+
+    // The same pixel, a different row -- which is the whole reason the hit test
+    // is handed the scale rather than remembering one. A press is tested
+    // against the rects the draw used *this* frame.
+    const std::uint32_t atOneScale = HitRosterChip(column, 8, 1.0f, tuning, x, y);
+    Assert::IsTrue(atOneScale < 8, L"still lands on a row at 1.0x");
+    Assert::IsTrue(atOneScale != 2, L"but not the same one, because the rows are packed tighter");
+  }
+};
+
 TEST_CLASS(LocationBlockColumnTests)
 {
 public:
