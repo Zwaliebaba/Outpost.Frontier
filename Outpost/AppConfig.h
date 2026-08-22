@@ -209,9 +209,10 @@ struct ScenarioSettings
    * and never has to carry an id a person would have to look up, or that a
    * re-bake could move under them.
    *
-   * The scripted patrol does not drive it. The patrol is the shipped scenario's
-   * fixture and its ship list is what the replay hash is taken over; a second
-   * fleet joining it would be a config knob rewriting a determinism baseline.
+   * It stands where it is put, like every fleet this shard spawns -- the
+   * scripted patrol that used to fly the boot fleet a circuit has been removed,
+   * because a fleet moving on anything but its commander's orders is a fleet
+   * whose owner cannot tell their own commands from the simulation's.
    */
   std::uint32_t secondFleetWings = 0;
 };

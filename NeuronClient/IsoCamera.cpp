@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace Neuron
 {
@@ -110,6 +111,54 @@ void IsoCamera::PanPixels(float _rightPixels, float _upPixels) noexcept
 
   SetFocus(XMFLOAT2{m_focusMetres.x + right.x * rightMetres + up.x * upMetres,
                     m_focusMetres.y + right.y * rightMetres + up.y * upMetres});
+}
+
+void IsoCamera::FocusOn(std::span<const XMFLOAT2> _pointsMetres, float _marginFraction) noexcept
+{
+  if (_pointsMetres.empty())
+  {
+    return;
+  }
+
+  // Orthonormal on the plane, so projecting onto them and building a point back
+  // out of the result are the same two multiplies either way round.
+  const XMFLOAT2 right = ScreenRightOnPlane();
+  const XMFLOAT2 up = ScreenUpOnPlane();
+
+  float minRight = std::numeric_limits<float>::max();
+  float maxRight = std::numeric_limits<float>::lowest();
+  float minUp = std::numeric_limits<float>::max();
+  float maxUp = std::numeric_limits<float>::lowest();
+
+  for (const XMFLOAT2& point : _pointsMetres)
+  {
+    const float alongRight = point.x * right.x + point.y * right.y;
+    const float alongUp = point.x * up.x + point.y * up.y;
+    minRight = std::min(minRight, alongRight);
+    maxRight = std::max(maxRight, alongRight);
+    minUp = std::min(minUp, alongUp);
+    maxUp = std::max(maxUp, alongUp);
+  }
+
+  const float centreRight = (minRight + maxRight) * 0.5f;
+  const float centreUp = (minUp + maxUp) * 0.5f;
+  SetFocus(XMFLOAT2{right.x * centreRight + up.x * centreUp, right.y * centreRight + up.y * centreUp});
+
+  const float margin = 1.0f + std::max(0.0f, _marginFraction);
+  const float halfRight = (maxRight - minRight) * 0.5f * margin;
+  const float halfUp = (maxUp - minUp) * 0.5f * margin;
+
+  /*
+   * The zoom is a half-*height* in view space, so each axis converts into it
+   * differently: half-width is the zoom times the aspect, and half-height on
+   * the plane is the zoom divided by the elevation sine (`PlaneMappingForNdc`
+   * is the same two lines from the other side). Whichever axis needs the larger
+   * zoom is the one that decides, because fitting one and overflowing the other
+   * is not fitting.
+   */
+  const float toFitWidth = halfRight / AspectRatio();
+  const float toFitHeight = halfUp * ELEVATION_SINE;
+  SetZoomMetres(std::max(std::max(toFitWidth, toFitHeight), MIN_FIT_ZOOM_METRES));
 }
 
 float IsoCamera::AspectRatio() const noexcept

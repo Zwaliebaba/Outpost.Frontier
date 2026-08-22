@@ -38,7 +38,9 @@
     <ClCompile Include="GpuPasses.cpp" />
     <ClCompile Include="GpuPipelines.cpp" />
     <ClCompile Include="GpuUploadRing.cpp" />
+    <ClCompile Include="HudRoster.cpp" />
     <ClCompile Include="InputMap.cpp" />
+    <ClCompile Include="InputRouter.cpp" />
     <ClCompile Include="IsoCamera.cpp" />
     <ClCompile Include="NebulaField.cpp" />
     <ClCompile Include="ObjMesh.cpp" />
@@ -48,11 +50,16 @@
     <ClCompile Include="Picking.cpp" />
     <ClCompile Include="Selection.cpp" />
     <ClCompile Include="RenderWorld.cpp" />
+    <ClCompile Include="RosterSelection.cpp" />
     <ClCompile Include="SnapshotBuffer.cpp" />
     <ClCompile Include="SoundBank.cpp" />
+    <ClCompile Include="StationScreen.cpp" />
+    <ClCompile Include="SurfaceStack.cpp" />
+    <ClCompile Include="TextEditState.cpp" />
     <ClCompile Include="ToastStack.cpp" />
     <ClCompile Include="UiDrawList.cpp" />
     <ClCompile Include="UiLayout.cpp" />
+    <ClCompile Include="UiScrollState.cpp" />
     <ClCompile Include="VoicePool.cpp" />
     <ClCompile Include="WavClip.cpp" />
   </ItemGroup>
@@ -83,6 +90,7 @@
     <ClInclude Include="GpuPipelines.h" />
     <ClInclude Include="GpuUploadRing.h" />
     <ClInclude Include="InputMap.h" />
+    <ClInclude Include="InputRouter.h" />
     <ClInclude Include="IsoCamera.h" />
     <ClInclude Include="NebulaField.h" />
     <ClInclude Include="ObjMesh.h" />
@@ -92,7 +100,14 @@
     <ClInclude Include="Picking.h" />
     <ClInclude Include="Selection.h" />
     <ClInclude Include="RenderWorld.h" />
+    <ClInclude Include="RosterSelection.h" />
+    <ClInclude Include="StationScreen.h" />
+    <ClInclude Include="StationView.h" />
     <ClInclude Include="SoundBank.h" />
+    <ClInclude Include="SurfaceStack.h" />
+    <ClInclude Include="TextEditState.h" />
+    <ClInclude Include="UiFocus.h" />
+    <ClInclude Include="UiScrollState.h" />
     <ClInclude Include="VoicePool.h" />
     <ClInclude Include="WavClip.h" />
     <ClInclude Include="ToastStack.h" />

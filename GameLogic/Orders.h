@@ -153,6 +153,29 @@ inline constexpr StanceId STANCE_IDS[] = {StanceId::Balanced, StanceId::Aggressi
 [[nodiscard]] bool OrderKindHasContent(OrderKind _kind) noexcept;
 
 /*
+ * Whether this kind is judged partly on *where the player points*.
+ *
+ * A Move goes to a place the player chose and a Warp names one reachable anchor
+ * out of several, so neither can be decided before the gesture that names it. A
+ * Mine works the field the fleet is standing on, and a Dock enters this grid's
+ * station -- **"a grid is anchored on one thing, so there is at most one
+ * station to dock at"** (`ValidationView::stationAnchor`). For those two there
+ * is no place to name, so everything that decides them is on screen already.
+ *
+ * The predicate exists because that property decides two things at once, and a
+ * surface that answered them differently would be incoherent: a kind that names
+ * no destination can be **pre-judged** before the gesture, and it can be
+ * **issued by the press itself** -- there is nothing a second gesture would add.
+ * Answering yes to the first and no to the second is a button that lights up
+ * and then waits to be told something the player has nothing left to say.
+ *
+ * True for the reserved kinds, which is the safe answer for a verb whose rules
+ * nobody has written: it keeps them armed-then-gestured rather than firing on a
+ * press.
+ */
+[[nodiscard]] bool OrderKindNamesDestination(OrderKind _kind) noexcept;
+
+/*
  * What a kind's `OrderIntent::parameter` is called, or null when it has none.
  *
  * The print's command row draws `FORMATION` next to `MOVE` and puts a dropdown

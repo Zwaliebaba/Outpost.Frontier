@@ -191,55 +191,27 @@ public:
   }
 
   /*
-   * The scripted patrol (Build Order S7).
+   * The tick, and nothing else in it.
    *
-   * Every wing is sent to a waypoint, and the waypoints rotate every few
-   * seconds. It exists so the fleet moves without anyone touching an input
-   * device -- which is what makes "is the motion smooth at 144 Hz against 20 Hz
-   * snapshots?" a question that can be answered by looking at the screen.
+   * **The scripted patrol that used to live here is gone (was Build Order S7).**
+   * It sent the whole boot fleet to one of four waypoints every ten seconds so
+   * that the fleet moved without anyone touching an input device -- which was
+   * the only way, in S7, to answer "is the motion smooth at 144 Hz against
+   * 20 Hz snapshots?" by looking at the screen. Nobody could give an order yet;
+   * the fixture stood in for a player.
    *
-   * It is scripted from the tick index and nothing else, so it replays exactly
-   * (ADR-005 §5) and a desync between two runs of the same build would be a
-   * real defect rather than an artefact of when someone clicked.
+   * A player can give one now, so the fixture had become the thing it was
+   * standing in for -- and worse than absent, because a fleet that flies a
+   * circuit nobody asked for is a fleet whose owner cannot tell their own
+   * commands from the simulation's. **These are the player's ships and they
+   * move on the player's orders.** The smoothness question is now asked the way
+   * it will be asked forever: issue a Move and watch it.
    *
-   * From S9 it goes through the real order path -- validated, assigned a server
-   * order id, solved into a formation -- rather than writing guidance directly.
-   * The fleet therefore arrives in a Line abreast rather than in a heap, which
-   * is the formation solve visible without anyone having to click.
+   * Nothing replaced it. A world where the fleet stands still until told
+   * otherwise is the world the game actually is.
    */
   void AdvanceTick(std::uint32_t _tick) override
   {
-    constexpr std::uint32_t LEG_TICKS = 200; // Ten seconds at 20 Hz.
-    if (_tick % LEG_TICKS == 1 && !m_patrolShips.empty())
-    {
-      const std::uint32_t leg = (_tick / LEG_TICKS) % 4;
-      constexpr float WAYPOINTS[4][2] = {{6000.0f, 0.0f}, {0.0f, 6000.0f}, {-6000.0f, 0.0f}, {0.0f, -6000.0f}};
-
-      Game::OrderSubmit order;
-      // The sequence is the leg number, not a counter: derived from the tick, so
-      // two runs of the same build submit the same sequence at the same tick.
-      order.orderSeq = _tick;
-      order.kind = Game::OrderKind::Move;
-      order.formation = Game::FormationId::Line;
-      order.queueMode = Game::QueueMode::Replace;
-      for (const Game::ShipId shipId : m_patrolShips)
-      {
-        if (!order.AddShip(shipId))
-        {
-          break; // A fleet past the per-order cap patrols with as much as fits.
-        }
-      }
-      order.target.xCm = Neuron::MetresToCentimetres(WAYPOINTS[leg][0]);
-      order.target.yCm = Neuron::MetresToCentimetres(WAYPOINTS[leg][1]);
-      order.target.facingTurns16 = Neuron::RadiansToHeading(static_cast<float>(leg) * DirectX::XM_PIDIV2);
-
-      const Game::OrderVerdict verdict = ServedWorld().SubmitOrder(order);
-      if (!verdict.accepted)
-      {
-        NEURON_LOG_WARNING("scripted patrol refused: %s", Game::OrderReasonText(verdict.reason));
-      }
-    }
-
     // One number for every live world (ADR-019 §2). Today that is one world.
     m_registry.Tick(_tick);
   }
@@ -287,8 +259,8 @@ public:
    *
    * **It filters on `_viewer` now** (U3c-a), and what it replaced is worth
    * naming because it was a privacy hole rather than a simplification: this
-   * walked `m_patrolShips` -- the scripted patrol's ship list, a fixture of the
-   * composition root -- and so returned the same answer for every viewer. The
+   * walked the scripted patrol's ship list -- a fixture of the composition root,
+   * since removed -- and so returned the same answer for every viewer. The
    * second commander to connect could have watched the first one's grid, and
    * the promise in the old comment ("when there are two, this filters on
    * `_viewer`") is the one being kept here.
@@ -583,11 +555,11 @@ public:
      * And the grid the order is FOR, which is where the ships are rather than
      * where the shard happens to start.
      *
-     * `ServedWorld()` is the start anchor, full stop. With one commander that
-     * was right by construction; with two it sends every order to the first
-     * commander's grid, so a second commander's fleet could not be ordered at
-     * all -- and the ownership check above would be the only thing standing
-     * between them and ordering somebody else's.
+     * This used to borrow the shard's *start* anchor and nothing else. With one
+     * commander that was right by construction; with two it sent every order to
+     * the first commander's grid, so a second commander's fleet could not be
+     * ordered at all -- and the ownership check above would have been the only
+     * thing standing between them and ordering somebody else's.
      *
      * The first named ship decides. Ships in the order that are somewhere else
      * are refused `UnknownShip` by that world's own validator, which is the
@@ -635,7 +607,7 @@ public:
    * A station command is universe-layer work and never a world's: an Undock
    * files a transfer against the registry and an AssignWing writes a roster row,
    * and neither touches the grid this session happens to be serving. That is
-   * why this does not go through `ServedWorld()`.
+   * why this borrows no world at all.
    */
   [[nodiscard]] OrderVerdict ApplyStationCommand(PlayerId _player, Neuron::ByteReader& _reader, std::size_t _payloadBytes)
   {
@@ -705,7 +677,6 @@ public:
     config.sessionSeed = m_sessionSeed;
     config.hostId = 0;
     m_registry.Reset(m_universe, m_economy, config);
-    m_patrolShips.clear();
 
     ByteReader reader(_state);
     std::vector<Game::PersistenceDiagnostic> diagnostics;
@@ -823,7 +794,7 @@ public:
      * Five hulls is enough for every claim U3c makes -- they are owned, they
      * are somewhere, and they are not the other commander's.
      */
-    SpawnFleetFor(_player, home, false, 1);
+    SpawnFleetFor(_player, home, 1);
     NEURON_LOG_INFO("player %u joined: starting fleet on anchor %u", _player, static_cast<unsigned>(home));
   }
 
@@ -846,30 +817,16 @@ public:
     return m_worldMeta;
   }
 
-  /*
-   * The grid the wire serves.
-   *
-   * Borrowed on every use and never stored (ADR-019 §6.1): a world pointer held
-   * across a tick is code that cannot survive the day the grid lives on another
-   * machine, and the whole reason to borrow now -- while there is one world and
-   * it never moves -- is that the habit is free to form and expensive to
-   * retrofit.
-   */
-  [[nodiscard]] Game::World& ServedWorld()
-  {
-    Game::World* world = m_registry.Borrow(m_startAnchor);
-    ASSERT_TEXT(world != nullptr, L"the session's own start anchor is not in the universe");
-    return *world;
-  }
 
   /// The fleet, spawned into the start grid with ids the registry allocated
-  /// (ADR-018 D6a), recording the mobile half as it goes.
+  /// (ADR-018 D6a). It stands where it is put; nothing moves it but its
+  /// commander.
   void SpawnStartingFleet();
 
-  /// The same fleet, for any commander, on any grid. The patrol drives only the
+  /// The same fleet, for any commander, on any grid. Where the ships are put
   /// shard's own boot fleet -- it is a scripted demo of the start grid, not a
   /// thing that should start flying somebody else's hulls around.
-  void SpawnFleetFor(Neuron::PlayerId _owner, Game::AnchorId _anchor, bool _patrolDrivesIt, std::size_t _wings);
+  void SpawnFleetFor(Neuron::PlayerId _owner, Game::AnchorId _anchor, std::size_t _wings);
 
   /// Where a brand-new commander is put down. Deterministic and **disjoint**:
   /// U3c serves two commanders on separate grids, because two full fleets on
@@ -877,14 +834,17 @@ public:
   [[nodiscard]] Game::AnchorId HomeAnchorFor(Neuron::PlayerId _player) const;
 
   /*
-   * The patrol picks up whatever came back (ADR-025 §1).
+   * Says what came back (ADR-025 §1).
    *
-   * A reloaded shard has ships and no memory of which of them the scripted
-   * patrol was flying -- that list is *intention*, and intention is exactly
-   * what a restart does not restore. So it is rebuilt from what is standing on
-   * the start grid, minus the station itself, which is the same rule
-   * `SpawnStartingFleet` applies for the same reason: sending a `Structure` a
-   * waypoint is harmless, and listing it would imply it might move.
+   * It used to hand the reloaded fleet to the scripted patrol, which is where
+   * the name comes from and why it walked the ids at all. With the patrol gone
+   * nothing needs adopting -- a reloaded ship is already the registry's and
+   * already where the store said it was -- and what is left is the count, which
+   * is the first thing to look at when a restart comes back empty.
+   *
+   * The station is excluded from it for the reason it was excluded before:
+   * `IsAuthoredOccupant` is what tells a hull the player owns from the
+   * structure the anchor came with.
    */
   void AdoptReloadedFleet();
 
@@ -917,11 +877,6 @@ private:
 
   Game::WorldRegistry m_registry;
   Game::AnchorId m_startAnchor = Game::INVALID_ID;
-
-  /// The mobile half of the fleet. The station is deliberately absent: sending
-  /// a `Structure` a waypoint is harmless -- it has no speed -- but listing it
-  /// would imply it might move.
-  std::vector<Game::ShipId> m_patrolShips;
 
   /// Said once, not once a second: a summary frame that cannot hold every
   /// roster will not hold them next second either, and a warning at 1 Hz is a
@@ -1150,7 +1105,7 @@ Game::AnchorId UniverseSimulation::HomeAnchorFor(Neuron::PlayerId _player) const
     {
       if (anchor.id == m_startAnchor)
       {
-        continue; // Player one's, and the scripted patrol's.
+        continue; // Player one's: the start grid is the boot fleet's home.
       }
       /*
        * A grid somebody's ships are standing on belongs to them.
@@ -1194,23 +1149,32 @@ void UniverseSimulation::AdoptReloadedFleet()
   {
     return;
   }
+  /*
+   * Counted rather than adopted.
+   *
+   * This function used to hand the reloaded fleet to the scripted patrol, which
+   * is why it walked the ids at all. With the patrol gone there is nothing to
+   * adopt them *into* -- a reloaded ship is already the registry's, already
+   * owned, and already where the store said it was. What is left is worth
+   * keeping on its own: a line in the log saying the shard came back with a
+   * fleet on it, which is the first thing to look at when a restart comes back
+   * empty.
+   */
+  std::size_t mobile = 0;
   const std::span<const Game::ShipId> ids = world->Ids();
   for (const Game::ShipId id : ids)
   {
-    if (!m_registry.IsAuthoredOccupant(m_startAnchor, id))
-    {
-      m_patrolShips.push_back(id);
-    }
+    mobile += m_registry.IsAuthoredOccupant(m_startAnchor, id) ? 0u : 1u;
   }
-  NEURON_LOG_INFO("reloaded shard: %zu ship(s) on the start grid, %u of them the patrol's", ids.size(),
-                  static_cast<unsigned>(m_patrolShips.size()));
+  NEURON_LOG_INFO("reloaded shard: %zu ship(s) on the start grid, %zu of them the commander's", ids.size(), mobile);
 }
 
 void UniverseSimulation::SpawnStartingFleet()
 {
-  // The shard's own boot fleet: player one's, on the start grid, driven by the
-  // scripted patrol. `SpawnFleetFor` is the general case this is one call to.
-  SpawnFleetFor(Neuron::SOLE_PLAYER_ID, m_startAnchor, true, WING_COUNT);
+  // The shard's own boot fleet: player one's, on the start grid, standing where
+  // it is put until its commander says otherwise. `SpawnFleetFor` is the general
+  // case this is one call to.
+  SpawnFleetFor(Neuron::SOLE_PLAYER_ID, m_startAnchor, WING_COUNT);
 
   /*
    * And then whatever the scenario asked for, which by default is nothing at
@@ -1229,10 +1193,12 @@ void UniverseSimulation::SpawnStartingFleet()
    * rather than a rival -- two commanders is U3c's scenario and has its own
    * gate.
    *
-   * The patrol does not drive it, so the ships stand where they are put. A
-   * fleet that flew a scripted circuit would make the location block's count
-   * flicker as ships crossed a grid boundary, which is a moving target to check
-   * a readout against.
+   * Its ships stand where they are put, which is now true of every fleet this
+   * shard spawns rather than a property of this one: the scripted patrol that
+   * used to fly the boot fleet a circuit is gone. It was worth naming here
+   * while it existed, because a fleet crossing a grid boundary on a timer makes
+   * the location block's count flicker -- a moving target to check a readout
+   * against.
    */
   if (m_scenario.secondFleetWings > 0)
   {
@@ -1246,14 +1212,12 @@ void UniverseSimulation::SpawnStartingFleet()
     // The grid has to be spun up before anything can stand on it, and it has to
     // stay up to be watchable -- which is what a viewer is for.
     m_registry.AddViewer(elsewhere);
-    SpawnFleetFor(Neuron::SOLE_PLAYER_ID, elsewhere, false, m_scenario.secondFleetWings);
-    NEURON_LOG_INFO("scenario: a second fleet of %u wing(s) on anchor %u, off the patrol",
-                    m_scenario.secondFleetWings, elsewhere);
+    SpawnFleetFor(Neuron::SOLE_PLAYER_ID, elsewhere, m_scenario.secondFleetWings);
+    NEURON_LOG_INFO("scenario: a second fleet of %u wing(s) on anchor %u", m_scenario.secondFleetWings, elsewhere);
   }
 }
 
-void UniverseSimulation::SpawnFleetFor(Neuron::PlayerId _owner, Game::AnchorId _anchor, bool _patrolDrivesIt,
-                                       std::size_t _wings)
+void UniverseSimulation::SpawnFleetFor(Neuron::PlayerId _owner, Game::AnchorId _anchor, std::size_t _wings)
 {
   /*
    * The authored fleet, into the grid the registry spun up.
@@ -1306,10 +1270,6 @@ void UniverseSimulation::SpawnFleetFor(Neuron::PlayerId _owner, Game::AnchorId _
       const Game::ShipId id = m_registry.Spawn(_anchor, spawn, _owner);
       if (id != Game::INVALID_SHIP_ID)
       {
-        if (_patrolDrivesIt)
-        {
-          m_patrolShips.push_back(id);
-        }
         parked.push_back({spawn.xMetres, spawn.yMetres, info.collisionRadiusMetres, wing, entry.name});
       }
     }

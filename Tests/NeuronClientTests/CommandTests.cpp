@@ -49,6 +49,17 @@ const OrderKindOption LIVE_KINDS[] = {
     OrderKindOption{6, "Mine", "Ore", false},
 };
 
+/*
+ * A game whose fourth verb needs no place named -- the shape `Dock` and `Mine`
+ * report. Deliberately *not* spelled `Dock` here: the row reads a bool and must
+ * never key on a kind number, so the test would be lying if it used the name.
+ */
+const OrderKindOption WITH_AN_ACTING_VERB[] = {
+    OrderKindOption{0, "Move", "Formation", true, true},
+    OrderKindOption{1, "Attack", nullptr, false, true},
+    OrderKindOption{9, "Acts", "Formation", true, false},
+};
+
 const OrderOption FORMATIONS[] = {
     OrderOption{0, "Line"},
     OrderOption{1, "Wedge"},
@@ -370,6 +381,117 @@ public:
         0, BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, UiRect{}, 1.0f, CommandRowTuning{}, buttons));
     Assert::AreEqual<std::uint32_t>(0, BuildCommandRow(KINDS, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{},
                                                        std::span<CommandButton>{}));
+  }
+};
+
+TEST_CLASS(CommandArmOrActTests)
+{
+public:
+  TEST_METHOD(AVerbThatNeedsAPlaceArmsThePuck)
+  {
+    // The row's original and still ordinary case: pressing MOVE does not move
+    // anything, it says what the next gesture will mean.
+    CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
+    const std::uint32_t count =
+        BuildCommandRow(WITH_AN_ACTING_VERB, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+
+    const CommandButton* move = Find({buttons, count}, "Move");
+    Assert::IsNotNull(move);
+    Assert::IsTrue(move->action == CommandAction::SelectKind);
+  }
+
+  TEST_METHOD(AVerbTheGameCanAlreadyJudgeIssuesOnThePress)
+  {
+    /*
+     * The whole of the change. The game lit this button by running its own
+     * validator over the selection *this frame*, so the press has nothing left
+     * to ask for -- and a lit button that then waited for a gesture would be
+     * asking the player to point at something they have nothing to say about.
+     */
+    CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
+    const std::uint32_t count =
+        BuildCommandRow(WITH_AN_ACTING_VERB, 0, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+
+    const CommandButton* acts = Find({buttons, count}, "Acts");
+    Assert::IsNotNull(acts);
+    Assert::IsTrue(acts->action == CommandAction::IssueNow);
+    Assert::AreEqual<std::uint16_t>(9, acts->payload, L"and it hands back the game's kind, not an index");
+  }
+
+  TEST_METHOD(TheRowReadsTheBitRatherThanRecognisingTheVerb)
+  {
+    /*
+     * The property that keeps the leak test honest: which verbs act on a press
+     * is a rule about the verb, and the row may not know it. Same kind number,
+     * one bit flipped, and the button changes what it does.
+     */
+    OrderKindOption pointed[] = {OrderKindOption{9, "Acts", "Formation", true, true}};
+    OrderKindOption immediate[] = {OrderKindOption{9, "Acts", "Formation", true, false}};
+
+    CommandButton armed[MAX_COMMAND_BUTTONS] = {};
+    CommandButton acting[MAX_COMMAND_BUTTONS] = {};
+    (void)BuildCommandRow(pointed, 99, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, armed);
+    (void)BuildCommandRow(immediate, 99, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, acting);
+
+    Assert::IsTrue(armed[0].action == CommandAction::SelectKind);
+    Assert::IsTrue(acting[0].action == CommandAction::IssueNow);
+  }
+
+  TEST_METHOD(AnActingVerbTheGameGreyedIsStillRefusedByTheHitTest)
+  {
+    /*
+     * The safety the whole arrangement leans on. A press on this button *sends
+     * an order* rather than arming one, so "the game said no" has to stop the
+     * press rather than merely dim it -- there is no pre-check downstream to
+     * catch it, because the press is the commit.
+     */
+    const OrderKindOption outOfRange[] = {OrderKindOption{9, "Acts", "Formation", false, false, 11}};
+
+    CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
+    const std::uint32_t count =
+        BuildCommandRow(outOfRange, 99, FORMATIONS, 0, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+    Assert::IsTrue(count > 0);
+
+    Assert::IsFalse(buttons[0].enabled, L"the game's refusal greys it");
+    const UiRect& rect = buttons[0].rect;
+    Assert::IsNull(HitCommandRow({buttons, count}, rect.x + rect.width * 0.5f, rect.y + rect.height * 0.5f),
+                   L"and a greyed acting verb must not be pressable");
+  }
+
+  TEST_METHOD(AnEmptySelectionStillDisablesAVerbThatWouldActOnThePress)
+  {
+    CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
+    const std::uint32_t count =
+        BuildCommandRow(WITH_AN_ACTING_VERB, 0, FORMATIONS, 0, EMPTY, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+
+    const CommandButton* acts = Find({buttons, count}, "Acts");
+    Assert::IsNotNull(acts);
+    Assert::IsFalse(acts->enabled, L"nothing to act on is nothing to act on, whichever way the press works");
+  }
+
+  TEST_METHOD(AnActingVerbCanStillBeSelectedSoItsParameterIsReachable)
+  {
+    /*
+     * Why the client selects one as well as issuing it. The parameter chip
+     * belongs to the *selected* command -- only one kind's option values are
+     * fetched per frame -- so a verb that could never be selected would be a
+     * verb whose parameter could never be changed.
+     */
+    CommandButton buttons[MAX_COMMAND_BUTTONS] = {};
+    const std::uint32_t count =
+        BuildCommandRow(WITH_AN_ACTING_VERB, 9, FORMATIONS, 2, SELECTED, WideRow(), 1.0f, CommandRowTuning{}, buttons);
+
+    const CommandButton* parameter = nullptr;
+    for (std::uint32_t index = 0; index < count; ++index)
+    {
+      if (buttons[index].action == CommandAction::CycleParameter)
+      {
+        parameter = &buttons[index];
+      }
+    }
+    Assert::IsNotNull(parameter, L"the acting verb's own parameter chip");
+    Assert::AreEqual<std::uint16_t>(9, parameter->payload);
+    Assert::AreEqual(std::string{"Claw"}, std::string{parameter->value});
   }
 };
 
