@@ -30,6 +30,22 @@ RTS audio failure: sounds that pan wrongly, or that ignore zoom entirely.
    the rest are 2D. The **duck matrix** (alerts ducking world/music) that the settings print
    describes is post-MVP, but it is a per-submix volume ramp on this existing graph — no
    restructuring.
+
+   > **"What the settings screen writes" was not achievable when the settings screen arrived**
+   > (N3, 2026-08-23), and the missing piece is one function on this side.
+   >
+   > `AudioDevice::Create` takes an `AudioSettings` and there is **no setter for a live mixer**.
+   > So a volume slider could record a value and could not apply one until the next launch —
+   > which `settings.png`'s own header forbids in three words (CHANGES APPLY IMMEDIATELY). N3
+   > therefore draws the AUDIO section, **refuses it, and puts that sentence on screen** rather
+   > than shipping six sliders that quietly do nothing until you restart.
+   >
+   > It is a small gap and worth naming precisely so it is not mistaken for a design question:
+   > the graph exists, the gains are already config, and what is owed is a
+   > `SetGains(const AudioSettings&)` that walks the five submixes and the master and calls
+   > `SetVolume` on each. The section goes live the day it lands and needs nothing else — which
+   > is also why the print calls this section "free". The duck-strength control the print draws
+   > beside the volumes is still post-MVP and still the ramp described above.
 3. **Pooled source voices**, not one voice per entity: a fixed pool per source format
    (mono 3D, stereo 2D), MVP caps ~32 concurrent 3D voices and ~16 2D. Allocation is
    priority-then-distance; exhaustion steals the lowest-priority farthest voice. This is

@@ -172,7 +172,9 @@ grid's snapshot was one datagram for everyone watching it; under interest cullin
 grid's update is sized by a per-tick byte budget, packed into as many datagrams as it takes,
 and each viewer gets a different subset. Summaries are untouched — they were already per-player
 and already cheap. §7's presence rules gain one affordance: `culledCount` states how many
-entities the player is **not** being sent, through the icon ladder's counted-chip rung.)*
+entities the player is **not** being sent, through the icon ladder's counted-chip rung.
+**Built 2026-08-23 (U3d-c)** — and as a *screen-space* chip rather than a mark on the plane,
+because a culled entity has no position the client can justify; see ADR-022 §5d's note.)*
 
 *(Amended again 2026-08-22 by U3d-b, and this one contradicts §7 rather than extending it.
 **§7 says "everything else about a view — where the camera is, what is selected, how far it is

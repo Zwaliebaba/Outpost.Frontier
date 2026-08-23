@@ -986,9 +986,11 @@ its counters show the steady state the design intends: **3 keyframes over 124 ti
 join, deltas after.
 
 **What this slice did *not* do**, so U3d-c's scope is not overstated: `culledCount` reaches
-`ReplicatedView::CulledCount()` and stops there. Nothing draws it yet. The counted chip is the
-whole of what U3d-c has left, and the client's ack, keyframe and delta-apply paths — which the
-build order lists under U3d-c — landed here because the wire cannot be tested without a reader.
+`ReplicatedView::CulledCount()` and stops there. ~~Nothing draws it yet. The counted chip is the
+whole of what U3d-c has left~~ **— and the chip landed 2026-08-23, so U3d-c is done and U3d with
+it; what is left is its visual checkpoint (R1's queue).** The client's ack, keyframe and
+delta-apply paths — which the build order lists under U3d-c — landed here because the wire
+cannot be tested without a reader.
 
 **What this slice unblocks, stated so it is not rediscovered:** **shared grids** (U3c ran on
 disjoint ones and ADR-018 D3 gates the rest behind exactly this); **A11's remainder**, the

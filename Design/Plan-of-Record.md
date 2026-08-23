@@ -276,7 +276,7 @@ fleet but has no camera.
 
 **Now, in order:**
 
-1. ~~**U3d — interest & delta**~~ — **U3d-a and U3d-b built 2026-08-22.** R19 is closed, the shared-grid gate (ADR-018 D3) is lifted, and A11's remainder landed with the `ShipId`/`EntityRecord::id` widening. What is left is **U3d-c's counted chip** — `culledCount` reaches `ReplicatedView::CulledCount()` and nothing draws it yet — and that is screen work, so it moves down to sit behind the input model with the rest of the screens. The client's ack, keyframe and delta-apply paths, which this plan listed under U3d-c, landed with U3d-b because the wire cannot be tested without a reader.
+1. ~~**U3d — interest & delta**~~ — **built: U3d-a and U3d-b 2026-08-22, U3d-c 2026-08-23.** R19 is closed, the shared-grid gate (ADR-018 D3) is lifted, and A11's remainder landed with the `ShipId`/`EntityRecord::id` widening. ~~What is left is **U3d-c's counted chip** — `culledCount` reaches `ReplicatedView::CulledCount()` and nothing draws it yet~~ — **the counted chip landed 2026-08-23, and the rung it was to render through did not exist**: the density ladder is unbuilt, so `CountedChip.h` is that rung, and it could not have been that rung anyway because a culled entity has no position (ADR-022 §5d's note). What is left of U3d is the **visual checkpoint** — a real count on a grid over budget — which is an R1 item rather than a slice. The client's ack, keyframe and delta-apply paths, which this plan listed under U3d-c, landed with U3d-b because the wire cannot be tested without a reader.
 
     Two decisions the slice had to take rather than find, both recorded with it: **tier 1 reads as "inside the camera's extent"** rather than ADR-022 §4's literal "a visible relationship *and* inside the extent", because the first conjunct has no producer until the combat phase; and **`ViewFocus` had to be invented** — §4's query needs a focus, an extent and a selection, and §5a's guarantee cannot be kept for a selection nobody told the server about, which amends ADR-016 §7's "the server has no business holding this".
 2. ~~**N2 — the user layer.**~~ **Built 2026-08-22.** `Settings.json` is written — atomically,
@@ -372,6 +372,27 @@ named.
 ---
 
 ## Revision log
+
+- **2026-08-23 — a documentation sweep across the corpus, and it found a risk that had never
+  reached the register.** Every slice this session updated its own documents as it landed; this
+  is the pass that checks what *other* documents said about them.
+
+  **The finding worth the sweep:** ADR-020's touch reversal named "no touch device is in the
+  loop anywhere" as a risk in §1 of this plan on 2026-08-22 — *"named here so it is a
+  decision rather than a surprise"* — and it never reached the Risk Register, which is the one
+  document whose whole job is holding risks. It is **R29** now, with **R30** beside it for the
+  two surfaces I2 left answering only a mouse. A risk that lives only in a plan is a risk
+  nobody is watching, which is the failure the register exists to prevent.
+
+  Seven other documents disagreed with the tree. ADR-022 §5d still said `culledCount` renders
+  through the icon ladder's *existing* rung — wrong twice, since the rung did not exist and
+  could not have served anyway (it also cited §5 for a §6 panel). ADR-012 §A3 still said the
+  display and audio families are written "the moment something changes them, and today nothing
+  does". ADR-011's submix clause still called the category gains "what the settings screen
+  writes", which N3 could not make true for want of a live-mixer setter. ADR-016's U3d-b
+  amendment, the README's two phase blocks, the Dependency Map's `HudPalette` entry and R18's
+  A15 annotation were each a slice behind. All corrected in place, struck rather than deleted,
+  so the record of what was believed survives beside what is true.
 
 - **2026-08-23 — U3 closed as far as it closes, and the last two items are blocked on different
   things.** U3d-c's counted chip is built, which finishes U3d: `culledCount` had reached

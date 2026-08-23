@@ -21,6 +21,17 @@ station-screen.png`, landed 2026-08-19 — and its four open review questions we
 2026-08-20 ([ADR-017 §6a](ADR/ADR-017-station-docking.md)), so **T3 has no design gate left**:
 what remains of this phase is screen work.
 
+**Amended 2026-08-23 — §6's docked scope was lifted and it was not a station slice that did it.**
+I2 needed wings as control groups, which a player can only *form* at a station is not, so
+`AssignWing` now accepts ships on the grid as well as on the roster ([ADR-017 §6's
+amendment](ADR/ADR-017-station-docking.md)). No wire change, no new verb, no wing table — ADR-017
+§6's own "without new machinery" held. Two consequences for this phase: **the hangar is no longer
+the reorganisation room by necessity**, only by convenience; and the refusal a station command
+gives changed — an `AssignWing` naming a ship the view does not carry is refused `UnknownShip`
+rather than `NotDocked`, because "not docked here" is the wrong sentence for a verb that no longer
+needs a dock. What is *not* built is a surface for it: nothing in the client can compose an
+in-space assignment, which is I3's.
+
 **T3 has started, and it split (2026-08-22).** **T3a is built** — the client *navigates*:
 ADR-020's surface stack, input router, focus, text editing and scrolling list, all
 device-free and tested; the ELSEWHERE column laid out where it is pressed rather than inside

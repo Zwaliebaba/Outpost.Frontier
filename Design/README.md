@@ -177,8 +177,15 @@ moves between the trees without a rename pass. Three things it changed in these 
   2026-08-22, its calls normative in ADR-016 §9); milestones W0 (first warp)
   / W1 (first crossing) / W2 (the universe on screen). **U1, U2, U3a, U3b's sim and wire
   halves, U4's sim half, U5's pure half and U3c are built** (U3c 2026-08-21, split into
-  ownership in the simulation and the second commander on the wire). **What is left in that
-  plan is screen work, with no exceptions.**
+  ownership in the simulation and the second commander on the wire). ~~**What is left in that
+  plan is screen work, with no exceptions.**~~ **U3d — interest and delta — was added and built
+  2026-08-22/23** (a/b on the 22nd, c's counted chip on the 23rd), which closes R19. What is
+  left of the universe phase is **U4's client half, U5's map and U6**, all of which need a GPU
+  and a person — plus two items that are not screen work and are blocked on different things:
+  **A16's presence edges** have no destination while `SurfaceId::Map` draws nothing, and
+  **A15's view-switch acceptance** needs an injected-delay shim the transport does not have and
+  a timed run either way. Its target is now stated as **RTT + 200 ms** rather than a flat
+  half second.
 - [Station-Build-Order.md](Station-Build-Order.md) — the docking phase: T1–T3 slices
   delivering ADR-017 (roster + transfer bus in the sim, the wire and tactical surfaces,
   the hangar screen), interleaved **after U2, before U3a**; milestones **H0 (the headless
@@ -192,7 +199,10 @@ moves between the trees without a rename pass. Three things it changed in these 
   had been holding all three (ADR-017 §6's note) — and the layer itself landed the same day as
   **N2**, so a wing's *name* now has somewhere client-side to live (ADR-017 §6, the rule §6a.4
   cites). What is left of that room is the rename **control**, and assigning to wing 0 to
-  disband, which wants the print's stray column first.
+  disband, which wants the print's stray column first. **And the room stopped being a room on
+  2026-08-23**: I2 lifted `AssignWing` out of docked scope (ADR-017 §6's amendment), so a wing
+  can be formed wherever the ships are — the authority accepts it and both halves agree, but
+  nothing in the client can compose one in space yet, which is I3's.
 - [Economy-Build-Order.md](Economy-Build-Order.md) — the mining and refining phase: E1a–E5
   slices delivering ADR-024 and ADR-025 (the economy content layer, sites in the bake and the
   epoch that moves them, the Mine order and the site ledger, cargo and the Bay and the wire

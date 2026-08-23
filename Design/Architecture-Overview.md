@@ -76,7 +76,7 @@ indistinguishable to a person watching.
 
 ```mermaid
 sequenceDiagram
-    participant P as Player (mouse)
+    participant P as Player (touch; mouse through the same seam since I1)
     participant C as ClientApp (Main thread)
     participant G as GameLogic (through the seam, ADR-014 §2a)
     participant S as ServerHost (Sim thread, 20 Hz)
@@ -141,7 +141,7 @@ them is not owed, and no slice does it.
 | **NeuronCore** | Engine primitives, zero game semantics: time, logging, telemetry lanes, ByteReader/Writer, **JSON parser/writer**, PCG32, task pool, `Transport` + its `QuicTransport` implementation, framing wire messages, and the owner-thread assert. No math layer — DirectXMath is used natively (ADR-010). |
 | **GameLogic** | The deterministic planar sim: world tables, ship classes, orders/groups, formation solve, validation + reason codes, game wire schemas, snapshot emit/apply, universe definition + parsing — and, since the universe and station phases, the procedural bake, the many-grids `WorldRegistry`, the transfer bus, station rosters and docking, fleet summaries, the event record and the route solver. *All of it is built.* The universe model and parser landed with S5b; the world — SoA tables, the closed eleven-class registry, seek-with-arrival steering, the replay hash — with S6; snapshots with S7; and orders, validation, the Line solve and the group table with S9. |
 | **NeuronServer** | `ServerHost`: session table, tick-loop orchestration, connection handling, snapshot fan-out. |
-| **NeuronClient** | `ClientApp`: window/device, frame loop, snapshot buffering + interpolation, Extract, passes, camera, picking and selection, the order puck and its ghosts, HUD *(S11)*, audio *(S15)*. It owns the gesture and the promise; **it owns no meaning** — which command a puck makes, whether an order is allowed, where a formation puts things and what a reason code is called are all the game's answers, reached through `WorldView`. |
+| **NeuronClient** | `ClientApp`: window/device, frame loop, snapshot buffering + interpolation, Extract, passes, camera, picking and selection, the order puck and its ghosts, HUD *(S11)*, audio *(S15)*, the settings surface *(N3)*. **Input arrives as contacts and becomes gestures** since I1 (`Gesture.h`: tap, drag, long-press, second finger, pinch) — the mouse is expressed *through* that seam rather than beside it, which is what ADR-020's 2026-08-22 amendment required when it made touch the primary input. It owns the gesture and the promise; **it owns no meaning** — which command a puck makes, whether an order is allowed, where a formation puts things and what a reason code is called are all the game's answers, reached through `WorldView`. |
 | **Outpost.exe** | Composition root: `Outpost.json` → config structs → `ServerHost.Start()` → `ClientApp.Run()` → ordered shutdown. No argv, no environment (ADR-012). |
 | **Tests/**\* | VS CppUnitTestFramework per-library suites; replay determinism and wire round-trips live in `GameLogicTests`. |
 

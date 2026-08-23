@@ -210,11 +210,35 @@ regardless, and the overrun is **counted and logged** (`interestOverrun`, beside
 the one outcome this ADR is written to prevent.
 
 **5d. Culling is stated to the player, never silent.** `DeltaHeader.culledCount` is how many
-entities on the viewed grid are not being sent. The client renders it through the icon
+entities on the viewed grid are not being sent. ~~The client renders it through the icon
 ladder's existing counted-chip rung (`tactical-icon-system.png` §5) — the same affordance
-that already answers "there are more ships here than there are pixels". The player is never
+that already answers "there are more ships here than there are pixels".~~ The player is never
 told a grid is empty when it is not; they are told *how many* they are not being shown, which
 is the honest version of the same sentence.
+
+> **Built 2026-08-23 as U3d-c, and the struck sentence was wrong twice.**
+>
+> **There was no existing rung.** The density ladder (`tactical-icon-system.png` §6, not §5 —
+> this clause also cited the wrong section) is unbuilt, so there was nothing to render through;
+> `NeuronClient/CountedChip.h` is that rung, built here and waiting for its second caller.
+>
+> **And it could not have been that rung anyway**, which is the part worth keeping. A density
+> merge knows where its group is and draws *"an extent outline plus a count"*. A **culled**
+> entity is one the server did not send, so the client holds a number and nothing else — no
+> position, no extent, not even a bearing. Putting it on the plane would invent exactly the
+> *"position the client cannot justify"* that the same print sentence forbids. So the chip is a
+> **screen-space statement about the feed**, sited with the readouts that are about the
+> connection rather than about the world.
+>
+> The rest of the clause stands and is what the code does: zero draws nothing, because the rule
+> is that a player is never told a grid is empty when it is not — not that a fully-sent frame
+> needs a chip saying "none hidden". And §5a's guarantee means the hulls behind it are always
+> somebody else's, which a player therefore never has to be told.
+>
+> `RenderScene::culledCount` is the seam, filled from the newest frame's header rather than from
+> the interpolated sample: halfway between "9 hidden" and "11 hidden" is a number the authority
+> never stated. What is still owed is the **visual checkpoint** — a real count on a grid over
+> budget — which needs a GPU and a person (R1's queue).
 
 **5e. Leaving interest is an event, not an absence.** A record absent from a delta means
 "unchanged". A record that has *left* the viewer's interest set is named in an explicit
