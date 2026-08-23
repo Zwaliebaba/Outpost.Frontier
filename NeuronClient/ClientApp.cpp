@@ -188,40 +188,24 @@ bool ClientApp::Initialise(const ClientConfig& _config, const PipelineShaders& _
   m_shaders = _shaders;
   m_worldView = &_worldView;
 
-  // The colour table, once. Everything `BuildHud` draws resolves through it,
-  // which is what makes the settings sheet's colour-vision palettes a config
-  // string rather than a migration.
-  m_palette = ResolveHudPalette(_config.uiPalette);
+  // The colour table, and everything derived from it. Through `ApplyPalette` so
+  // the settings screen can run the same resolve again on a change rather than
+  // only at boot (ADR-020 §8) -- which is what makes a swap total instead of
+  // partial.
+  ApplyPalette(_config.uiPalette);
 
-  /*
-   * The world-space marks take their colours from the same table. The
-   * selection ring is the **own-fleet phosphor**, matching the roster's
-   * selected chip -- allied cyan is reserved for allied assets and shield
-   * fills, and a player reading colour fast would parse a cyan ring as someone
-   * else's ship. The ghost states keep their meaning through alpha and the
-   * hostile red, but the hues are the palette's, so a colour-vision palette
-   * swap recolours the world overlays with the chrome.
-   */
-  m_overlayTuning.ringColourRgba = m_palette.phosphor;
-  m_overlayTuning.hullColourRgba = m_palette.phosphor;
-  m_overlayTuning.hullWornColourRgba = m_palette.caution;
-  m_overlayTuning.hullLowColourRgba = m_palette.hostile;
-  m_overlayTuning.shieldColourRgba = m_palette.allied;
-  m_overlayTuning.ghostPendingColourRgba = WithAlpha(m_palette.phosphor, 0xa0);
-  m_overlayTuning.ghostUnderWayColourRgba = m_palette.phosphor;
-  m_overlayTuning.ghostRejectedColourRgba = m_palette.hostile;
-
-  // The caution amber, this palette's word for a temporary condition -- which
-  // is what a status bit is, whatever this game means by one. **Which** bits
-  // get a mark is the composition root's answer and arrives in the config; the
-  // colour is the palette's, so a colour-vision swap recolours it with
-  // everything else.
-  m_overlayTuning.statusMarkColourRgba = m_palette.caution;
+  // **Which** status bits get a mark is the composition root's answer and
+  // arrives in the config; the colour is the palette's and is set beside the
+  // rest in `ApplyPalette`.
   m_overlayTuning.statusMarkBits = _config.statusMarkBits;
 
-  // Something of the player's arriving or leaving: the allied cyan, the same
-  // hue the shield fill uses, because both are statements about your own.
-  m_overlayTuning.transitRingColourRgba = m_palette.allied;
+  /*
+   * N3's two input settings, applied here for the same reason the palette is:
+   * they are config words on the way in and live state from here on, and the
+   * settings screen changes both without a restart.
+   */
+  m_gestureTuning.longPressSeconds = _config.longPressSeconds;
+  m_handedness = ResolveHandedness(_config.uiHandedness);
 
   // What the puck's orders are, from the side that knows. Once, at boot: there
   // is one command until the wheel exists, and asking every frame would be
@@ -869,7 +853,17 @@ void ClientApp::UpdateHud()
    */
   if (!SurfaceRecordsWorld(m_surfaces.Active()))
   {
-    UpdateStationSurface();
+    // Which full-screen surface is up. Each handles what it drew, for the reason
+    // the branch exists at all: a press against a screen that is not showing is
+    // a press nobody could have aimed.
+    if (m_surfaces.Active() == SurfaceId::Settings)
+    {
+      UpdateSettingsSurface();
+    }
+    else
+    {
+      UpdateStationSurface();
+    }
     return;
   }
 
@@ -897,7 +891,9 @@ void ClientApp::UpdateHud()
     m_menuOpen = false; // Whatever was pressed, the list has had its answer.
     if (m_menuItemRects[MENU_SETTINGS].Contains(cursorX, cursorY))
     {
-      m_menuOpen = true; // Dead until the settings sheet lands; the list stays.
+      // Live since N3. It was drawn dead and honest about it -- the list stayed
+      // so the entry would not appear from nowhere the day the screen landed.
+      OnSurfaceChanged(m_surfaces.Push(SurfaceId::Settings));
     }
     else if (m_menuItemRects[MENU_EXIT].Contains(cursorX, cursorY))
     {
@@ -1455,6 +1451,51 @@ void ClientApp::AdvanceAutoFollow()
     m_followRequested = best;
     NEURON_LOG_INFO("auto-follow: nothing of ours on grid %u, asking for %u", here, best);
   }
+}
+
+/*
+ * Resolves a palette name and everything downstream of it (ADR-020 §8).
+ *
+ * **Callable again**, which is the whole point and the reason this is a
+ * function rather than a run of lines in `Create`. The ADR asks for it in as
+ * many words -- *"the settings screen re-runs the resolve on change rather than
+ * only at boot"* -- and what makes that sufficient is `HudPalette`'s own rule
+ * that a packed colour literal in `BuildHud` is a defect: everything the chrome
+ * draws already reads `m_palette`, so a swap that also re-derives the overlay
+ * tuning below is total.
+ *
+ * The world-space marks are the half that would otherwise be missed. The
+ * selection ring is the **own-fleet phosphor**, matching the roster's selected
+ * chip -- allied cyan is reserved for allied assets and shield fills, and a
+ * player reading colour fast would parse a cyan ring as someone else's ship.
+ * The ghost states keep their meaning through alpha and the hostile red, but
+ * the hues are the palette's, so a colour-vision swap recolours the world
+ * overlays with the chrome.
+ */
+void ClientApp::ApplyPalette(std::string_view _name)
+{
+  m_palette = ResolveHudPalette(_name);
+
+  m_overlayTuning.ringColourRgba = m_palette.phosphor;
+  m_overlayTuning.hullColourRgba = m_palette.phosphor;
+  m_overlayTuning.hullWornColourRgba = m_palette.caution;
+  m_overlayTuning.hullLowColourRgba = m_palette.hostile;
+  m_overlayTuning.shieldColourRgba = m_palette.allied;
+  m_overlayTuning.ghostPendingColourRgba = WithAlpha(m_palette.phosphor, 0xa0);
+  m_overlayTuning.ghostUnderWayColourRgba = m_palette.phosphor;
+  m_overlayTuning.ghostRejectedColourRgba = m_palette.hostile;
+
+  // The caution amber, this palette's word for a temporary condition -- which is
+  // what a status bit is, whatever this game means by one.
+  m_overlayTuning.statusMarkColourRgba = m_palette.caution;
+
+  // Something of the player's arriving or leaving: the allied cyan, the same hue
+  // the shield fill uses, because both are statements about your own.
+  m_overlayTuning.transitRingColourRgba = m_palette.allied;
+
+  // And the audit, re-measured with it. Cheap -- ten pairs of arithmetic -- and
+  // it means the panel is never showing the ratios of the palette before last.
+  m_auditRowCount = AuditPalette(m_palette, m_auditRows);
 }
 
 void ClientApp::OnSurfaceChanged(const SurfaceChange& _change)
@@ -2332,6 +2373,10 @@ void ClientApp::BuildHud()
   {
     BuildTacticalHud(nowSeconds);
   }
+  else if (m_surfaces.Active() == SurfaceId::Settings)
+  {
+    BuildSettingsSurface();
+  }
   else
   {
     BuildStationSurface();
@@ -2455,12 +2500,15 @@ void ClientApp::BuildHud()
     const char* menuLabels[MENU_ITEM_COUNT] = {"RESUME", "SETTINGS", "EXIT"};
     for (std::uint32_t item = 0; item < MENU_ITEM_COUNT; ++item)
     {
-      const bool dead = item == MENU_SETTINGS;
+      // Nothing in this list is drawn dead since N3. SETTINGS was the one entry
+      // that was, and it opens a screen now -- the half-alpha border and the
+      // dead phosphor went with it rather than staying as a branch that could
+      // never be taken.
       const UiRect& itemRect = m_menuItemRects[item];
-      m_ui.AddBorder(itemRect, 1.0f * layout.scale, dead ? AtHalfAlpha(m_palette.border) : m_palette.border);
+      m_ui.AddBorder(itemRect, 1.0f * layout.scale, m_palette.border);
       const float itemWidth = static_cast<float>(TextCellCount(menuLabels[item])) * cell;
       m_ui.AddText(itemRect.x + (itemRect.width - itemWidth) * 0.5f, itemRect.y + (itemRect.height - bodyPx) * 0.5f,
-                   m_uiTuning.bodySizeIndex, dead ? m_palette.phosphorDead : m_palette.phosphor, menuLabels[item]);
+                   m_uiTuning.bodySizeIndex, m_palette.phosphor, menuLabels[item]);
     }
   }
 
@@ -3426,6 +3474,681 @@ void ClientApp::BuildTacticalHud(double _nowSeconds)
                    chipRect.y + (chipRect.height - bodyPx) * 0.5f, m_uiTuning.bodySizeIndex, queueColour, queueLabel);
     }
   }
+}
+
+/*
+ * --- the settings surface (N3, `settings.png` §1, ADR-020 §8) --------------
+ *
+ * What one row is set to, as 0..1 along its own control.
+ *
+ * Normalised on the way out and back in, which is what lets `SettingsScreen`
+ * lay out a slider without knowing whether it is carrying a UI scale, a volume
+ * or a frame cap -- and what stops a caller converting units twice and getting
+ * the two conversions out of step.
+ *
+ * A `Choice` reports the selected option over the option count, so the same
+ * `float` carries both shapes. That is a small compression and it earns itself:
+ * the alternative is a variant, and a variant here would be a type for two
+ * cases that never travel further than these two functions.
+ */
+namespace
+{
+
+/// Flips a bool to what a normalised value says, and reports whether it moved.
+/// A helper rather than three copies, because "did this change" is the question
+/// the user layer is written from and getting it wrong once is a file write per
+/// frame.
+[[nodiscard]] bool Toggled(bool& _flag, float _normalised) noexcept
+{
+  const bool wanted = _normalised >= 0.5f;
+  if (_flag == wanted)
+  {
+    return false;
+  }
+  _flag = wanted;
+  return true;
+}
+
+} // namespace
+
+const char* ClientApp::SettingsReadoutText(SettingsSection _section, std::uint32_t _item, char* _buffer,
+                                          std::size_t _bufferBytes) const noexcept
+{
+  if (_buffer == nullptr || _bufferBytes == 0)
+  {
+    return "";
+  }
+  if (_section != SettingsSection::Display)
+  {
+    return "";
+  }
+
+  switch (_item)
+  {
+  case 2:
+    // The swap chain's, not the window's and not the config's: what the client
+    // is actually drawing at, after whatever the device did with the request.
+    std::snprintf(_buffer, _bufferBytes, "%u x %u", m_swapChain.Width(), m_swapChain.Height());
+    return _buffer;
+  case 3:
+  {
+    /*
+     * What multisampling was actually built, which `GpuSwapChain::SampleCount`
+     * reports for exactly this reason -- the config asks and the device
+     * answers, and ADR-003 §7's degradation ladder is allowed to answer with
+     * less. A readout that echoed the request would be the one place on this
+     * screen that told the player something untrue.
+     */
+    const std::uint32_t samples = m_swapChain.SampleCount();
+    if (samples <= 1)
+    {
+      return "OFF";
+    }
+    std::snprintf(_buffer, _bufferBytes, "%ux", samples);
+    return _buffer;
+  }
+  default:
+    return "";
+  }
+}
+
+float ClientApp::SettingsValueOf(SettingsSection _section, std::uint32_t _item) const noexcept
+{
+  const auto normalise = [](float _value, float _low, float _high) {
+    return _high > _low ? std::clamp((_value - _low) / (_high - _low), 0.0f, 1.0f) : 0.0f;
+  };
+  const auto choice = [](std::uint32_t _index, std::uint32_t _count) {
+    return _count > 1 ? static_cast<float>(_index) / static_cast<float>(_count - 1) : 0.0f;
+  };
+
+  switch (_section)
+  {
+  case SettingsSection::Accessibility:
+    switch (_item)
+    {
+    case 0:
+    {
+      // The palette, by the order the cards are drawn in. Spelled here rather
+      // than asked of `HudPalette`, because a name is what the config carries
+      // and `ResolveHudPalette` is deliberately one-way -- an unknown word
+      // resolves to the default table and must show as the default card.
+      const std::uint32_t index = m_config.uiPalette == "deuteranopia" ? 1u : m_config.uiPalette == "tritanopia" ? 2u : 0u;
+      return choice(index, 3);
+    }
+    case 1:
+      return normalise(m_config.uiScale, 0.8f, 1.6f);
+    case 2:
+      return m_config.uiHighContrast ? 1.0f : 0.0f;
+    case 3:
+      return m_config.uiReduceMotion ? 1.0f : 0.0f;
+    case 4:
+      return m_config.uiAlwaysShowHullBars ? 1.0f : 0.0f;
+    default:
+      return 0.0f;
+    }
+  case SettingsSection::Input:
+    switch (_item)
+    {
+    case 0:
+      // LEFT is drawn first and RIGHT second, which is the print's order.
+      return choice(m_handedness == Handedness::Left ? 0u : 1u, 2);
+    case 1:
+      return normalise(m_gestureTuning.longPressSeconds, 0.200f, 0.800f);
+    default:
+      return 0.0f;
+    }
+  case SettingsSection::Display:
+    switch (_item)
+    {
+    case 0:
+      return m_config.vsync ? 1.0f : 0.0f;
+    case 1:
+      return normalise(static_cast<float>(m_config.frameCap), 0.0f, 240.0f);
+    default:
+      // The readouts. Nothing to report as a value -- `BuildSettingsSurface`
+      // draws what they say from the live client rather than from here.
+      return 0.0f;
+    }
+  case SettingsSection::Audio:
+  case SettingsSection::Account:
+  default:
+    // The two blocked sections (`SettingsSectionAvailable`). Their rows are
+    // drawn and refused, so nothing asks for a value and nothing sets one.
+    return 0.0f;
+  }
+}
+
+/*
+ * And the other direction, returning whether anything actually moved.
+ *
+ * The return is what keeps the user layer honest. A slider dragged across its
+ * track is one press and fifty moves, and a screen that marked the layer dirty
+ * on every one of them would be a screen that wrote a file for a gesture that
+ * changed nothing -- so a set that lands on the value already there says so.
+ *
+ * **Changes apply immediately**, which is the promise the print writes across
+ * its own header. So this does not stage anything: the palette is re-resolved
+ * on the spot, the dwell reaches `GestureTuning` on the spot, and the player
+ * sees the result of the control they are still holding.
+ */
+bool ClientApp::SetSettingsValue(SettingsSection _section, std::uint32_t _item, float _normalised)
+{
+  const float value = std::clamp(_normalised, 0.0f, 1.0f);
+  const auto denormalise = [value](float _low, float _high) { return _low + (_high - _low) * value; };
+  const auto option = [value](std::uint32_t _count) {
+    return _count == 0 ? 0u : std::min(_count - 1u, static_cast<std::uint32_t>(value * static_cast<float>(_count - 1u) + 0.5f));
+  };
+
+  switch (_section)
+  {
+  case SettingsSection::Accessibility:
+    switch (_item)
+    {
+    case 0:
+    {
+      const char* names[] = {"default", "deuteranopia", "tritanopia"};
+      const char* picked = names[option(3)];
+      if (m_config.uiPalette == picked)
+      {
+        return false;
+      }
+      m_config.uiPalette = picked;
+      // The whole cascade, not just the table: ADR-020 §8's "a swap is total
+      // rather than partial", and the reason `ApplyPalette` is a function.
+      ApplyPalette(m_config.uiPalette);
+      return true;
+    }
+    case 1:
+    {
+      const float scale = denormalise(0.8f, 1.6f);
+      if (std::fabs(scale - m_config.uiScale) < 1e-4f)
+      {
+        return false;
+      }
+      m_config.uiScale = scale;
+      return true;
+    }
+    case 2:
+      return Toggled(m_config.uiHighContrast, value);
+    case 3:
+      return Toggled(m_config.uiReduceMotion, value);
+    case 4:
+      return Toggled(m_config.uiAlwaysShowHullBars, value);
+    default:
+      return false;
+    }
+  case SettingsSection::Input:
+    switch (_item)
+    {
+    case 0:
+    {
+      const Handedness picked = option(2) == 0 ? Handedness::Left : Handedness::Right;
+      if (picked == m_handedness)
+      {
+        return false;
+      }
+      m_handedness = picked;
+      m_config.uiHandedness = HandednessName(picked);
+      return true;
+    }
+    case 1:
+    {
+      const float seconds = denormalise(0.200f, 0.800f);
+      if (std::fabs(seconds - m_gestureTuning.longPressSeconds) < 1e-4f)
+      {
+        return false;
+      }
+      // Straight onto the tuning the recognizer reads, so the next press the
+      // player makes already holds for the new interval.
+      m_gestureTuning.longPressSeconds = seconds;
+      m_config.longPressSeconds = seconds;
+      return true;
+    }
+    default:
+      return false;
+    }
+  case SettingsSection::Display:
+    switch (_item)
+    {
+    case 0:
+      // Recorded, and it reaches the swap chain on the next present rather than
+      // here: a flip model's sync interval is a per-present argument, so there
+      // is nothing to re-create and nothing to restart.
+      return Toggled(m_config.vsync, value);
+    case 1:
+    {
+      const auto cap = static_cast<std::uint32_t>(denormalise(0.0f, 240.0f) + 0.5f);
+      if (cap == m_config.frameCap)
+      {
+        return false;
+      }
+      m_config.frameCap = cap;
+      return true;
+    }
+    default:
+      return false;
+    }
+  case SettingsSection::Audio:
+  case SettingsSection::Account:
+  default:
+    return false;
+  }
+}
+
+/*
+ * The presses.
+ *
+ * Order is the screen's own hierarchy: the way off first, then the rail, then
+ * the body. The same shape `UpdateStationSurface` has, and for its reason -- a
+ * press that both left the screen and moved a slider would be two answers to
+ * one gesture.
+ */
+void ClientApp::UpdateSettingsSurface()
+{
+  const float scale = m_uiLayout.scale;
+  m_settingsLayout = ResolveSettingsScreen(m_input.viewportWidth, m_input.viewportHeight, scale, m_settingsTuning);
+
+  const std::span<const SettingsItem> items = SettingsItemsFor(m_settingsSection);
+  m_settingsNavCount = BuildSettingsNav(m_settingsLayout.nav, scale, m_settingsTuning, m_settingsNav);
+  m_settingsRowCount = BuildSettingsRows(items, m_settingsLayout.body, scale, m_settingsTuning,
+                                         m_settingsScroll.Offset(), m_settingsRows);
+  // The rail is laid out before the scroll is sized, because a press on it must
+  // be answerable on the frame the body is still catching up on.
+
+  // The way back, before anything else can take the press.
+  if (m_router.ClaimPointerIn(m_settingsLayout.back))
+  {
+    OnSurfaceChanged(m_surfaces.Back());
+    return;
+  }
+
+  /*
+   * The body's wheel, which is §7's declared overflow answer for this surface.
+   *
+   * Counted in *rows* rather than pixels, which is what `UiScrollState` already
+   * measures and what `BuildSettingsRows` takes -- so there is no conversion
+   * between the two for a caller to get wrong in one direction. The visible
+   * count is the run's own tallest row into the body, which under-counts a body
+   * of short rows and is the safe direction: it scrolls a little further than it
+   * strictly must rather than hiding a row the player cannot reach.
+   */
+  const float tallestRow = SettingsRowHeightPixels(m_settingsTuning.sliderRowHeight, scale);
+  m_settingsScroll.SetExtent(static_cast<std::uint32_t>(items.size()),
+                             VisibleRowCount(m_settingsLayout.body.height, tallestRow));
+  if (m_settingsLayout.body.Contains(m_router.CursorX(), m_router.CursorY()) && m_router.WheelAvailable())
+  {
+    m_settingsScroll.ScrollByWheel(m_router.WheelSteps());
+    (void)m_router.ClaimWheel();
+  }
+
+  if (!m_router.Pressed(InputButton::Left))
+  {
+    return;
+  }
+
+  const float cursorX = m_router.CursorX();
+  const float cursorY = m_router.CursorY();
+
+  if (const SettingsNavRow* row = HitSettingsNav({m_settingsNav, m_settingsNavCount}, cursorX, cursorY);
+      row != nullptr && m_router.ClaimPointer())
+  {
+    if (row->section != m_settingsSection)
+    {
+      m_settingsSection = row->section;
+      // A new section starts at its top. Unlike the section *choice*, which
+      // survives leaving the screen, a scroll offset from another list is
+      // meaningless against this one.
+      m_settingsScroll.Reset();
+    }
+    return;
+  }
+
+  if (const SettingsRowRect* row = HitSettingsRow({m_settingsRows, m_settingsRowCount}, cursorX, cursorY);
+      row != nullptr && m_router.ClaimPointer())
+  {
+    switch (row->kind)
+    {
+    case SettingsControlKind::Toggle:
+      m_settingsDirty = SetSettingsValue(m_settingsSection, row->item,
+                                         SettingsValueOf(m_settingsSection, row->item) >= 0.5f ? 0.0f : 1.0f) ||
+                        m_settingsDirty;
+      break;
+    case SettingsControlKind::Slider:
+      m_settingsDirty =
+          SetSettingsValue(m_settingsSection, row->item, SettingsSliderValueAt(*row, cursorX)) || m_settingsDirty;
+      break;
+    case SettingsControlKind::Choice:
+    {
+      const std::uint32_t picked = HitSettingsChoice(*row, scale, m_settingsTuning, cursorX, cursorY);
+      if (picked < row->optionCount && row->optionCount > 1)
+      {
+        const float value = static_cast<float>(picked) / static_cast<float>(row->optionCount - 1);
+        m_settingsDirty = SetSettingsValue(m_settingsSection, row->item, value) || m_settingsDirty;
+      }
+      break;
+    }
+    case SettingsControlKind::Readout:
+    case SettingsControlKind::Placeholder:
+    default:
+      // Not reachable: `HitSettingsRow` refuses a row that is not a target.
+      break;
+    }
+  }
+}
+
+/*
+ * The settings surface's draw (N3, `settings.png` §1).
+ *
+ * The print's own reading of what this screen is: *"every control here is either
+ * an accessibility requirement or a decision the design deliberately refused to
+ * make for the player"*. So the draw's job is to make the controls legible and
+ * the refusals visible, and there is nothing else on it.
+ *
+ * Reads `m_settingsLayout` and the two runs `UpdateSettingsSurface` resolved
+ * this frame rather than resolving them again -- one answer, so a press and a
+ * pixel cannot disagree.
+ */
+void ClientApp::BuildSettingsSurface()
+{
+  const SettingsScreenLayout& screen = m_settingsLayout;
+  const float scale = screen.scale;
+  const float cell = 8.0f * scale;
+  const float pad = m_uiTuning.padding * scale;
+  const float line = 1.0f * scale;
+  const float bodyPx = BASE_FONT_SIZES_PIXELS[m_uiTuning.bodySizeIndex] * scale;
+  const float smallPx = BASE_FONT_SIZES_PIXELS[m_uiTuning.smallSizeIndex] * scale;
+
+  char buffer[128] = {};
+
+  const auto centred = [&](const UiRect& _rect, std::uint8_t _size, std::uint32_t _colour, const char* _text) {
+    const float width = static_cast<float>(TextCellCount(_text)) * cell;
+    const float height = BASE_FONT_SIZES_PIXELS[_size] * scale;
+    m_ui.AddText(_rect.x + (_rect.width - width) * 0.5f, _rect.y + (_rect.height - height) * 0.5f, _size, _colour,
+                 _text);
+  };
+
+  // The ground, opaque: there is no world behind a full-screen surface, so
+  // anything reading through would be whatever the back buffer last held.
+  m_ui.AddQuad(screen.viewport, WithAlpha(m_palette.panel, 0xFF));
+
+  // --- the header ---------------------------------------------------------
+  m_ui.AddBorder(screen.back, line, m_palette.border);
+  centred(screen.back, m_uiTuning.bodySizeIndex, m_palette.phosphor, "< BACK");
+  m_ui.AddText(screen.back.Right() + pad * 2.0f, screen.header.y + (screen.header.height - bodyPx) * 0.5f,
+               m_uiTuning.bodySizeIndex, m_palette.phosphorHot, "SETTINGS");
+
+  /*
+   * The apply notice, right-aligned, and it is a promise rather than a label:
+   * there is no OK and no CANCEL on this screen, so a player has to be told
+   * that what they just moved has already happened.
+   */
+  {
+    const char* notice = "CHANGES APPLY IMMEDIATELY";
+    const float width = static_cast<float>(TextCellCount(notice)) * cell;
+    m_ui.AddText(screen.header.Right() - pad - width, screen.header.y + (screen.header.height - smallPx) * 0.5f,
+                 m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, notice);
+  }
+  m_ui.AddQuad(UiRect{0.0f, screen.header.Bottom() - line, screen.viewport.width, line}, m_palette.rule);
+
+  // --- the rail -----------------------------------------------------------
+  for (std::uint32_t index = 0; index < m_settingsNavCount; ++index)
+  {
+    const SettingsNavRow& row = m_settingsNav[index];
+    const bool selected = row.section == m_settingsSection;
+    if (selected)
+    {
+      m_ui.AddQuad(row.rect, m_palette.rule);
+      m_ui.AddBorder(row.rect, line, m_palette.borderStrong);
+    }
+    const std::uint32_t colour = !row.enabled ? m_palette.phosphorDead
+                                 : selected   ? m_palette.phosphorHot
+                                              : m_palette.phosphorDim;
+    m_ui.AddText(row.rect.x + pad, row.rect.y + (row.rect.height - bodyPx) * 0.5f, m_uiTuning.bodySizeIndex, colour,
+                 SettingsSectionName(row.section));
+  }
+
+  /*
+   * The footer, which is not decoration: it is what a player is asked to read
+   * out when something has gone wrong, so it is on the one screen they can
+   * always reach.
+   */
+  m_ui.AddQuad(UiRect{screen.footer.x + pad, screen.footer.y, screen.footer.width - pad * 2.0f, line}, m_palette.rule);
+  std::snprintf(buffer, sizeof buffer, "SCHEMA %08X", m_worldView->SchemaHash());
+  m_ui.AddText(screen.footer.x + pad, screen.footer.y + pad, m_uiTuning.smallSizeIndex, m_palette.phosphorGhost,
+               buffer);
+
+  // --- the section heading ------------------------------------------------
+  m_ui.AddText(screen.bodyHeading.x + m_settingsTuning.bodyPaddingX * scale,
+               screen.bodyHeading.y + m_settingsTuning.bodyPaddingY * scale, m_uiTuning.bodySizeIndex,
+               m_palette.phosphorHot, SettingsSectionName(m_settingsSection));
+  m_ui.AddText(screen.bodyHeading.x + m_settingsTuning.bodyPaddingX * scale,
+               screen.bodyHeading.y + m_settingsTuning.bodyPaddingY * scale + bodyPx + line * 4.0f,
+               m_uiTuning.smallSizeIndex, m_palette.phosphorBody, SettingsSectionNote(m_settingsSection));
+
+  /*
+   * A blocked section says what it is waiting for, where its controls would be.
+   *
+   * Drawn instead of the rows rather than over them: the rows exist so the
+   * shape is known (`settings.png` §2's instruction for ACCOUNT), and the
+   * sentence is what stops a player concluding the feature is missing rather
+   * than pending.
+   */
+  if (!SettingsSectionAvailable(m_settingsSection))
+  {
+    m_ui.AddText(screen.body.x + m_settingsTuning.bodyPaddingX * scale,
+                 screen.body.y + m_settingsTuning.bodyPaddingY * scale, m_uiTuning.smallSizeIndex,
+                 m_palette.phosphorLabel, SettingsSectionBlockedReason(m_settingsSection));
+  }
+
+  // --- the rows -----------------------------------------------------------
+  const std::span<const SettingsItem> items = SettingsItemsFor(m_settingsSection);
+  for (std::uint32_t index = 0; index < m_settingsRowCount; ++index)
+  {
+    const SettingsRowRect& row = m_settingsRows[index];
+    if (row.item >= items.size())
+    {
+      continue;
+    }
+    const SettingsItem& item = items[row.item];
+    const std::uint32_t labelColour = row.enabled ? m_palette.phosphor : m_palette.phosphorDead;
+
+    m_ui.AddText(row.rect.x, row.rect.y + m_settingsTuning.rowNoteOffset * scale * 0.2f, m_uiTuning.bodySizeIndex,
+                 labelColour, item.label);
+    if (item.note[0] != '\0')
+    {
+      m_ui.AddText(row.rect.x, row.rect.y + m_settingsTuning.rowNoteOffset * scale, m_uiTuning.smallSizeIndex,
+                   m_palette.phosphorBody, item.note);
+    }
+
+    const float value = SettingsValueOf(m_settingsSection, row.item);
+
+    switch (row.kind)
+    {
+    case SettingsControlKind::Toggle:
+    {
+      // The switch: a track and a knob at one end of it. Drawn at the print's
+      // size inside the (larger) target rect, centred on it.
+      const float switchWidth = m_settingsTuning.toggleWidth * scale;
+      const float switchHeight = m_settingsTuning.toggleHeight * scale;
+      const UiRect track{row.control.x + (row.control.width - switchWidth) * 0.5f,
+                         row.control.y + (row.control.height - switchHeight) * 0.5f, switchWidth, switchHeight};
+      const bool on = value >= 0.5f;
+      m_ui.AddQuad(track, on ? m_palette.rule : m_palette.chipBg);
+      m_ui.AddBorder(track, line, on ? m_palette.borderStrong : m_palette.border);
+      const float knob = switchHeight - line * 4.0f;
+      m_ui.AddQuad(UiRect{on ? track.Right() - knob - line * 2.0f : track.x + line * 2.0f, track.y + line * 2.0f, knob,
+                          knob},
+                   on ? m_palette.phosphor : m_palette.phosphorDim);
+      break;
+    }
+    case SettingsControlKind::Slider:
+    {
+      const UiRect track{row.control.x, row.control.y + (row.control.height - m_settingsTuning.sliderTrackHeight * scale) * 0.5f,
+                         row.control.width, m_settingsTuning.sliderTrackHeight * scale};
+      m_ui.AddQuad(track, m_palette.chipBg);
+      m_ui.AddQuad(UiRect{track.x, track.y, track.width * std::clamp(value, 0.0f, 1.0f), track.height},
+                   m_palette.phosphorDim);
+      const UiRect handle = SettingsSliderHandle(row, value, scale, m_settingsTuning);
+      m_ui.AddQuad(handle, m_palette.phosphor);
+      m_ui.AddBorder(handle, line, m_palette.borderStrong);
+
+      // The value in its own units, right of the label, which is where the
+      // print puts the "1.0x".
+      const float shown = item.minimum + (item.maximum - item.minimum) * value;
+      std::snprintf(buffer, sizeof buffer, item.maximum > 3.0f ? "%.0f" : "%.2f",
+                    static_cast<double>(shown));
+      const float width = static_cast<float>(TextCellCount(buffer)) * cell;
+      m_ui.AddText(row.rect.Right() - width, row.rect.y + m_settingsTuning.rowNoteOffset * scale * 0.2f,
+                   m_uiTuning.bodySizeIndex, m_palette.phosphorHot, buffer);
+      break;
+    }
+    case SettingsControlKind::Choice:
+    {
+      const std::uint32_t selected =
+          row.optionCount > 1
+              ? std::min(row.optionCount - 1u, static_cast<std::uint32_t>(value * static_cast<float>(row.optionCount - 1u) + 0.5f))
+              : 0u;
+      for (std::uint32_t option = 0; option < row.optionCount; ++option)
+      {
+        const UiRect card = SettingsChoiceCard(row, option, scale, m_settingsTuning);
+        const bool picked = option == selected;
+        m_ui.AddQuad(card, picked ? m_palette.rule : m_palette.chipBg);
+        m_ui.AddBorder(card, line, picked ? m_palette.borderStrong : m_palette.border);
+        centred(card, m_uiTuning.smallSizeIndex, picked ? m_palette.phosphorHot : m_palette.phosphorDim,
+                SettingsChoiceLabel(m_settingsSection, row.item, option));
+
+        /*
+         * A palette card wears its own table's swatches, which is the print's
+         * whole argument for this control: *"a player choosing a colour-vision
+         * palette from a dropdown labelled Deuteranopia is being asked to trust
+         * a word rather than judge a result"*.
+         */
+        if (m_settingsSection == SettingsSection::Accessibility && row.item == 0)
+        {
+          const HudPalette table = option == 1   ? DeuteranopiaPalette()
+                                   : option == 2 ? TritanopiaPalette()
+                                                 : HudPalette{};
+          const float swatch = std::max(0.0f, (card.width - pad * 2.0f) / 4.0f);
+          const float swatchTop = card.y + pad;
+          for (std::uint32_t standing = 0; standing < STANDING_COLOUR_COUNT; ++standing)
+          {
+            m_ui.AddQuad(UiRect{card.x + pad + swatch * static_cast<float>(standing), swatchTop, swatch - line * 2.0f,
+                                swatch},
+                         StandingColourOf(table, static_cast<StandingColour>(standing)));
+          }
+        }
+      }
+      break;
+    }
+    case SettingsControlKind::Readout:
+    {
+      // What the client actually got, right-aligned where a value would be.
+      const char* shown = SettingsReadoutText(m_settingsSection, row.item, buffer, sizeof buffer);
+      const float width = static_cast<float>(TextCellCount(shown)) * cell;
+      m_ui.AddText(row.rect.Right() - width, row.rect.y + m_settingsTuning.rowNoteOffset * scale * 0.2f,
+                   m_uiTuning.bodySizeIndex, m_palette.phosphorDim, shown);
+      break;
+    }
+    case SettingsControlKind::Placeholder:
+    default:
+      break;
+    }
+  }
+
+  // --- the right column ---------------------------------------------------
+  //
+  // The preview panel. Its contents are I3's -- a scrap of the tactical view
+  // with real hulls in it -- and what is here is the frame plus the four
+  // standing swatches, which is the part of the proof this slice can make.
+  m_ui.AddQuad(screen.preview, m_palette.chipBg);
+  m_ui.AddBorder(screen.preview, line, m_palette.border);
+  m_ui.AddText(screen.preview.x + pad, screen.preview.y + pad, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel,
+               "LIVE PREVIEW");
+  {
+    const float swatch = std::max(0.0f, screen.preview.height * 0.28f);
+    const float top = screen.preview.Bottom() - pad - swatch;
+    for (std::uint32_t standing = 0; standing < STANDING_COLOUR_COUNT; ++standing)
+    {
+      m_ui.AddQuad(UiRect{screen.preview.x + pad + (swatch + pad) * static_cast<float>(standing), top, swatch, swatch},
+                   StandingColourOf(m_palette, static_cast<StandingColour>(standing)));
+    }
+  }
+
+  /*
+   * The contrast audit, which is the panel that turns an accessibility claim
+   * into a proof (`settings.png` §1).
+   *
+   * Four rows, which is what the print draws -- the ground rows, in standing
+   * order. `ContrastAudit` measures ten; the six pair readings are not drawn
+   * because they have no floor to be judged against and a column of numbers
+   * nobody can act on is the kind of thing a settings screen accumulates.
+   */
+  m_ui.AddBorder(screen.audit, line, m_palette.border);
+  m_ui.AddText(screen.audit.x + pad, screen.audit.y + pad, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel,
+               "CONTRAST AUDIT");
+  {
+    float pen = screen.audit.y + m_settingsTuning.auditHeadingHeight * scale;
+    for (std::uint32_t index = 0; index < m_auditRowCount; ++index)
+    {
+      const ContrastRow& audit = m_auditRows[index];
+      if (!audit.Floored())
+      {
+        continue;
+      }
+      const float rowHeight = m_settingsTuning.auditRowHeight * scale;
+      if (pen + rowHeight > screen.audit.Bottom())
+      {
+        break;
+      }
+      std::snprintf(buffer, sizeof buffer, "%s vs void", StandingColourName(audit.first));
+      m_ui.AddText(screen.audit.x + pad, pen + (rowHeight - smallPx) * 0.5f, m_uiTuning.smallSizeIndex,
+                   StandingColourOf(m_palette, audit.first), buffer);
+
+      std::snprintf(buffer, sizeof buffer, "%.1f:1", static_cast<double>(audit.ratio));
+      const float width = static_cast<float>(TextCellCount(buffer)) * cell;
+      m_ui.AddText(screen.audit.Right() - pad - width, pen + (rowHeight - smallPx) * 0.5f, m_uiTuning.smallSizeIndex,
+                   audit.MeetsFloor() ? m_palette.phosphorHot : m_palette.hostile, buffer);
+      pen += rowHeight;
+    }
+  }
+
+  /*
+   * The handedness panel, which the print marks as the wheel's hard
+   * prerequisite. Drawn here rather than only in the INPUT section because that
+   * is where the print puts it -- beside the preview, where a player changing
+   * palettes can also answer the one question the command wheel cannot ship
+   * without.
+   */
+  if (screen.handedness.height > pad * 3.0f)
+  {
+    m_ui.AddBorder(screen.handedness, line, m_palette.border);
+    m_ui.AddText(screen.handedness.x + pad, screen.handedness.y + pad, m_uiTuning.smallSizeIndex, m_palette.caution,
+                 "HANDEDNESS - THE WHEEL DEPENDS ON THIS");
+    const float buttonTop = screen.handedness.y + m_settingsTuning.auditHeadingHeight * scale;
+    const float buttonHeight = SettingsRowHeightPixels(m_settingsTuning.resetHeight, scale);
+    if (buttonTop + buttonHeight <= screen.handedness.Bottom())
+    {
+      const float half = std::max(0.0f, (screen.handedness.width - pad * 3.0f) * 0.5f);
+      const UiRect left{screen.handedness.x + pad, buttonTop, half, buttonHeight};
+      const UiRect right{left.Right() + pad, buttonTop, half, buttonHeight};
+      const bool isLeft = m_handedness == Handedness::Left;
+      m_ui.AddQuad(isLeft ? left : right, m_palette.rule);
+      m_ui.AddBorder(left, line, isLeft ? m_palette.borderStrong : m_palette.border);
+      m_ui.AddBorder(right, line, isLeft ? m_palette.border : m_palette.borderStrong);
+      centred(left, m_uiTuning.bodySizeIndex, isLeft ? m_palette.phosphorHot : m_palette.phosphorDim, "< LEFT");
+      centred(right, m_uiTuning.bodySizeIndex, isLeft ? m_palette.phosphorDim : m_palette.phosphorHot, "RIGHT >");
+    }
+  }
+
+  // The resets. Drawn and refused: what "reset" means against a layer that
+  // records *changes* rather than state is N3's remainder, and a button that
+  // did the wrong thing to a settings file is worse than one that waits.
+  for (const UiRect* reset : {&screen.resetSection, &screen.resetAll})
+  {
+    m_ui.AddBorder(*reset, line, AtHalfAlpha(m_palette.border));
+  }
+  centred(screen.resetSection, m_uiTuning.smallSizeIndex, m_palette.phosphorDead, "RESET SECTION");
+  centred(screen.resetAll, m_uiTuning.smallSizeIndex, m_palette.phosphorDead, "RESET ALL");
 }
 
 void ClientApp::BuildStationSurface()

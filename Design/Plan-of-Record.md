@@ -174,7 +174,7 @@ is a decision rather than a surprise.
 |---|---|---|---|
 | ~~**N1**~~ | **Interest & delta** — now **[U3d](Universe-Build-Order.md)**, split a/b/c | ~~no build order absorbed it~~ **Homed 2026-08-22**; it is D6's implementation slice and takes A14's own "after U3c" as its number | large |
 | ~~**N2**~~ | ~~**The user layer**~~ — **built 2026-08-22** | ~~ADR-012 §3 calls `Settings.json` "the only file the game writes" and nothing writes it~~ | small |
-| **N3** | **The settings screen** | ADR-020 §8 names "the settings screen's first slice"; no build order contains it | medium |
+| ~~**N3**~~ | ~~**The settings screen**~~ — **built 2026-08-23** | ~~ADR-020 §8 names "the settings screen's first slice"; no build order contains it~~ **Keybind capture, which that clause named as the first slice, is the one part still owed** — the touch reversal demoted it | medium |
 | ~~**I1**~~ · ~~**I2**~~ **both built 2026-08-23** · **I3** | **The input model** | §1 above | large |
 | ~~**N4**~~ | ~~**D18, arrival contention**~~ — **built 2026-08-22** | ~~Baked, parsed, hashed, never read — fell between U1 and U3a~~ | small |
 | ~~**N5**~~ | ~~**The viewer hold**~~ — **built 2026-08-22** | ~~`AddViewer`/`RemoveViewer` have no caller for a player's view; the "until U3b" deferral expired~~ | small |
@@ -312,9 +312,10 @@ without one**, which makes it the first slice in this corpus blocked on hardware
 work. What is buildable behind it is the screens, re-based on the input model — so the next
 question is whether to procure a touch display or to take N3 and the screen slices first.
 
-**Then the screens, unchanged in content but re-based on the input model:** N3 (settings, which
-I3 needs for handedness and the Auto toggle), **U3d-c's counted chip**, U3b's remainder, U4's
-client half, U5 **including N7**, U6, E5.
+**Then the screens, unchanged in content but re-based on the input model:** ~~N3 (settings, which
+I3 needs for handedness and the Auto toggle)~~ **built 2026-08-23 — handedness is settable, so
+I3's wheel has its prerequisite**, **U3d-c's counted chip**, U3b's remainder, U4's client half,
+U5 **including N7**, U6, E5.
 
 **What moved and why:** every screen slice now sits behind the input model rather than beside it.
 Building a screen against the mouse adaptation and re-fitting it for touch afterwards is the
@@ -370,6 +371,38 @@ named.
 ---
 
 ## Revision log
+
+- **2026-08-23 — N3 built, and the contrast rule it enforces turned out to be unsatisfiable as
+  written.** The settings screen has its layout, its five sections, the two the print marks
+  REQUIRED, and a contrast audit beside them. **Handedness is settable, which was I3's hard
+  prerequisite** — `settings.png` §3 calls the command wheel blocked on this screen in as many
+  words. `MENU_SETTINGS` stops being dead.
+
+  **The finding, which is the part worth keeping.** `settings.png` §1 states a floor of
+  *"4.5:1 on every glyph pair"*, and the audit's first run failed all eighteen glyph-vs-glyph
+  pairs across all three palettes while every glyph-vs-void pair passed comfortably. That
+  pattern is not a palette defect, it is the rule being impossible: contrast ratio measures
+  **luminance**, so clearing 4.5:1 against a void at 0.0037 forces every glyph past luminance
+  0.19, and clearing it again between two such glyphs forces the brighter one past 1.03 —
+  brighter than white. Two glyphs cannot satisfy both, let alone four. The print's own four
+  rows do not reproduce against the shipped tables either, so its numbers came from a mock.
+  The print settles it one panel higher — *"colour is never the only carrier"* — so the floor
+  is a glyph-against-**ground** rule and glyph-vs-glyph is geometry's job. Under that reading
+  all three palettes pass, worst 5.27:1. **Recorded as an ADR-020 §8 correction rather than
+  fixed in the palettes**, because the "fix" would have been darkening semantics until they
+  separated by luminance, which damages the contrast that actually matters.
+
+  Two more decisions the slice had to take. **AUDIO is drawn and refused**: `AudioDevice`
+  takes its gains at creation and has no setter for a running mixer, so a volume slider would
+  take effect at next start — which the screen's own CHANGES APPLY IMMEDIATELY forbids. And
+  **the 48 px floor is enforced by a function**, not by discipline: the first draft put BACK
+  at 36.8 px at 0.8× scale, which a test caught.
+
+  What is still owed on this screen: **D15.3's keybind capture**, which ADR-020 §8 called its
+  first slice before the touch reversal demoted keybindings to accelerators; the live
+  preview's contents, which need I3's hulls; the two RESET buttons, which need a decision
+  about what reset means against a layer that records changes rather than state; and the AUDIO
+  section, which needs one setter.
 
 - **2026-08-23 — I2's `AssignWing` lift built, and the input phase is done to the hardware
   wall.** A wing can now be formed in space: `RosterView` carries a grid beside its station,

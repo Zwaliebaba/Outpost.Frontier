@@ -146,6 +146,57 @@ struct UiSettings
   double scale = 1.0;
   std::string palette = "default";
   std::string font = "Consolas"; // A monospace face for the glyph atlas (ADR-006 §9).
+
+  /*
+   * The readability rules (`settings.png` §1's ACCESSIBILITY section, N3).
+   *
+   * Here rather than in a family of their own because they are properties of
+   * the *interface*, which is what this section already is -- and a
+   * `client.accessibility` beside `client.ui` would put the scale and the
+   * palette in one place and the three switches that sit under them on the same
+   * screen in another.
+   *
+   * All three default off, which is the honest default rather than a
+   * preference: each one trades something away, and a player who has not asked
+   * should get the design as it was drawn.
+   */
+  bool highContrast = false;
+  bool reduceMotion = false;
+  bool alwaysShowHullBars = false;
+};
+
+/*
+ * How the player holds the device (`settings.png` §1's INPUT section, N3).
+ *
+ * Its own family rather than more keys on `client.ui`, because these are not
+ * interface *appearance* -- they are what a gesture means, and the layer that
+ * reads them is `GestureTuning` rather than the HUD's layout.
+ */
+struct InputSettings
+{
+  /*
+   * `"left"` or `"right"`, and **never inferred** (`settings.png` §1).
+   *
+   * The print is unusually firm: *"a wheel that silently re-orders itself is
+   * worse than one that is merely mirrored"*. So there is no auto value and no
+   * detection -- a shard that wants the other hand says so.
+   *
+   * A string rather than a bool for `palette`'s reason: the wheel may later
+   * want a third arrangement, and a bool that has to become an enum on the wire
+   * of a config file is a migration nobody wanted.
+   */
+  std::string handedness = "right";
+
+  /*
+   * How long a press dwells before it becomes an order surface, in seconds.
+   *
+   * 350 ms is `puck-and-wheel.png`'s own step 1 and it is a **compromise** --
+   * which is exactly why it is settable. The print says so in as many words: a
+   * player with a tremor needs it longer. The range is the arbiter's: below
+   * 200 ms a press cannot be told from a tap, and past 800 ms a surface that
+   * has not opened yet reads as broken rather than deliberate.
+   */
+  double longPressSeconds = 0.350;
 };
 
 /// The Diagnostics section (`debug-hud.png` §6): the Tier-1 counters strip
@@ -208,6 +259,7 @@ struct ClientSettings
   NebulaSettings nebula;
   AudioSettings audio;
   UiSettings ui;
+  InputSettings input;
   DiagnosticsSettings diagnostics;
 };
 

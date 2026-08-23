@@ -20,6 +20,7 @@
 #include "CommandRow.h"
 #include "GhostLane.h"
 #include "GpuUploadRing.h"
+#include "ContrastAudit.h"
 #include "HudPalette.h"
 #include "HudRoster.h"
 #include "InputMap.h"
@@ -32,6 +33,7 @@
 #include "RenderWorld.h"
 #include "RosterSelection.h"
 #include "Selection.h"
+#include "SettingsScreen.h"
 #include "StationScreen.h"
 #include "StationView.h"
 #include "SurfaceStack.h"
@@ -47,6 +49,7 @@
 #include "WorldView.h"
 
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 /*
@@ -99,6 +102,31 @@ public:
   [[nodiscard]] int Run();
 
   void Shutdown();
+
+  /*
+   * What the client is running on now, including anything the settings screen
+   * changed (N3).
+   *
+   * The read-back path the user layer needs: `MakeClientConfig` maps a shard's
+   * `AppConfig` in, this maps out, and the composition root writes what differs
+   * (ADR-012 §A3). It is a `ClientConfig` rather than the file's shape because
+   * this library may not know the file exists -- which is the same reason
+   * `Initialise` takes one.
+   *
+   * Valid after `Shutdown`, which is when the composition root asks: the config
+   * outlives the device.
+   */
+  [[nodiscard]] const ClientConfig& Config() const noexcept { return m_config; }
+
+  /*
+   * Did the player change anything on the settings screen this session?
+   *
+   * False lets the composition root skip the write entirely rather than compose
+   * a document and discover it matches -- and *"the file records changes and not
+   * state"* (ADR-012 §A3) means an unchanged session should leave the file
+   * exactly as it found it, including its timestamp.
+   */
+  [[nodiscard]] bool SettingsChanged() const noexcept { return m_settingsDirty; }
 
 private:
   void CreateFrameResources();
@@ -172,6 +200,50 @@ private:
    * through to.
    */
   void UpdateStationSurface();
+
+  /*
+   * The settings surface's presses (N3).
+   *
+   * Its own function beside the station's for the same reason that one exists:
+   * a full-screen surface owns the pointer entirely, so the branch is at the top
+   * of `UpdateHud` and each surface handles what it drew rather than sharing a
+   * run of rect tests with the tactical HUD underneath.
+   */
+  void UpdateSettingsSurface();
+
+  /*
+   * What one row is currently set to, 0..1 along its control.
+   *
+   * The one place that knows a row index means a config field. The screen lays
+   * out and hit-tests; this translates -- which is the same split
+   * `RosterRow::groupId` makes, an opaque handle out and the meaning kept where
+   * the state is.
+   */
+  [[nodiscard]] float SettingsValueOf(SettingsSection _section, std::uint32_t _item) const noexcept;
+
+  /// And the other direction. Returns false when the press changed nothing,
+  /// which is what keeps a slider dragged across its own current value from
+  /// marking the layer dirty fifty times.
+  [[nodiscard]] bool SetSettingsValue(SettingsSection _section, std::uint32_t _item, float _normalised);
+
+  /// Resolves a palette name and everything derived from it. Callable again,
+  /// which is ADR-020 §8's requirement and the reason it is not inline in
+  /// `Create`.
+  void ApplyPalette(std::string_view _name);
+
+  /*
+   * What a `Readout` row says, from the live client rather than from the config.
+   *
+   * The distinction is the point: a readout is on the screen because it is
+   * *true* and the player would otherwise have to guess. Reporting the
+   * configured value would report what was asked for, and the whole reason the
+   * display section is thin is that ADR-003 §7 lets the device decide.
+   *
+   * Fills `_buffer` and returns it, or returns a literal -- so the caller has
+   * one `const char*` either way and no ownership question.
+   */
+  [[nodiscard]] const char* SettingsReadoutText(SettingsSection _section, std::uint32_t _item, char* _buffer,
+                                                std::size_t _bufferBytes) const noexcept;
 
   /*
    * Sends the composer's first wave.
@@ -249,6 +321,10 @@ private:
    * have to arrive as data.
    */
   void BuildStationSurface();
+
+  /// The settings surface's draw (N3, `settings.png` §1): the rail, the section
+  /// body, and the right column's preview, audit and handedness panels.
+  void BuildSettingsSurface();
 
   /*
    * The Tier-1 strip's collection and build (S14). Runs inside `BuildHud`'s
@@ -548,6 +624,60 @@ private:
   /// Where its zones landed this frame. Resolved once, read by the presses and
   /// by the draw.
   StationScreenLayout m_stationLayout;
+
+  /*
+   * --- the settings surface (N3, `settings.png` §1) ------------------------
+   *
+   * The same two members the station screen has, for the same reason: one table
+   * that the layout and the hit tests both read, and one resolved layout that
+   * the presses and the draw both read.
+   */
+  SettingsScreenTuning m_settingsTuning;
+  SettingsScreenLayout m_settingsLayout;
+
+  /// Which section the rail has selected. Survives leaving the screen, because a
+  /// player who came back to change a second audio slider did not ask to be
+  /// returned to the top.
+  SettingsSection m_settingsSection = SettingsSection::Accessibility;
+
+  /// The rail and the body, laid out each frame. Fixed arrays because both runs
+  /// are bounded by their own tables -- the sections by the enum, the rows by
+  /// the longest section.
+  SettingsNavRow m_settingsNav[SETTINGS_SECTION_COUNT];
+  std::uint32_t m_settingsNavCount = 0;
+  static constexpr std::uint32_t MAX_SETTINGS_ROWS = 12;
+  SettingsRowRect m_settingsRows[MAX_SETTINGS_ROWS];
+  std::uint32_t m_settingsRowCount = 0;
+
+  /// The body's offset, which is §7's declared overflow answer for this surface.
+  UiScrollState m_settingsScroll;
+
+  /*
+   * The contrast audit, re-measured whenever the palette is (`ApplyPalette`).
+   *
+   * Held rather than computed in the draw because the panel and any test read
+   * the same numbers, and because ten pairs of `std::pow` every frame to draw
+   * four rows is arithmetic nobody asked for.
+   */
+  ContrastRow m_auditRows[CONTRAST_ROW_COUNT];
+  std::uint32_t m_auditRowCount = 0;
+
+  /// Which hand holds the device. Nothing reads it yet -- I3's wheel is what
+  /// will -- and it is carried now because the screen that sets it is this one
+  /// and a setting with nowhere to live is a setting that gets re-invented.
+  Handedness m_handedness = Handedness::Right;
+
+  /*
+   * Something on this screen changed and the user layer has not been told.
+   *
+   * A flag rather than a write per press, which is N2's own finding turned into
+   * a rule: it writes at shutdown, and *"names are written at shutdown rather
+   * than at the keystroke"* was recorded there as the first thing N3 has to
+   * revisit. This is that revisit -- a slider dragged across its track is fifty
+   * presses and would be fifty file writes, so the screen marks and the
+   * shutdown path writes.
+   */
+  bool m_settingsDirty = false;
 
   /*
    * What the player has picked out of the roster.

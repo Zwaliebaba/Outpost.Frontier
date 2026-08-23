@@ -188,12 +188,45 @@ void ReadUi(const JsonValue& _parent, UiSettings& _settings, ConfigDiagnostics& 
   {
     return;
   }
-  WarnUnknownKeys(ui, {"scale", "palette", "font"}, "client.ui", _diagnostics);
+  WarnUnknownKeys(ui, {"scale", "palette", "font", "highContrast", "reduceMotion", "alwaysShowHullBars"}, "client.ui",
+                  _diagnostics);
   // 0.8-1.6 is the settings sheet's range, and the layout is scale-independent
   // rather than a scaled bitmap, so the floor is a real constraint.
   ReadDouble(ui, "scale", _settings.scale, 0.8, 1.6, "client.ui", _diagnostics);
   ReadText(ui, "palette", _settings.palette, "client.ui", _diagnostics);
   ReadText(ui, "font", _settings.font, "client.ui", _diagnostics);
+  // The three readability rules (N3). No range to check: a bool is its own
+  // range, which is why they are bools rather than a mode string.
+  ReadBool(ui, "highContrast", _settings.highContrast, "client.ui", _diagnostics);
+  ReadBool(ui, "reduceMotion", _settings.reduceMotion, "client.ui", _diagnostics);
+  ReadBool(ui, "alwaysShowHullBars", _settings.alwaysShowHullBars, "client.ui", _diagnostics);
+}
+
+void ReadInput(const JsonValue& _parent, InputSettings& _settings, ConfigDiagnostics& _diagnostics)
+{
+  const JsonValue input = _parent.Member("input");
+  if (!input.Valid())
+  {
+    return;
+  }
+  WarnUnknownKeys(input, {"handedness", "longPressSeconds"}, "client.input", _diagnostics);
+
+  /*
+   * The handedness is read as text and not validated against the two words
+   * here, deliberately.
+   *
+   * `ResolveHandedness` in the client is what maps a word to an arrangement, and
+   * it falls back to the drawn one for anything it does not know -- the same
+   * posture `client.ui.palette` already takes, and for the reason `HudPalette`
+   * gives: a client that will not start because a setting is mistyped is the
+   * wrong failure for a preference.
+   */
+  ReadText(input, "handedness", _settings.handedness, "client.input", _diagnostics);
+
+  // The arbiter's range. Outside it the dwell stops being a long press: too
+  // short and a tap fires an order surface, too long and the surface reads as
+  // broken rather than deliberate.
+  ReadDouble(input, "longPressSeconds", _settings.longPressSeconds, 0.200, 0.800, "client.input", _diagnostics);
 }
 
 void ReadDiagnostics(const JsonValue& _parent, DiagnosticsSettings& _settings, ConfigDiagnostics& _diagnostics)
@@ -397,6 +430,7 @@ void ReadClient(const JsonValue& _root, ClientSettings& _settings, ConfigDiagnos
 
   ReadAudio(client, _settings.audio, _diagnostics);
   ReadUi(client, _settings.ui, _diagnostics);
+  ReadInput(client, _settings.input, _diagnostics);
   ReadDiagnostics(client, _settings.diagnostics, _diagnostics);
 }
 
@@ -547,11 +581,13 @@ void ApplyUserLayer(const JsonValue& _root, AppConfig& _config, ConfigDiagnostic
   }
   // Diagnostics is a user preference by design: the print's whole answer to
   // F11 is that the strip is a setting the settings screen owns.
-  WarnUnknownKeys(client, {"window", "renderer", "audio", "ui", "diagnostics"}, "settings.client", _diagnostics);
+  WarnUnknownKeys(client, {"window", "renderer", "audio", "ui", "input", "diagnostics"}, "settings.client",
+                  _diagnostics);
   ReadWindow(client, _config.client.window, _diagnostics);
   ReadRenderer(client, _config.client.renderer, _diagnostics);
   ReadAudio(client, _config.client.audio, _diagnostics);
   ReadUi(client, _config.client.ui, _diagnostics);
+  ReadInput(client, _config.client.input, _diagnostics);
   ReadDiagnostics(client, _config.client.diagnostics, _diagnostics);
 }
 
@@ -713,11 +749,18 @@ void WriteClient(Neuron::JsonWriter& _writer, const ClientSettings& _client, con
   AddIfChanged(ui, "scale", _client.ui.scale, _shipped.ui.scale);
   AddIfChanged(ui, "palette", _client.ui.palette, _shipped.ui.palette);
   AddIfChanged(ui, "font", _client.ui.font, _shipped.ui.font);
+  AddIfChanged(ui, "highContrast", _client.ui.highContrast, _shipped.ui.highContrast);
+  AddIfChanged(ui, "reduceMotion", _client.ui.reduceMotion, _shipped.ui.reduceMotion);
+  AddIfChanged(ui, "alwaysShowHullBars", _client.ui.alwaysShowHullBars, _shipped.ui.alwaysShowHullBars);
+
+  std::vector<ChangedKey> input;
+  AddIfChanged(input, "handedness", _client.input.handedness, _shipped.input.handedness);
+  AddIfChanged(input, "longPressSeconds", _client.input.longPressSeconds, _shipped.input.longPressSeconds);
 
   std::vector<ChangedKey> diagnostics;
   AddIfChanged(diagnostics, "strip", _client.diagnostics.strip, _shipped.diagnostics.strip);
 
-  if (window.empty() && renderer.empty() && audio.empty() && ui.empty() && diagnostics.empty())
+  if (window.empty() && renderer.empty() && audio.empty() && ui.empty() && input.empty() && diagnostics.empty())
   {
     return;
   }
@@ -728,6 +771,7 @@ void WriteClient(Neuron::JsonWriter& _writer, const ClientSettings& _client, con
   WriteSection(_writer, "renderer", renderer);
   WriteSection(_writer, "audio", audio);
   WriteSection(_writer, "ui", ui);
+  WriteSection(_writer, "input", input);
   WriteSection(_writer, "diagnostics", diagnostics);
   _writer.EndObject();
 }

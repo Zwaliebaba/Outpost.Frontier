@@ -1596,12 +1596,41 @@ void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
  * client did rather than to what its settings file did afterwards.
  */
 void SaveUserLayer(Outpost::AppConfig& _config, const Outpost::AppConfig& _shipped, const Outpost::ConfigPaths& _paths,
-                   const Outpost::ReplicatedWorldView& _worldView)
+                   const Outpost::ReplicatedWorldView& _worldView, const Neuron::ClientApp& _client)
 {
   _config.wings.clear();
   for (const std::pair<Game::WingId, std::string>& wing : _worldView.PlayerWingNames())
   {
     _config.wings.push_back(Outpost::WingName{static_cast<std::uint32_t>(wing.first), wing.second});
+  }
+
+  /*
+   * And what the settings screen changed (N3) -- the write-back N2 recorded as
+   * owed, in ADR-012 §A3's own words: *"the display and audio families are
+   * written the moment something changes them and nothing does yet"*.
+   *
+   * Mapped field by field rather than by holding a pointer to the client's
+   * config, which is `MakeClientConfig` run backwards and deliberately so: the
+   * two directions sit in one file where a field added to one and forgotten in
+   * the other is visible, and the client never learns that a settings file
+   * exists (ADR-014).
+   *
+   * Asked only when the player touched the screen. An untouched session leaves
+   * the file exactly as it found it, because a layer that records *changes*
+   * should not be rewritten by a session that made none.
+   */
+  if (_client.SettingsChanged())
+  {
+    const Neuron::ClientConfig& live = _client.Config();
+    _config.client.ui.scale = live.uiScale;
+    _config.client.ui.palette = live.uiPalette;
+    _config.client.ui.highContrast = live.uiHighContrast;
+    _config.client.ui.reduceMotion = live.uiReduceMotion;
+    _config.client.ui.alwaysShowHullBars = live.uiAlwaysShowHullBars;
+    _config.client.input.handedness = live.uiHandedness;
+    _config.client.input.longPressSeconds = live.longPressSeconds;
+    _config.client.renderer.vsync = live.vsync;
+    _config.client.renderer.frameCap = live.frameCap;
   }
 
   std::string error;
@@ -1973,6 +2002,15 @@ ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
   client.cameraYawSnapDegrees = static_cast<float>(_config.client.camera.yawSnapDegrees);
   client.uiScale = static_cast<float>(_config.client.ui.scale);
   client.uiPalette = _config.client.ui.palette;
+
+  // N3's two families. Carried across as words and numbers rather than resolved
+  // here: the client is what owns `ResolveHandedness` and the palette table, and
+  // the composition root's job is to hand over what the file said.
+  client.uiHighContrast = _config.client.ui.highContrast;
+  client.uiReduceMotion = _config.client.ui.reduceMotion;
+  client.uiAlwaysShowHullBars = _config.client.ui.alwaysShowHullBars;
+  client.uiHandedness = _config.client.input.handedness;
+  client.longPressSeconds = static_cast<float>(_config.client.input.longPressSeconds);
   client.diagnosticsStrip = _config.client.diagnostics.strip; // S14: the Tier-1 strip's setting.
 
   /*
@@ -2242,7 +2280,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
       // Client first, always: it must never render against a server that has
       // already gone (ADR-008 §6).
       client.Shutdown();
-      SaveUserLayer(config, shipped, paths, worldView);
+      SaveUserLayer(config, shipped, paths, worldView, client);
       break;
     }
 

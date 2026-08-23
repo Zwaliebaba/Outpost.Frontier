@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 
 /*
  * Input, and what the camera makes of it.
@@ -260,6 +261,45 @@ struct InputFrame
 /// Feel, in one place. Values are starting points to be tuned against the
 /// prints, not decisions -- which is why they are here and not spread through
 /// the mapping code.
+/*
+ * Which hand holds the device (`settings.png` §1's INPUT section, N3).
+ *
+ * Two values and **never inferred**, which is the print's own emphasis: *"a
+ * wheel that silently re-orders itself is worse than one that is merely
+ * mirrored"*. A client that guessed from where the first touch landed would
+ * re-order the command wheel under a player who simply reached across.
+ *
+ * Here rather than in `Gesture.h` because that file decides nothing and this is
+ * a decision -- and because what reads it is a *surface* laying itself out (I3's
+ * wheel), which is the same kind of thing `CameraTuning` below is for.
+ */
+enum class Handedness : std::uint8_t
+{
+  Right = 0,
+  Left = 1
+};
+
+/*
+ * A config word to an arrangement, falling back to the drawn one.
+ *
+ * `ResolveHudPalette`'s posture exactly, and for the reason that file gives: a
+ * client that will not start because a preference is mistyped is the wrong
+ * failure. An unknown word gets the print's arrangement and the player notices
+ * that their setting did not take, which is recoverable; a refusal to launch is
+ * not.
+ */
+[[nodiscard]] constexpr Handedness ResolveHandedness(std::string_view _name) noexcept
+{
+  return _name == "left" ? Handedness::Left : Handedness::Right;
+}
+
+/// And back, for the writer. The words are the config file's, spelled once so a
+/// round trip cannot rename a setting.
+[[nodiscard]] constexpr const char* HandednessName(Handedness _handedness) noexcept
+{
+  return _handedness == Handedness::Left ? "left" : "right";
+}
+
 struct CameraTuning
 {
   float orbitRadiansPerPixel = 0.006f;      // A screen width is a little over half a turn.

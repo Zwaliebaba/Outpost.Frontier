@@ -580,6 +580,78 @@ public:
     Assert::AreEqual(std::string("VERGE"), reloaded.wings[1].name);
   }
 
+  TEST_METHOD(TheAccessibilityAndInputFamiliesSurviveTheRoundTrip)
+  {
+    /*
+     * N3's two new families, at the layer that has to carry them: the
+     * settings screen writes through `ClientApp::Config`, and what a player
+     * changed has to come back next session or the screen is a scratchpad.
+     *
+     * The handedness is the one that matters most -- `settings.png` §3 calls
+     * the command wheel blocked on this screen, and a wheel that came back
+     * mirrored after every restart would be worse than one that never moved.
+     */
+    const AppConfig shipped;
+    AppConfig config = shipped;
+    config.client.ui.scale = 1.25;
+    config.client.ui.palette = "deuteranopia";
+    config.client.ui.highContrast = true;
+    config.client.ui.reduceMotion = true;
+    config.client.ui.alwaysShowHullBars = true;
+    config.client.input.handedness = "left";
+    config.client.input.longPressSeconds = 0.55;
+
+    std::string text;
+    AppConfig reloaded;
+    RoundTrip(config, shipped, reloaded, text);
+
+    for (const char* key : {"highContrast", "reduceMotion", "alwaysShowHullBars", "input", "handedness",
+                            "longPressSeconds"})
+    {
+      Assert::IsTrue(text.find(key) != std::string::npos,
+                     KeyMessage(key, L"is a key the settings screen changes and the writer never emits").c_str());
+    }
+
+    Assert::IsTrue(reloaded.client.ui.highContrast);
+    Assert::IsTrue(reloaded.client.ui.reduceMotion);
+    Assert::IsTrue(reloaded.client.ui.alwaysShowHullBars);
+    Assert::AreEqual(1.25, reloaded.client.ui.scale, 1e-6);
+    Assert::AreEqual(std::string("deuteranopia"), reloaded.client.ui.palette);
+    Assert::AreEqual(std::string("left"), reloaded.client.input.handedness);
+    Assert::AreEqual(0.55, reloaded.client.input.longPressSeconds, 1e-6);
+  }
+
+  TEST_METHOD(AnUntouchedSessionWritesNoInputFamilyAtAll)
+  {
+    // ADR-012 §A3: the file records *changes*, not state. A session in which
+    // nobody opened the settings screen should leave it exactly as it was --
+    // which is also why `ClientApp::SettingsChanged` gates the write.
+    const AppConfig shipped;
+    std::string text;
+    Assert::IsTrue(WriteUserLayer(shipped, shipped, text));
+    Assert::IsTrue(text.find("input") == std::string::npos, L"an untouched input family is not written");
+    Assert::IsTrue(text.find("handedness") == std::string::npos, L"nor any of its keys");
+    Assert::IsTrue(text.find("highContrast") == std::string::npos, L"nor the readability rules");
+  }
+
+  TEST_METHOD(ADwellOutsideTheArbitersRangeIsRefusedAndItsNeighbourStands)
+  {
+    /*
+     * The range is the arbiter's rather than a preference: below 200 ms a
+     * press cannot be told from a tap, and past 800 ms a surface that has not
+     * opened yet reads as broken. Refused rather than clamped, which is what
+     * every other out-of-range read in this file does -- the shipped value
+     * stands and the refusal is reported.
+     */
+    AppConfig config;
+    ConfigDiagnostics diagnostics;
+    ApplyUser(R"({"client":{"input":{"longPressSeconds":5.0,"handedness":"left"}}})", config, diagnostics);
+
+    Assert::AreEqual(0.350, config.client.input.longPressSeconds, 1e-6, L"a five-second dwell is refused");
+    Assert::AreEqual(std::string("left"), config.client.input.handedness,
+                     L"and the good key beside it still lands");
+  }
+
   TEST_METHOD(TheSameSettingsMintedInAnyOrderProduceTheSameFile)
   {
     /*

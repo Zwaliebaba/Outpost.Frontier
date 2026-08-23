@@ -418,6 +418,56 @@ stays target-size discipline**, generalised from `CommandRow.h:76–83` to every
 widget: a floor in real pixels, enforced and not scaled, exactly as `settings.png` states it —
 and it is the one part of D15.4 the reversal keeps, because it was always a touch floor.
 
+> **Built 2026-08-23 as N3 — the screen, and a correction to the rule it enforces.**
+>
+> `SettingsScreen.h` lays the surface out and hit-tests it in one file, which is
+> `StationScreen`'s rule applied to the one screen whose whole subject is controls.
+> A section is a **flat run of rows** — not a widget tree; ADR-020's fence holds — laid
+> out top to bottom in a single pass with a whole-row cull at both edges, because there
+> is no clip rectangle and rows here come in three heights. `ContrastAudit.h` is beside
+> it, and `ClientApp` re-runs `ApplyPalette` on a change so a swap is total.
+>
+> **The 48 px floor is enforced by a function rather than by discipline.** Every target
+> is sized through `SettingsRowHeightPixels`, so at 0.8× the print's 46 px header is
+> *raised* to 48 rather than scaled to 36.8. The first draft floored the word and took
+> the height from the bar, which read correctly and put the only way off the screen
+> below the floor the screen exists to enforce; a test caught it, and the tests now
+> sweep the whole 0.8–1.6× range on every target.
+>
+> **The contrast floor is a glyph-against-*ground* rule, and that is a correction rather
+> than a reading.** `settings.png` §1 says *"4.5:1 on every glyph pair"*, and taken
+> literally that is unsatisfiable: clearing the floor against a void at 0.0037 forces
+> every glyph past luminance 0.19, and clearing it again *between* two such glyphs forces
+> the brighter one past 1.03 — brighter than white. **No palette that has ever existed
+> could pass it**, and the print's own four rows do not reproduce against the shipped
+> tables. The print settles it one panel higher: *"hull glyphs stay distinguishable by
+> shape in every palette — colour is never the only carrier."* Telling a glyph from the
+> space behind it is contrast; telling two glyphs apart is geometry's job
+> (`tactical-icon-system.png` §3). So the audit measures both and floors only the first.
+> Under that reading all three shipped palettes pass, worst 5.27:1 (Tritanopia's hostile).
+> **The print's §3 open question — "does the contrast audit ship?" — is answered yes**:
+> it is ten pairs of arithmetic, and it is the only thing that makes the palette contract
+> checkable rather than asserted.
+>
+> **Two sections are drawn, refused, and say why.** ACCOUNT waits on a system nobody has
+> built, which is the print's own instruction. AUDIO waits on a *client* API — `AudioDevice`
+> takes its gains at creation and has no setter for a running mixer — so a volume slider
+> would only take effect at next start, which the header's own CHANGES APPLY IMMEDIATELY
+> forbids. Building it as a live control was the alternative and it would have been a lie
+> on the one section the print calls "free".
+>
+> **`MENU_SETTINGS` stops being dead.** It had been drawn at half alpha with the reason
+> attached since the menu landed, which is why the entry does not appear from nowhere today.
+>
+> What N3 did **not** do, named rather than discovered: the live preview's *contents* (a
+> scrap of the tactical view with real hulls) are I3's, so the panel draws its frame and
+> the four standing swatches; RESET SECTION and RESET ALL are drawn and refused, because
+> what "reset" means against a layer that records **changes rather than state** (ADR-012
+> §A3) is a decision this slice did not have to make; and **keybinding capture — D15.3, the
+> clause above that calls it "the settings screen's first slice" — is not built.** The
+> 2026-08-22 amendment demoted keybindings to accelerators, which moved handedness and the
+> palette ahead of them; `UiFocus`'s `BindingCapture` still waits for a caller.
+
 **Toasts gain an action payload** (D15.5): an opaque `(actionKind, actionTarget)` pair beside
 `sourceKey`, plus an action label supplied by the game as `RosterRow::name` and `ReasonText`
 already are. The engine carries the pair, draws the label, and hands it back unread when the
