@@ -47,16 +47,28 @@ constexpr char32_t BOX_AND_MARKER_GLYPHS[] = {
     0x25b8, 0x25be,                                 // small triangles: the ▸ token separator
                                                     // and the ▾ picker caret
     0x25cf, 0x25cb, 0x25a0, 0x25a1,                 // discs and squares
+    0xfffd,                                         // U+FFFD REPLACEMENT CHARACTER: what a
+                                                    // codepoint this bake has no glyph for is
+                                                    // drawn as (ADR-020 §3's fail-soft). Baked
+                                                    // rather than assumed, because a
+                                                    // substitution the atlas cannot draw either
+                                                    // is silence wearing a rule's clothes.
     0x25a3, 0x25a5, 0x25c8,                         // the summary's ▣, the menu's ▥ and the
                                                     // location's ◈ (tactical-hud.png top bar)
     0x00b0, 0x00b1, 0x00d7, 0x2022, 0x00b7,         // degree, plus-minus, times, bullet, and
                                                     // the · the order label separates with
     0x2316, 0x26a0, 0x238c,                         // the ⌖ ship-count glyph, the ⚠ alert
                                                     // triangle and the ⎌ undo chip
-    0x231b, 0x23f3};                                // hourglasses, for the pending chip --
+    0x231b, 0x23f3,                                 // hourglasses, for the pending chip --
                                                     // listed so a face that has one shows it;
                                                     // a face without bakes .notdef and the
                                                     // chip degrades to its count
+    0x27e1, 0x2026};                                // the ⟡ the context bar's chips are marked
+                                                    // with and the … the approach chip trails.
+                                                    // Both were being *drawn* before they were
+                                                    // baked, so both came out as the
+                                                    // replacement box: a charset is only as
+                                                    // complete as the strings that use it
 
 /// One glyph, rasterised but not yet placed. Produced by the per-size tasks and
 /// consumed by the single-threaded packer.

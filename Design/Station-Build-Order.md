@@ -3,8 +3,9 @@
 **This document does not sequence** *(2026-08-22)*. It says what each T-slice contains, what its
 accept is, and — in the **Built** lines, which are most of its length — what landed and what that
 cost. **When a slice is built is [Plan-of-Record.md](Plan-of-Record.md)'s**, which sequences
-across all three phases and the work that belongs to none of them. T3's remaining half needs the user
-layer, which the plan schedules as N2.
+across all three phases and the work that belongs to none of them. T3's remaining half needed the user
+layer; **N2 built it on 2026-08-22**, so what remains of T3 is the rename control and the visual
+checkpoints rather than a dependency.
 
 **Status:** Session output 2026-08-19 · **T1 and T2 built in full** (2026-08-21) —
 **🏁 H0 is met: every named criterion is covered.** Docking, the transfer bus, undocking and its fifteen seconds,
@@ -19,6 +20,17 @@ screen (R1), and they are listed below as such. **P1 exists** — `ScreenPrints/
 station-screen.png`, landed 2026-08-19 — and its four open review questions were answered
 2026-08-20 ([ADR-017 §6a](ADR/ADR-017-station-docking.md)), so **T3 has no design gate left**:
 what remains of this phase is screen work.
+
+**Amended 2026-08-23 — §6's docked scope was lifted and it was not a station slice that did it.**
+I2 needed wings as control groups, which a player can only *form* at a station is not, so
+`AssignWing` now accepts ships on the grid as well as on the roster ([ADR-017 §6's
+amendment](ADR/ADR-017-station-docking.md)). No wire change, no new verb, no wing table — ADR-017
+§6's own "without new machinery" held. Two consequences for this phase: **the hangar is no longer
+the reorganisation room by necessity**, only by convenience; and the refusal a station command
+gives changed — an `AssignWing` naming a ship the view does not carry is refused `UnknownShip`
+rather than `NotDocked`, because "not docked here" is the wrong sentence for a verb that no longer
+needs a dock. What is *not* built is a surface for it: nothing in the client can compose an
+in-space assignment, which is I3's.
 
 **T3 has started, and it split (2026-08-22).** **T3a is built** — the client *navigates*:
 ADR-020's surface stack, input router, focus, text editing and scrolling list, all
@@ -77,8 +89,9 @@ hash. Rosters, logs, and transfer records carry **u32 ship ids** and key on **`P
 berth-hold events **emit into the per-commander event record** (ADR-018 A17) from this
 slice. §5's protection window is implemented against the **corrected** arithmetic
 (~1.2–1.6 km in fifteen Battleship seconds, not ~3 km — ADR-018 D7). Station commands as pure shared validation over a `RosterView`:
-`Undock` (≤ 64 ships, formation) and `AssignWing` (emergent 1..255, docked-scope,
-`NotDocked`). Undock applies as: formation solve at the anchor's authored undock point and
+`Undock` (≤ 64 ships, formation) and `AssignWing` (emergent 1..255, ~~docked-scope,
+`NotDocked`~~ — **lifted 2026-08-23 by I2**: it may name ships on the grid as well as on the
+roster, and a ship it cannot find is `UnknownShip`; see ADR-017 §6's amendment). Undock applies as: formation solve at the anchor's authored undock point and
 facing → per-ship `protectedUntilTick` (15 s; cleared on ingesting any player order naming
 the ship; system orders exempt) → the **system-issued parking order** to the first free
 berth (two rings × 12 bearings, deterministic scan, freedom = clear solved stations + no
@@ -579,16 +592,77 @@ its number; the wing the dock formed is the wing they undock into) and end to en
 real client and server in `RunDockingLoop`, which is where the last link lives — a split the
 roster records and the respawn then loses looks exactly like a split that never happened.
 
-**Still owed by T3:** wing *renames*, which do need the user settings layer; assigning to
-wing 0 to disband, which needs the print's stray column first, or the button would make ships
-vanish off the HUD; persistence of a created wing's name across sessions (ADR-012). And the
-visual checkpoints above.
+~~**Still owed by T3:** wing *renames*, which do need the user settings layer;~~ **the layer
+landed 2026-08-22 as N2**, and with it the half of that debt that was not a control: a call sign
+the player composed now comes back next session, and a name they put on an authored wing outranks
+the content's without overwriting it — so deleting `Settings.json` restores TALON and ANVIL
+exactly. Gated in `RunWingNameLayerGate`, beside the assignment gate and for the same reason.
+
+~~**Still owed by T3:** the rename **control**~~ **built 2026-08-23**, ~~assigning to wing 0 to
+disband~~ **built the same day**. What is left of T3 is the visual checkpoints above.
+
+**The rename control, and the two things it needed that were not the layer.** T3a built
+`TextEditState` and `UiFocus` and neither had a consumer for two slices; this is the first
+editable field anywhere in this client, and it is what ADR-018 D15.1 meant by "editable text".
+A tap on a wing header opens it, seeded with the current word and with the whole of it selected,
+so replacing a call sign is *typing* and keeping part of it is one arrow key away. It closes
+three ways and they are three different answers: Escape cancels, Enter commits, and **a tap
+outside commits** — which is the one that matters, because touch has no Enter and a field a
+finger cannot finish is a field a finger cannot use. Committing on blur rather than cancelling
+is a choice about whose work is cheaper to lose.
+
+Two channels had to arrive with it. `InputAction::Confirm` is Enter, and it is the pair that
+makes `ActionSurvivesTextEditing` a real question rather than a formality: Escape is *routed*
+because it means something to a surface as well as to a field, and Enter is *suppressed* because
+it means nothing to any surface here. And `TextEditKey` is a **third input channel** beside
+actions and characters — an action asks "was this button pressed", text asks "what did the
+player mean to write", and Backspace and the arrows ask "how did they mean to move or delete".
+Six actions with the same table answer would have been six entries whose question was not
+really the table's; it also keeps `Home` honest, which is `ResetView` to a camera and
+start-of-line to a field.
+
+**The charset filter is asked of the atlas**, which is where D15.1 says to ask it: the atlas is
+the only thing that knows which codepoints this build baked, and a second copy of that list is
+how a name renders at one size and boxes at another. It is the one line of this control no
+device-free test covers.
+
+**And the station surface moved onto the gesture seam to make room for it**, which closes half
+of R30. `station-screen.png` §1 says *"holding a wing header takes"* and T3b built it as a
+press, with the reason written down: *"a header has no competing gesture"*. It has one now, so
+the departure is undone rather than defended and both gestures land where the print put them.
+
+**Disband, and the thing that was really blocking it.** `StationActionOptions` refused to offer
+wing 0 because `BuildRoster` drew no row for it, so the button would have made ships vanish off
+the HUD. The strays have a row now — last on the panel, and only when there are any, because a
+wing is a thing the player made and an empty one is news while "nothing is unassigned" is the
+ordinary state.
+
+**What the stray row found on the way there is the more serious half of this commit.** Wing 0
+was skipped with *"the stations are in it"*, which was true and was not the reason. A wing
+number is a byte **every commander numbers from one**, and `BuildRoster` was counting *every*
+ship on the grid — so a hostile fleet flying their wing 1 inflated this player's TALON row and
+dragged its gauges towards a fleet they do not command. `BuildGroupMembers` had it too: a press
+on TALON would have selected the enemy wing 1 with it, and then offered an order over the pair.
+It needs two commanders on one grid to show, which U3c made possible and no gate had built; the
+bits that tell them apart are ADR-022 §8b's, which arrived *after* this code, so the function
+that could not ask read like a function that had decided not to. Gated in
+`RunRosterOwnershipGate`, which is the arrangement that was missing: a frame with two
+relationships in it.
+
+**One thing N2 moved rather than closed, recorded so it is not counted twice.** The names the
+player owns are written at **shutdown**, not at the keystroke — a rename is a keypress and a save
+is a file rename, and doing the second on every one of the first would put the settings file in
+the path of a fast typist. The cost is that a session killed rather than closed loses the names it
+minted, which is the right trade for call signs and is the first thing to revisit when the
+settings screen (N3) puts a display mode in the same file.
 
 **Accept 🏁 H1:** the owner's loop in one sitting — fly to the station, DOCK from the
 context action, open the hangar, move three ships into a new wing, select a mixed
 composition, UNDOCK, and watch the new fleet appear at the undock point, shimmer, and park
 itself on a free berth clear of a fleet already parked; visual checkpoint against P1;
-rename a wing and see it survive a client restart (user layer); undock at an unviewed
+rename a wing and see it survive a client restart (user layer — **its layer is built as of
+2026-08-22, the round trip is gated in two suites, and the rename *control* landed 2026-08-23;
+what this clause still needs is a person to press it**); undock at an unviewed
 station from the roster block and jump to it with VIEW.
 
 ---

@@ -62,10 +62,59 @@ grammar plus an ad-hoc content format.
    > [ADR-020](ADR-020-ui-architecture.md)'s 2026-08-22 amendment **wings are the control
    > groups**, and a wing lives on the shard — so the grouping case, which looked like this
    > file's fourth family, never reaches it at all.
+
+   > **Built, 2026-08-22 (N2) — the file is written, and one family is in it.**
+   > "The only file the game writes" had no writer: `Settings.json` was found, parsed and merged
+   > since S-whenever, and nothing had ever created one. `SaveUserSettings` does, and three
+   > decisions came with it that this section did not previously make.
+   >
+   > **It writes what the player *changed*, not what they have.** `WriteUserLayer` takes the
+   > configuration as loaded *and* the same configuration before the user layer went over it, and
+   > emits only the keys that differ; a section with nothing changed in it is absent rather than
+   > empty. The clause above says the file "carries exactly the keys the settings screen owns",
+   > which is a statement about what it *may* contain — writing every one of them on the first
+   > clean exit would pin a player to the shipped defaults of the day they installed the game,
+   > through a file they never edited. An untouched installation therefore has no settings file
+   > at all, which is the state these shipped defaults are meant to be read from.
+   >
+   > **It is atomic.** Written to a temporary beside the target and renamed over it, so a crash
+   > mid-write leaves the previous settings whole instead of a truncated file the next boot
+   > reports as corrupt.
+   >
+   > **§A4's "backed up beside itself" is now true.** A user layer that will not parse was warned
+   > about and ignored, and never copied; it is copied to `Settings.json.bad` before the game
+   > starts on the shipped values, because "ignored" was about to become "gone" at the first save.
+   >
+   > ~~**Wing names are the only family in it so far**~~, and the layer's *shape* rather than its
+   > coverage is what N2 delivered. The display, audio and diagnostics keys are written the moment
+   > something changes them, and today nothing does: the settings screen is N3, and the F1
+   > diagnostics strip — which this ADR's `DiagnosticsSettings` calls "a shortcut to the same bit,
+   > not a second switch" — has no way to tell the composition root it was pressed. That
+   > write-back is N3's to build, and it is named here so the claim is not read as already met.
+   >
+   > > **N3 built it, 2026-08-23 — for three families of the four.** The settings screen writes
+   > > back through `ClientApp::Config`, which the composition root maps into `AppConfig` at
+   > > shutdown exactly as `MakeClientConfig` maps the other way. **Accessibility** (the UI scale,
+   > > the palette, three readability rules) and a new **input** family (handedness, the
+   > > long-press dwell) are new keys here; **display** (vsync, frame cap) writes back through the
+   > > keys that already existed.
+   > >
+   > > **Audio does not**, and the reason is a client API rather than this layer: `AudioDevice`
+   > > takes its gains at creation and has no setter for a running mixer, so a volume slider would
+   > > only take effect at next start — which the screen's own CHANGES APPLY IMMEDIATELY promise
+   > > forbids. The section is drawn and refused with that sentence on it. **And the F1
+   > > diagnostics strip still has no path** to tell the composition root it was pressed, which is
+   > > the other half of what this note named and is untouched.
+   > >
+   > > One thing N3 had to decide that this ADR implies but does not state: the layer is written
+   > > **only when the player actually changed something** (`ClientApp::SettingsChanged`). §A3 says
+   > > the file records *changes and not state*, so a session that opened nothing should leave it
+   > > byte-for-byte as it found it, timestamp included.
    >
    > **The families this file therefore owns:** display, audio volumes, accessibility, input
-   > bindings, wing *names* (ADR-017 §6a.4 — client-side because the shard has no name for a
-   > wing), fleet templates, and the scouting journal.
+   > bindings, wing *names* (ADR-017 **§6** — client-side because the shard has no name for a
+   > wing; §6a.4 cites that rule rather than stating it, and this line pointed at the citation
+   > until N2 went looking for the sentence), fleet templates, and the scouting journal.
 
 4. **Failure posture:** base config missing or unparseable ⇒ **fatal**, with file, line, column
    and message in the log and a `MessageBoxW` in windowed mode. Unknown keys ⇒ warning

@@ -459,7 +459,7 @@ public:
     input.cursorDeltaX = 10;
     input.cursorDeltaY = -6;
 
-    const CameraIntent intent = MapCameraInput(input, tuning, 1.0f / 60.0f);
+    const CameraIntent intent = MapCameraInput(input, tuning, 1.0f / 60.0f, 0.0f, 0.0f);
     Assert::AreEqual(-10.0f, intent.panRightPixels, 1e-4f, L"dragging right moves the focus left, so the plane follows the hand");
     Assert::AreEqual(-6.0f, intent.panUpPixels, 1e-4f);
     Assert::AreEqual(0.0f, intent.orbitRadians, 1e-6f, L"a plain middle-drag never orbits");
@@ -474,14 +474,14 @@ public:
     input.cursorDeltaX = 10;
     input.cursorDeltaY = 40;
 
-    CameraIntent intent = MapCameraInput(input, tuning, 1.0f / 60.0f);
+    CameraIntent intent = MapCameraInput(input, tuning, 1.0f / 60.0f, 0.0f, 0.0f);
     Assert::AreEqual(10.0f * tuning.orbitRadiansPerPixel, intent.orbitRadians, 1e-6f);
     Assert::AreEqual(0.0f, intent.panRightPixels, 1e-6f, L"an orbit does not also pan");
     Assert::IsFalse(intent.snapYaw);
 
     input.buttonDown[static_cast<std::uint32_t>(InputButton::Middle)] = false;
     input.buttonReleased[static_cast<std::uint32_t>(InputButton::Middle)] = true;
-    intent = MapCameraInput(input, tuning, 1.0f / 60.0f);
+    intent = MapCameraInput(input, tuning, 1.0f / 60.0f, 0.0f, 0.0f);
     Assert::IsTrue(intent.snapYaw, L"letting go of an orbit drops onto the nearest detent");
   }
 
@@ -496,7 +496,7 @@ public:
     input.cursorDeltaX = 40;
     input.cursorDeltaY = 40;
 
-    const CameraIntent intent = MapCameraInput(input, tuning, 1.0f / 60.0f);
+    const CameraIntent intent = MapCameraInput(input, tuning, 1.0f / 60.0f, 0.0f, 0.0f);
     Assert::AreEqual(0.0f, intent.panRightPixels, 1e-6f);
     Assert::AreEqual(0.0f, intent.panUpPixels, 1e-6f);
     Assert::AreEqual(0.0f, intent.orbitRadians, 1e-6f);
@@ -507,7 +507,7 @@ public:
     const CameraTuning tuning;
     InputFrame input;
     input.wheelSteps = 0.5f;
-    Assert::AreEqual(0.5f, MapCameraInput(input, tuning, 1.0f / 60.0f).zoomSteps, 1e-6f);
+    Assert::AreEqual(0.5f, MapCameraInput(input, tuning, 1.0f / 60.0f, 0.0f, 0.0f).zoomSteps, 1e-6f);
   }
 
   TEST_METHOD(KeyEdgesStepDetentsAndKeyLevelsPan)
@@ -516,16 +516,16 @@ public:
     InputFrame input;
 
     input.actionPressed[static_cast<std::uint32_t>(InputAction::YawRight)] = true;
-    Assert::AreEqual(1, MapCameraInput(input, tuning, 1.0f / 60.0f).yawDetentSteps);
+    Assert::AreEqual(1, MapCameraInput(input, tuning, 1.0f / 60.0f, 0.0f, 0.0f).yawDetentSteps);
 
     // Holding the key is not a second detent: only the edge counts.
     input.actionPressed[static_cast<std::uint32_t>(InputAction::YawRight)] = false;
     input.actionDown[static_cast<std::uint32_t>(InputAction::YawRight)] = true;
-    Assert::AreEqual(0, MapCameraInput(input, tuning, 1.0f / 60.0f).yawDetentSteps);
+    Assert::AreEqual(0, MapCameraInput(input, tuning, 1.0f / 60.0f, 0.0f, 0.0f).yawDetentSteps);
 
     InputFrame panning;
     panning.actionDown[static_cast<std::uint32_t>(InputAction::PanForward)] = true;
-    const CameraIntent intent = MapCameraInput(panning, tuning, 0.5f);
+    const CameraIntent intent = MapCameraInput(panning, tuning, 0.5f, 0.0f, 0.0f);
     Assert::AreEqual(tuning.keyboardPanPixelsPerSecond * 0.5f, intent.panUpPixels, 1e-3f, L"a held pan key is rate x time");
   }
 
@@ -540,19 +540,53 @@ public:
     input.windowFocused = true;
     input.cursorInsideWindow = true;
 
-    Assert::AreEqual(tuning.edgePanPixelsPerSecond, MapCameraInput(input, tuning, 1.0f).panRightPixels, 1e-3f);
+    Assert::AreEqual(tuning.edgePanPixelsPerSecond, MapCameraInput(input, tuning, 1.0f, 0.0f, 0.0f).panRightPixels, 1e-3f);
 
     input.cursorY = 0;
     input.cursorX = 800;
-    Assert::AreEqual(tuning.edgePanPixelsPerSecond, MapCameraInput(input, tuning, 1.0f).panUpPixels, 1e-3f,
+    Assert::AreEqual(tuning.edgePanPixelsPerSecond, MapCameraInput(input, tuning, 1.0f, 0.0f, 0.0f).panUpPixels, 1e-3f,
                      L"the top edge pans forward, not backward");
 
     input.windowFocused = false;
-    Assert::AreEqual(0.0f, MapCameraInput(input, tuning, 1.0f).panUpPixels, 1e-6f, L"an unfocused window does not edge-pan");
+    Assert::AreEqual(0.0f, MapCameraInput(input, tuning, 1.0f, 0.0f, 0.0f).panUpPixels, 1e-6f, L"an unfocused window does not edge-pan");
 
     input.windowFocused = true;
     input.buttonDown[static_cast<std::uint32_t>(InputButton::Middle)] = true;
-    Assert::AreEqual(0.0f, MapCameraInput(input, tuning, 1.0f).panUpPixels, 1e-6f, L"a drag is not fought by the edge");
+    Assert::AreEqual(0.0f, MapCameraInput(input, tuning, 1.0f, 0.0f, 0.0f).panUpPixels, 1e-6f, L"a drag is not fought by the edge");
+  }
+
+  TEST_METHOD(AContactDragPansTheSameWayAMiddleDragDoes)
+  {
+    /*
+     * Plan-of-Record §1's rule 1: **tap selects, drag pans**. The gesture layer
+     * decides which a contact became; this is what the camera does about it,
+     * and the assertion that matters is the *sign* -- a finger and a mouse that
+     * panned opposite ways would be the "the map fights me" feel on whichever
+     * one the developer was not using.
+     */
+    const CameraTuning tuning;
+    InputFrame input;
+    input.windowFocused = true;
+
+    const CameraIntent dragged = MapCameraInput(input, tuning, 1.0f / 60.0f, 40.0f, 25.0f);
+    Assert::AreEqual(-40.0f, dragged.panRightPixels, 1e-3f, L"the plane follows the contact, so the focus moves against it");
+    Assert::AreEqual(25.0f, dragged.panUpPixels, 1e-3f, L"and screen y grows downward, so a downward drag pans forward");
+
+    // The same movement through the mouse's middle button, which is the call
+    // this one had to match.
+    InputFrame middle;
+    middle.windowFocused = true;
+    middle.buttonDown[static_cast<std::uint32_t>(InputButton::Middle)] = true;
+    middle.cursorDeltaX = 40;
+    middle.cursorDeltaY = 25;
+    const CameraIntent mouse = MapCameraInput(middle, tuning, 1.0f / 60.0f, 0.0f, 0.0f);
+    Assert::AreEqual(mouse.panRightPixels, dragged.panRightPixels, 1e-3f, L"a finger and a middle-drag pan the same way");
+    Assert::AreEqual(mouse.panUpPixels, dragged.panUpPixels, 1e-3f);
+
+    // A contact that is not dragging moves nothing: a press still deciding, or
+    // one that became a long-press, passes zero.
+    Assert::AreEqual(0.0f, MapCameraInput(input, tuning, 1.0f / 60.0f, 0.0f, 0.0f).panRightPixels, 1e-6f,
+                     L"a press that is not a drag pans nothing");
   }
 
   TEST_METHOD(ApplyingAnIntentMovesTheCamera)

@@ -438,6 +438,32 @@ public:
     Assert::IsFalse(ActionSurvivesTextEditing(InputAction::CycleParameter));
     Assert::IsTrue(ActionSurvivesTextEditing(InputAction::Back));
     Assert::IsTrue(ActionSurvivesTextEditing(InputAction::SelectAdd));
+
+    /*
+     * `Confirm` is the opposite answer from `Back`, and the pair is what the
+     * table exists to make somebody decide (T3).
+     *
+     * Escape means something to a *surface* as well as to a field -- go back --
+     * so it is routed and reaches one when no field wants it. Enter means
+     * nothing to any surface in this client, so letting it through would be
+     * reserving a key for a future somebody.
+     */
+    Assert::IsFalse(ActionSurvivesTextEditing(InputAction::Confirm));
+  }
+
+  TEST_METHOD(EnterIsTheFieldsAndReachesNothingBehindIt)
+  {
+    UiFocus field;
+    field.Claim(SurfaceId::Station, WING_NAME_FIELD, FocusKind::EditableField);
+
+    InputRouter router;
+    router.Begin(FrameWithAction(InputAction::Confirm), field);
+    Assert::IsFalse(router.Pressed(InputAction::Confirm), L"a focused field swallows it whole");
+
+    // And with no field, it still goes nowhere: nothing else listens for it.
+    InputRouter bare;
+    bare.Begin(FrameWithAction(InputAction::Confirm), UiFocus{});
+    Assert::IsTrue(bare.Pressed(InputAction::Confirm), L"unsuppressed when nobody is typing");
   }
 
   TEST_METHOD(EscapeReachesTheFieldBeforeTheSurface)

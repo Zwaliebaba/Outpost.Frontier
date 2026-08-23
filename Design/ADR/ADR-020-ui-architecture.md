@@ -166,6 +166,29 @@ arrived some other way (a hand-edited `Settings.json`, an older build, a future 
 service) fails soft to U+FFFD substitution rather than refusing the file — ADR-012's posture
 toward every hand-edited artefact.
 
+> **Built 2026-08-23 with T3's rename control, and the second place turned out to be the
+> wrong place.**
+>
+> The widget half is as written: every character is asked of the atlas at **every baked size**
+> before it is stored, which is the clause's own wording and is the difference between a name
+> that is legible and a name that is legible *here* — a call sign is drawn at the body size on
+> a hangar column and at the small size on a roster row.
+>
+> The load half moved to the **draw**, and the reason is that substituting at load would
+> corrupt the file. A name from a future build round-trips through `Settings.json` untouched if
+> nothing rewrites it, and is drawn as replacement characters *now*; substituting on the way in
+> would write the boxes back out on the next save and lose the original permanently. So the
+> rule is kept where it cannot be bypassed rather than where it was first written down: an
+> unpaintable codepoint anywhere in this client draws as U+FFFD.
+>
+> **U+FFFD had to be baked for that to mean anything**, and finding out that it was not is the
+> useful part. `ExpandOneTextRun` *skipped* a missing glyph and held its column, on the
+> argument that "a run of boxes is a bake to fix rather than a layout to nudge" — which is
+> right, and one step short: a skipped glyph is not a box, it is a gap, so a name made entirely
+> of unpaintable characters drew as **nothing at all**. Silence is the one outcome a fail-soft
+> rule cannot have. It is counted as well as drawn, so the telemetry that argument was really
+> protecting is unchanged.
+
 ### 4. One scrolling list, and it scrolls by whole rows
 
 `UiScrollState` is an offset in rows, a content count and a visible count, with a clamp. One
@@ -397,7 +420,7 @@ no declared rule for a zone is not finished.
 | Surface | Rule | Why |
 |---|---|---|
 | `Tactical` | **drop** | verbs drop rather than reflow; the world rect absorbs the rest, and reflow is a layout engine |
-| `Map` | **scroll** the panels; the graph is a viewport | the graph already pans and zooms — that *is* its overflow answer |
+| `Map` | **scroll** the panels; the graph is a viewport | the graph already pans and zooms — that *is* its overflow answer. **Built at U5a (2026-08-23)**: the legend and the route scroll through `BuildMapRows`' first-row argument, the graph pans and pinches, and the one departure is named — the five-entry overlay *switch* drops rather than scrolls, on `CommandRow`'s rule, because a switch you have to scroll to find an entry of is worse than one that has visibly run out of room |
 | `Station` | **scroll** the wing columns; **letterbox** the parking diagram | the print calls the diagram a readout, not a control, so holding its aspect is the honest degradation |
 | `Settings` | **scroll** the section body; **letterbox** the live preview | the preview is a proof about proportion and colour; distorting it breaks the proof |
 
@@ -417,6 +440,78 @@ the mouse is a development convenience.** **48 px
 stays target-size discipline**, generalised from `CommandRow.h:76–83` to every interactive
 widget: a floor in real pixels, enforced and not scaled, exactly as `settings.png` states it —
 and it is the one part of D15.4 the reversal keeps, because it was always a touch floor.
+
+> **Built 2026-08-23 as N3 — the screen, and a correction to the rule it enforces.**
+>
+> `SettingsScreen.h` lays the surface out and hit-tests it in one file, which is
+> `StationScreen`'s rule applied to the one screen whose whole subject is controls.
+> A section is a **flat run of rows** — not a widget tree; ADR-020's fence holds — laid
+> out top to bottom in a single pass with a whole-row cull at both edges, because there
+> is no clip rectangle and rows here come in three heights. `ContrastAudit.h` is beside
+> it, and `ClientApp` re-runs `ApplyPalette` on a change so a swap is total.
+>
+> **The 48 px floor is enforced by a function rather than by discipline.** Every target
+> is sized through `TargetHeightPixels`, so at 0.8× the print's 46 px header is
+> *raised* to 48 rather than scaled to 36.8. The first draft floored the word and took
+> the height from the bar, which read correctly and put the only way off the screen
+> below the floor the screen exists to enforce; a test caught it, and the tests now
+> sweep the whole 0.8–1.6× range on every target.
+>
+> **The floor moved out on 2026-08-23, and the map is why.** It was written in
+> `SettingsScreen.h` because that was its only caller; U5's strategic map became the second,
+> and it could not simply be copied — two engine headers declaring the same namespace-scope
+> constant is a build failure by design (ADR-013 §3's guard), which is exactly right, because
+> two floors is two floors and they drift. It is `TARGET_FLOOR_PIXELS` and `TargetHeightPixels`
+> in `UiLayout.h` now, unchanged, which is where a rule about *every interactive widget*
+> belongs.
+>
+> **And U5 found what the floor is for.** `strategic-map.png` was authored 2026-08-08 — two
+> weeks before this amendment — with ~24 px overlay rows and ~20 px checkboxes. So the *prints*
+> predate the reversal too, and this clause is what corrects them rather than something they
+> already satisfy. At 1.6× on a 900-pixel window the corrected rail then wants more height than
+> exists, which is a real consequence rather than a rounding: the map's ruling is that the
+> legend gives way, because it is a readout *of* the overlay switch and the switch is the
+> rail's reason for existing.
+>
+> **The floor also reaches the world, not only the chrome.** A system on the map draws as a
+> 6 px pip and a finger is eight times that, so two adjacent systems can have overlapping
+> targets — which is why `HitMapNode` resolves to the **nearest** rather than the first found.
+> Without that, bake order decides which of two systems a tap selects, and bake order is not
+> something a player can see.
+
+> **The contrast floor is a glyph-against-*ground* rule, and that is a correction rather
+> than a reading.** `settings.png` §1 says *"4.5:1 on every glyph pair"*, and taken
+> literally that is unsatisfiable: clearing the floor against a void at 0.0037 forces
+> every glyph past luminance 0.19, and clearing it again *between* two such glyphs forces
+> the brighter one past 1.03 — brighter than white. **No palette that has ever existed
+> could pass it**, and the print's own four rows do not reproduce against the shipped
+> tables. The print settles it one panel higher: *"hull glyphs stay distinguishable by
+> shape in every palette — colour is never the only carrier."* Telling a glyph from the
+> space behind it is contrast; telling two glyphs apart is geometry's job
+> (`tactical-icon-system.png` §3). So the audit measures both and floors only the first.
+> Under that reading all three shipped palettes pass, worst 5.27:1 (Tritanopia's hostile).
+> **The print's §3 open question — "does the contrast audit ship?" — is answered yes**:
+> it is ten pairs of arithmetic, and it is the only thing that makes the palette contract
+> checkable rather than asserted.
+>
+> **Two sections are drawn, refused, and say why.** ACCOUNT waits on a system nobody has
+> built, which is the print's own instruction. AUDIO waits on a *client* API — `AudioDevice`
+> takes its gains at creation and has no setter for a running mixer — so a volume slider
+> would only take effect at next start, which the header's own CHANGES APPLY IMMEDIATELY
+> forbids. Building it as a live control was the alternative and it would have been a lie
+> on the one section the print calls "free".
+>
+> **`MENU_SETTINGS` stops being dead.** It had been drawn at half alpha with the reason
+> attached since the menu landed, which is why the entry does not appear from nowhere today.
+>
+> What N3 did **not** do, named rather than discovered: the live preview's *contents* (a
+> scrap of the tactical view with real hulls) are I3's, so the panel draws its frame and
+> the four standing swatches; RESET SECTION and RESET ALL are drawn and refused, because
+> what "reset" means against a layer that records **changes rather than state** (ADR-012
+> §A3) is a decision this slice did not have to make; and **keybinding capture — D15.3, the
+> clause above that calls it "the settings screen's first slice" — is not built.** The
+> 2026-08-22 amendment demoted keybindings to accelerators, which moved handedness and the
+> palette ahead of them; `UiFocus`'s `BindingCapture` still waits for a caller.
 
 **Toasts gain an action payload** (D15.5): an opaque `(actionKind, actionTarget)` pair beside
 `sourceKey`, plus an action label supplied by the game as `RosterRow::name` and `ReasonText`
@@ -533,6 +628,26 @@ place is 200 chips, so the hangar's wing columns scroll.
 > through it.** Not beside it — a second path would drift, and the drift would be invisible
 > because the mouse is what the developer uses and the touch path is what ships.
 >
+> > **Built 2026-08-23 as I1.** `InputFrame` carries **contacts** — what is touching the screen,
+> > oldest first — and `NeuronClient/Gesture.h` turns them into the five gestures this design
+> > spends: tap, drag, long-press, second finger, pinch. `Window` fills contact zero from the left
+> > button and the recognizer contains **no mouse case at all**, which is what "expressed through
+> > it, not beside it" had to mean in code for the drift this clause warns about to be
+> > impossible. `InputRouter` hands the gesture out behind the pointer claim, like every other
+> > pointer question.
+> >
+> > **It consumes nothing**: selection is I2 and the order surfaces are I3, so the seam lands
+> > without a retrofit. Three numbers came with it. The dwell is **350 ms**, taken from
+> > `puck-and-wheel.png`'s own step 1 rather than invented. `dwellProgress` is a **level rather
+> > than only an edge**, because the print requires the ring to fill *"from the first millisecond
+> > … so a player who did not mean to long-press knows to lift"*. And the slop is **a quarter of
+> > the 48 px floor** below — derived rather than picked, so the two cannot drift apart when the
+> > floor is re-argued.
+> >
+> > One thing the mouse cannot do is put down a *second* contact, and I1 does not pretend
+> > otherwise: `secondContactDown` is simply false on a desk, and the surfaces that need a second
+> > finger sequence it differently there (the puck as anchor-then-drag).
+>
 > **48 px survives untouched, and now for its real reason.** It was always a touch floor; D15.4
 > kept the number and dropped the argument. `settings.png` states it, `CommandRow.h:76-83`
 > enforces it, and every widget added since has obeyed it — so nothing built under D15.4 has to
@@ -554,6 +669,40 @@ place is 200 chips, so the hangar's wing columns scroll.
 > needs no keys and no user-layer storage: `AssignWing` already mints emergent ids 1..255 on the
 > shard. Box-select is dropped with two-finger drag reserved, because once drag is the camera it
 > has no home and the corpus never drew one.
+>
+> > **Built 2026-08-23 as I2 — the rules. Rule 3's lift is not.**
+> >
+> > A tap takes what is under it and a tap on nothing clears. A drag pans, with the sign the
+> > middle-drag already used, so a finger and a mouse cannot disagree about which way the plane
+> > goes. A roster tap takes the wing and **no longer frames it**, which closes the defect this
+> > paragraph names by line number; a second tap frames it, and a long-press on the row adds to
+> > the selection instead of replacing it. `Selection` lost its press/move/release state machine
+> > outright — `Gesture.h` owns when a tap happened — so what is left of it is the set and one
+> > function.
+> >
+> > **`PickBox` was kept.** This paragraph *reserves* two-finger drag for the marquee, and
+> > deleting the arithmetic that would serve it would have quietly turned "dropped" into
+> > "refused".
+> >
+> > Two decisions the slice had to take. **Framing is the second tap of a double, and the tap
+> > edge fires on both** — so the first tap acts at once and the second *adds* the framing.
+> > Holding every tap for a double-tap window first is a third of a second of nothing on the
+> > gesture a player makes most, and it would put the same delay in front of an order surface.
+> > And **the pan is gated on where the contact went down** rather than on where it is now: a
+> > gesture may only begin over the world, and once begun it may leave freely. That is the rule
+> > the box-select drag already carried, which is why it outlives its own removal.
+> >
+> > **Rule 3's second half landed the same day, in its own commit.** `AssignWing` was
+> > docked-scope, so wings were control groups a player could only *form* at a station;
+> > [ADR-017 §6's amendment](ADR-017-station-docking.md) lifts it. It was split out because it
+> > changes what the authority accepts, and that turned out to be the right call: it also
+> > changed what a refusal *says* — an `AssignWing` naming a ship the view does not carry is
+> > refused "no such ship" rather than "not docked here" — and needed fences of its own, since
+> > `Undock` and the transfer verbs must not travel with it.
+> >
+> > **What has no surface yet is issuing one in space.** Nothing in the client can compose an
+> > in-space assignment; that is I3's, beside the order surfaces. The authority half landed
+> > first so the screen slice is a screen slice.
 >
 > **The command wheel is therefore built, not superseded.** It is half the order model — under
 > §1's table, ATTACK and ABILITY have no other entry point — and `MAX_ORDER_KINDS = 8`

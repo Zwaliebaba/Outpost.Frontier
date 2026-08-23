@@ -11,12 +11,17 @@
 /*
  * What the player has selected, and the gesture that changes it (ADR-006 §11).
  *
- * Two things that look like one: a set of ids, and a small state machine that
- * turns press/move/release into either a point pick or a box pick. They live
- * together because the gesture is only meaningful as "what it does to the set",
- * and apart from the renderer because a selection is not a drawing -- the
- * overlay reads it, it does not own it (ADR-006 §7 keeps selection out of the
- * hull colour entirely).
+ * A set of ids, and what a tap does to it.
+ *
+ * **It used to be two things**: the set, and a press/move/release state machine
+ * that resolved to a point pick or a box pick. I2 took the state machine away
+ * -- `Gesture.h` owns when a tap happened, and once drag is the camera a box
+ * has no gesture left to be (Plan-of-Record §1, rules 1 and 5). What is left is
+ * the set and one function, which is what this file was always mostly about.
+ *
+ * Apart from the renderer because a selection is not a drawing -- the overlay
+ * reads it, it does not own it (ADR-006 §7 keeps selection out of the hull
+ * colour entirely).
  *
  * **The set is ids, not indices.** Ships arrive interpolated and re-sorted
  * every frame, and a despawn shifts everything after it. An index would select
@@ -34,55 +39,32 @@ namespace Neuron
 class Selection
 {
 public:
-  /*
-   * How far the cursor may travel and still count as a click.
-   *
-   * Not zero, because a mouse moves a pixel or two during a click on any hand
-   * that is not resting on the desk, and a one-pixel box selects nothing. Four
-   * pixels is small enough that a deliberate drag never reads as a click.
-   */
-  static constexpr float CLICK_SLOP_PIXELS = 4.0f;
-
   /// The pick radius floor, in pixels, handed to `PickPoint` by way of
-  /// `IsoCamera::ScreenFloorMetres`. Eight pixels is a comfortable click target
-  /// at any zoom without being so wide that two neighbours become one.
+  /// `IsoCamera::ScreenFloorMetres`. Eight pixels is a comfortable target at
+  /// any zoom without being so wide that two neighbours become one.
   static constexpr float PICK_FLOOR_PIXELS = 8.0f;
 
-  /// A drag started at these pixels. `_additive` is the shift key, sampled at
-  /// press: a modifier released mid-drag must not change what the drag means.
-  void BeginDrag(float _cursorX, float _cursorY, bool _additive) noexcept;
-
-  /// The cursor moved while the button is down.
-  void UpdateDrag(float _cursorX, float _cursorY) noexcept;
-
   /*
-   * The button came up. Resolves to a click or a box and applies it.
+   * A tap landed here: take what is under it (I2, Plan-of-Record §1's rule 1).
    *
-   * `_mapping` and `_viewport*` convert the recorded pixels; `_entities` is the
-   * frame's pick list; `_minRadiusMetres` is the screen floor. Everything the
-   * decision needs arrives here rather than being remembered, because the
-   * camera may have moved during the drag and the answer must use where things
-   * are *now*.
+   * **Tap selects, drag pans** -- and this is the whole of the first half. It
+   * replaced a press/move/release state machine that resolved to a click *or a
+   * box*, because once drag is the camera a box has no gesture left to be
+   * (rule 5). What it kept is the box's *pick*: `PickBox` is still in
+   * `Picking.h`, reserved for the two-finger drag rule 5 sets aside, because
+   * "we never drew one" is not the same as "it is wrong".
+   *
+   * Everything the decision needs arrives here rather than being remembered.
+   * The gesture layer owns when a tap happened and where; this owns what it
+   * means, and it has no state between taps for a camera move to invalidate.
+   *
+   * `_additive` is the desk's shift accelerator, and the design may not require
+   * it (ADR-020's amendment: no interaction may need a key). The touch path for
+   * adding to a selection is rule 4's long-press on a roster row, which is not
+   * this function's.
    */
-  void EndDrag(std::span<const SceneEntity> _entities, const PlaneMapping& _mapping, std::uint32_t _viewportWidth,
-               std::uint32_t _viewportHeight, float _minRadiusMetres);
-
-  /// Abandons a drag without changing the selection -- focus loss, or the
-  /// window going away mid-gesture.
-  void CancelDrag() noexcept { m_dragging = false; }
-
-  [[nodiscard]] bool Dragging() const noexcept { return m_dragging; }
-
-  /// True once the cursor has left the click slop. The overlay draws the
-  /// rectangle only from this point, so a click never flashes a box.
-  [[nodiscard]] bool DragIsBox() const noexcept;
-
-  /// The drag rectangle in pixels, for the overlay. Meaningless unless
-  /// `DragIsBox()`.
-  [[nodiscard]] float DragStartX() const noexcept { return m_startX; }
-  [[nodiscard]] float DragStartY() const noexcept { return m_startY; }
-  [[nodiscard]] float DragCurrentX() const noexcept { return m_currentX; }
-  [[nodiscard]] float DragCurrentY() const noexcept { return m_currentY; }
+  void Tap(float _tapX, float _tapY, bool _additive, std::span<const SceneEntity> _entities, const PlaneMapping& _mapping,
+           std::uint32_t _viewportWidth, std::uint32_t _viewportHeight, float _minRadiusMetres);
 
   [[nodiscard]] std::span<const EntityId> Ids() const noexcept { return m_ids; }
   [[nodiscard]] std::size_t Count() const noexcept { return m_ids.size(); }
@@ -107,13 +89,6 @@ public:
 
 private:
   std::vector<EntityId> m_ids;
-
-  bool m_dragging = false;
-  bool m_additive = false;
-  float m_startX = 0.0f;
-  float m_startY = 0.0f;
-  float m_currentX = 0.0f;
-  float m_currentY = 0.0f;
 };
 
 } // namespace Neuron

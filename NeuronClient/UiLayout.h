@@ -29,6 +29,42 @@
 namespace Neuron
 {
 
+/*
+ * The 48 px target floor, and the one function that keeps it (ADR-020 §8).
+ *
+ * *"48 px stays target-size discipline, generalised from `CommandRow` to every
+ * interactive widget: a floor in real pixels, enforced and not scaled"* -- and
+ * it is the one part of D15.4 the 2026-08-22 reversal kept, because it was
+ * always a touch floor rather than a mouse convenience.
+ *
+ * **Here rather than beside the first screen that needed it.** It was written
+ * for `settings.png`, in `SettingsScreen.h`, and the map is the second screen to
+ * need it -- which is the moment a rule stops being one screen's and becomes the
+ * layout vocabulary's. It could not simply be copied: two engine headers
+ * declaring the same namespace-scope constant is a build failure by design
+ * (ADR-013 §3's guard), and that guard is right here for the reason it was
+ * written -- two floors is two floors, and they drift.
+ *
+ * Which is also why the scale may go below 1.0 at all. Without the floor, 0.8x
+ * takes a 56 px row to 45 px and quietly breaks the rule on the very control
+ * that sets it.
+ */
+inline constexpr float TARGET_FLOOR_PIXELS = 48.0f;
+
+/*
+ * A design height at a scale, never below the floor.
+ *
+ * Everything a finger presses is sized through here. A *readout* is not --
+ * `CountedChip` and `StaleMarker` scale freely, because nothing presses them
+ * and sizing them as targets would take a finger's worth of the screen to say
+ * a number.
+ */
+[[nodiscard]] constexpr float TargetHeightPixels(float _designHeight, float _scale) noexcept
+{
+  const float scaled = _designHeight * _scale;
+  return scaled < TARGET_FLOOR_PIXELS ? TARGET_FLOOR_PIXELS : scaled;
+}
+
 /// Sizes at scale 1.0, in pixels. Arguable, and all in one place for exactly
 /// that reason -- these are the numbers a pass over the print retunes.
 struct UiTuning

@@ -74,4 +74,26 @@ struct Route
 [[nodiscard]] std::vector<SystemId> FindSystems(const UniverseDef& _universe, std::string_view _query,
                                                 std::size_t _limit = 32);
 
+/*
+ * Where a fleet standing on this anchor's grid may warp to (ADR-016 §5, U4).
+ *
+ * Every other anchor in the same system, plus the far side of the gate when
+ * this grid is a gate's -- one hop and no further, because the anchors around
+ * *that* system are reachable from there rather than from here. Itself
+ * excluded: "warp to where you already are" is not a refusal worth a reason, it
+ * is a destination that should not be offered.
+ *
+ * **Here rather than in `WorldRegistry`, where it was written.** It was that
+ * class's private helper until the *client* needed the same answer, and the two
+ * had to be the same answer rather than two implementations of one rule -- a
+ * `Warp` the client waved through and the authority refused, or the reverse, is
+ * exactly what ADR-014 §3's parity claim forbids. It is a pure function over
+ * the bake, like everything else in this file, so both halves can call it and
+ * neither can drift.
+ *
+ * Empty for an anchor this universe does not have, which is what a grid outside
+ * any system is, and every `Warp` from it is `UnknownAnchor`.
+ */
+[[nodiscard]] std::vector<AnchorId> ReachableAnchors(const UniverseDef& _universe, AnchorId _from);
+
 } // namespace Game

@@ -222,6 +222,22 @@ semantics in engine code — labels, badge classes and colours arrive as data.**
 fifth-project idea remains a named revisit trigger, now with a tripwire: if a screen needs
 a game *rule* (not game *data*) to render, the question reopens. *(UI-5.)*
 
+> **Exercised end to end 2026-08-23 by U5a, the slice this decision was written for.**
+> `MapView.h` is the asked-once graph, `BuildMapLegend` the summary-rate rows, and
+> `BuildMapFacts` / `SolveMapRoute` the pure functions — five calls in the three shapes, filled
+> from the committed 2,500-system bake and verified against it device-free.
+>
+> **The tripwire did not fire, and one clause bent to keep it from firing.** *"Labels, badge
+> classes and colours arrive as data"* offers two ways to send a colour, and the first draft
+> took the second: the game computed a security gradient and handed over a packed value. That
+> passes the leak test and fails the *player* — a baked colour ignores the colour-vision
+> palette, which is a client setting the game cannot see. So the tint crosses as a **badge
+> class** the client resolves through its own palette. Worth recording as a reading of this
+> decision rather than a change to it: **the game says which class; the engine owns what a
+> class looks like.** A screen that needed the game to pick a pixel value would be a screen
+> whose accessibility settings the game has to know about, which is the same kind of coupling
+> the leak test exists to prevent, pointing the other way.
+
 ### D15 — The UI baseline package
 
 Adopted as stated, unblocking the **UI-architecture ADR** (a named deliverable that blocks
@@ -271,6 +287,36 @@ record, not randomness), so simultaneous arrivals at a hub spread instead of sta
 one point. Recorded before U1 so the bake's anchor record never needs a schema migration
 for it. *(UX-6.)*
 
+> **Built 2026-08-22 (N4), for warp arrivals.** `Anchor::arrivalSpreadRadiusCm` was baked by
+> U1, parsed, folded into the universe hash — and **read by nothing**. `ApplyTransit` placed
+> every crossing on the raw `warpInPoint`, so two fleets warping to one hub on one tick were
+> laid on top of each other and pushed apart by ADR-015 separation afterwards: the stacking
+> this decision exists to prevent, resolved by the mechanism that is meant to be its backstop.
+> **Two slices each believed the other had it** — U1's note said *"the rule itself is U3a's"*
+> and U3a's said *"Still owed by U3a: nothing."*
+>
+> **The offset is a slot on a ring**, radius `arrivalSpreadRadiusCm`, at a bearing the
+> crossing's own `TransferId` decides: `(counter × 159 + host × 83) mod 256` steps of
+> `FixedAngle.h`'s table. 159 of 256 steps is 223.6° — the golden angle read the long way
+> round — so *consecutive* counters land as far apart as a fixed stride can put them, which is
+> the case that matters because crossings filed in the same tick carry consecutive numbers. At
+> the baked 1,200 m radius that is **2,228 m between neighbours**, and 2,043 m between two
+> hosts filing the same counter. Integer angles throughout, because this decides a position in
+> the replay domain and `std::sin` is not a promise two compilers make identically
+> (ADR-016 §2); the id is already folded into the transfer hash, so nothing new entered it.
+>
+> **The facing does not move with the point.** [ADR-016](ADR-016-procedural-universe-and-warp.md)
+> §3 has the formation solve centring on the warp-in point *with the authored facing*, and that
+> half is untouched: a fleet arriving in the third slot still faces the way the content says
+> arrivals face.
+>
+> **Undock is not covered, and that is a decision rather than an omission.** This clause says
+> "warp-in/undock point", but [ADR-017](ADR-017-station-docking.md) §6a.1 answered undock
+> contention a day later and differently — a wave launches when the undock point *clears*, with
+> a timeout — and a clearance predicate is a better answer than an offset for a queue leaving
+> one door. That gate is **not built**: `UNDOCK_WAVE_TIMEOUT_SECONDS` is in no source file, so
+> undock contention is still open and belongs to the station phase, not here.
+
 ### D19 — The event record *(adopted default)*
 
 A **per-commander, append-only event record at the universe layer** — beside the transfer
@@ -305,7 +351,7 @@ work must exist before the slice starts; finding ids point into the review's app
 | A17 | ~~Event record producer at the universe layer; U/T slices emit from first events~~ **Built 2026-08-19 with T1:** `GameLogic/EventRecord.h/.cpp`, held by the registry, emitting on dock, undock, wing assignment and berth hold. Three numbers and no text -- a string could not be translated and the surfaces already know how to name a station -- with `count` making "eight ships docked" one line instead of eight; capped at 512 with the drop counted, because a truncated log and a quiet one are different statements. **Outside the hash**, which is the half worth stating: an event describes something the simulation already did, so folding the description in would make a replay depend on how talkative the build was. U3a onward keeps emitting into it; the consumers (UNREAD, REVIEW LOSSES, the away-log, the strategic feed) are still theirs to build | **T1/U3a onward** | D19 (UX-4) |
 | A18 | Toast action payload + universe/station alert rows; palette re-resolvable; ADR-012 §3 families widened | **U3b / settings slice** | D15.5 (UX-7, UI-6) |
 | A19 | ~~UI-architecture ADR (surface model, input consumption, text input/focus, scroll primitive, screen-data contract per D14)~~ **Delivered: [ADR-020](ADR-020-ui-architecture.md)** — `SurfaceId` stack with pop-back navigation, an `InputRouter` claiming pointer/wheel/keyboard independently, `UiFocus` + text edit state with the printable-key rule, one row-quantised scrolling list, and a screen-data contract of **three shapes, not three methods** (asked-once graph, summary-rate rows, pure query functions) | **Design deliverable, blocks U5 and T3** | D14, D15 (UI-1/2/5) |
-| A20 | Run spike 3 (1,024-instance draw) + the S5 frame check; upload-ring and fixed GPU budgets sized from corpus caps (1,024 entities / 2,500 nodes), made config | **Before U5** | CPP-5 |
+| A20 | ~~Run spike 3 (1,024-instance draw) + the S5 frame check;~~ **still owed, and both need a GPU** · ~~upload-ring and fixed GPU budgets sized from corpus caps (1,024 entities / 2,500 nodes), made config~~ **Done 2026-08-23 (N6's sizing half):** `NeuronClient/UploadBudget.h` derives the per-frame segment from the ceilings this renderer is built for — 1,024 hulls, their overlay marks, and a 2,500-node map with a label on every node — times the strides the input layouts declare, so a stream that grows a field moves the number by itself. **1,345 KiB against the 256 KiB it replaced**, three frames in flight, ~4 MiB of upload heap. The old constant said it was sized for "the corpus's 1,024 instances plus the overlay and text streams that join them" and for the *tactical* view it was: it is within a few KiB of the derived floor. What it left out was the map, whose instances alone are four times the whole segment — and every pass drops its stream **entirely** when the ring is short (`GpuPasses.cpp`), so U5 would have opened on a blank screen rather than a partial one. `client.renderer.uploadBytesPerFrame` overrides it, zero meaning "derive", which is what a config written before this existed says. One number was got wrong on the way and is worth recording: the per-hull mark ceiling was counted by reading the producers and missed `BuildStatusMarks`, which lives in a different function from the other four — a thousand marks a frame. It is now **measured** by `OverlayMarkCeilingTests` against a full grid in its worst state, and it is exact rather than generous, which is only safe because the test is what keeps it so | **Before U5** | CPP-5 |
 | A21 | ~~Schema text grows the verdict constants + check-order sequence (D9), clustered with T2's bump~~ **Done 2026-08-19 with T2's wire half:** `GAME_SCHEMA_TEXT` carries a `caps{...}` clause — ships per order, orders per snapshot, dock radius, undock protection, the parking ring's two radii and its bearing count, warp base seconds — and a `checkOrder{...}` clause giving the **sequence** the order and station checks run in, not just their names. The sequence is the part worth spelling out: two builds that check the same rules in a different order return *different reasons* for an order that breaks two of them, and the reason is what the player reads, so a bounce that says one thing on the client and another on the server is a compatibility failure even though both builds have the same enum. `OrderReason` is also numbered explicitly in the text now (through `UnknownAnchor = 14`), so a renumber is a hash change rather than a silent re-meaning | **T2 cluster** | D9 (SIM-5) |
 | A22 | ~~Remote-play ADR (pinned key, validation on off-loopback, transport config surface, abuse budget); ADR-008 §8 gains the gate sentence~~ **Delivered: [ADR-023](ADR-023-remote-play.md)** — a **two-pin build constant** (never a config key, so the trust anchor is not user-editable and rotation is not an outage), `Listen`/`Connect` taking descriptors so the validation policy is *derived from the address* and the insecure combination cannot be spelled, the token step in the front door with the game never seeing it, and four budget rules that each close something in the tree today (the answered pre-join `Ping`, the duplicate `Hello`, connection-keyed sessions, unbounded order rate). ADR-008 §8's completeness claim is amended in its §7 | **Design deliverable, blocks first remote deployment** | D10 (NET-4) |
 | A23 | ~~Device-removal risk row; "no session state holds a device reference" invariant recorded; recovery slice deferred~~ **Done 2026-08-19: R20** | **Risk register, now** | D13 (CPP-2) |

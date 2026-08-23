@@ -18,6 +18,9 @@
     <ClCompile Include="TaskingTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DelayedTransportTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="TransportTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

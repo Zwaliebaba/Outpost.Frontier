@@ -266,6 +266,51 @@ public:
   }
 
   /*
+   * This viewer is now watching that grid (ADR-016 §7 — N5).
+   *
+   * The other half of `MayView`, and it arrives late for a reason worth
+   * recording: `WorldRegistry::AddViewer` has existed since U2 and its header
+   * said *"U3b is what starts calling these"*, while every caller in the tree
+   * was the composition root holding its own start grid. **Nothing has ever
+   * told the game which grid a player is actually looking at**, so the hold
+   * that stops a world being torn down under somebody's camera was held on the
+   * wrong grid.
+   *
+   * Called on the Sim thread whenever the answer changes: when a session opens
+   * (on the grid the handshake settled on, resumed or otherwise) and whenever
+   * `RequestView` is accepted. **Idempotent by contract** -- the engine reports
+   * the current answer rather than a delta, and an implementation is expected
+   * to release whatever this viewer held before. That is deliberately the
+   * cheaper half of the bargain: a missed release is a world that ticks
+   * forever, and a report that carries the whole answer cannot miss one.
+   *
+   * The engine has no opinion about what holding a grid *means* -- it may mean
+   * nothing at all, which is why this defaults to doing nothing. `MayView`
+   * decides whether the view is legal and this says it happened; both are
+   * ADR-014's usual split, with the session role enforcing what game semantics
+   * decide.
+   */
+  virtual void ViewerOpened(PlayerId _viewer, std::uint16_t _grid)
+  {
+    (void)_viewer;
+    (void)_grid;
+  }
+
+  /*
+   * This viewer is watching nothing: their session has ended (ADR-016 §7 — N5).
+   *
+   * The socket, not the commander. A player inside D5's grace window still owns
+   * their fleet, their Bay and their refine jobs -- all of it keyed on the
+   * player at the universe layer -- but they have no camera, and a hold is
+   * about a camera. They take one again on the grid they resume onto, which the
+   * resume table already remembers.
+   *
+   * Not called for a handshake that never completed: there is no viewer to
+   * close, exactly as there was none to open.
+   */
+  virtual void ViewerClosed(PlayerId _viewer) { (void)_viewer; }
+
+  /*
    * Serializes what one viewer is owed at the **summary cadence** -- the slow,
    * per-viewer feed that answers questions a snapshot deliberately does not
    * (ADR-016 §6). Returns false when this viewer has nothing to say, and the

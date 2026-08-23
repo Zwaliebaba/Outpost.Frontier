@@ -4,6 +4,7 @@
 #include "IsoCamera.h"
 #include "OverlayMark.h"
 #include "RenderWorld.h"
+#include "UploadBudget.h"
 
 #include <DirectXMath.h>
 
@@ -370,6 +371,58 @@ public:
     BuildOverlayMarks(entities, {}, OverlayTuning{}, METRES_PER_PIXEL_CLOSE, marks);
     Assert::AreEqual<std::size_t>(0, marks.marks.size());
     Assert::AreEqual<std::uint32_t>(0, marks.ringCount);
+  }
+};
+
+/*
+ * The mark ceiling the upload budget is sized from (ADR-018 A20).
+ *
+ * `UploadBudget.h` reserves `OVERLAY_MARKS_PER_ENTITY` marks for every hull on
+ * the grid, and that number was counted by reading the producers rather than
+ * measured. A count read off the source is a count that goes stale the first
+ * time somebody adds a mark kind -- and it would go stale *silently*, because
+ * the symptom is not a wrong mark, it is a frame where the ring runs out and
+ * every pass drops its whole stream.
+ *
+ * So this measures it: a full grid in the worst state a hull can be in, through
+ * every producer that emits per entity, held against the number the budget
+ * reserves.
+ */
+TEST_CLASS(OverlayMarkCeilingTests)
+{
+public:
+  TEST_METHOD(AFullGridInItsWorstStateFitsTheMarksTheBudgetReservesForIt)
+  {
+    /*
+     * Every flag at once, which is the case the ceiling is for: selected, so it
+     * has a ring; frozen, so it has a stale marker; hurt in both gauges, so it
+     * has two bars; and carrying a status bit, so it shimmers.
+     */
+    OverlayTuning tuning;
+    tuning.statusMarkBits = 0xffu; // Every bit this game could ever mark on.
+
+    std::vector<SceneEntity> entities;
+    std::vector<EntityId> selected;
+    entities.reserve(MAX_DRAWN_ENTITIES);
+    selected.reserve(MAX_DRAWN_ENTITIES);
+    for (std::uint32_t index = 0; index < MAX_DRAWN_ENTITIES; ++index)
+    {
+      // Spread out, so nothing is culled for sitting on top of anything else.
+      SceneEntity entity = Ship(static_cast<std::uint16_t>(index + 1), static_cast<float>(index) * 50.0f, 0.0f, 10.0f,
+                                /*hull*/ 100, /*shield*/ 100, /*stale*/ true);
+      entity.statusBits = 0xffu;
+      entities.push_back(entity);
+      selected.push_back(entity.id);
+    }
+
+    OverlayMarkList marks;
+    BuildOverlayMarks(entities, selected, tuning, METRES_PER_PIXEL_CLOSE, marks);
+    BuildStatusMarks(entities, tuning, 0.0, marks);
+
+    Assert::IsTrue(marks.marks.size() > 0, L"the worst case produced no marks at all, so this proved nothing");
+    Assert::IsTrue(marks.marks.size() <= static_cast<std::size_t>(MAX_DRAWN_ENTITIES) * OVERLAY_MARKS_PER_ENTITY,
+                   L"a full grid emits more marks per hull than the upload budget reserves: a producer was added and "
+                   L"OVERLAY_MARKS_PER_ENTITY did not move with it");
   }
 };
 

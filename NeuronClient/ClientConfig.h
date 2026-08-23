@@ -58,6 +58,22 @@ struct ClientConfig
   /// unsupported count falls back to 1 at swapchain creation with a log line.
   std::uint32_t msaaSamples = 4;
 
+  /*
+   * The upload ring's per-frame segment, in bytes (ADR-018 A20).
+   *
+   * **Zero means the budget this client derives for itself** -- `UploadBudget.h`
+   * sized from what the renderer is built to draw, which is the answer a
+   * deployment should almost always want. The same sentence `ServerConfig`'s
+   * tick budget carries, and for the same reason: a config written before this
+   * existed says zero, and gets the right number.
+   *
+   * A non-zero value below `MIN_UPLOAD_BYTES_PER_FRAME` is raised to it and
+   * logged. That floor is what the tactical view alone costs; below it the
+   * client cannot draw a full grid at all, which is a broken game rather than a
+   * retuned one.
+   */
+  std::uint32_t uploadBytesPerFrame = 0;
+
   /// Whether the Tier-1 diagnostics strip starts visible (`debug-hud.png`).
   /// Off by default and toggled at runtime by F1 -- the setting is where the
   /// toggle *lives*, the key is merely a shortcut to it.
@@ -132,6 +148,32 @@ struct ClientConfig
   /// prints' phosphor table; the settings sheet's colour-vision palettes
   /// arrive as more names, which is why this is a string and not a bool.
   std::string uiPalette = "default";
+
+  /*
+   * The three readability rules (`settings.png` §1's ACCESSIBILITY section, N3).
+   *
+   * Flat bools beside the scale and the palette rather than a struct, because
+   * that is what the two above already are and a `UiAccessibility` holding
+   * three bools would be a type for the sake of a heading.
+   *
+   * All three default off. Each trades something away -- opacity for legibility,
+   * motion for calm, clutter for certainty -- and a player who has not asked
+   * gets the design as it was drawn.
+   */
+  bool uiHighContrast = false;
+  bool uiReduceMotion = false;
+  bool uiAlwaysShowHullBars = false;
+
+  /*
+   * Which hand holds the device, and how long a press dwells (`settings.png`
+   * §1's INPUT section, N3).
+   *
+   * `uiHandedness` is a string for `uiPalette`'s reason -- it is resolved
+   * through `ResolveHandedness`, which falls back rather than refusing -- and
+   * the dwell is seconds, the units `GestureTuning` already measures it in.
+   */
+  std::string uiHandedness = "right";
+  float longPressSeconds = 0.350f;
 
   /*
    * Which of the game's per-entity status bits are worth a mark on the plane,

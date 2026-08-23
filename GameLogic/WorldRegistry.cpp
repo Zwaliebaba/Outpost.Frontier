@@ -2,7 +2,10 @@
 
 #include "WorldRegistry.h"
 
+#include "UniverseRoute.h"
+
 #include "DurableState.h"
+#include "FixedAngle.h"
 #include "Formation.h"
 #include "ShipClass.h"
 #include "SiteEpoch.h"
@@ -13,6 +16,7 @@
 #include "Hash.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <iterator>
 #include <string>
 #include <utility>
@@ -22,6 +26,90 @@ namespace Game
 {
 namespace
 {
+
+/*
+ * --- arrival contention (ADR-018 D18) --------------------------------------
+ *
+ * How far around the arrival ring each successive crossing steps.
+ *
+ * 159 of 256 steps is 223.6 degrees, which is the golden angle read the long
+ * way round -- the stride that keeps consecutive numbers as far apart as a
+ * fixed step can. That matters here and nowhere else in this file: crossings
+ * filed in the same tick carry *consecutive* counters, so a burst arriving
+ * together is exactly the case a naive stride would place in a neat clump.
+ *
+ * 256 has no odd factors, so any odd stride visits every step before repeating
+ * and 159 is odd. A stride of 158 would have been marginally closer to the
+ * golden angle and would have used half the ring.
+ */
+inline constexpr std::uint32_t ARRIVAL_BEARING_STRIDE = 159;
+
+/*
+ * And what a second host is worth, so two of them filing the same counter in
+ * the same tick do not choose the same slot (ADR-019 §6.3).
+ *
+ * Odd, for the stride's reason, and deliberately not a factor or multiple of
+ * it: 83 is prime, so `host * 83` walks its own sequence through the ring
+ * rather than shadowing the counter's. There is one host today and this costs
+ * nothing; what it buys is that the day there are two, the fix is not a bug
+ * report about fleets landing on each other across a shard boundary.
+ */
+inline constexpr std::uint32_t ARRIVAL_HOST_STRIDE = 83;
+
+/*
+ * Where this crossing arrives, as an offset from the anchor's authored warp-in
+ * point (ADR-018 D18).
+ *
+ * **Integer angles throughout**, which is ADR-016 §2's rule and not a
+ * preference: this decides a position in the replay domain, and `std::sin` is
+ * not a promise any two compilers make identically. `FixedAngle.h`'s table is
+ * the same one the bake places warp-in points with, so an arrival slot is
+ * computed the way the point it is measured from was.
+ *
+ * The radius is the anchor's own reserved room, which the bake has written
+ * since U1 and nothing has read until now. A zero -- an anchor that reserves no
+ * room, which the shipped bake never produces but a hand-edited universe may --
+ * puts every arrival back on the authored point, which is the behaviour that
+ * was there before this existed.
+ */
+[[nodiscard]] LocalOffsetCm ArrivalSpreadCm(const TransferId& _id, const Anchor& _anchor) noexcept
+{
+  if (_anchor.arrivalSpreadRadiusCm <= 0)
+  {
+    return LocalOffsetCm{};
+  }
+
+  /*
+   * Clamped to the room the grid actually has, per component.
+   *
+   * The bake leaves plenty -- the widest standoff is 5 km and a site's reach is
+   * asserted to fit -- so this never binds on shipped content. It is here for
+   * the file `UniverseParse` will accept, which may set the radius as high as
+   * the grid's own half-extent: a ring that size would place arrivals outside
+   * the world they are arriving in. Shrinking the ring keeps every slot
+   * distinct, which clamping the finished *point* would not: two crossings
+   * pushed against the same edge would land on it together, which is the
+   * stacking this whole function exists to stop.
+   */
+  const std::int64_t bound = GRID_HALF_EXTENT_METRES * 100;
+  const std::int64_t furthest = std::max(std::abs(static_cast<std::int64_t>(_anchor.warpInPoint.x)),
+                                         std::abs(static_cast<std::int64_t>(_anchor.warpInPoint.y)));
+  const std::int64_t radius =
+    std::min(static_cast<std::int64_t>(_anchor.arrivalSpreadRadiusCm), std::max<std::int64_t>(0, bound - furthest));
+  if (radius <= 0)
+  {
+    return LocalOffsetCm{};
+  }
+
+  /*
+   * The multiply may wrap, and the answer is still exact: 256 divides 2^32, so
+   * reducing mod 2^32 first -- which is what unsigned overflow does -- cannot
+   * change the result mod 256. A shard that has filed four billion crossings
+   * gets the same ring it would have got with unbounded arithmetic.
+   */
+  const std::uint32_t step = (_id.counter * ARRIVAL_BEARING_STRIDE + _id.host * ARRIVAL_HOST_STRIDE) % ANGLE_STEPS;
+  return PolarOffsetCm(static_cast<std::int32_t>(radius), step);
+}
 
 /*
  * A world's seed, from (session seed, anchor id) -- ADR-016 §4.
@@ -395,6 +483,33 @@ OrderVerdict WorldRegistry::SubmitStationCommand(Neuron::PlayerId _owner, const 
   /// view borrows a span and something has to own it.
   std::vector<RosterEntry> dockedScratch;
 
+  /// And their ships *flying* at the same anchor (I2, ADR-017 §6's 2026-08-23
+  /// amendment) -- the other half of what an `AssignWing` may name.
+  std::vector<RosterEntry> onGridScratch;
+
+  /*
+   * Filled for every verb that names ships, and read by only one of them.
+   *
+   * **Gated on `NamesShips` and deliberately not on `RequiresDock`.** The first
+   * is the family fork this function and the validator both already make -- a
+   * refine command is about a Bay and could not look at a hull if it wanted to,
+   * so walking a grid for one is work with no possible reader. The second is
+   * the *rule*, and it belongs in `Station.h` where both machines read it:
+   * deciding here which ship-naming verbs may see the grid would put half of
+   * bounce parity on the server only. The view states what this host can see;
+   * the validator says who is entitled to it.
+   *
+   * A station's anchor is also a grid's, so this usually fills *beside* the
+   * roster rather than instead of it: two sets of this commander's ships at one
+   * place, and the validator picks the one the verb is entitled to.
+   */
+  if (NamesShips(_command.verb) && Peek(_command.station) != nullptr)
+  {
+    view.grid = _command.station;
+    onGridScratch = OnGridFor(_owner, _command.station);
+    view.onGrid = onGridScratch;
+  }
+
   if (m_universe != nullptr)
   {
     const Anchor* anchor = m_universe->FindAnchor(_command.station);
@@ -497,32 +612,63 @@ OrderVerdict WorldRegistry::SubmitStationCommand(Neuron::PlayerId _owner, const 
     return ApplyRefineCommand(_owner, _command);
   }
 
-  StationRoster& roster = RosterFor(_command.station);
-
   if (_command.verb == StationVerb::AssignWing)
   {
     /*
      * Nothing crosses, so nothing is filed. A wing is a number a ship carries
      * (ADR-017 §6) -- there is no wing table to create, no entity to name, and
-     * disbanding a wing is reassigning its last member. Applied on the spot for
-     * the same reason a dock is not: the bus exists to keep one grid from
-     * reading another mid-tick, and this reads no grid at all.
+     * disbanding a wing is reassigning its last member.
+     *
+     * **It writes a grid as well as a roster, since I2**, which is the one
+     * sentence the old comment here can no longer make: "this reads no grid at
+     * all" was true while the verb was docked-scope. What replaces it is a
+     * narrower and stronger claim -- *nothing in `Tick` reads a wing*. It is
+     * carried, not simulated (see `World::SetWing`), so writing one between two
+     * ticks cannot change what either computes, and the bus it still does not
+     * need exists to stop one grid reading *another* mid-tick.
+     *
+     * Roster first, then the grid, and never both: a ship is docked or flying
+     * and the two lists are disjoint by construction. Searching the roster
+     * first rather than the grid is arbitrary and cheap -- a roster is bounded
+     * by a hangar and a grid by D4.
+     *
+     * `FindRoster` rather than `RosterFor`, because an in-space assignment may
+     * name an anchor with no station on it and minting an empty roster for it
+     * would add durable state to a place that has none.
      */
+    StationRoster* roster = FindRoster(_command.station);
+    World* grid = Borrow(_command.station);
+
     for (std::uint16_t index = 0; index < _command.shipCount; ++index)
     {
       const ShipId shipId = _command.shipIds[index];
-      for (RosterEntry& row : roster.docked)
+      bool written = false;
+
+      if (roster != nullptr)
       {
-        if (row.shipId == shipId)
+        for (RosterEntry& row : roster->docked)
         {
-          row.wing = _command.wing;
-          break;
+          if (row.shipId == shipId)
+          {
+            row.wing = _command.wing;
+            written = true;
+            break;
+          }
         }
+      }
+
+      // Validation already established every named ship is in one of the two
+      // places the view carried, so a miss here is the grid's by elimination.
+      if (!written && grid != nullptr)
+      {
+        (void)grid->SetWing(shipId, _command.wing);
       }
     }
     m_events.Emit(m_shardTick, EventKind::WingAssigned, _command.station, _command.shipCount);
     return verdict;
   }
+
+  StationRoster& roster = RosterFor(_command.station);
 
   /*
    * The two transfer verbs, applied on the spot for `AssignWing`'s reason
@@ -626,6 +772,13 @@ WorldRegistry::StationRoster& WorldRegistry::RosterFor(AnchorId _anchor)
   StationRoster created;
   created.anchor = _anchor;
   return *m_rosters.insert(at, std::move(created));
+}
+
+WorldRegistry::StationRoster* WorldRegistry::FindRoster(AnchorId _anchor) noexcept
+{
+  const auto at = std::lower_bound(m_rosters.begin(), m_rosters.end(), _anchor,
+                                   [](const StationRoster& _entry, AnchorId _id) { return _entry.anchor < _id; });
+  return at != m_rosters.end() && at->anchor == _anchor ? &*at : nullptr;
 }
 
 SiteLedger& WorldRegistry::LedgerFor(AnchorId _anchor)
@@ -1154,7 +1307,7 @@ void WorldRegistry::ApplyDueTransfers()
     }
     else if (record.what.kind == TransferKind::Transit)
     {
-      ApplyTransit(record.what);
+      ApplyTransit(record.what, record.id);
     }
     else if (record.what.kind == TransferKind::MineYield)
     {
@@ -1167,61 +1320,16 @@ void WorldRegistry::ApplyDueTransfers()
 std::vector<AnchorId> WorldRegistry::ReachableFrom(AnchorId _anchor) const
 {
   /*
-   * Every other anchor in the same system (ADR-016 §5).
+   * Straight through to the pure function, and that indirection is the point
+   * (U4's client half).
    *
-   * In-system only, and that is U3a's whole scope: leaving a system is what
-   * gates are for, and routing through them is U4's. Itself excluded, because
-   * "warp to where you already are" is not a refusal worth a reason -- it is a
-   * destination that should not be offered.
+   * This *was* the implementation. The client needed the same answer to
+   * pre-check a `Warp` at all, and two implementations of one rule are exactly
+   * what ADR-014 §3's parity claim forbids -- so it moved to `UniverseRoute`
+   * beside the route solver, which is where a pure question about the bake
+   * belongs, and both halves now call it.
    */
-  std::vector<AnchorId> reachable;
-  if (m_universe == nullptr)
-  {
-    return reachable;
-  }
-  const Anchor* here = m_universe->FindAnchor(_anchor);
-  if (here == nullptr)
-  {
-    return reachable;
-  }
-  const SolarSystem* system = m_universe->FindSystem(here->system);
-  if (system == nullptr)
-  {
-    return reachable;
-  }
-  reachable.reserve(system->anchors.size() + 1);
-  for (const Anchor& anchor : system->anchors)
-  {
-    if (anchor.id != _anchor)
-    {
-      reachable.push_back(anchor.id);
-    }
-  }
-
-  /*
-   * And the far side of the gate, if this grid is one (U4).
-   *
-   * **One id, appended to the same list**, so that `UnknownAnchor` keeps
-   * meaning exactly "not from here" and the validator needs no second question
-   * to decide whether a destination exists. Which of these is a *jump* is said
-   * separately, by `SetJump`, because that changes how the order is judged and
-   * not whether the place can be named.
-   *
-   * One hop and no further: a gate leads to the gate that leads back, and the
-   * anchors around *that* system are reachable from there rather than from
-   * here. Routing across several systems is the client feeding one order per
-   * completed hop (ADR-016 §8) -- there is no server-side planner, and this
-   * list is deliberately not the beginning of one.
-   */
-  if (here->kind == AnchorKind::Gate)
-  {
-    const AnchorId paired = m_universe->PairedGateAnchor(_anchor);
-    if (paired != INVALID_ID)
-    {
-      reachable.push_back(paired);
-    }
-  }
-  return reachable;
+  return m_universe != nullptr ? ReachableAnchors(*m_universe, _anchor) : std::vector<AnchorId>{};
 }
 
 std::uint32_t WorldRegistry::TransitTicks(AnchorId _from, const TransferRequest& _request) const
@@ -1368,7 +1476,7 @@ void WorldRegistry::ApplyMineYield(const TransferRequest& _request)
   }
 }
 
-void WorldRegistry::ApplyTransit(const TransferRequest& _request)
+void WorldRegistry::ApplyTransit(const TransferRequest& _request, const TransferId& _id)
 {
   const Anchor* anchor = m_universe == nullptr ? nullptr : m_universe->FindAnchor(_request.anchor);
   if (anchor == nullptr)
@@ -1384,8 +1492,26 @@ void WorldRegistry::ApplyTransit(const TransferRequest& _request)
     return;
   }
 
-  const DirectX::XMFLOAT2 arrival{Neuron::CentimetresToMetres(static_cast<std::int32_t>(anchor->warpInPoint.x)),
-                                  Neuron::CentimetresToMetres(static_cast<std::int32_t>(anchor->warpInPoint.y))};
+  /*
+   * The authored point, plus this crossing's own place on the arrival ring
+   * (ADR-018 D18).
+   *
+   * The anchor keeps **one** authored warp-in point -- D18 is explicit that
+   * contention must not turn into a second authored field -- so what spreads
+   * simultaneous arrivals is an offset computed from the record that is
+   * arriving. Until this landed every crossing was placed on the raw point, and
+   * two fleets warping to one hub on one tick were laid on top of each other
+   * and pushed apart by ADR-015 separation afterwards: the stacking D18 exists
+   * to prevent, resolved by the mechanism that is supposed to be the backstop.
+   *
+   * **The facing does not move with the point.** ADR-016 §3 has the formation
+   * solve centring on the warp-in point *with the authored facing*, and that
+   * half is untouched: a fleet arriving in the third slot rather than the first
+   * still faces the way the content says arrivals face.
+   */
+  const LocalOffsetCm spread = ArrivalSpreadCm(_id, *anchor);
+  const DirectX::XMFLOAT2 arrival{Neuron::CentimetresToMetres(anchor->warpInPoint.x + spread.x),
+                                  Neuron::CentimetresToMetres(anchor->warpInPoint.y + spread.y)};
   const float facing = Neuron::HeadingToRadians(anchor->warpInFacingTurns16);
 
   struct MemberLookup
@@ -2464,6 +2590,60 @@ std::vector<RosterEntry> WorldRegistry::DockedFor(Neuron::PlayerId _owner, Ancho
     {
       mine.push_back(docked);
     }
+  }
+  return mine;
+}
+
+std::vector<RosterEntry> WorldRegistry::OnGridFor(Neuron::PlayerId _owner, AnchorId _anchor) const
+{
+  std::vector<RosterEntry> mine;
+  const World* world = Peek(_anchor);
+  if (_owner == Neuron::INVALID_PLAYER_ID || world == nullptr)
+  {
+    return mine;
+  }
+
+  /*
+   * The ownership filter is the registry's because the world cannot make it
+   * (ADR-018 D2): a grid knows only its own ships and must never learn who owns
+   * one. That split is the reason this function is here rather than on `World`,
+   * and it is the same reason `DockedFor` exists a few lines up.
+   */
+  const std::span<const ShipId> ids = world->Ids();
+  const std::span<const std::uint8_t> classes = world->Classes();
+  const std::span<const WingId> wings = world->Wings();
+  const std::span<const ShipCargo> cargo = world->Cargo();
+
+  for (std::size_t slot = 0; slot < ids.size(); ++slot)
+  {
+    if (OwnerOf(ids[slot]) != _owner)
+    {
+      continue;
+    }
+
+    RosterEntry row;
+    row.shipId = ids[slot];
+    row.owner = _owner;
+    if (slot < classes.size())
+    {
+      row.hullClass = static_cast<HullClass>(classes[slot]);
+    }
+    if (slot < wings.size())
+    {
+      row.wing = wings[slot];
+    }
+    // The hold too, even though only `AssignWing` can reach these rows today
+    // and it reads none of it. A row filled where the answer is known is a row
+    // the next verb can be judged against; one left at zero is a lie waiting
+    // for a caller.
+    if (slot < cargo.size())
+    {
+      for (std::uint8_t ore = 0; ore < ORE_COUNT; ++ore)
+      {
+        row.oreUnits[ore] = cargo[slot].oreUnits[ore];
+      }
+    }
+    mine.push_back(row);
   }
   return mine;
 }

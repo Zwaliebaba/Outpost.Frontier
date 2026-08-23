@@ -478,7 +478,9 @@ bool AudioDevice::Create(const AudioSettings& _settings, const std::string& _aud
       // Mono is a content rule, not a preference: X3DAudio positions channels
       // rather than sources, so a stereo "3D" cue smears instead of sitting
       // somewhere. Refused here, where the file name is still in hand.
-      NEURON_LOG_ERROR("audio: '%s' is %u-channel but '%s' is spatialised; mono is required (ADR-011 §5)", path.c_str(),
+      NEURON_LOG_ERROR("audio: '%s' is %u-channel but '%s' is spatialised; mono is required (ADR-011 \xC2\xA7"
+                       "5)",
+                       path.c_str(),
                        static_cast<unsigned>(impl.clips[index].channels), sounds[index].id.c_str());
       impl.clips[index] = WavClip{};
       continue;

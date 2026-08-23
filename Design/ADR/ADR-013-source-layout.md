@@ -45,6 +45,29 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
    `D3DCompileFromFile` under §6's "assets are the client's own business". They are built now.
    §6 still holds for meshes, universe files and sound banks; shaders left the category.
 
+1b. **What each `pch.h` reaches is a boundary with teeth, and U4 found them** (2026-08-23).
+   `NeuronCore`, `NeuronClient`, `NeuronServer` and **`Outpost`** all chain their `pch.h` to a
+   header that ends in `windows.h`; `GameLogic` and both test projects have a deliberately bare
+   one — `NeuronClientTests/pch.h` says so in as many words, because those tests *"cover
+   presentation maths and configuration defaults, which need no window, no device and no COM"*.
+
+   The consequence nobody had written down: the Windows SDK's legacy macros are in scope for
+   the four that chain, and several of them **expand to nothing**. `minwindef.h` has `#define
+   far` and `#define near`, so `const AnchorId far = ...;` compiles to `const AnchorId = ...;`
+   — MSVC C2513, *"no variable declared before '='"*, pointing at a line that looks perfectly
+   correct. `pascal`, `cdecl`, `IN`, `OUT` and `OPTIONAL` do the same, and `small` and `hyper`
+   are types rather than nothing.
+
+   So `far` and `near` are usable identifiers in `GameLogic` and in the test projects — the
+   tree has a dozen of each and they compile — and are **unusable** in the four that reach
+   Win32. That is not a rule to remember so much as a trap to recognise: the symptom is a
+   syntax error on a declaration with nothing wrong with it, and the fix is to rename the
+   variable. `farSide` is what `ReplicatedWorldView` uses.
+
+   It is also the one class of defect a Linux/clang harness structurally cannot see, since it
+   has no `minwindef.h` — which is worth knowing about a tree whose device-free half is
+   verified that way.
+
 2. **Grouping is `.vcxproj.filters` only** — virtual folders, maintained per project, and
    allowed to nest freely (`Wire`, `Transport`, `Gpu\Passes`). Filters cost nothing at build
    time and are the directive's intended mechanism. The template's extension-driven
@@ -57,12 +80,24 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
    made unique by naming the type well, not by decorating the file: `GpuDevice`, `HudRoster`
    and `AudioSystem` are genuine type names that happen to disambiguate.
 
+   > **Audited against the tree on 2026-08-23, and it was twelve entries short** — one in
+   > NeuronCore and eleven in NeuronClient, spanning the input/focus/text-edit trio, the two
+   > station files, the surface stack and scroll state, and the two client-side order chains.
+   > *(They are named in the table below and deliberately nowhere else in this note: the CI
+   > check that now backs this registry looks for a backticked file name anywhere in the
+   > document, so a name repeated in prose would satisfy it after somebody deleted the row.)*
+   > None was a uniqueness problem — CI's repo-wide name check has been
+   > green throughout — which is exactly why nothing caught it: **the guard enforces the rule
+   > and the registry is the record, and only the rule was mechanical.** A registry that drifts
+   > silently is a registry a reader cannot trust to be complete, so the audit is now a scripted
+   > pass rather than a reading.
+
    | Project | Naming | Files |
    |---|---|---|
-   | NeuronCore | plain area names | `NeuronCore.h` `Debug.h` `Log.h` `Clock.h` `Hash.h` `Random.h` `OwnerThread.h` `OwnerThread.cpp` `Arena.h` `RingBuffer.h` `TaskPool.h` `Telemetry.h` `ByteReader.h` `ByteWriter.h` `Json.h` `JsonWriter.h` `EntityRecord.h` `OrderIntent.h` `Transport.h` `QuicTransport.h` `Wire.h` `FileSys.h` `FileSys.cpp` `NeuronHelper.h` |
+   | NeuronCore | plain area names | `NeuronCore.h` `Debug.h` `Log.h` `Clock.h` `Hash.h` `Random.h` `OwnerThread.h` `OwnerThread.cpp` `Arena.h` `RingBuffer.h` `TaskPool.h` `Telemetry.h` `ByteReader.h` `ByteWriter.h` `Json.h` `JsonWriter.h` `EntityRecord.h` `OrderIntent.h` `Transport.h` `QuicTransport.h` `DelayedTransport.h` `Wire.h` `StationIntent.h` `FileSys.h` `FileSys.cpp` `NeuronHelper.h` |
    | GameLogic | type + family names | `Ids.h` `ShipClass.h` `World.h` `WorldOrders.cpp` `ReplicatedView.h` `Orders.h` `Validate.h` `Formation.h` `Eta.h` `WorldHash.h` `Snapshot.h` `OrderMessages.h` `SchemaHash.h` `Universe.h` `UniverseParse.h` `UniverseGen.h` `UniverseRoute.h` `WorldRegistry.h` `Transfer.h` `Station.h` `StationMessages.h` `SummaryMessages.h` `FleetSummary.h` `EventRecord.h` `EconomyDef.h` `EconomyParse.h` `SiteEpoch.h` `SiteField.h` `FixedAngle.h` `WorldMining.cpp` `EconomyMessages.h` `DurableState.h` `Refining.h` `Relevance.h` |
    | NeuronServer | type names | `NeuronServer.h` `Simulation.h` `ServerHost.h` `ServerConfig.h` `SnapshotSender.h`/`.cpp` (**took its reserved name 2026-08-20 with ADR-018 A13** — the per-client path [ADR-022](ADR-022-interest-and-delta.md) §1 requires; `ServerHost` no longer serialises once and fans the same bytes out) — plus one **reserved name, not yet a file**: `Session.h` (per-connection state, still `SessionInfo` in `ServerHost.h`, which now owns its client's sender) — and `DurableStore.h`/`.cpp` (E4a: the journal, the snapshot and their recovery, in units of opaque records) and `SessionResume.h`/`.cpp` (U3c-b: the lapsed set and D5's grace window). *Worth saying against the reserved `Session.h` above, because the two are easy to conflate:* `SessionResume` is not per-connection state and is not that file arriving early. It holds the sessions whose connection has **gone** -- a player id, a token, a grid and a deadline -- and it is separate precisely because it is decidable without a socket, which is what lets the grace window be tested rather than only run |
-   | NeuronClient | type names (`Gpu`, `Hud` read as domain words, R4) | `NeuronClient.h` `ClientApp.h` `ClientConfig.h` `WorldView.h` `Window.h` `ClearColour.h` `ClientConnection.h` `DeltaReceiver.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuCom.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `GpuMeshes.h` `GpuLamps.h` `GpuNebula.h` `GpuPasses.h` `GpuPipelines.h` `DirectXHelper.h` `ObjMesh.h` `SignalLamp.h` `NebulaField.h` `GlyphAtlas.h` `IsoCamera.h` `Picking.h` `Selection.h` `OverlayMark.h` `InputMap.h` `UiDrawList.h` `UiLayout.h` `ToastStack.h` `HudRoster.h` `HudPalette.h` `DebugStrip.h` `GhostLane.h` `CommandRow.h` `OrderPuck.h` `OrderGhost.h` `AudioDevice.h` `AudioListener.h` `SoundBank.h` `VoicePool.h` `WavClip.h` — plus vendored `d3dx12.h`, exempt by name (R4) |
+   | NeuronClient | type names (`Gpu`, `Hud` read as domain words, R4) | `NeuronClient.h` `ClientApp.h` `ClientConfig.h` `WorldView.h` `Window.h` `ClearColour.h` `ClientConnection.h` `DeltaReceiver.h` `SnapshotBuffer.h` `RenderWorld.h` `GpuCom.h` `GpuDevice.h` `GpuSwapChain.h` `GpuUploadRing.h` `UploadBudget.h` `GpuMeshes.h` `GpuLamps.h` `GpuNebula.h` `GpuPasses.h` `GpuPipelines.h` `DirectXHelper.h` `ObjMesh.h` `SignalLamp.h` `NebulaField.h` `GlyphAtlas.h` `IsoCamera.h` `Picking.h` `Selection.h` `RosterSelection.h` `OverlayMark.h` `InputMap.h` `Gesture.h` `InputRouter.h` `TextEditState.h` `UiFocus.h` `UiDrawList.h` `UiLayout.h` `UiScrollState.h` `SurfaceStack.h` `ToastStack.h` `HudRoster.h` `HudPalette.h` `ContrastAudit.h` `CountedChip.h` `SettingsScreen.h` `MapView.h` `MapScreen.h` `RoutePlan.h` `StationView.h` `StationScreen.h` `SystemView.h` `SystemScreen.h` `DebugStrip.h` `GhostLane.h` `CommandRow.h` `OrderPuck.h` `OrderGhost.h` `ApproachChain.h` `AutoFollow.h` `EntityTransits.h` `AudioDevice.h` `AudioListener.h` `SoundBank.h` `VoicePool.h` `WavClip.h` — plus vendored `d3dx12.h`, exempt by name (R4) |
    | Outpost | — | `Main.cpp` `AppConfig.h` `AppConfig.cpp` `ConfigLoad.h` `ConfigLoad.cpp` `UniverseLoad.h` `UniverseLoad.cpp` `ReplicatedWorldView.h` `ReplicatedWorldView.cpp` `ShaderTable.h` `ShaderTable.cpp` `SelfTest.h` `SelfTest.cpp` `TickSoak.h` `TickSoak.cpp` `UniverseBake.h` `UniverseBake.cpp` `EconomyLoad.h` `EconomyLoad.cpp` |
    | Outpost/Shaders | stage suffix on the pass name | `OpaqueVS.hlsl` `OpaquePS.hlsl` `NebulaVS.hlsl` `NebulaPS.hlsl` `OverlayVS.hlsl` `OverlayPS.hlsl` `UiVS.hlsl` `UiPS.hlsl` — plus `Opaque.hlsli` `Nebula.hlsli` `Overlay.hlsli` `Ui.hlsli` `FrameConstants.hlsli` `PassConstants.hlsli` for what stages share |
    | Outpost/CompiledShaders | generated; one per `.hlsl`, same stem | `OpaqueVS.h` `OpaquePS.h` `NebulaVS.h` `NebulaPS.h` `OverlayVS.h` `OverlayPS.h` `UiVS.h` `UiPS.h`, each defining `g_p<stem>` |

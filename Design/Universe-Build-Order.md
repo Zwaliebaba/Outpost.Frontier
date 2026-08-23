@@ -7,17 +7,27 @@ across all three phases and the work that belongs to none of them. The paragraph
 state of this phase, not a claim about what happens next.
 
 **Status:** Session output 2026-08-19 · **U1, U2, U3a, U3b's sim and wire halves, U4's sim
-half, U5's pure half, U3c and U3d-a/U3d-b built** (U3c 2026-08-21; U3d-a and U3d-b 2026-08-22).
+half, U5's pure half and U5a, U6a, U3c and U3d-a/U3d-b built** (U3c 2026-08-21; U3d-a and U3d-b 2026-08-22).
 **U3d — interest and delta — was added 2026-08-22**: ADR-018 A14 scheduled it for "after U3c"
 and no build order had absorbed it, so it is specified below. **Its first two sub-slices are
-built and R19 is closed**; what is left of it is U3d-c's counted chip, which is screen work and
-sits behind the input model with the rest. What is left after it is **screen work**:
-U3b's client half, U4's route feeder and icons, U5's map itself and U6 need a GPU and a person —
+built and R19 is closed**; ~~what is left of it is U3d-c's counted chip, which is screen work and
+sits behind the input model with the rest~~ **and U3d-c landed 2026-08-23, so U3d is built** —
+the counted chip's *visual checkpoint* is what is left of it, and that is an R1 item rather than
+a slice. What is left after it is **screen work**:
+~~U3b's client half, U4's route feeder and icons, U5's map itself and U6~~ **U5a landed
+2026-08-23** — the strategic map's seam, camera, cull, layout and hit tests, all device-free and
+verified over the real 2,500-system bake, with the surface drawn and navigable. What is left of
+U5 is **U5b**: the visual checkpoint against the print and the frame-budget measurement, which
+need a GPU. **U6a landed the same day** — the system view's seam, its ring layout and its hit
+tests, device-free and verified against a real bake — so what is left of U6 is **U6b**: the
+draw, the plate check, and a warp issued from the surface. U3b's client half, U4's route feeder
+and icons, and U6b need a GPU and a person —
 ~~with no exceptions left~~ **and, as of 2026-08-22, behind the input model the plan of record
 establishes**, since a screen built against the mouse adaptation would be retrofitted for touch
 afterwards. **U5 also grew a fifth overlay it does not yet mention** — the RESOURCES site layer,
 drawn 2026-08-22, tracked as N7 in the plan. **D1, U6's design gate, was drawn on 2026-08-21** — source in,
-plate and four rulings owed. U3c was the exception and it is done — it split into **U3c-a**
+plate owed upstream and ~~four rulings owed~~ **all four answered 2026-08-23 (ADR-016 §9b), so
+U6 has no design gate left**. U3c was the exception and it is done — it split into **U3c-a**
 (ownership in the simulation) and **U3c-b** (the second commander on the wire), because a ship
 had no owner and minting a second id against a registry where both commanders owned everything
 would have passed the privacy accept for the wrong reason. **🏁 Its accept is met (run 188):
@@ -114,8 +124,10 @@ the round-trip, and fixed by giving `JsonWriter` a `const char*` overload), and 
 overflow squaring universe-plane deltas — 1.2e16² does not fit — which made "nearest" mean
 "furthest" **and was then reintroduced in the test written to check the property it broke**.
 `DistanceSquared` now takes an explicit shift and the scales are named constants.
-**Still owed:** `Ids.h`'s scale comment is corrected, but the deterministic per-order arrival
-offset (D18) has only the anchor fields reserved for it — the rule itself is U3a's.
+~~**Still owed:** `Ids.h`'s scale comment is corrected, but the deterministic per-order arrival
+offset (D18) has only the anchor fields reserved for it — the rule itself is U3a's.~~ **The rule
+was not U3a's, because U3a's own note then said it owed nothing** — see U3a below. The fields
+this slice reserved were read for the first time on 2026-08-22 by **N4**.
 
 ### U2 — Anchors and the world registry
 **Gate (ADR-018): both cleared — A1 is delivered
@@ -168,12 +180,16 @@ One thing the id-space arithmetic caught before it shipped: giving every anchor 
 put the highest authored id at 1.19M, far past the u16 window D6 keeps. Blocks now go only to
 anchors that author something (3,356 of 18,618) and are 8 wide, so the highest authored id is
 26,848 against a dynamic base of 32,768.
-**Still owed:** the viewer hold exists and is exercised by the tests, but **nothing calls
-`AddViewer`/`RemoveViewer` for a player's view** — and the "until U3b" this line used to carry
-has expired: U3b's wire half landed, and the only callers are still the composition root's own
-`m_startAnchor` and the scenario lever's second grid. Presence gating has hidden it so far,
-because a grid a player may watch is one their ships are standing on and therefore one somebody
-already holds; the hold starts mattering the moment a view outlives the ships that justified it.
+~~**Still owed:** the viewer hold exists and is exercised by the tests, but **nothing calls
+`AddViewer`/`RemoveViewer` for a player's view**~~ — **closed 2026-08-22 by N5**, two slices
+after the "until U3b" this line used to carry expired. The seam is
+`Simulation::ViewerOpened`/`ViewerClosed`, called when a session opens on a grid, when a view
+switch is accepted, and when the socket goes; the composition root keeps the viewer-to-grid map
+and this registry keeps the count, which is ADR-022 §1's split applied to a hold. Presence
+gating had hidden it, because a grid a player may watch is one their ships are standing on and
+therefore one somebody already holds — and what it did not hide is the grid with no ships on it,
+where the sweep tore the world down and `RankRelevance` rebuilt it on the next tick. See
+[ADR-016 §7](ADR/ADR-016-procedural-universe-and-warp.md)'s note for what that cost a scout.
 `HostForAnchor` returning 0 and `TransferId` having no bus behind it were both closed by T1.
 
 ### U3a — In-system warp (sim)
@@ -233,9 +249,19 @@ and there is one host, which is exactly when a timing table gets tuned under a f
 anybody noticing. A test asks the nearest pair of anchors in a system, which is the case that
 would breach it.
 
-**Still owed by U3a:** nothing. `etaSeconds` during transit landed with U3b's summaries
+~~**Still owed by U3a:** nothing.~~ `etaSeconds` during transit landed with U3b's summaries
 below, which is where it belongs: a fleet mid-crossing is in no world, so no grid's order
 records can carry it.
+
+**One thing was owed and this line is why nobody found it: D18's arrival offset.** U1 wrote
+`arrivalSpreadRadiusCm` into every anchor and said *"the offset rule is U3a's"*; this line then
+said U3a owed nothing. Two slices each believed the other had it, and the field was baked,
+parsed, hashed and read by nothing for three days while `ApplyTransit` placed every crossing on
+the raw `warpInPoint` — so two fleets warping to one hub on one tick landed on top of each other
+and were pushed apart by ADR-015 separation afterwards. **Closed 2026-08-22 as N4**; the rule and
+its numbers are with [ADR-018 D18](ADR/ADR-018-scaling-baseline.md). Worth reading as a pattern
+rather than as one bug: *"still owed: nothing"* is a claim about a slice's own list, and the item
+that gets lost is always the one another slice put on it.
 
 ### U3b — Warp on the wire and on screen
 Per-grid snapshots (grid identity in the header — the smear guard), the view request,
@@ -302,7 +328,109 @@ half a naive implementation gets wrong by switching first and validating after. 
 is its own reason rather than a reused one, because the refusal is a sentence the player
 reads and `NotAtStation` would name a different problem with a different action.
 
-**Still owed by U3b:** A15's RTT-parameterised acceptance and A16's presence edges.
+~~**Still owed by U3b:** A15's RTT-parameterised acceptance and A16's presence edges.~~
+**A16 built 2026-08-23; A15 stands.**
+
+**Built (U3b's client half, 2026-08-23).** The map shows where the player's ships are, and a
+system with ships in it can be watched from it.
+
+Four things are worth reading rather than inferring from the diff.
+
+**Most of this slice turned out to be already built, which is the third time in a row.** The
+build order says U3b's client half *"needs a GPU and a person"*; auto-follow, the settle, the
+refusal path and the location blocks' IN WARP state were all in the tree and device-free, and
+what was actually missing was the markers, VIEW and one presence rule. That line has now been
+wrong for U5a, for U4's client half and for this — the device-free share of a screen slice is
+consistently larger than the plan assumes, and it is worth stopping saying otherwise.
+
+**Markers are counts at places, and the fold is the game's.** A summary row is an *anchor* and
+the map draws *systems*, so `BuildMapMarkers` is where one becomes the other — a client that
+could do it would need the anchor table, and a client with the anchor table has the universe.
+Two counts rather than one: ships that are *there* (standing or docked, which are one number
+because both mean "there") and ships *crossing to* it, which draw as an arrival with the
+game's own ETA word. Adding them together would put a fleet in a system it has not reached, on
+the one screen a player uses to decide where things are.
+
+**VIEW is gated on presence and not on routing**, which is a distinction the panel has to make
+because routing a fleet to a system you have nothing in is the *ordinary* use of this screen.
+A system the player is only arriving at carries no anchor at all — `MayView` gates on presence
+and the far end of a warp that has not landed is a request the authority is right to refuse,
+which is the same reason auto-follow follows on arrival rather than on departure.
+
+**A16's second edge was a gap in a function that already existed, and that is why it was
+invisible.** `FollowTarget` answers `NO_FOLLOW_TARGET` for two situations that look identical
+from outside and are opposite to a player: having ships where you stand (a reason to stay) and
+having nothing here and nothing to go to because everything you own is mid-crossing (D16's
+*"every fleet in transit → the map is the view"*). `EveryFleetIsCrossing` is that second
+question asked separately. Its own edge case is the one a mutation test found: a player
+watching the grid a fleet is *arriving at* has every block crossing and is doing the most
+reasonable thing on the screen, so the here-guard is load-bearing and now has a test that
+proves it. **D16's first edge — presence lost under a pinned camera — is not built**, and it
+is not forgotten: camera pinning is U6's focus polish and does not exist, so there is no
+pinned state to test.
+
+~~**Still owed by U3b:** A15's RTT-parameterised acceptance, which needs a transport shim and a
+stopwatch on a real client~~ **the shim landed 2026-08-23**, and D16's pinned-camera edge behind U6.
+
+**Built (A15's buildable half, 2026-08-23).** `NeuronCore/DelayedTransport.h/.cpp` is the
+latency hook `Transport.h` had none of, and `ClientApp::ViewSwitchBudgetSeconds` is the
+acceptance stated as a function instead of as a sentence.
+
+**The old acceptance was not conservative, it was conditional.** *"Roster click switches view
+to smooth motion in under half a second"* is true at loopback RTT and is an unstated assumption
+about the network everywhere else: a switch is a request, an answer and the settle over the
+interpolation refill, so its floor is the round trip. At 200 ms of settle a 40 ms link has
+240 ms to beat and a 300 ms link has 500 — the flat number was a target *plus* a guess, and
+`ViewSwitchBudgetSeconds(roundTripMs)` is the two separated so a measurement and a document
+cannot quote different numbers.
+
+**A decorator, so the shipping transport never learns latency injection exists.** `QuicTransport`
+is wrapped rather than modified: no branch in the real send path, and no configuration key that
+could ship enabled — the hook is `ClientConnection::SetInjectedOneWayMs`, set in code by a
+harness and never read from a file. At zero no shim is constructed at all, so the ordinary path
+is not *equivalent to* the unshimmed one, it **is** it.
+
+**The delay lands on delivery rather than on send**, which is truer as well as simpler: `Send`
+returning "accepted" is a statement about the local socket, and deferring it would make that
+statement a guess about the future. Wrap both ends of a loopback pair and the two directions
+are the two halves of a real round trip, which is why the shim reports `2 x oneWayMs`.
+
+**Constant delay and never jitter**, stated because it is a limit rather than an oversight:
+held events are released in arrival order, which is only FIFO-safe while every event waits the
+same time. A jittered shim would reorder a channel the transport guarantees is ordered.
+Reordering and loss are a different experiment with a different acceptance.
+
+**Still owed by A15:** the timed observation itself — a stopwatch on a real client at a chosen
+RTT — which needs a person and a running game, and is an R1 item rather than a slice.
+
+> **Both examined 2026-08-23, and neither is buildable here — for different reasons, which is
+> why they should stop being one line.**
+>
+> **Superseded the same day: both were built.** A16 landed with U3b's client half and A15's
+> shim with A15 itself, which is worth noting rather than quietly deleting — the note below
+> concluded *"neither is buildable here"* about two things that were buildable within hours.
+> What it got right is the split: they were one line and are two problems. What it got wrong is
+> the same misjudgement the last three slices made, that a screen-adjacent item needs a GPU and
+> a person. It is kept for the reasoning; read its conclusions as retired.
+>
+> ~~**A16's presence edges have no destination.**~~ **Unblocked 2026-08-23 by U5a.** Both rules
+> route to the map — *"presence lost under a pinned camera → the map"*, *"every fleet in
+> transit → the map"* — and `SurfaceId::Map` was an enumerator nothing pushed and nothing drew.
+> It is a screen now: the tactical bar's location breadcrumb pushes it, `BuildMapSurface` draws
+> it, and the shared `◀ TACTICAL` chip pops it. So A16 is back to being blocked on *effort* --
+> and on the half of U3b that owns the view-switch path -- rather than on a surface. What it
+> still needs before it can be accepted is a fleet marker to lose presence *of*, which is U3b's
+> client half and not U5's. ~~*(Retired: U3b's client half built the marker and the rule the
+> same day.)*~~ **A16's second edge is built; its first waits on U6's camera pinning.**
+>
+> **A15 is an acceptance procedure, not a feature**, and it is half-answerable. The *settle* is
+> built and named: `ClientApp::VIEW_SETTLE_SECONDS` is 200 ms, which is ADR-002's
+> interpolation-buffer refill made a designed pause rather than a pretended instant. What is not
+> ~~built is the **injected-delay shim** — `Transport.h` has no latency hook of any kind~~
+> **(retired: `NeuronCore/DelayedTransport.h/.cpp` is that hook, built 2026-08-23)** — and
+> even with one the accept is a *timed observation of a real client*, so it needs a GPU and a
+> person like the rest of the R1 queue. **That half stands.** The target is therefore stated rather than measured:
+> **RTT + 200 ms**, which is the form A15 asks for, replacing W0's flat "under half a second".
 
 **The location blocks landed 2026-08-21**, and they landed as a *generalisation* rather than as
 a new panel. T2 built `DockedBlock` for the hangar's roster; U3b's second and third cases were
@@ -861,6 +989,33 @@ tick with a missing part is applied but **not acked**; a keyframe replaces rathe
 `leftInterest` retires a hull and no ghost survives. Visual checkpoint: the counted chip reads a
 real `culledCount` on a grid over budget.
 
+> **The counted chip landed 2026-08-23, and the rung it was to render through did not exist.**
+>
+> Both this slice and [ADR-022 §5d](ADR/ADR-022-interest-and-delta.md) say `culledCount`
+> *"renders through the icon ladder's **existing** counted-chip rung"*. It does not exist: the
+> density ladder (`tactical-icon-system.png` §6) is not built, so there was no rung to reuse and
+> `NeuronClient/CountedChip.h` is it, built here and waiting for its second caller.
+>
+> **And it could not have been that rung anyway**, which is the finding rather than the
+> inconvenience. A density merge knows where its group is and draws *"an extent outline plus a
+> count"*; a **culled** entity is one the server did not send, so the client holds a number and
+> nothing else — no position, no extent, not even a bearing. Drawing it on the plane would
+> invent exactly the *"position the client cannot justify"* that the print forbids in the same
+> sentence. So the chip is a **screen-space statement about the feed**, sited with the readouts
+> that are about the connection rather than about the world.
+>
+> Zero draws nothing. §5d's rule is that a player is never told a grid is empty when it is not;
+> it does not ask for a chip reading "none hidden" on every fully-sent frame. And the player
+> never has to wonder whose hulls are behind it: §5a guarantees owned and selected ships are
+> never culled, so the answer is always *somebody else's*.
+>
+> `RenderScene::culledCount` is the seam, filled in `BuildScene` from the newest frame's header
+> rather than from the interpolated sample — halfway between "9 hidden" and "11 hidden" is a
+> number the authority never stated.
+>
+> **What is still owed is the visual checkpoint**, which needs a grid over budget on a real
+> client and therefore a GPU and a person. It joins the R1 queue rather than being counted here.
+
 ---
 
 **Built (2026-08-22).** One fail-closed schema bump, as ADR-018's Consequences require, and
@@ -924,9 +1079,11 @@ its counters show the steady state the design intends: **3 keyframes over 124 ti
 join, deltas after.
 
 **What this slice did *not* do**, so U3d-c's scope is not overstated: `culledCount` reaches
-`ReplicatedView::CulledCount()` and stops there. Nothing draws it yet. The counted chip is the
-whole of what U3d-c has left, and the client's ack, keyframe and delta-apply paths — which the
-build order lists under U3d-c — landed here because the wire cannot be tested without a reader.
+`ReplicatedView::CulledCount()` and stops there. ~~Nothing draws it yet. The counted chip is the
+whole of what U3d-c has left~~ **— and the chip landed 2026-08-23, so U3d-c is done and U3d with
+it; what is left is its visual checkpoint (R1's queue).** The client's ack, keyframe and
+delta-apply paths — which the build order lists under U3d-c — landed here because the wire
+cannot be tested without a reader.
 
 **What this slice unblocks, stated so it is not rediscovered:** **shared grids** (U3c ran on
 disjoint ones and ADR-018 D3 gates the rest behind exactly this); **A11's remainder**, the
@@ -991,7 +1148,7 @@ its silhouette rather than guessed ahead of it. Its export carried a sixth mater
 five-material palette does not have; the two faces were authored onto `accent`, whose albedo
 it already matched exactly.
 
-**Still owed by U4, and it is the client half:** the route feeder (Dijkstra over the gate
+~~**Still owed by U4, and it is the client half:** the route feeder (Dijkstra over the gate
 graph, one order per completed hop — the pure half of it, search and route-solve, is
 `UniverseRoute` and already built), route progress on the HUD, the STATIC-family tactical icon
 and map glyph, and the halt in the event record, which is a *client* fact today — the server
@@ -1001,7 +1158,76 @@ client's view was built from ids alone, so no `Dock` or `Warp` had ever been pre
 `MakeValidationView` now fills the marks, the station, the site and the hold room. Dock
 pre-checks properly (which is what made T2's approach chain fire at all); `Warp` still cannot,
 because `reachableAnchors` and `jumpAnchor` are the two fields nothing on this side fills, and the fields
-those need arrive together with the surfaces that raise them.
+those need arrive together with the surfaces that raise them.~~
+
+**Built (U4's client half, 2026-08-23).** A fleet crosses a route the player drew on the map.
+`NeuronClient/RoutePlan.h/.cpp` is the feeder — a fixed sequence of legs, one sendable at a
+time, advancing on the authority's own `OrderProgress::finished`; `WorldView::BuildRoutePlan`
+is the seam that composes them; `ClientApp::SetRouteDestination`/`FeedRoutePlan` press it and
+pump it, and the map's SET DESTINATION is wired to the first. `Warp` pre-checks now: the two
+fields nothing filled are filled, which took **one function asked twice** rather than two that
+agree — `ReachableAnchors` came out of `WorldRegistry::ReachableFrom` into `UniverseRoute` so
+both halves call it.
+
+Five things are worth reading rather than inferring from the diff.
+
+**The client may not spell `Warp`, so the game composes the orders.** A `RouteLeg` is a kind
+and an anchor, both opaque and both echoed. That is not fastidiousness: a hop across a gate is
+*two* orders — warp to the gate on this side, then warp through it — minus the one a fleet
+already standing on the gate does not need, and which of those a route needs is a fact about
+gates. `RoutePlan` would feed a chain of anything; what makes it a route is entirely on the
+other side of the seam.
+
+**A leg carries the hop it belongs to, and that field is the HUD not contradicting the map.**
+The panel lists a route in *jumps* and the plan holds it in *orders*, so a chip counting legs
+would read `7/10` beside a panel that said five. Only the half that pairs the orders knows
+which two are one jump, so it stamps the number and the client reads it.
+
+**The hold is the honest half of the feeder, and it is a named limitation rather than a bug.**
+A client can only pre-check an order for ships in its own scene, and *every leg takes the fleet
+off the grid this client is watching*. So from the second leg the local pre-check answers
+`UnknownShip` — which here means "not on the grid I am watching" rather than "no such ship".
+The plan therefore **holds and retries** on that one reason and halts on every other, and the
+chip says `WAITING` rather than `STOPPED`. What lifts it is the view following the fleet
+(U3b's client half / U6's auto-follow), not more work here.
+
+**SET DESTINATION greys on a fleet as well as on a system**, which U5a's draw did not: the
+button was lit whenever a system was selected, while the handler refuses without ships. The
+map is a screen a player can reach with nothing selected at all — which is not true of the
+command row — so the two now read one flag.
+
+**ADD WAYPOINT stays drawn and dead, and the reason narrowed.** U5a refused both buttons
+because the feeder did not exist. A waypoint's legs start from the *previous waypoint* rather
+than from the fleet, so serving it means handing the game a list of systems to string together
+— a change to both route seam calls. That is U5's remaining route work, not U4's feeder.
+
+**Two of the four owed items are reported rather than built, and both are blocked on
+something real** (see the two notes below): the halt in the event record, and the
+STATIC-family icon.
+
+**The halt cannot go into D19's event record, and ADR-016 §9a.1's instruction to put it there
+cannot be carried out as written.** The record is per-commander at the *universe* layer —
+server-side, beside the transfer bus and the rosters — and a route exists only in one client's
+memory, by §8's own choice of "no schema change, no server work". So emitting into it means
+either a client→server message (the server work §8 refused) or a client-side second record.
+The second is worse than it looks: **the halt worth logging is the one the client is not there
+for.** §8's priced cost is *"a disconnected player's fleet halts at the next gate"*, and the
+client that would write that entry is the one that went away. Every other halt happens with
+the player watching, where the toast and the chip already say so, and an away-log line about
+an event they witnessed is not an away-log line. What the tree *does* record is the arrival:
+`EventKind::Arrived` fires wherever the fleet stops, so the away-log can already say "your
+fleet reached KIL-7". What it cannot carry is the *intent* — "of fourteen" — and intent is
+client-side until something server-side holds the route. That is exactly §8's named future AI
+commander, and this is the second thing that waits on it.
+
+**The STATIC-family tactical icon is blocked twice over, and the second one is the surprise.**
+The icon *system* (`tactical-icon-system.png`) is unbuilt — U3d-c established this when the
+counted chip turned out to have no ladder rung to render through — so there is no family for a
+gate to join. But the client also does not know an entity's hull class at all: `SceneEntity`
+carries an id, a plane position, a pick radius, two gauges and a status byte, and nothing on
+the wire tells it what shape a thing is. So the icon needs a replicated field as well as a
+system, which makes it a slice rather than a line, and it is recorded on U6 rather than
+pretended at here.
 
 **Not driven over the wire, on purpose.** A jump is 400 ticks by design, so a loopback
 scenario would add twenty seconds of wall clock to a gate that runs on every push in two
@@ -1011,10 +1237,18 @@ the gate stands on its grid, a fleet at it is let through, a fleet across the gr
 `NotAtGate`, and the crossing lands in the system on the far side.
 
 ### U5 — Strategic map v1 *(depends only on U1 — runs in parallel with U2–U4)*
-**Gate (ADR-018): D7 is delivered — [ADR-020](ADR/ADR-020-ui-architecture.md) — and A20's
-instruments still owe their run** (spike 3, the S5 frame check), with the upload ring and
-fixed GPU budgets re-sized from the corpus caps (1,024 entities / 2,500 nodes) so this slice
-measures the map, not the MVP's constants. The screen is built as an **engine surface fed neutral
+**Gate (ADR-018): D7 is delivered — [ADR-020](ADR/ADR-020-ui-architecture.md); the upload ring
+is re-sized; A20's instruments still owe their run.** ~~the upload ring and fixed GPU budgets
+re-sized from the corpus caps (1,024 entities / 2,500 nodes)~~ **Done 2026-08-23** —
+`NeuronClient/UploadBudget.h` derives the per-frame segment from the ceilings the renderer is
+built for, and **this slice is why it could not wait**: the 256 KiB constant it replaced was
+sized for the tactical view, the map's instances alone are four times that, and a short ring
+makes a pass drop its stream *entirely* — so U5's own acceptance ("the full 2,500 render inside
+the frame budget with the `Ui` span proving it") would have been measured against a blank screen.
+`MAX_MAP_NODES` and its label allowance are the client's statement of what it is built to draw;
+a map that outgrows them is a config change rather than a rebuild. **Still owed: spike 3 and the
+S5 frame check**, both of which need a GPU and a person, so this slice measures the map rather
+than the MVP's constants only once somebody has run them. The screen is built as an **engine surface fed neutral
 data** (ADR-018 D14): the baked topology crosses the seam once at boot as a neutral graph,
 search and route-solve are GameLogic pure functions.
 The screen from `strategic-map.png`, deliberately the subset whose content exists: region /
@@ -1056,12 +1290,91 @@ Seven tests, including "every system reaches every other", which is U1's connect
 invariant asked from the planner's side rather than the generator's, and "every step of a
 route is a gate that exists", because a plan the fleet cannot fly is worse than no plan.
 
-**Still owed by U5, and it is most of it:** the screen. Region/constellation/system pinch
-levels, gate links, labels, the security overlay, the selected-system panel, fleet markers,
-the route line, TACTICAL ⇄ MAP — all engine surface work, and its acceptance is a *visual*
-checkpoint against the print plus a frame-budget measurement, neither of which can be done
-without a GPU. The neutral topology that crosses the seam at boot (D14) is not built either:
-it is an engine type, and it should land with the surface that consumes it.
+~~**Still owed by U5, and it is most of it:** the screen.~~
+
+**Built 2026-08-23 as U5a — the seam and the device-free half.** `NeuronClient/MapView.h` is
+D14's neutral graph and the row types the panels print; `NeuronClient/MapScreen.h/.cpp` is the
+screen — zones, camera, cull, layout and six hit tests; `Outpost/ReplicatedWorldView` fills all
+five seam calls from the committed bake; `ClientApp` draws it and the TACTICAL ⇄ MAP handoff
+runs. Thirty-eight tests over the layout, the camera, the graph and the hit tests, plus a
+device-free run of the whole seam over a **real 2,500-system bake**.
+
+**Five calls in three shapes**, which is ADR-020 §6's contract spent the way the station
+surface already spends it: two asked-once builders (the graph, the overlay list), one at
+summary rate (the legend), two pure query functions (a system's facts, a route). The route
+call takes only a *destination* — the origin is the game's, because the client holds a grid id
+and "which system is that grid in" is a fact about the universe.
+
+**The map is the first surface with a camera rather than a zone table**, which is ADR-020 §7's
+declared overflow rule for it (*"scroll the panels; the graph is a viewport"*) taken literally:
+pan and pinch are arithmetic on three floats, the pinch holds the point under the fingers, and
+a node off screen emits nothing. It is also the **first and only consumer of
+`GestureState::pinchScale`** — I1 built the pinch and nothing had a use for a zoom until now.
+The gesture's ratio is measured from where the pinch *began*, so the camera takes the change
+since last frame rather than the state itself; feeding the state in directly compounds it into
+an exponential zoom, which is the kind of defect a screenshot does not catch.
+
+**Three findings came out of building it.**
+
+*The print predates the input reversal.* `strategic-map.png` was authored 2026-08-08 with ~24 px
+overlay rows and ~20 px checkboxes — mouse sizes — and ADR-020's 2026-08-22 amendment made touch
+primary while keeping the 48 px floor for *every* interactive widget. So every pressable thing
+here is sized through the floor and the print's own heights are a floor away from what ships.
+At 1.6× on a 900-pixel window the rail then wants more height than there is, and the ruling is
+that the **legend** gives way — it is a readout *of* the overlay, where an overlay list missing
+SECURITY BAND is a control the player cannot reach. The floor also meets a 6 px system pip in
+the graph, which is why `HitMapNode` resolves to the **nearest** target rather than the first:
+two adjacent systems can both be under one finger, and first-found would let bake order decide.
+
+*Colour had to become a class.* The first draft carried a packed `tintRgba` across the seam,
+on D14's *"colours arrive as data"*. That is a colour which ignores the player's colour-vision
+palette — on the one screen whose whole subject is a coloured overlay. It is a `StandingColour`
+now, resolved by the client through its own palette, and the set is closed at four because
+those are the four `ContrastAudit` proves clear the floor in every palette. The security
+gradient becomes three bands and the exact number still reaches the player in the badge, which
+is `strategic-map.png` §2's own argument about categorical and continuous fills.
+
+*The gate-link budget has no headroom, exactly.* `MAX_MAP_LINKS` is 3,000 and the committed
+2,500-system bake produces **exactly** 3,000 undirected links — measured, not estimated. It is
+now declared once, in `UploadBudget.h` beside `MAX_MAP_NODES`, so the number the seam accepts
+and the quads the renderer has room for cannot drift; and the builder logs when it drops one,
+because a map quietly missing a gate is a map a player plans a route around.
+
+**What U5a deliberately did not build, named rather than left to be discovered.** The search
+box is drawn dead: `TextEditState` exists and is wired to no surface, and a box that took focus
+and then swallowed keys would be worse than one that visibly cannot. ~~SET DESTINATION and ADD
+WAYPOINT are drawn and refused~~ — the map plans and the client feeds the queue one jump at a
+time (§3, ADR-016 §9a.1), and that feeder is U4's; sending the first hop as a bare warp would be
+a different promise from the one the button makes. ~~Fleet markers and VIEW-on-presence need
+U3b's client half.~~
+
+**Three of those four have since landed, and the list was one entry short.** SET DESTINATION
+went with U4's client half and the markers and VIEW with U3b's, both on 2026-08-23. **ADD
+WAYPOINT was not named and should have been**: a waypoint's legs are planned from the previous
+waypoint rather than from the fleet, so serving it means handing the game a list of systems to
+string together — a change to both `SolveMapRoute` and `BuildRoutePlan`, neither of which takes
+an origin. It is U5b's, not U4's. And **search stopped being blocked the day T3 landed**: the
+wing-rename control built the text-entry surface whose absence is the reason above, so what
+search needs now is a field on this screen rather than a mechanism anywhere. Label de-confliction — the print's four-candidate placement — is a budget
+spent in visible-node order instead, because de-confliction needs a glyph metric and a look.
+
+**Still owed: U5b — two accepts that need a GPU, and two features that do not.** The features
+are **ADD WAYPOINT** and **search**, both described above and both buildable now. The accepts
+are the visual checkpoint against
+the print at region level over the real bake, and the frame-budget measurement with the `Ui`
+span proving it.
+
+**Both are further along than "owed" suggests.** The clustering half of the checkpoint is
+already mechanical: the device-free run asserts that **no two constellation discs overlap on
+screen** at the fit over all 250 of the corpus's constellations, which is U1's invariant
+asserted in pixels rather than in metres. And the CPU half of the frame budget is measured:
+projecting and culling the whole 2,500-system graph — 3,000 links, 250 hulls, 200 labels —
+takes **0.03–0.04 ms per frame** at 1440×900, which is about half a percent of a 16.6 ms frame.
+What U5b's measurement still owes is the *GPU* half: whether 17,548 `UiInstance` quads through
+one upload and one draw hold the same budget. Two things in the projection had to be rewritten
+to get there and both are recorded in the file: the hulls accumulate in one pass over the nodes
+rather than one pass per constellation (600,000 comparisons a frame, at the cap), and the route
+line finds its endpoints by binary search over a run the builder already leaves sorted.
 
 ### U6 — System view and focus polish
 **Prerequisite: the system-view print (D1) — drawn 2026-08-21.** The source is in the corpus and
@@ -1076,6 +1389,60 @@ transit view completing auto-follow (the map as the between-surface, fleet highl
 ghost and honest ETA; a toast click jumps focus across systems; cycling visits every owned
 fleet; the whole loop — plan on the map, watch the crossing, command at both ends — runs in
 one sitting.
+
+**Built 2026-08-23 as U6a — the seam and the device-free half.** `NeuronClient/SystemView.h` is
+the neutral family (an anchor, a backdrop body, and one system's spans);
+`NeuronClient/SystemScreen.h/.cpp` is the screen — zones, ring radii, placement and hit tests;
+`WorldView::BuildSystemView` is the one new seam call and `Outpost/ReplicatedWorldView` fills it
+from the bake. Eighteen device-free tests (153 checks) and a self-test gate over a real bake
+(17 more). Every claim mutation-tested: **twenty-two mutations, all twenty-two caught** — eleven
+against the screen and eleven against the ring assignment, one per ruling and one per rule the
+comments claim.
+
+**The four rulings all live on the game's side of the seam, and that is the design.**
+§9b.1's capacity and §9b.2's site ring are decisions about *which anchors go where*, and both
+need to know what an anchor is — so the composition root computes a ring index and a slot, and
+the client draws ring N at a radius without ever learning that the outer one is mining fields.
+§9b.4 arrives the same way: a gate's second line is a string the game wrote, so the engine does
+not learn that gates exist or that a far side is a system. Only §9b.3 is visible on the seam at
+all, as two counts rather than one, and even there the engine is told two numbers rather than
+what docked means.
+
+**Two lists rather than one with a `clickable` flag**, because *"the player never clicks
+something and is told no"* is then a property of the data: a list you cannot hit-test cannot be
+hit-tested by mistake. The star is not in either list — the screen draws it at the centre of the
+disc, so it is not a thing that can be pressed and refused.
+
+**The two lists share one slot space per ring, which was a bug before it was a rule.** The first
+draft fanned a ring by counting its anchors, and a backdrop body then landed exactly on top of
+the anchor holding its slot — drawn, invisible, and unclickable for a reason a player could not
+see. Counting everything on the ring fixes it and says something truer: what §9b.1's capacity
+rations is **angular room**, and a ring crowded by moons is as unreadable as one crowded by
+planets. So scenery consumes capacity too.
+
+**A finding worth keeping: ADR-020's 48 px floor does not scale and the rings do.** A ring at
+§9b.1's capacity sits 59.7 px apart at 1x, which the floored target just clears; at 0.75 it is
+44.8 and at 0.5 it is 29.8 — so **below about 0.8, every neighbouring pair on a full inner ring
+is inside one finger**. `HitSystemAnchor`'s *nearest, never first* is therefore load-bearing
+rather than defensive, and the test that proves it asserts the crowding first, so it cannot
+quietly stop testing the tie-break.
+
+**What the bake says, measured rather than assumed.** Over the committed 2,500 systems the
+ring assignment produces two or three rings and never one (every system has fields, so §9b.2
+guarantees a second); the busiest ring holds eight; scenery tops out at **two** bodies per
+system, which is why `MAX_SYSTEM_BACKDROP` is stated as headroom for the moons `CelestialKind`
+authors and the MVP does not bake, rather than fitted to a measurement. All seventeen gate
+checks were run against the full committed bake out of band and pass; the shipped gate bakes
+twelve systems, which still crosses capacity (six of the twelve need three rings) and keeps the
+self test's runtime where it was.
+
+**What U6a deliberately did not build.** The draw and the visual checkpoint against the plate —
+U6b, and the half that needs a GPU and a person. `ClientApp` does not open the surface yet, so
+there is no TACTICAL ⇄ SYSTEM handoff and no warp issued from here; the two verbs are laid out
+and hit-tested but nothing calls them. The four focus-polish items (clickable warp toasts,
+fleet cycling, camera pinning, the transit view) are untouched, and A16's first presence edge
+still waits on the camera pinning among them.
+
 
 ---
 
@@ -1100,24 +1467,40 @@ one sitting.
   places from the summary family, and a warp issued here is a single hop with routing left to
   the map.
 
-  **Open — four rulings owed before U6 builds:**
-  1. **Ring spacing past eight anchors.** Even spacing by bake order is legible to about eight;
-     the committed universe has systems with more. An outer belt, a second column, or a pinch.
-  2. **Where sites sit.** Drawn on their own outer ring, because a field is a place you go to
-     rather than a body you pass. The alternative is placing them by real orbit among the planets.
-  3. **One marker or two at a mixed anchor.** A station with three docked and six on grid is
-     drawn as one marker with a split count; two reads more precisely and crowds the ring.
-  4. **Does a gate name the far side?** Drawn as `GATE → KIL-7`, which the bake knows. Naming it
-     makes the system view a one-hop map; hiding it sends the player to the map to answer
-     "where does this go".
+  ~~**Open — four rulings owed before U6 builds:**~~ **All four answered 2026-08-23**, recorded
+  at [ADR-016 §9b](ADR/ADR-016-procedural-universe-and-warp.md) with the measurements that
+  produced them. **U6 has no design gate left.**
+  1. **Ring spacing past eight anchors** → **rings have a capacity and overflow outward**, in
+     bake order so a layout is stable between sessions. §7's *"the committed universe has
+     systems with more"* understated it: the bake says **70.6 %** of systems exceed eight, so
+     this is the ordinary case rather than an edge.
+  2. **Where sites sit** → **their own outer ring**, and this is *half of ruling 1's answer*:
+     taking sites off the main rings drops the over-eight share from 70.6 % to **34.9 %**, so
+     the two questions were never independent. The reason not previously written down is that
+     sites **move** — `SiteEpochPlacement` is per epoch, so placing them among the planets makes
+     the planets' ring re-lay itself overnight.
+  3. **One marker or two at a mixed anchor** → **one marker with a split count**, which keeps
+     one mechanism across two resolutions: the strategic map merges docked and on-grid because
+     at that resolution both mean "there", and the system view splits the same single mark
+     because there the difference takes different verbs.
+  4. **Does a gate name the far side?** → **yes, `GATE → KIL-7`.** It costs nothing — the client
+     holds the topology from boot, so it is an index lookup and no message — and four gates a
+     player cannot tell apart are four anchors they must guess between.
 - **D2 — `Gate.obj` + icons.** Ring/portal silhouette, radially symmetric, the shared
   five-material palette; STATIC-family tactical icon and map glyph. Structure stands in from
   U4 until this lands. **Half delivered 2026-08-20: the mesh, as `Stargate.obj`** — it arrived
   with U4 rather than after it, so the Structure stand-in was never needed. Ring/portal as
   specified, 1,888 vertices and 1,144 triangles, on the corpus palette (one sixth material in
   the export was authored onto `accent`, whose colour it already was — see
-  [ADR-016 §10](ADR/ADR-016-procedural-universe-and-warp.md)). **The icons are still owed**
-  and land with U4's client half, beside the route progress they sit next to.
+  [ADR-016 §10](ADR/ADR-016-procedural-universe-and-warp.md)). ~~**The icons are still owed**
+  and land with U4's client half, beside the route progress they sit next to.~~ **Corrected
+  2026-08-23: they did not, and could not.** U4's client half landed without them because the
+  icon *system* is unbuilt (`tactical-icon-system.png`'s density ladder — the same thing U3d-c
+  found had no rung) **and** the client does not know an entity's hull class at all:
+  `SceneEntity` carries an id, a plane position, a pick radius, two gauges and a status byte,
+  and nothing on the wire says what shape a thing is. So the icons need a replicated field as
+  well as a system, which makes them a slice rather than a line. Recorded on U6 and at
+  [ADR-016 §10](ADR/ADR-016-procedural-universe-and-warp.md).
 - **D3 — Name root lists.** The curated region/constellation vocabularies the bake draws
   from — content authoring inside U1, named here because curation is a task, not a fallout.
 - **D4 — Warp audio cues.** Spool/depart/arrive; lands only after S15 gives audio a home in

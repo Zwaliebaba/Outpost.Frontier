@@ -22,11 +22,48 @@ struct ConfigPaths
   std::string userLayer; // The user settings file, whether or not it exists yet.
 };
 
-/// Resolves paths, reads both layers and merges them over the defaults.
-/// Returns false only when the base config is missing or unusable -- a missing
-/// or corrupt user layer is a warning, because losing preferences must never
-/// stop the game starting.
-[[nodiscard]] bool LoadAppConfig(AppConfig& _outConfig, ConfigPaths& _outPaths, ConfigDiagnostics& _diagnostics);
+/*
+ * Resolves paths, reads both layers and merges them over the defaults.
+ *
+ * Returns false only when the base config is missing or unusable -- a missing
+ * or corrupt user layer is a warning, because losing preferences must never
+ * stop the game starting. A user layer that will not parse is **backed up
+ * beside itself** before it is ignored (ADR-012 §A4): the file is the player's
+ * own, and overwriting it on the next save without keeping a copy would throw
+ * away settings a person could have recovered by hand.
+ *
+ * `_outShipped` is the same configuration with the user layer **not** applied.
+ * It is what `SaveUserSettings` writes a difference against, so the file on
+ * disk records what the player changed rather than a snapshot of the shipped
+ * values -- see `WriteUserLayer`.
+ */
+[[nodiscard]] bool LoadAppConfig(AppConfig& _outConfig, AppConfig& _outShipped, ConfigPaths& _outPaths,
+                                 ConfigDiagnostics& _diagnostics);
+
+/*
+ * Writes the user layer, and is the only place in this program that creates a
+ * file the player owns (ADR-012 §A3).
+ *
+ * Two properties, both of which are the point rather than polish.
+ *
+ * **It is atomic.** The text goes to a temporary beside the target and is then
+ * renamed over it, so a crash or a full disk mid-write leaves the previous
+ * settings intact instead of a truncated file the next boot reports as corrupt.
+ * A settings file is small enough that this costs nothing and valuable enough
+ * that losing one to a power cut is a real complaint.
+ *
+ * **It writes nothing when nothing changed.** The composed text is compared
+ * with what is already on disk first. Without that, every clean exit would
+ * touch the file -- and on a first run, where the player has changed nothing at
+ * all, `WriteUserLayer` composes `{}` and this declines to create the file,
+ * which is what keeps an untouched installation free of one.
+ *
+ * False on a real failure, with `_outError` set. A caller logs it and carries
+ * on: preferences that could not be saved are worth a line in the log and are
+ * never worth failing a shutdown over.
+ */
+[[nodiscard]] bool SaveUserSettings(const AppConfig& _config, const AppConfig& _shipped, const ConfigPaths& _paths,
+                                    std::string& _outError);
 
 /// Directory of the running executable, with a trailing separator.
 [[nodiscard]] std::string ExecutableDirectory();

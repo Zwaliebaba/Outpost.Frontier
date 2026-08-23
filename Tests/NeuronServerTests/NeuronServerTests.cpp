@@ -296,14 +296,46 @@ public:
    * refusals do -- the engine passes it through without knowing what it says.
    */
   static constexpr std::uint16_t VIEWABLE_GRID = 8317;
+  /// A second grid this game also allows, so that a view *switch* is reachable
+  /// from a suite with one simulation: with one legal grid the only outcomes
+  /// are a refusal and a request for the grid already being watched, and
+  /// neither of them moves a feed.
+  static constexpr std::uint16_t SECOND_VIEWABLE_GRID = 8318;
   static constexpr std::uint16_t FORBIDDEN_GRID = 999;
   static constexpr std::uint16_t NO_PRESENCE_REASON = 4343;
 
   [[nodiscard]] std::uint16_t MayView(PlayerId, std::uint16_t _grid) override
   {
     ++m_viewChecks;
-    return _grid == VIEWABLE_GRID ? std::uint16_t{0} : NO_PRESENCE_REASON;
+    return _grid == VIEWABLE_GRID || _grid == SECOND_VIEWABLE_GRID ? std::uint16_t{0} : NO_PRESENCE_REASON;
   }
+
+  /*
+   * Which grid each viewer is watching (ADR-016 §7, N5).
+   *
+   * Recorded rather than acted on: what a hold *means* is the game's business
+   * and this game has no worlds to hold, which is exactly the point of the
+   * default being to do nothing. What this suite can answer is whether the
+   * engine says it at the right moments, and that is what these count.
+   */
+  void ViewerOpened(PlayerId _viewer, std::uint16_t _grid) override
+  {
+    ++m_viewerOpens;
+    m_lastViewerOpened.store(_viewer, std::memory_order_relaxed);
+    m_lastViewerGrid.store(_grid, std::memory_order_relaxed);
+  }
+
+  void ViewerClosed(PlayerId _viewer) override
+  {
+    ++m_viewerCloses;
+    m_lastViewerClosed.store(_viewer, std::memory_order_relaxed);
+  }
+
+  [[nodiscard]] std::uint32_t ViewerOpens() const noexcept { return m_viewerOpens.load(std::memory_order_relaxed); }
+  [[nodiscard]] std::uint32_t ViewerCloses() const noexcept { return m_viewerCloses.load(std::memory_order_relaxed); }
+  [[nodiscard]] PlayerId LastViewerOpened() const noexcept { return m_lastViewerOpened.load(std::memory_order_relaxed); }
+  [[nodiscard]] PlayerId LastViewerClosed() const noexcept { return m_lastViewerClosed.load(std::memory_order_relaxed); }
+  [[nodiscard]] std::uint16_t LastViewerGrid() const noexcept { return m_lastViewerGrid.load(std::memory_order_relaxed); }
 
   [[nodiscard]] std::uint16_t LastGrid() const noexcept { return m_lastGrid.load(std::memory_order_relaxed); }
   [[nodiscard]] std::uint32_t ViewChecks() const noexcept { return m_viewChecks.load(std::memory_order_relaxed); }
@@ -416,6 +448,11 @@ private:
   std::atomic<std::uint64_t> m_viewersSeen{0};
   std::atomic<std::uint16_t> m_lastGrid{0};
   std::atomic<std::uint32_t> m_viewChecks{0};
+  std::atomic<std::uint32_t> m_viewerOpens{0};
+  std::atomic<std::uint32_t> m_viewerCloses{0};
+  std::atomic<PlayerId> m_lastViewerOpened{INVALID_PLAYER_ID};
+  std::atomic<PlayerId> m_lastViewerClosed{INVALID_PLAYER_ID};
+  std::atomic<std::uint16_t> m_lastViewerGrid{0};
   std::atomic<bool> m_refuseSnapshots{false};
 };
 
@@ -982,6 +1019,124 @@ public:
     Assert::IsTrue(WaitUntil(client, [&] { drain(); return !answers.empty(); }));
     Assert::IsTrue(answers[0].accepted, L"the grid the game allows was refused");
     Assert::AreEqual<std::uint16_t>(0, answers[0].reasonCode, L"an accepted view carries no reason");
+
+    host.Stop();
+    host.Join();
+  }
+
+  /*
+   * **The game is told which grid each viewer is watching** (ADR-016 §7, N5).
+   *
+   * `MayView` has always asked permission; nothing ever reported the answer.
+   * `WorldRegistry::AddViewer` shipped with U2 and its header said "U3b is what
+   * starts calling these", and every caller in the tree turned out to be the
+   * composition root holding its own start grid -- so the hold that stops a
+   * world being torn down under somebody's camera was held on a grid chosen at
+   * boot rather than on the one being looked at.
+   *
+   * What this suite can answer is the engine's half: that the report happens at
+   * session open, that an accepted switch moves it, that a refused one does
+   * not, and that the socket closing takes it back. What a hold *means* is the
+   * game's, and `CountingSimulation` has no worlds to hold -- which is why the
+   * seam defaults to doing nothing rather than being pure.
+   */
+  TEST_METHOD(TheGameIsToldWhichGridEachViewerIsWatching)
+  {
+    CountingSimulation simulation;
+    ServerHost host;
+    ServerConfig config;
+    config.port = 0;
+    Assert::IsTrue(host.Start(config, simulation));
+
+    QuicTransport client;
+    const ConnectionId link = client.Connect("127.0.0.1", host.BoundPort());
+    Assert::IsTrue(link != INVALID_CONNECTION);
+
+    std::array<std::uint8_t, 256> buffer{};
+    ByteWriter writer{buffer};
+    WriteWireType(writer, WireType::Hello);
+    Write(writer, Hello{PROTOCOL_VERSION, simulation.SchemaHash(), simulation.ContentHash(), "harness"});
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, writer.Written()));
+
+    PlayerId player = INVALID_PLAYER_ID;
+    std::vector<ViewChanged> answers;
+    const auto drain = [&]
+    {
+      TransportEvent event;
+      while (client.NextEvent(event))
+      {
+        if (event.type != TransportEvent::Type::Message)
+        {
+          continue;
+        }
+        ByteReader reader{event.payload};
+        const WireType type = ReadWireType(reader);
+        if (type == WireType::Welcome)
+        {
+          Welcome welcome;
+          if (Read(reader, welcome))
+          {
+            player = welcome.playerId;
+          }
+        }
+        else if (type == WireType::ViewChanged)
+        {
+          ViewChanged changed;
+          if (Read(reader, changed))
+          {
+            answers.push_back(changed);
+          }
+        }
+      }
+    };
+
+    // A session opens on a grid, so the hold is taken before the first snapshot
+    // rather than by whatever happens to borrow the world first.
+    Assert::IsTrue(WaitUntil(client, [&] { drain(); return player != INVALID_PLAYER_ID && simulation.ViewerOpens() > 0; }));
+    Assert::AreEqual<std::uint32_t>(1, simulation.ViewerOpens(), L"a session opening is one report, not one per tick");
+    Assert::AreEqual<std::uint32_t>(player, simulation.LastViewerOpened(), L"the durable player, never the connection");
+    Assert::AreEqual<std::uint16_t>(CountingSimulation::VIEWABLE_GRID, simulation.LastViewerGrid(),
+                                    L"a session opens watching the grid the handshake settled on");
+
+    /*
+     * A refused request reports nothing.
+     *
+     * This is the half that would leak if the engine reported the *requested*
+     * grid rather than the feed's: the game would be holding a grid the player
+     * was never shown, and nothing would ever release it.
+     */
+    ByteWriter refuseWriter{buffer};
+    WriteWireType(refuseWriter, WireType::ViewRequest);
+    Write(refuseWriter, ViewRequest{CountingSimulation::FORBIDDEN_GRID});
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, refuseWriter.Written()));
+
+    Assert::IsTrue(WaitUntil(client, [&] { drain(); return !answers.empty(); }));
+    Assert::IsFalse(answers[0].accepted, L"the fixture's forbidden grid was allowed");
+    Assert::AreEqual<std::uint32_t>(1, simulation.ViewerOpens(), L"a refused view moved the hold anyway");
+    Assert::AreEqual<std::uint16_t>(CountingSimulation::VIEWABLE_GRID, simulation.LastViewerGrid());
+
+    // An accepted one moves it, and reports the grid the feed is now on rather
+    // than the one that was asked for -- the same number, and the feed is the
+    // one that decides.
+    answers.clear();
+    ByteWriter moveWriter{buffer};
+    WriteWireType(moveWriter, WireType::ViewRequest);
+    Write(moveWriter, ViewRequest{CountingSimulation::SECOND_VIEWABLE_GRID});
+    Assert::IsTrue(client.Send(link, TransportChannel::Control, moveWriter.Written()));
+
+    Assert::IsTrue(WaitUntil(client, [&] { drain(); return !answers.empty(); }));
+    Assert::IsTrue(answers[0].accepted, L"the fixture's second grid was refused");
+    Assert::AreEqual<std::uint32_t>(2, simulation.ViewerOpens(), L"an accepted view left the hold where it was");
+    Assert::AreEqual<std::uint16_t>(CountingSimulation::SECOND_VIEWABLE_GRID, simulation.LastViewerGrid());
+
+    // And the socket closing takes it back. The commander may resume inside the
+    // grace window -- they still own their fleet -- but they have no camera
+    // while they are gone, and a hold is about a camera.
+    Assert::AreEqual<std::uint32_t>(0, simulation.ViewerCloses(), L"nothing has disconnected yet");
+    client.Close(link, DisconnectReason::ClosedByPeer);
+    Assert::IsTrue(WaitUntil(client, [&] { return simulation.ViewerCloses() > 0; }));
+    Assert::AreEqual<std::uint32_t>(player, simulation.LastViewerClosed(),
+                                   L"the hold that was released belonged to somebody else");
 
     host.Stop();
     host.Join();

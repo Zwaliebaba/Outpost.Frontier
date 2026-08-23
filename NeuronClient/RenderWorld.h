@@ -142,6 +142,27 @@ struct RenderScene
    */
   std::vector<SceneEntity> entities;
 
+  /*
+   * How many entities on this grid the game is **not** sending (ADR-022 §5d,
+   * U3d-c).
+   *
+   * A count and nothing else -- no position, no extent, not even a bearing --
+   * because a culled entity is one that never crossed the wire. That is why it
+   * rides on the scene rather than appearing as an entity in it: there is
+   * nothing to place, and `CountedChip` turns it into a screen-space sentence
+   * rather than a mark on the plane.
+   *
+   * **The engine does not know what was culled or why.** Interest and priority
+   * are the game's ranking (ADR-022 §1), and this is the one number that
+   * crosses back: how many did not fit. `Neuron::WorldView` fills it in
+   * `BuildScene` beside the hulls it *did* build, so a client drawing a frame
+   * has both halves of the same statement.
+   *
+   * Zero means "everything on this grid is here", which is the ordinary case
+   * and draws nothing.
+   */
+  std::uint16_t culledCount = 0;
+
   void Clear() noexcept;
 
   /// Sorts by classId and rebuilds classRanges for _classCount classes.

@@ -214,27 +214,55 @@ OrderVerdict ValidateStationCommand(const RosterView& _view, const StationComman
     return Refuse(OrderReason::InvalidFormation);
   }
 
-  if (_view.station == INVALID_ID || _command.station != _view.station)
+  /*
+   * Which of the view's two places this command is about (I2, ADR-017 §6's
+   * 2026-08-23 amendment).
+   *
+   * A station's anchor is also a grid's, so one id can be both -- and when it
+   * is, an `AssignWing` may name a ship from either list. Every other verb
+   * needs the station itself, because moving a hull or a hold across a
+   * station's threshold is the whole of what those verbs do.
+   */
+  const bool namesStation = _view.station != INVALID_ID && _command.station == _view.station;
+  const bool namesGrid = !RequiresDock(_command.verb) && _view.grid != INVALID_ID && _command.station == _view.grid;
+
+  if (!namesStation && !namesGrid)
   {
     return Refuse(OrderReason::UnknownStation);
   }
 
+  /*
+   * And which sentence a missing ship earns.
+   *
+   * `NotDocked` reads *"not docked here"*, which is the right complaint for a
+   * verb that needs a dock and a wrong one for `AssignWing` since I2: a player
+   * who selected ships in space and asked for a wing was never asking to be
+   * docked, and the enum's own `NoPresence` note is about exactly this -- a
+   * refusal that names the wrong problem costs more than an enumerator does.
+   * `UnknownShip` reads *"no such ship"*, which is true in a hangar and true on
+   * a grid.
+   *
+   * **Decided by the verb and not by which list came up empty**, and that is
+   * the parity argument rather than a preference. The verb is a byte both
+   * machines have; `_view.station` is *built* differently on each -- the server
+   * leaves it invalid for an anchor with no station on it, the client fills it
+   * from the command because it may not know the anchor's kind. A reason
+   * derived from the view would therefore differ between the two halves in the
+   * very case this lift adds, which is the fork one shared validator exists to
+   * make impossible.
+   */
+  const OrderReason absent = RequiresDock(_command.verb) ? OrderReason::NotDocked : OrderReason::UnknownShip;
+
   for (std::uint16_t index = 0; index < _command.shipCount; ++index)
   {
     const ShipId shipId = _command.shipIds[index];
-    const bool docked = std::any_of(_view.docked.begin(), _view.docked.end(),
-                                    [shipId](const RosterEntry& _row) { return _row.shipId == shipId; });
-    if (!docked)
+    const auto carries = [shipId](const RosterEntry& _row) { return _row.shipId == shipId; };
+
+    const bool docked = namesStation && std::any_of(_view.docked.begin(), _view.docked.end(), carries);
+    const bool flying = namesGrid && std::any_of(_view.onGrid.begin(), _view.onGrid.end(), carries);
+    if (!docked && !flying)
     {
-      /*
-       * Not on *this* station's roster. On the client that is a stale hangar
-       * screen; on the server it is a ship somebody already undocked. Same
-       * reason either way, which is the point -- and it is also the reason
-       * `AssignWing` is docked-scope for now (ADR-017 §6): the hangar is the
-       * reorganisation room, and in-space reassignment can arrive later
-       * without new machinery.
-       */
-      return Refuse(OrderReason::NotDocked);
+      return Refuse(absent);
     }
   }
 

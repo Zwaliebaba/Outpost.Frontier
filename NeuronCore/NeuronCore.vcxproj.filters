@@ -2,6 +2,9 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
+    <ClCompile Include="DelayedTransport.cpp">
+      <Filter>Transport</Filter>
+    </ClCompile>
     <ClCompile Include="QuicTransport.cpp">
       <Filter>Transport</Filter>
     </ClCompile>
@@ -39,6 +42,9 @@
   <ItemGroup>
     <ClInclude Include="pch.h" />
     <ClInclude Include="Transport.h">
+      <Filter>Transport</Filter>
+    </ClInclude>
+    <ClInclude Include="DelayedTransport.h">
       <Filter>Transport</Filter>
     </ClInclude>
     <ClInclude Include="QuicTransport.h">

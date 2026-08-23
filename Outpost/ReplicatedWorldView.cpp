@@ -2,19 +2,26 @@
 
 #include "ReplicatedWorldView.h"
 
+#include "EconomyDef.h"
 #include "Eta.h"
 #include "Formation.h"
 #include "FleetSummary.h"
 #include "OrderMessages.h"
 #include "SchemaHash.h"
 #include "SiteEpoch.h"
+#include "SiteField.h"
+#include "UniverseRoute.h"
+#include "Transfer.h"
 #include "ShipClass.h"
+#include "Snapshot.h"
 #include "StationMessages.h"
 #include "SummaryMessages.h"
 #include "Validate.h"
 
 #include "EntityRecord.h"
+#include "Log.h"
 #include "SignalLamp.h"
+#include "UploadBudget.h"
 
 #include <algorithm>
 #include <array>
@@ -243,7 +250,101 @@ ReplicatedWorldView::ReplicatedWorldView(Desc _desc)
    * that says it cannot be reached -- so the invariant is enforced where it is
    * relied on rather than argued for somewhere else.
    */
-  m_mintedWingNames.reserve(Neuron::MAX_ROSTER_ROWS);
+  m_playerWingNames.reserve(Neuron::MAX_ROSTER_ROWS);
+
+  /*
+   * The names the player chose in an earlier session (ADR-012 §3, N2).
+   *
+   * Applied here rather than by the caller because the two invariants above are
+   * this class's: an entry past the reserve would move the words already handed
+   * out, and an entry past the row cap would name a wing no roster can draw. A
+   * hand-edited settings file is exactly where a list too long for either comes
+   * from, so both are enforced against it rather than assumed of it.
+   *
+   * Silent about what it drops, and deliberately. `LoadAppConfig` has already
+   * refused a malformed file loudly; what reaches here is well-formed and merely
+   * too long, and the honest outcome for that is the first `MAX_ROSTER_ROWS`
+   * names taken in file order, which is `wings` sorted by number.
+   */
+  for (const std::pair<Game::WingId, std::string>& saved : m_desc.savedWingNames)
+  {
+    if (saved.first == Game::INVALID_WING_ID || saved.second.empty())
+    {
+      continue; // Wing 0 draws no row, and a row with no word on it cannot be pointed at.
+    }
+
+    // One word per wing. The parser refuses a repeated id, so this is about a
+    // caller composing its own list rather than about the file.
+    const auto already = std::find_if(m_playerWingNames.begin(), m_playerWingNames.end(),
+                                      [&saved](const std::pair<Game::WingId, std::string>& _entry) { return _entry.first == saved.first; });
+    if (already != m_playerWingNames.end())
+    {
+      continue;
+    }
+
+    if (m_playerWingNames.size() == m_playerWingNames.capacity())
+    {
+      break; // The pointer-stability reserve, and it is absolute: no entry is worth moving the words on screen.
+    }
+
+    /*
+     * The row cap costs a `continue` rather than a `break`, and the difference
+     * is a rename.
+     *
+     * An entry naming a wing the content already named adds a word to an
+     * existing row and no row at all, so it is legal at the cap -- and stopping
+     * at the first entry the cap refused would drop the renames sitting behind
+     * it in the list. Only an entry that would create a row the roster cannot
+     * draw is skipped.
+     */
+    if (saved.first >= m_desc.wingNames.size() && NamedWingCount() >= Neuron::MAX_ROSTER_ROWS)
+    {
+      continue;
+    }
+    m_playerWingNames.emplace_back(saved.first, saved.second);
+  }
+
+  /*
+   * A call sign the player is already using is struck off the pool.
+   *
+   * `spareWingNames` is consumed in order and never returned, so a word handed
+   * to wing 9 last session must not be handed to wing 10 in this one -- that
+   * would put one word on two things the player has told apart, which is the
+   * failure `Desc` names. Restoring the names without also spending them would
+   * do exactly that on the first new wing after a restart.
+   */
+  for (const std::pair<Game::WingId, std::string>& taken : m_playerWingNames)
+  {
+    const auto spare = std::find(m_desc.spareWingNames.begin(), m_desc.spareWingNames.end(), taken.second);
+    if (spare != m_desc.spareWingNames.end())
+    {
+      m_desc.spareWingNames.erase(spare);
+    }
+  }
+
+  /*
+   * And the strategic map's graph, once, here (ADR-018 D14).
+   *
+   * In the constructor rather than on first use because `MapTopology` hands out
+   * spans into these vectors and promises they stay valid for the session --
+   * building lazily would mean the first `BuildMapTopology` could invalidate a
+   * span an earlier one had handed over, which is a bug that needs two visits to
+   * the surface to show itself.
+   *
+   * A client with no universe builds nothing and reports nothing, and the screen
+   * opens on an empty viewport.
+   */
+  BuildMapGraph();
+
+  /*
+   * And the configured grid's reachable list, before any frame lands.
+   *
+   * `CurrentGrid` falls back to `Desc::gridAnchor`, so a pre-check asked in the
+   * first second of a session is judged against the same list every later one
+   * is -- rather than against an empty one, which reads as "nowhere is
+   * reachable" and refuses every warp.
+   */
+  RefreshReachable();
 }
 
 bool ReplicatedWorldView::ApplyFrame(const Neuron::ReplicatedFrame& _frame)
@@ -266,6 +367,16 @@ bool ReplicatedWorldView::ApplyFrame(const Neuron::ReplicatedFrame& _frame)
     ++m_rejectedSnapshots;
     return false;
   }
+
+  /*
+   * And the grid's own facts, when the grid has changed (U4).
+   *
+   * Here rather than in `MakeValidationView`, which is `const noexcept` and
+   * hands out a *span* into this vector -- rebuilding it there would be
+   * allocating inside a `noexcept` function and handing back a span into
+   * storage the same call had just moved.
+   */
+  RefreshReachable();
   return true;
 }
 
@@ -276,9 +387,25 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
   _outScene.Clear();
   _outScene.instances.reserve(m_sampled.size());
   _outScene.entities.reserve(m_sampled.size());
+
+  /*
+   * And how many this grid holds that were not sent (ADR-022 §5d, U3d-c).
+   *
+   * From the newest frame's header rather than from the sample: the sample is
+   * interpolated between two ticks and a count is not a quantity to blend --
+   * halfway between "9 hidden" and "11 hidden" is a number the authority never
+   * stated. `ReplicatedView::CulledCount` reports the latest, which is the same
+   * choice `statusBits` makes one field over and for the same reason.
+   *
+   * This is the last step of U3d: the count has reached the client since
+   * U3d-b and stopped there, which the build order recorded as the whole of
+   * what U3d-c had left.
+   */
+  _outScene.culledCount = m_view.CulledCount();
   m_validationIds.clear();
   m_validationMarks.clear();
   m_stationEntityId = Game::INVALID_SHIP_ID;
+  m_gateEntityId = Game::INVALID_SHIP_ID;
   m_validationIds.reserve(m_sampled.size());
 
   std::uint32_t renderClassCount = 0;
@@ -366,6 +493,24 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
       m_stationYCm = Neuron::MetresToCentimetres(ship.positionMetres.y);
     }
 
+    /*
+     * And which of them is the gate (U4's client half).
+     *
+     * The station's twin, in the same loop and for the same two reasons: it has
+     * the hull class in hand, and an entity a player cannot see must not be one
+     * the client measures a jump against. `ValidationView::gateXCm` is exactly
+     * that measurement -- "is every member inside the jump radius of the
+     * structure" -- so a client with no gate on screen fills no `jumpAnchor`
+     * and lets the authority answer, which is the posture every optional field
+     * on that view already takes.
+     */
+    if (hull == Game::HullClass::Gate)
+    {
+      m_gateEntityId = ship.id;
+      m_gateXCm = Neuron::MetresToCentimetres(ship.positionMetres.x);
+      m_gateYCm = Neuron::MetresToCentimetres(ship.positionMetres.y);
+    }
+
     // The same id again, for `ValidateOrder`. Filled here rather than in
     // `PreCheck` so that the ships an order may name are exactly the ships this
     // frame drew -- including the exclusions above, which is the point: a hull
@@ -432,6 +577,36 @@ Game::ValidationView ReplicatedWorldView::MakeValidationView() const noexcept
   if (!m_siteStatus.empty())
   {
     view.siteAnchor = m_siteStatus.front().anchor;
+  }
+
+  /*
+   * Where a `Warp` may go, and which of those is a jump (U4's client half).
+   *
+   * **A `Warp` had never been pre-checkable on this side.** `reachableAnchors`
+   * and `jumpAnchor` were the two fields nothing here filled, so every warp and
+   * every jump reached the authority to be refused there -- and ADR-014 §3's
+   * whole claim is that the two halves answer alike. They are filled from the
+   * *same pure function* the registry fills its half with (`ReachableAnchors`),
+   * which is what makes that a fact rather than a hope: not two lists that
+   * agree, one list asked twice.
+   *
+   * `jumpAnchor` is gated on having *seen* the gate, exactly as `stationAnchor`
+   * is gated on having seen the station, and the reason is the field beside it:
+   * a jump is judged on where the fleet is standing relative to the structure,
+   * so naming the destination without a position to measure against would be
+   * inventing the measurement. A client that cannot see the gate fills neither
+   * and the authority answers alone.
+   */
+  view.reachableAnchors = m_reachable;
+  if (m_gateEntityId != Game::INVALID_SHIP_ID && m_desc.universe != nullptr)
+  {
+    const Game::AnchorId paired = m_desc.universe->PairedGateAnchor(CurrentGrid());
+    if (paired != Game::INVALID_ID)
+    {
+      view.jumpAnchor = paired;
+      view.gateXCm = m_gateXCm;
+      view.gateYCm = m_gateYCm;
+    }
   }
 
   /*
@@ -906,13 +1081,36 @@ std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const Neuron::EntityId>
 
   for (const Game::ReplicatedShip& ship : m_sampled)
   {
-    // Wing zero is `INVALID_WING_ID` and belongs to nothing -- the stations
-    // are in it. A row for "no wing" would be a row the player cannot command.
-    if (ship.wing == Game::INVALID_WING_ID)
+    /*
+     * **Only this commander's**, which is a fix rather than a refinement (T3).
+     *
+     * A wing number is a byte every commander numbers from one, so a hostile
+     * fleet flying their wing 3 on this grid was being counted into *this*
+     * player's row 3 -- inflating its count and dragging its gauges towards a
+     * fleet they do not command. It needed two commanders on one grid to show,
+     * which U3c made possible and no gate had built.
+     *
+     * The bits that make the distinction are ADR-022 §8b's, which arrived after
+     * this function did: before them there was no way to ask, and the code that
+     * could not ask read like code that had decided not to.
+     */
+    if (Game::RelationshipFrom(ship.statusBits) != Game::Relationship::Own)
     {
       continue;
     }
 
+    /*
+     * Wing zero is `INVALID_WING_ID`, and since T3 it is a **row**.
+     *
+     * It used to be skipped with "the stations are in it", which was true and
+     * was not the reason: the stations are in it because they are in nobody's
+     * wing *and* nobody's fleet, and the ownership filter above now tells those
+     * two apart. What is left in wing zero after it is exactly this
+     * commander's strays -- ships an `AssignWing` to zero disbanded, or that
+     * arrived unassigned -- and they need a row for the reason
+     * `StationActionOptions` refused to offer the disband at all: a fleet with
+     * no row is a fleet that vanished off the HUD.
+     */
     Accumulator& wing = byWing[ship.wing];
     ++wing.ships;
     wing.hullTotal += ship.hullGauge;
@@ -1010,6 +1208,36 @@ std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const Neuron::EntityId>
     row.cargoGauge = row.carriesCargo
                        ? static_cast<std::uint8_t>(std::min<std::uint64_t>(255u, wing.usedLitres * 255u / wing.holdLitres))
                        : 0u;
+    ++rows;
+  }
+
+  /*
+   * And the strays, last (T3).
+   *
+   * **Last rather than first**, because they are the leftovers: a row at the
+   * top would push TALON down the panel every time a ship came out of a wing,
+   * and the roster's order is the one thing a player points at without reading.
+   *
+   * **Only when there are any**, unlike a wing, which keeps its row at zero.
+   * The difference is that a wing is a thing the player made and an empty one
+   * is news -- *which* wing did I just lose -- while "no ships are unassigned"
+   * is the ordinary state and a permanent row saying so is a row that has to be
+   * read before it can be ignored. `CountedChip`'s argument, one panel along.
+   */
+  const Accumulator& strays = byWing[Game::INVALID_WING_ID];
+  if (strays.ships > 0 && rows < _outRows.size())
+  {
+    RosterRow& row = _outRows[rows];
+    row.name = WingName(Game::INVALID_WING_ID);
+    row.groupId = Game::INVALID_WING_ID;
+    row.shipCount = strays.ships;
+    row.selectedCount = strays.selected;
+    row.hullGauge = static_cast<std::uint8_t>(strays.hullTotal / strays.ships);
+    row.shieldGauge = static_cast<std::uint8_t>(strays.shieldTotal / strays.ships);
+    row.carriesCargo = strays.holdLitres > 0;
+    row.cargoGauge = row.carriesCargo ? static_cast<std::uint8_t>(std::min<std::uint64_t>(
+                                          255u, strays.usedLitres * 255u / strays.holdLitres))
+                                      : 0u;
     ++rows;
   }
   return rows;
@@ -1402,18 +1630,62 @@ const char* ReplicatedWorldView::AnchorNameFor(Game::AnchorId _anchor) const
  *
  * A wing is a number a ship carries and nothing else -- there is no wing table,
  * on this side or the authority's -- so "what is it called" is a question only
- * content can answer, and these three functions are the whole of that answer.
+ * this side can answer, and these five functions are the whole of that answer.
+ *
+ * Two sources, in one order: what the **player** called it, then what the
+ * content did. The first list is the settings layer's (ADR-012 §3) and the
+ * second is the composition root's, and every function below reads them through
+ * `WingName` so the precedence is stated once.
  */
 
 const char* ReplicatedWorldView::WingName(Game::WingId _wing) const noexcept
 {
-  if (_wing < m_desc.wingNames.size())
-  {
-    return m_desc.wingNames[_wing].c_str();
-  }
-  const auto found = std::find_if(m_mintedWingNames.begin(), m_mintedWingNames.end(),
+  /*
+   * The player's word first, and that ordering *is* the rename (ADR-017 §6).
+   *
+   * The authored table is content and stays as authored -- nothing overwrites
+   * TALON -- so a rename is a second word that outranks it rather than an edit
+   * to the first. Two things fall out of doing it this way. Deleting the
+   * settings file restores the shipped call signs exactly, because the content
+   * was never touched. And one list holds everything the player owns, which is
+   * what makes saving it a read rather than a diff against the content.
+   */
+  const auto found = std::find_if(m_playerWingNames.begin(), m_playerWingNames.end(),
                                   [_wing](const std::pair<Game::WingId, std::string>& _entry) { return _entry.first == _wing; });
-  return found == m_mintedWingNames.end() ? nullptr : found->second.c_str();
+  if (found != m_playerWingNames.end())
+  {
+    return found->second.c_str();
+  }
+  return _wing < m_desc.wingNames.size() ? m_desc.wingNames[_wing].c_str() : nullptr;
+}
+
+std::size_t ReplicatedWorldView::NamedWingCount() const noexcept
+{
+  /*
+   * Authored plus player-owned, counted once each -- not added.
+   *
+   * The two lists overlap the moment a player renames an authored wing, and the
+   * arithmetic this replaced (`wingNames.size() - 1 + playerNames.size()`) read
+   * that overlap as two named wings. It would have spent the roster's rows on
+   * words rather than on rows, so renaming eight wings would have stopped the
+   * hangar offering a ninth for no reason the player could see.
+   *
+   * Index 0 is `INVALID_WING_ID` and is never a row, which is the `- 1u`.
+   */
+  std::size_t count = m_desc.wingNames.empty() ? 0u : m_desc.wingNames.size() - 1u;
+  for (const std::pair<Game::WingId, std::string>& entry : m_playerWingNames)
+  {
+    if (entry.first >= m_desc.wingNames.size())
+    {
+      ++count; // A wing the content never named: a row the authored table has not already counted.
+    }
+  }
+  return count;
+}
+
+std::vector<std::pair<Game::WingId, std::string>> ReplicatedWorldView::PlayerWingNames() const
+{
+  return m_playerWingNames;
 }
 
 bool ReplicatedWorldView::EnsureWingName(Game::WingId _wing)
@@ -1437,8 +1709,7 @@ bool ReplicatedWorldView::EnsureWingName(Game::WingId _wing)
    * and costs the call sign it spent. Refusing here leaves the wing unnamed,
    * which is the state the roster already knows how to skip.
    */
-  const std::size_t named = m_desc.wingNames.size() - 1u + m_mintedWingNames.size();
-  if (named >= Neuron::MAX_ROSTER_ROWS || m_mintedWingNames.size() == m_mintedWingNames.capacity())
+  if (NamedWingCount() >= Neuron::MAX_ROSTER_ROWS || m_playerWingNames.size() == m_playerWingNames.capacity())
   {
     // The second clause is the pointer-stability guard, not a second row cap:
     // growing this vector would move the names already handed out. See the
@@ -1468,7 +1739,7 @@ bool ReplicatedWorldView::EnsureWingName(Game::WingId _wing)
     name = generated;
   }
 
-  m_mintedWingNames.emplace_back(_wing, std::move(name));
+  m_playerWingNames.emplace_back(_wing, std::move(name));
   return true;
 }
 
@@ -1486,8 +1757,7 @@ Game::WingId ReplicatedWorldView::FreeWingId() const noexcept
     const auto candidate = static_cast<Game::WingId>(wing);
     if (WingName(candidate) == nullptr)
     {
-      const std::size_t named = m_desc.wingNames.size() - 1u + m_mintedWingNames.size();
-      return named >= Neuron::MAX_ROSTER_ROWS ? Game::INVALID_WING_ID : candidate;
+      return NamedWingCount() >= Neuron::MAX_ROSTER_ROWS ? Game::INVALID_WING_ID : candidate;
     }
   }
   return Game::INVALID_WING_ID;
@@ -1789,17 +2059,18 @@ Neuron::StationRosterCounts ReplicatedWorldView::BuildStationRoster(std::uint16_
  * `BuildScene` makes. Answering from anywhere else would let a press select a
  * ship the player cannot see, or miss one they can.
  *
- * Wing zero is `INVALID_WING_ID` and never a row, so it can never be asked for
- * here either; a group id no wing carries answers zero, which the caller reads
- * as "nothing to select".
+ * **Wing zero answers now**, which it did not until T3 gave the strays a row.
+ * The refusal here was a consequence of there being no row to press rather than
+ * a rule of its own, and leaving it in place would have made the new row the one
+ * row on the panel that does nothing when tapped.
+ *
+ * **And only this commander's ships**, for `BuildRoster`'s reason exactly: a
+ * wing number is a byte every commander numbers from one, so without the
+ * ownership filter a press on TALON would have selected a hostile wing 3 along
+ * with it -- and then offered an order over the pair.
  */
 std::uint32_t ReplicatedWorldView::BuildGroupMembers(std::uint16_t _groupId, std::span<Neuron::EntityId> _outIds) const
 {
-  if (_groupId == Game::INVALID_WING_ID)
-  {
-    return 0;
-  }
-
   std::uint32_t count = 0;
   for (const Game::ReplicatedShip& ship : m_sampled)
   {
@@ -1807,13 +2078,92 @@ std::uint32_t ReplicatedWorldView::BuildGroupMembers(std::uint16_t _groupId, std
     {
       break;
     }
-    if (ship.wing == _groupId)
+    if (ship.wing == _groupId && Game::RelationshipFrom(ship.statusBits) == Game::Relationship::Own)
     {
       _outIds[count] = ship.id;
       ++count;
     }
   }
   return count;
+}
+
+/*
+ * A wing's new call sign (ADR-017 §6, ADR-012 §3, T3).
+ *
+ * `EnsureWingName`'s twin, and deliberately not the same function: that one
+ * *invents* a word for a wing that has none, refusing at capacity because the
+ * alternative is spending a spare call sign nobody asked for. This one carries
+ * a word the player typed, so it must not be refused for want of a spare and
+ * must not consume one.
+ *
+ * **It replaces rather than appends when the wing already has a player word**,
+ * which is what stops a player renaming one wing four times from spending four
+ * of the sixteen entries the pointer-stability reserve holds.
+ */
+bool ReplicatedWorldView::RenameGroup(std::uint16_t _groupId, std::string_view _name)
+{
+  const auto wing = static_cast<Game::WingId>(_groupId);
+  if (_groupId > std::numeric_limits<Game::WingId>::max() || wing == Game::INVALID_WING_ID || _name.empty())
+  {
+    /*
+     * Wing zero is refused, and that is a rule rather than a bounds check: it
+     * is not a wing, it is the absence of one. The row the strays draw is a
+     * heading over "ships in no wing", so a player who renamed it would have
+     * named a category the game does not have and the next disband would fill
+     * it with somebody else's idea of what it meant.
+     */
+    return false;
+  }
+
+  const auto found = std::find_if(m_playerWingNames.begin(), m_playerWingNames.end(),
+                                  [wing](const std::pair<Game::WingId, std::string>& _entry) { return _entry.first == wing; });
+  if (found != m_playerWingNames.end())
+  {
+    /*
+     * Assigned in place, which keeps the pointer this entry has already handed
+     * out valid **only because a `std::string` owns its own storage**: the
+     * vector does not move, the string may reallocate, and every borrowed
+     * `const char*` came from `c_str()` on *this* string. So a rename between a
+     * frame's `BuildRoster` and its draw would leave that frame pointing at
+     * freed bytes -- which is why the caller commits a rename on an input edge,
+     * before the frame's rows are built, and never mid-draw.
+     */
+    found->second = _name;
+    return true;
+  }
+
+  /*
+   * A first player word for this wing costs an entry, and the reserve is
+   * absolute: growing the vector would move every name already on screen.
+   *
+   * The *row cap* is deliberately not checked here, unlike `EnsureWingName`.
+   * That function decides whether a wing is worth naming at all; this one is
+   * told that it is, by a player looking at its row. A wing being renamed
+   * already has a row -- it is where the gesture landed -- so refusing it for
+   * the roster's row budget would be refusing to rename something the roster is
+   * currently drawing.
+   */
+  if (m_playerWingNames.size() == m_playerWingNames.capacity())
+  {
+    return false;
+  }
+  m_playerWingNames.emplace_back(wing, std::string(_name));
+
+  /*
+   * And the word is struck off the spare pool if it was one of them.
+   *
+   * A player who types `KESTREL` on to wing 4 has taken the call sign the
+   * hangar would otherwise have handed to the next new wing, and two things
+   * with one word is the failure the constructor already guards against on
+   * reload. Cheap, and it keeps that invariant true through the one path that
+   * can introduce a collision at runtime.
+   */
+  const auto spare = std::find(m_desc.spareWingNames.begin(), m_desc.spareWingNames.end(), _name);
+  if (spare != m_desc.spareWingNames.end())
+  {
+    m_desc.spareWingNames.erase(spare);
+  }
+  return true;
 }
 
 /*
@@ -1902,11 +2252,14 @@ std::uint32_t ReplicatedWorldView::BuildStationActions(std::uint16_t _anchor,
  * as a value rather than as a second verb. It is still a cycling chip: the list
  * is bounded by the roster's row cap, which is what makes it short.
  *
- * Wing zero is **not** offered, and its absence is a decision. Assigning to it
- * is how a wing disbands, but `BuildRoster` draws no row for it -- strays
- * belong to nothing -- so the button would be one that made ships disappear
- * off the HUD, which is a worse affordance than not having it. The stray column
- * the print reserves is what makes that offerable, and it is not built.
+ * ~~Wing zero is **not** offered~~ **and since T3 it is, because the thing that
+ * blocked it was built.** The objection was never to the verb: assigning to
+ * zero is how a wing disbands, and the reason to refuse was that `BuildRoster`
+ * drew no row for it, so the button would have made ships disappear off the HUD.
+ * The strays have a row now -- last on the panel, and only when there are any --
+ * so a disband moves a fleet from one row to another where it can still be seen,
+ * selected and re-grouped. It is offered **last**, after the wings and after the
+ * next unused number, because it is the destructive one.
  *
  * The economy's four answer zero: they carry ores, alloys and quantities, none
  * of them a short list, so a screen for them is E5's rather than a longer table
@@ -1954,6 +2307,21 @@ std::uint32_t ReplicatedWorldView::StationActionOptions(std::uint16_t _verb,
       _outOptions[wings].name = "NEW WING";
       ++wings;
     }
+
+    /*
+     * And the disband, last (T3).
+     *
+     * Its word is the strays' own row heading rather than a second one, so the
+     * chip says where the ships are going and the player can then read the row
+     * they went to. A verb whose destination is named one way in the control
+     * and another on the panel is a verb the player has to learn twice.
+     */
+    if (wings < _outOptions.size())
+    {
+      _outOptions[wings].parameter = Game::INVALID_WING_ID;
+      _outOptions[wings].name = WingName(Game::INVALID_WING_ID);
+      ++wings;
+    }
     return wings;
   }
 
@@ -1994,6 +2362,48 @@ Neuron::OrderVerdict ReplicatedWorldView::PreCheckStation(const Neuron::StationI
   if (place != nullptr)
   {
     view.docked = place->docked;
+  }
+
+  /*
+   * And this commander's ships *flying* at the same anchor (I2, ADR-017 §6's
+   * 2026-08-23 amendment), which is the other half of what an `AssignWing` may
+   * name.
+   *
+   * Only when the watched grid is the one the command is about. The client has
+   * exactly one grid's worth of entities at a time (ADR-022 §1), so a command
+   * naming any other anchor gets an empty span -- which the validator reads as
+   * "the caller cannot say" and refuses, on the same designed asymmetry
+   * `bayUnits` already runs on. The authority is still what decides.
+   *
+   * **`m_sampled` rather than the newest snapshot's records**, which is what
+   * `BuildRoster` and `BuildGroupMembers` both do and for the same reason:
+   * these are the ships the frame drew, so a pre-check cannot accept a ship the
+   * player cannot see or refuse one they can.
+   *
+   * The relationship bits are what stand in for the server's owner filter
+   * (ADR-022 §8b): the wire spends two bits saying what a viewer is to a ship,
+   * so `Own` here is the same set `OnGridFor` builds from the registry's index.
+   * That the two halves reach it by different routes is the point -- neither
+   * machine can see what the other used.
+   */
+  std::vector<Game::RosterEntry> flying;
+  if (m_view.Grid() == command.station)
+  {
+    flying.reserve(m_sampled.size());
+    for (const Game::ReplicatedShip& ship : m_sampled)
+    {
+      if (Game::RelationshipFrom(ship.statusBits) != Game::Relationship::Own)
+      {
+        continue;
+      }
+      Game::RosterEntry row;
+      row.shipId = ship.id;
+      row.hullClass = static_cast<Game::HullClass>(ship.classId);
+      row.wing = ship.wing;
+      flying.push_back(row);
+    }
+    view.grid = command.station;
+    view.onGrid = flying;
   }
 
   const Game::OrderVerdict decided = Game::ValidateStationCommand(view, command);
@@ -2195,6 +2605,1235 @@ std::uint64_t ReplicatedWorldView::SchemaHash() const
   // Asking the game for it rather than passing it in is what makes a content
   // mismatch detectable at all (ADR-004 §2).
   return Game::GameSchemaHash();
+}
+
+/*
+ * --- the strategic map (ADR-018 D14, ADR-016 §9, U5) -----------------------
+ *
+ * The composition root doing exactly what ADR-014 §6 says it is for: reading
+ * the universe and handing over neutral data. Every game word on that screen is
+ * written in this section, and the engine draws all of it without learning what
+ * any of it means.
+ */
+namespace
+{
+
+/*
+ * How wide the map's own space is.
+ *
+ * Arbitrary, which is what `MapNode::x` means by "map units" -- the screen fits
+ * whatever it is given. It exists because universe coordinates are `std::int64_t`
+ * **metres** over roughly a thousand light years, and a float32 handed one of
+ * those directly keeps about seven significant digits -- so a graph converted
+ * without recentring would quantise every system in a constellation onto the
+ * same point, which is the map's whole subject collapsing. The conversion
+ * therefore recentres first and scales second, and a thousand units across is a
+ * range float32 holds exactly enough of to draw.
+ */
+constexpr double MAP_UNITS_ACROSS = 1000.0;
+
+/// The bands a per-system security number is drawn in.
+///
+/// Three, over `StandingColour`'s four, because a system has no "own" -- that is
+/// the sovereignty overlay's word and sovereignty does not exist yet. The exact
+/// number still reaches the player, in the badge beside it, which is what
+/// `settings.png` means by colour never being the only carrier.
+constexpr std::uint8_t SECURE_AT_LEAST = 60;
+constexpr std::uint8_t CONTESTED_AT_LEAST = 30;
+
+[[nodiscard]] Neuron::StandingColour SecurityTint(std::uint8_t _security) noexcept
+{
+  if (_security >= SECURE_AT_LEAST)
+  {
+    return Neuron::StandingColour::Allied;
+  }
+  if (_security >= CONTESTED_AT_LEAST)
+  {
+    return Neuron::StandingColour::Neutral;
+  }
+  return Neuron::StandingColour::Hostile;
+}
+
+/// `SEC 0.2`, the print's own spelling of a 0..100 byte.
+[[nodiscard]] std::string SecurityBadge(std::uint8_t _security)
+{
+  char buffer[16] = {};
+  std::snprintf(buffer, sizeof buffer, "SEC %u.%u", static_cast<unsigned>(_security) / 100u,
+                (static_cast<unsigned>(_security) % 100u) / 10u);
+  return buffer;
+}
+
+/// A region's band badge -- the print's `FRONTIER`, from the ceiling of the
+/// range its systems vary inside. Two numbers become one word, which is the
+/// distinction `strategic-map.png` §4 asks to keep visible: the band is a badge
+/// and the number is per-system.
+[[nodiscard]] const char* BandName(std::uint8_t _ceiling) noexcept
+{
+  if (_ceiling >= SECURE_AT_LEAST)
+  {
+    return "CORE";
+  }
+  if (_ceiling >= CONTESTED_AT_LEAST)
+  {
+    return "MARCH";
+  }
+  return "FRONTIER";
+}
+
+/// `4m 10s`, or `40s`. Minutes are dropped when there are none rather than
+/// written as zero, because `0m 40s` reads like a placeholder.
+[[nodiscard]] std::string EtaText(std::uint32_t _seconds)
+{
+  char buffer[24] = {};
+  if (_seconds >= 60u)
+  {
+    std::snprintf(buffer, sizeof buffer, "ETA %um %02us", _seconds / 60u, _seconds % 60u);
+  }
+  else
+  {
+    std::snprintf(buffer, sizeof buffer, "ETA %us", _seconds);
+  }
+  return buffer;
+}
+
+/// An index lookup by id, sized to the largest id rather than to the count --
+/// ids are not promised dense and a hand-written universe need not make them so.
+[[nodiscard]] std::vector<std::uint16_t> MakeIndexTable(std::size_t _size)
+{
+  return std::vector<std::uint16_t>(_size, 0xffffu);
+}
+
+} // namespace
+
+void ReplicatedWorldView::BuildMapGraph()
+{
+  const Game::UniverseDef* universe = m_desc.universe;
+  if (universe == nullptr || universe->systems.empty())
+  {
+    return;
+  }
+
+  /*
+   * The bounding box, in universe centimetres, over the systems *and* the
+   * constellation centres.
+   *
+   * Both, because a constellation's centre is placed rather than derived
+   * (`Constellation::centre`) and can therefore sit outside the hull of its own
+   * members -- and a box that excluded it would let a hull's centre fall off the
+   * side of a fitted map.
+   */
+  std::int64_t minX = universe->systems.front().centre.x;
+  std::int64_t maxX = minX;
+  std::int64_t minY = universe->systems.front().centre.y;
+  std::int64_t maxY = minY;
+  const auto stretch = [&](const Game::UniversePos& _pos) noexcept {
+    minX = std::min(minX, _pos.x);
+    maxX = std::max(maxX, _pos.x);
+    minY = std::min(minY, _pos.y);
+    maxY = std::max(maxY, _pos.y);
+  };
+  for (const Game::SolarSystem& system : universe->systems)
+  {
+    stretch(system.centre);
+  }
+  for (const Game::Constellation& constellation : universe->constellations)
+  {
+    stretch(constellation.centre);
+  }
+
+  // Midpoints written as `min + span/2` rather than `(min + max)/2`: the sum of
+  // two galaxy-scale coordinates is where an int64 would overflow, and the
+  // difference is not.
+  const std::int64_t spanX = maxX - minX;
+  const std::int64_t spanY = maxY - minY;
+  const double originX = static_cast<double>(minX) + static_cast<double>(spanX) * 0.5;
+  const double originY = static_cast<double>(minY) + static_cast<double>(spanY) * 0.5;
+  const double widest = std::max({static_cast<double>(spanX), static_cast<double>(spanY), 1.0});
+  const double perUnit = widest / MAP_UNITS_ACROSS;
+
+  const auto toMap = [&](std::int64_t _value, double _origin) noexcept {
+    return static_cast<float>((static_cast<double>(_value) - _origin) / perUnit);
+  };
+
+  /*
+   * The badges first, and the records that borrow from them second.
+   *
+   * `MapNode::badge` is a borrowed `const char*` into a short `std::string`, so
+   * a `push_back` that reallocated after the nodes were filled would leave every
+   * badge already handed out pointing at freed storage. Filling this vector to
+   * its final size before anything points into it removes the hazard rather than
+   * racing it -- `m_playerWingNames`' reserve, one file along, for one reason.
+   */
+  m_mapBadges.clear();
+  m_mapBadges.reserve(universe->systems.size());
+  for (const Game::SolarSystem& system : universe->systems)
+  {
+    m_mapBadges.push_back(SecurityBadge(system.security));
+  }
+
+  std::vector<std::uint16_t> constellationIndex = MakeIndexTable(universe->constellations.size() + 1u);
+  std::vector<std::uint16_t> regionIndex = MakeIndexTable(universe->regions.size() + 1u);
+
+  m_mapRegions.clear();
+  m_mapRegions.reserve(universe->regions.size());
+  for (const Game::Region& region : universe->regions)
+  {
+    if (region.id < regionIndex.size())
+    {
+      regionIndex[region.id] = static_cast<std::uint16_t>(m_mapRegions.size());
+    }
+    Neuron::MapRegion out;
+    out.id = region.id;
+    out.label = region.name.c_str();
+    out.badge = BandName(region.securityCeiling);
+    out.tint = SecurityTint(region.securityCeiling);
+    m_mapRegions.push_back(out);
+  }
+
+  m_mapGroups.clear();
+  m_mapGroups.reserve(universe->constellations.size());
+  for (const Game::Constellation& constellation : universe->constellations)
+  {
+    if (constellation.id < constellationIndex.size())
+    {
+      constellationIndex[constellation.id] = static_cast<std::uint16_t>(m_mapGroups.size());
+    }
+    Neuron::MapGroup out;
+    out.id = constellation.id;
+    out.region = constellation.region < regionIndex.size() ? regionIndex[constellation.region] : 0u;
+    out.x = toMap(constellation.centre.x, originX);
+    out.y = toMap(constellation.centre.y, originY);
+    out.label = constellation.name.c_str();
+    m_mapGroups.push_back(out);
+  }
+
+  /*
+   * A region has no placed centre in the bake -- ADR-009 §4 gives it a name and
+   * a security band and nothing spatial -- so the map derives one from its
+   * constellations. Derived rather than authored is exactly what `Constellation`
+   * refuses for itself, and the difference is that a constellation's centre is
+   * load-bearing (U1's clustering invariant is stated against it) while a
+   * region's is a label's anchor.
+   */
+  for (std::size_t index = 0; index < m_mapRegions.size(); ++index)
+  {
+    double sumX = 0.0;
+    double sumY = 0.0;
+    std::uint32_t members = 0;
+    for (const Neuron::MapGroup& group : m_mapGroups)
+    {
+      if (group.region != index)
+      {
+        continue;
+      }
+      sumX += static_cast<double>(group.x);
+      sumY += static_cast<double>(group.y);
+      ++members;
+    }
+    if (members > 0)
+    {
+      m_mapRegions[index].x = static_cast<float>(sumX / members);
+      m_mapRegions[index].y = static_cast<float>(sumY / members);
+    }
+  }
+
+  m_mapNodeBySystem = MakeIndexTable(universe->systems.size() + 1u);
+  m_mapNodes.clear();
+  m_mapNodes.reserve(universe->systems.size());
+  for (std::size_t index = 0; index < universe->systems.size(); ++index)
+  {
+    const Game::SolarSystem& system = universe->systems[index];
+    if (system.id < m_mapNodeBySystem.size())
+    {
+      m_mapNodeBySystem[system.id] = static_cast<std::uint16_t>(m_mapNodes.size());
+    }
+    Neuron::MapNode out;
+    out.id = system.id;
+    out.group = system.constellation < constellationIndex.size() ? constellationIndex[system.constellation] : 0u;
+    out.x = toMap(system.centre.x, originX);
+    out.y = toMap(system.centre.y, originY);
+    out.label = system.name.c_str();
+    out.badge = m_mapBadges[index].c_str();
+    out.tint = SecurityTint(system.security);
+    m_mapNodes.push_back(out);
+  }
+
+  /*
+   * The gate graph, **stored once per pair**.
+   *
+   * The bake authors gates as symmetric pairs, so walking every system's gate
+   * list would produce each link twice -- two lines over each other at double
+   * the alpha, which reads as a deliberate highlight. Keeping only the edge that
+   * runs from the lower node index is the cheapest way to pick one of the two,
+   * and it does not depend on which end the walk reached first.
+   */
+  m_mapLinks.clear();
+  std::size_t dropped = 0;
+  for (const Game::SolarSystem& system : universe->systems)
+  {
+    const std::uint16_t from = system.id < m_mapNodeBySystem.size() ? m_mapNodeBySystem[system.id] : 0xffffu;
+    if (from == 0xffffu)
+    {
+      continue;
+    }
+    for (const Game::Gate& gate : system.gates)
+    {
+      const std::uint16_t to = gate.toSystem < m_mapNodeBySystem.size() ? m_mapNodeBySystem[gate.toSystem] : 0xffffu;
+      if (to == 0xffffu || to <= from)
+      {
+        continue;
+      }
+      if (m_mapLinks.size() >= Neuron::MAX_MAP_LINKS)
+      {
+        ++dropped;
+        continue;
+      }
+      m_mapLinks.push_back(Neuron::MapLink{from, to});
+    }
+  }
+
+  /*
+   * And it says so when it drops one.
+   *
+   * `MAX_MAP_LINKS` is 3,000 and the committed 2,500-system bake produces
+   * **exactly** 3,000 -- measured, not estimated -- so there is no headroom and
+   * the next content pass that adds an edge lands here. That is the same bargain
+   * `MAX_MAP_NODES` states (a shard that outgrows the client retunes the config),
+   * and what makes it safe to leave tight is that outgrowing it is *audible*.
+   * A map quietly missing a gate is a map a player plans a route around.
+   */
+  if (dropped > 0)
+  {
+    NEURON_LOG_WARNING("strategic map: %zu gate links past the %u the client is built for", dropped,
+                       Neuron::MAX_MAP_LINKS);
+  }
+}
+
+bool ReplicatedWorldView::BuildMapTopology(Neuron::MapTopology& _outTopology) const
+{
+  if (m_mapNodes.empty())
+  {
+    _outTopology = Neuron::MapTopology{};
+    return false;
+  }
+
+  // Spans into storage this view owns, valid for the session -- which is what
+  // "asked once at boot" means on this side of the seam.
+  _outTopology.nodes = m_mapNodes;
+  _outTopology.links = m_mapLinks;
+  _outTopology.groups = m_mapGroups;
+  _outTopology.regions = m_mapRegions;
+  return true;
+}
+
+std::uint32_t ReplicatedWorldView::BuildMapOverlays(std::span<Neuron::MapOverlayOption> _outOverlays) const
+{
+  /*
+   * The print's five, in the print's order, and four of them are stubs
+   * (ADR-016 §9, §9a.3) -- *drawn, disabled, and carrying the reason*, which is
+   * `BuildStationTabs`' treatment of a service that has not shipped.
+   *
+   * The reasons differ in kind and the words say which: three wait on content
+   * that does not exist at all, and RESOURCES waits on a *layer* whose content
+   * does exist in the bake (ADR-024 splits archetype and grade as public) but
+   * whose presence-gated half needs the site receipts U-phase economy work
+   * carries. Only SECURITY BAND can be drawn from what is committed today.
+   */
+  struct Entry
+  {
+    const char* name;
+    const char* tag;
+    bool enabled;
+  };
+  static constexpr Entry ENTRIES[] = {
+      {"SOVEREIGNTY", "NO CONTENT", false}, {"ACTIVITY HEAT", "NO STREAM", false},
+      {"INTEL PINGS", "NO INTEL", false},   {"SECURITY BAND", nullptr, true},
+      {"RESOURCES", "NO RECEIPTS", false},
+  };
+
+  std::uint32_t written = 0;
+  for (const Entry& entry : ENTRIES)
+  {
+    if (written >= _outOverlays.size())
+    {
+      break;
+    }
+    Neuron::MapOverlayOption& out = _outOverlays[written];
+    out.name = entry.name;
+    out.tag = entry.tag;
+    out.id = static_cast<std::uint16_t>(written + 1u);
+    out.enabled = entry.enabled;
+    ++written;
+  }
+  return written;
+}
+
+std::uint32_t ReplicatedWorldView::BuildMapLegend(std::uint16_t _overlay, std::span<Neuron::MapLegendRow> _outRows) const
+{
+  /*
+   * The one overlay with content gets a real key, and the four stubs get
+   * nothing -- which is what a visible stub looks like from this side: a heading
+   * with no rows under it rather than a block that vanishes.
+   *
+   * **The counting is here rather than in the client**, which is the whole
+   * reason this is a seam call: the engine has the nodes and their tints and
+   * could tally them in four lines, and would thereby have decided that a legend
+   * counts *systems* -- rather than jumps, or hulls, or days held.
+   */
+  constexpr std::uint16_t SECURITY_OVERLAY = 4;
+  if (_overlay != SECURITY_OVERLAY || m_desc.universe == nullptr)
+  {
+    return 0;
+  }
+
+  struct Band
+  {
+    const char* name;
+    Neuron::StandingColour tint;
+  };
+  static constexpr Band BANDS[] = {{"SECURE", Neuron::StandingColour::Allied},
+                                   {"CONTESTED", Neuron::StandingColour::Neutral},
+                                   {"LAWLESS", Neuron::StandingColour::Hostile}};
+
+  std::uint32_t written = 0;
+  for (const Band& band : BANDS)
+  {
+    if (written >= _outRows.size())
+    {
+      break;
+    }
+    std::uint32_t count = 0;
+    for (const Game::SolarSystem& system : m_desc.universe->systems)
+    {
+      if (SecurityTint(system.security) == band.tint)
+      {
+        ++count;
+      }
+    }
+    Neuron::MapLegendRow& out = _outRows[written];
+    out.name = band.name;
+    out.count = count;
+    out.tint = band.tint;
+    ++written;
+  }
+  return written;
+}
+
+std::uint32_t ReplicatedWorldView::BuildMapFacts(std::uint16_t _systemId, std::span<Neuron::MapFactRow> _outRows) const
+{
+  if (m_desc.universe == nullptr)
+  {
+    return 0;
+  }
+  const Game::SolarSystem* system = m_desc.universe->FindSystem(static_cast<Game::SystemId>(_systemId));
+  if (system == nullptr)
+  {
+    return 0;
+  }
+
+  /*
+   * Five rows, and they are **not** the print's five.
+   *
+   * `strategic-map.png` draws SOVEREIGNTY, HELD SINCE, VULNERABLE, STATIONS and
+   * GATES; the first three are about a system nobody has built (ADR-016 §9's
+   * stub list), and the rule `MapFactRow` states is that a game reports only the
+   * facts it has. A label with an empty value beside it is a promise this game
+   * has not kept; a missing row is a fact it does not have -- and the panel is
+   * shorter, visibly, which is the honest shape.
+   *
+   * What replaces them is what the bake does know, and it is not filler: the
+   * constellation and the region are the two levels above this system, which is
+   * the hierarchy the whole screen is organised around.
+   */
+  m_factValues.clear();
+  m_factValues.reserve(3);
+
+  const Game::Constellation* constellation = nullptr;
+  for (const Game::Constellation& candidate : m_desc.universe->constellations)
+  {
+    if (candidate.id == system->constellation)
+    {
+      constellation = &candidate;
+      break;
+    }
+  }
+  const Game::Region* region = nullptr;
+  for (const Game::Region& candidate : m_desc.universe->regions)
+  {
+    if (candidate.id == system->region)
+    {
+      region = &candidate;
+      break;
+    }
+  }
+
+  m_factValues.push_back(SecurityBadge(system->security));
+  {
+    char buffer[16] = {};
+    std::snprintf(buffer, sizeof buffer, "%zu", system->stations.size());
+    m_factValues.push_back(buffer);
+  }
+  {
+    char buffer[16] = {};
+    std::snprintf(buffer, sizeof buffer, "%zu", system->gates.size());
+    m_factValues.push_back(buffer);
+  }
+
+  const Neuron::MapFactRow rows[] = {
+      {"CONSTELLATION", constellation != nullptr ? constellation->name.c_str() : nullptr},
+      {"REGION", region != nullptr ? region->name.c_str() : nullptr},
+      {"SECURITY", m_factValues[0].c_str()},
+      {"STATIONS", m_factValues[1].c_str()},
+      {"GATES", m_factValues[2].c_str()},
+  };
+
+  std::uint32_t written = 0;
+  for (const Neuron::MapFactRow& row : rows)
+  {
+    if (written >= _outRows.size())
+    {
+      break;
+    }
+    if (row.value == nullptr)
+    {
+      continue; // The rule above: a fact this game does not have is a row that
+                // is not reported, never a label with nothing beside it.
+    }
+    _outRows[written] = row;
+    ++written;
+  }
+  return written;
+}
+
+std::uint32_t ReplicatedWorldView::SolveMapRoute(std::uint16_t _toSystem, std::span<Neuron::MapRouteHop> _outHops,
+                                                 Neuron::MapRouteSummary& _outSummary) const
+{
+  _outSummary = Neuron::MapRouteSummary{};
+  if (m_desc.universe == nullptr)
+  {
+    return 0;
+  }
+
+  // The origin is this view's, not the caller's: the client holds a grid id,
+  // and which system that grid is in is a fact about the universe.
+  const Game::SystemId from = MapOriginSystem();
+  if (from == Game::INVALID_ID)
+  {
+    return 0; // No world yet, so no route -- rather than a route from nowhere.
+  }
+
+  /*
+   * Straight through to the shared planner, which is D14's whole point: *"search
+   * and route-solve are GameLogic pure functions reached through seam calls"*. A
+   * route solved in the client would be a route that cannot be replayed, and a
+   * second solver the day one is planned from anywhere else.
+   *
+   * **One route, where the print offers three.** `strategic-map.png` §3 asks for
+   * fastest, safest and hostile-avoiding, on the argument that presenting one
+   * hides the only interesting decision on the screen. `SolveRoute` is
+   * breadth-first because a gate is a gate today; when jumps stop being equal it
+   * becomes Dijkstra over the same graph and the signature does not move, and
+   * the second and third routes arrive then. The note below says which one this
+   * is rather than implying it is the only one.
+   */
+  const Game::Route route = Game::SolveRoute(*m_desc.universe, from, static_cast<Game::SystemId>(_toSystem));
+  if (route.systems.empty())
+  {
+    return 0;
+  }
+
+  m_routeBadges.clear();
+  m_routeBadges.reserve(route.systems.size());
+  for (const Game::SystemId id : route.systems)
+  {
+    const Game::SolarSystem* system = m_desc.universe->FindSystem(id);
+    m_routeBadges.push_back(SecurityBadge(system != nullptr ? system->security : 0u));
+  }
+
+  std::uint32_t written = 0;
+  for (std::size_t index = 0; index < route.systems.size(); ++index)
+  {
+    if (written >= _outHops.size())
+    {
+      break;
+    }
+    const Game::SystemId id = route.systems[index];
+    const Game::SolarSystem* system = m_desc.universe->FindSystem(id);
+    Neuron::MapRouteHop& out = _outHops[written];
+    out.node = id < m_mapNodeBySystem.size() ? m_mapNodeBySystem[id] : 0u;
+    out.name = system != nullptr ? system->name.c_str() : nullptr;
+    out.badge = m_routeBadges[index].c_str();
+    out.tint = SecurityTint(system != nullptr ? system->security : 0u);
+    ++written;
+  }
+
+  {
+    char buffer[40] = {};
+    // The separator as an escape rather than as a literal, which is the
+    // convention `GhostLane` already prints its `%s \xC2\xB7 ETA %s` under:
+    // these files carry no byte-order mark and no `/utf-8`, so a literal is
+    // read in whatever code page the compiler is running under.
+    std::snprintf(buffer, sizeof buffer, "FASTEST \xC2\xB7 %zu JUMPS", route.Jumps());
+    m_routeNote = buffer;
+  }
+
+  /*
+   * The ETA, from the game's own constants rather than from a number chosen to
+   * look like the print's.
+   *
+   * `GATE_JUMP_TICKS` at `TICKS_PER_SECOND` is what a jump costs by design
+   * (ADR-016 §5), and this is that times the hops. **It does not count the
+   * flight between gates inside each system**, which is a real omission rather
+   * than a rounding: that is the tactical view's spool-and-transit arithmetic
+   * and it needs a hull class to answer. Stating the jump time alone makes the
+   * number a floor, which is the direction an ETA should be wrong in.
+   */
+  const auto seconds =
+      static_cast<std::uint32_t>(route.Jumps() * Game::GATE_JUMP_TICKS / Game::TICKS_PER_SECOND);
+  m_routeEta = EtaText(seconds);
+
+  _outSummary.note = m_routeNote.c_str();
+  _outSummary.eta = m_routeEta.c_str();
+  return written;
+}
+
+namespace
+{
+
+/*
+ * The gate anchor in `_from` that leads to `_to`, or `INVALID_ID`.
+ *
+ * Two lookups because the bake keeps two things: a `Gate` says where it goes,
+ * and an `Anchor` is the grid you fly to. They are joined by the gate's id in
+ * the anchor's `owner`, which is scoped by `kind` -- so the kind has to be
+ * checked as well as the number, or a planet with the same id would answer.
+ *
+ * Local to this file rather than public in `UniverseRoute`, because nothing
+ * else asks it yet and a public function with one caller is a guess about the
+ * second one.
+ */
+[[nodiscard]] Game::AnchorId GateAnchorTowards(const Game::UniverseDef& _universe, Game::SystemId _from,
+                                               Game::SystemId _to)
+{
+  const Game::SolarSystem* system = _universe.FindSystem(_from);
+  if (system == nullptr)
+  {
+    return Game::INVALID_ID;
+  }
+  for (const Game::Gate& gate : system->gates)
+  {
+    if (gate.toSystem != _to)
+    {
+      continue;
+    }
+    for (const Game::Anchor& anchor : system->anchors)
+    {
+      if (anchor.kind == Game::AnchorKind::Gate && anchor.owner == gate.id)
+      {
+        return anchor.id;
+      }
+    }
+  }
+  return Game::INVALID_ID;
+}
+
+} // namespace
+
+std::uint32_t ReplicatedWorldView::BuildRoutePlan(std::uint16_t _toSystem, std::span<Neuron::RouteLeg> _outLegs) const
+{
+  if (m_desc.universe == nullptr)
+  {
+    return 0;
+  }
+  const Game::SystemId from = MapOriginSystem();
+  if (from == Game::INVALID_ID)
+  {
+    return 0;
+  }
+
+  /*
+   * The same solve `SolveMapRoute` runs, which is what makes two calls safe.
+   *
+   * `SolveRoute` is breadth-first with ties broken by **system id**, so two
+   * equally short routes are *the same* route -- the panel's line and the
+   * fleet's path come out of one deterministic function asked twice rather
+   * than out of two functions that happen to agree.
+   */
+  const Game::Route route = Game::SolveRoute(*m_desc.universe, from, static_cast<Game::SystemId>(_toSystem));
+  if (route.systems.size() < 2)
+  {
+    return 0; // Nowhere to go, or already there. Both are "no plan".
+  }
+
+  /*
+   * Two orders a hop, minus the one the fleet does not need.
+   *
+   * Crossing a gate is a warp *to* the gate on this side and then a warp
+   * *through* it -- ADR-016 §5 judges the second on where the fleet is
+   * standing, which is what makes the first necessary. A fleet already sitting
+   * on the gate skips it, and that can only ever be the first hop: after a
+   * jump the fleet is on the *arrival* gate, and the gate onwards is a
+   * different anchor because a gate leads to exactly one system.
+   */
+  Game::AnchorId standing = CurrentGrid();
+  std::uint32_t legs = 0;
+  const auto push = [&](Game::AnchorId _anchor, std::size_t _hop) {
+    if (legs >= _outLegs.size())
+    {
+      return false;
+    }
+    _outLegs[legs].kind = static_cast<std::uint16_t>(Game::OrderKind::Warp);
+    _outLegs[legs].anchor = static_cast<std::uint16_t>(_anchor);
+
+    // Which jump this order is part of, so the HUD can count in the unit the
+    // map's panel counts in. Stamped here because this loop is the only place
+    // that knows the two orders of a hop are one hop.
+    _outLegs[legs].hop = static_cast<std::uint16_t>(_hop);
+    ++legs;
+    return true;
+  };
+
+  for (std::size_t hop = 0; hop + 1 < route.systems.size(); ++hop)
+  {
+    const Game::AnchorId here = GateAnchorTowards(*m_desc.universe, route.systems[hop], route.systems[hop + 1]);
+
+    // `farSide` rather than `far`: `far` is a legacy Windows SDK macro
+    // (`minwindef.h`) that expands to *nothing*, so the declaration would lose
+    // its name and the file would not compile on the only platform that
+    // matters here. `near` is the same, and its pair is in the self test.
+    const Game::AnchorId farSide =
+      here != Game::INVALID_ID ? m_desc.universe->PairedGateAnchor(here) : Game::INVALID_ID;
+    if (here == Game::INVALID_ID || farSide == Game::INVALID_ID)
+    {
+      /*
+       * A route through a gate the bake did not pair, which authored content
+       * cannot produce and a hand-written file can. **Refused whole**, for
+       * `RoutePlan::Set`'s reason: a plan that stopped four jumps in would
+       * strand a fleet somewhere the player believes is on the way.
+       */
+      return 0;
+    }
+
+    if (standing != here && !push(here, hop))
+    {
+      return 0; // Past the caller's span, and a truncated plan is worse than none.
+    }
+    if (!push(farSide, hop))
+    {
+      return 0;
+    }
+    standing = farSide;
+  }
+  return legs;
+}
+
+/*
+ * The player's ships, folded onto the systems that hold them (ADR-016 §6, U3b).
+ *
+ * `m_places` is a row per *anchor*; the map draws *systems*. Folding one into
+ * the other is the whole of this function, and it is on this side of the seam
+ * because "which system is this anchor in" is a fact about the universe -- a
+ * client that could answer it would need the anchor table, and a client with
+ * the anchor table has the universe.
+ *
+ * **Two counts rather than one, and it matters on the screen.** Ships standing
+ * on a grid and ships docked at a station are both *there*, so they share
+ * `shipCount`; ships crossing *to* a system have not arrived, so they are
+ * `incomingCount` and draw as an arrival. Adding them together would put a
+ * fleet in a system it has not reached, on the one screen a player uses to
+ * decide where things are.
+ *
+ * **`anchor` is a grid the view may point at, and a crossing supplies none.**
+ * `MayView` gates on presence, so asking to watch the far end of a warp that
+ * has not landed is a request the authority is right to refuse -- the same
+ * reason `AdvanceAutoFollow` follows on arrival rather than on departure. A
+ * system with only incoming ships therefore carries `INVALID_MAP_ANCHOR`, and
+ * VIEW is dark on it until they land.
+ */
+std::uint32_t ReplicatedWorldView::BuildMapMarkers(std::span<Neuron::MapMarker> _outMarkers) const
+{
+  m_markerEtas.clear();
+  if (m_desc.universe == nullptr || m_mapNodes.empty())
+  {
+    return 0;
+  }
+
+  /*
+   * Indexed by node rather than searched per row, which is the same trade
+   * `BuildMapGraph` makes: a commander can have ships in a couple of hundred
+   * places and the graph is 2,500 nodes, so a linear scan per row is a
+   * quarter of a million comparisons for a list nobody can read.
+   *
+   * `m_markerBySystem` is not a member because this runs at summary rate --
+   * about once a second -- and a 2,500-entry vector allocated then is cheaper
+   * to justify than one that lives for the session to save it.
+   */
+  std::vector<std::uint16_t> markerByNode(m_mapNodes.size(), 0xffffu);
+  std::uint32_t written = 0;
+  std::vector<std::uint16_t> soonest;
+
+  for (const FleetPlace& place : m_places)
+  {
+    if (place.shipCount == 0)
+    {
+      /*
+       * `shipCount` and never `docked.size()`, which `FleetPlace` states in as
+       * many words: the summaries are always written while a roster is dropped
+       * first when the frame runs out of room, so this is the count that
+       * survives a truncated frame and the list behind it is what may not. A
+       * marker sized from the list would shrink when the wire got busy.
+       */
+      continue;
+    }
+    const Game::Anchor* anchor = m_desc.universe->FindAnchor(place.anchor);
+    if (anchor == nullptr || anchor->system >= m_mapNodeBySystem.size())
+    {
+      continue; // An anchor the bake does not have. Nothing to mark it on.
+    }
+    const std::uint16_t node = m_mapNodeBySystem[anchor->system];
+    if (node == 0xffffu)
+    {
+      continue;
+    }
+
+    std::uint16_t slot = markerByNode[node];
+    if (slot == 0xffffu)
+    {
+      if (written >= _outMarkers.size())
+      {
+        /*
+         * Past the caller's span. Counted and logged rather than silent, for
+         * `BuildMapGraph`'s reason: a marker that quietly did not draw is a
+         * fleet the player cannot find, and a map that lies by omission about
+         * where their ships are is worse than one that says it ran out.
+         */
+        NEURON_LOG_WARNING("map markers: %zu places do not fit %zu marks", m_places.size(), _outMarkers.size());
+        break;
+      }
+      slot = static_cast<std::uint16_t>(written);
+      markerByNode[node] = slot;
+      soonest.push_back(Game::FLEET_ETA_NONE);
+      _outMarkers[slot] = Neuron::MapMarker{};
+      _outMarkers[slot].node = node;
+      ++written;
+    }
+
+    Neuron::MapMarker& mark = _outMarkers[slot];
+    if (place.state == Game::FleetState::InTransit)
+    {
+      mark.incomingCount = static_cast<std::uint16_t>(mark.incomingCount + place.shipCount);
+      if (place.etaSeconds < soonest[slot])
+      {
+        soonest[slot] = place.etaSeconds;
+      }
+      continue;
+    }
+
+    mark.shipCount = static_cast<std::uint16_t>(mark.shipCount + place.shipCount);
+
+    /*
+     * The grid a VIEW goes to, and ties break by the lower anchor id for
+     * `FollowTarget`'s reason: two anchors in one system holding ships is a
+     * real state, and the camera has to land the same way twice or the same
+     * situation plays differently on two machines.
+     */
+    if (mark.anchor == Neuron::INVALID_MAP_ANCHOR || place.anchor < mark.anchor)
+    {
+      mark.anchor = static_cast<std::uint16_t>(place.anchor);
+    }
+  }
+
+  /*
+   * The ETA words last, in one pass, because the vector they live in must not
+   * reallocate while the marks are pointing into it -- which is exactly what
+   * writing each one as it was found would have done.
+   */
+  m_markerEtas.resize(written);
+  for (std::uint32_t index = 0; index < written; ++index)
+  {
+    if (soonest[index] != Game::FLEET_ETA_NONE)
+    {
+      m_markerEtas[index] = EtaText(soonest[index]);
+    }
+  }
+  for (std::uint32_t index = 0; index < written; ++index)
+  {
+    _outMarkers[index].etaLabel = m_markerEtas[index].empty() ? nullptr : m_markerEtas[index].c_str();
+  }
+  return written;
+}
+
+/*
+ * The inside of one system, as places on rings (ADR-016 §9b, U6).
+ *
+ * The composition root doing the one thing ADR-014 §6 keeps it for: **the four
+ * owner rulings live in this function and nowhere else.** §9b.1's capacity,
+ * §9b.2's site ring, §9b.3's split count and §9b.4's far-side name are all
+ * decisions that need to know what an anchor *is*, so they are made here and
+ * cross the seam as a ring index, two numbers and two strings. The engine draws
+ * them without ever learning that the outer ring is mining fields.
+ *
+ * **Rebuilt whole on each call, and the spans die at the next one.** That is
+ * the seam's own promise and it is a deliberate difference from
+ * `BuildMapTopology`, which is built once and lives for the session: the graph
+ * is the whole bake, and this is one system out of 2,500.
+ */
+bool ReplicatedWorldView::BuildSystemView(std::uint16_t _systemId, Neuron::SystemViewData& _outSystem) const
+{
+  _outSystem = Neuron::SystemViewData{};
+  m_systemAnchors.clear();
+  m_systemBackdrop.clear();
+  m_systemWords.clear();
+  if (m_desc.universe == nullptr)
+  {
+    return false;
+  }
+  const Game::SolarSystem* system = m_desc.universe->FindSystem(static_cast<Game::SystemId>(_systemId));
+  if (system == nullptr)
+  {
+    // A system this bake does not have. False rather than an empty disc with a
+    // name on it, so the screen can tell "nothing there" from "not a system".
+    return false;
+  }
+
+  /*
+   * Which anchors go on the inner rings and which take the outer one, in bake
+   * order within each -- §9b.1's *"order is bake order, so a system's layout is
+   * the same in two sessions"* and §9b.2's site ring, decided in one pass
+   * because the measurement says they were never two questions.
+   */
+  std::vector<std::uint16_t> inner;
+  std::vector<std::uint16_t> sites;
+  for (std::uint16_t index = 0; index < system->anchors.size(); ++index)
+  {
+    if (system->anchors[index].kind == Game::AnchorKind::Site)
+    {
+      sites.push_back(index);
+    }
+    else
+    {
+      inner.push_back(index);
+    }
+  }
+
+  /*
+   * Scenery: a celestial no anchor stands on.
+   *
+   * A planet with a warp destination is an anchor and is drawn as a target; one
+   * without is a body you pass, which is `SystemView.h`'s two-list split coming
+   * from the bake rather than from a flag. The star is not in this list at all
+   * -- the screen draws it at the centre of the disc, because a star on a ring
+   * would be a star you could be told you cannot go to.
+   */
+  std::vector<const Game::Celestial*> bodies;
+  for (const Game::Celestial& celestial : system->celestials)
+  {
+    if (celestial.kind == Game::CelestialKind::Star)
+    {
+      continue;
+    }
+    bool anchored = false;
+    for (const Game::Anchor& anchor : system->anchors)
+    {
+      if (anchor.kind == Game::AnchorKind::Planet && anchor.owner == celestial.id)
+      {
+        anchored = true;
+        break;
+      }
+    }
+    if (!anchored)
+    {
+      bodies.push_back(&celestial);
+    }
+  }
+
+  /*
+   * The caps, applied before anything is placed and reported when they bite.
+   *
+   * The committed bake's worst case is 15 anchors and two bodies against caps
+   * of 32 and 32, so this is a **content tripwire** rather than a live path --
+   * and it is logged for `BuildMapGraph`'s reason: a place that quietly did not
+   * draw is a place a player cannot warp to, and a system view that lies by
+   * omission about where they may go is worse than one that says it ran out.
+   */
+  const std::size_t innerRoom = Neuron::MAX_SYSTEM_ANCHORS;
+  if (inner.size() > innerRoom)
+  {
+    inner.resize(innerRoom);
+  }
+  const std::size_t siteRoom = innerRoom - inner.size();
+  if (sites.size() > siteRoom)
+  {
+    sites.resize(siteRoom);
+  }
+  if (inner.size() + sites.size() < system->anchors.size())
+  {
+    NEURON_LOG_WARNING("system view: system %u has %zu anchors, %u fit", static_cast<unsigned>(_systemId),
+                       system->anchors.size(), static_cast<unsigned>(Neuron::MAX_SYSTEM_ANCHORS));
+  }
+  if (bodies.size() > Neuron::MAX_SYSTEM_BACKDROP)
+  {
+    bodies.resize(Neuron::MAX_SYSTEM_BACKDROP);
+  }
+
+  /*
+   * The rings.
+   *
+   * The inner rings hold the anchors and the scenery *together*, because what
+   * §9b.1's capacity rations is angular room on a ring and a moon takes as much
+   * of it as a planet does. Slots run from zero on each ring and the two lists
+   * share them, which is what lets the screen fan a ring by counting what is on
+   * it (`SystemView.h`).
+   *
+   * Sites start on the ring after the last inner one, so a system whose inner
+   * ring is full does not push a field in among the planets -- and an epoch
+   * that moves *which* fields are there disturbs nothing else on the screen,
+   * which is §9b.2's third reason.
+   */
+  const std::size_t innerCount = inner.size() + bodies.size();
+  const std::uint16_t innerRings =
+    static_cast<std::uint16_t>((innerCount + SYSTEM_RING_CAPACITY - 1) / SYSTEM_RING_CAPACITY);
+  const std::uint16_t siteRings =
+    static_cast<std::uint16_t>((sites.size() + SYSTEM_RING_CAPACITY - 1) / SYSTEM_RING_CAPACITY);
+
+  /*
+   * The words this hands out that the bake does not already own, sized to their
+   * final length **before** anything points into them.
+   *
+   * `m_mapBadges`' invariant one call along, and the same hazard: a `push_back`
+   * that reallocated after the anchors were filled would leave every borrowed
+   * label pointing at freed storage. Written as two passes rather than raced.
+   */
+  constexpr std::uint16_t NO_WORD = 0xffffu;
+  std::vector<std::uint16_t> labelWord(inner.size() + sites.size(), NO_WORD);
+  std::vector<std::uint16_t> detailWord(inner.size() + sites.size(), NO_WORD);
+
+  m_systemAnchors.reserve(inner.size() + sites.size());
+  const auto emit = [&](std::uint16_t _anchorIndex, std::uint16_t _ring, std::uint16_t _slot) {
+    const Game::Anchor& anchor = system->anchors[_anchorIndex];
+    Neuron::SystemAnchor out;
+    out.id = static_cast<std::uint16_t>(anchor.id);
+    out.ring = _ring;
+    out.slot = _slot;
+
+    const std::size_t at = m_systemAnchors.size();
+    switch (anchor.kind)
+    {
+    case Game::AnchorKind::Station:
+    {
+      const Game::Station* station = m_desc.universe->FindStation(system->id, anchor.owner);
+      out.label = station != nullptr ? station->name.c_str() : nullptr;
+      break;
+    }
+    case Game::AnchorKind::Planet:
+    {
+      for (const Game::Celestial& celestial : system->celestials)
+      {
+        if (celestial.id == anchor.owner)
+        {
+          out.label = celestial.name.c_str();
+          break;
+        }
+      }
+      break;
+    }
+    case Game::AnchorKind::Gate:
+    {
+      for (const Game::Gate& gate : system->gates)
+      {
+        if (gate.id != anchor.owner)
+        {
+          continue;
+        }
+        out.label = gate.name.c_str();
+
+        /*
+         * §9b.4, and the whole of it: *"a gate names the far side"*. It costs
+         * nothing because the bake is already here -- the far system is an
+         * index lookup, not a message -- and four gates a player cannot tell
+         * apart are four anchors they must guess between on the one screen
+         * where they are choosing.
+         *
+         * The arrow is spelled as bytes rather than typed, which is this
+         * corpus's rule for every non-ASCII literal: the sources carry no
+         * byte-order mark, so a typed character would be read in the
+         * compiler's code page and become the wrong glyph.
+         */
+        const Game::SolarSystem* farSide = m_desc.universe->FindSystem(gate.toSystem);
+        if (farSide != nullptr)
+        {
+          detailWord[at] = static_cast<std::uint16_t>(m_systemWords.size());
+          m_systemWords.push_back(std::string{"\xE2\x86\x92 "} + farSide->name);
+        }
+        break;
+      }
+      break;
+    }
+    case Game::AnchorKind::Site:
+    {
+      /*
+       * A field has no name in the bake -- it is an archetype and a grade, and
+       * both are on the label rather than split across two lines, because two
+       * fields in one system are told apart by the grade and a second line
+       * would spend §9b.4's row on something that is not a destination.
+       */
+      char buffer[64] = {};
+      std::snprintf(buffer, sizeof buffer, "%s G%u", Game::SiteArchetypeName(anchor.site.archetype),
+                    static_cast<unsigned>(anchor.site.grade));
+      labelWord[at] = static_cast<std::uint16_t>(m_systemWords.size());
+      m_systemWords.push_back(buffer);
+      break;
+    }
+    }
+    m_systemAnchors.push_back(out);
+  };
+
+  for (std::size_t index = 0; index < inner.size(); ++index)
+  {
+    emit(inner[index], static_cast<std::uint16_t>(index / SYSTEM_RING_CAPACITY),
+         static_cast<std::uint16_t>(index % SYSTEM_RING_CAPACITY));
+  }
+  for (std::size_t index = 0; index < sites.size(); ++index)
+  {
+    emit(sites[index], static_cast<std::uint16_t>(innerRings + index / SYSTEM_RING_CAPACITY),
+         static_cast<std::uint16_t>(index % SYSTEM_RING_CAPACITY));
+  }
+
+  /*
+   * The scenery takes the slots after the anchors on the inner rings, so the
+   * two lists never claim the same one.
+   */
+  m_systemBackdrop.reserve(bodies.size());
+  for (std::size_t index = 0; index < bodies.size(); ++index)
+  {
+    const std::size_t slot = inner.size() + index;
+    Neuron::SystemBackdrop out;
+    out.ring = static_cast<std::uint16_t>(slot / SYSTEM_RING_CAPACITY);
+    out.slot = static_cast<std::uint16_t>(slot % SYSTEM_RING_CAPACITY);
+
+    /*
+     * A moon against a gas giant, as a ratio of the drawn dot rather than as a
+     * radius -- a radius would be a distance, and this surface has none
+     * (ADR-016 §9). The bake's radii span orders of magnitude, so the ratio is
+     * taken from a log rather than linearly: a linear map would draw every
+     * body but the largest as the same dot.
+     */
+    const double radius = static_cast<double>(std::max<std::int64_t>(bodies[index]->radiusMetres, 1));
+    const double reference = 1.0e7; // ~a large gas giant, as the bake writes them.
+    const double ratio = std::log10(radius) / std::log10(reference);
+    out.scale = static_cast<std::uint8_t>(std::clamp(ratio * 255.0, 48.0, 255.0));
+    m_systemBackdrop.push_back(out);
+  }
+
+  /*
+   * §9b.3's split count, and the seam's whole reason for two numbers.
+   *
+   * `shipCount` rather than `docked.size()` for `BuildMapMarkers`' reason: the
+   * summaries survive a truncated frame and the roster behind them may not, so
+   * a count taken from the list would shrink when the wire got busy.
+   *
+   * **A crossing is not counted here.** The strategic map draws arrivals
+   * because at *that* resolution "on its way to this system" is what a player
+   * is asking; here they are looking at one system's rings, and §9b.3 declined
+   * a third number on the reticle in as many words. What they are looking for
+   * is one screen up and already drawn.
+   */
+  for (const FleetPlace& place : m_places)
+  {
+    if (place.shipCount == 0 || place.state == Game::FleetState::InTransit)
+    {
+      continue;
+    }
+    for (Neuron::SystemAnchor& anchor : m_systemAnchors)
+    {
+      if (anchor.id != place.anchor)
+      {
+        continue;
+      }
+      if (place.state == Game::FleetState::Docked)
+      {
+        anchor.dockedCount = static_cast<std::uint16_t>(anchor.dockedCount + place.shipCount);
+      }
+      else
+      {
+        anchor.shipCount = static_cast<std::uint16_t>(anchor.shipCount + place.shipCount);
+      }
+
+      /*
+       * Own where the player has something and neutral everywhere else, which
+       * is the only standing this client has been told about: nothing on the
+       * wire carries a relationship to a *place* yet, and a colour invented
+       * from the security band would be the map's tint said twice.
+       */
+      anchor.tint = Neuron::StandingColour::Own;
+      break;
+    }
+  }
+
+  // And the badge, which is the last word so the vector is done growing.
+  const std::uint16_t badgeWord = static_cast<std::uint16_t>(m_systemWords.size());
+  m_systemWords.push_back(SecurityBadge(system->security));
+
+  for (std::size_t index = 0; index < m_systemAnchors.size(); ++index)
+  {
+    if (labelWord[index] != NO_WORD)
+    {
+      m_systemAnchors[index].label = m_systemWords[labelWord[index]].c_str();
+    }
+    if (detailWord[index] != NO_WORD)
+    {
+      m_systemAnchors[index].detail = m_systemWords[detailWord[index]].c_str();
+    }
+  }
+
+  _outSystem.label = system->name.c_str();
+  _outSystem.badge = m_systemWords[badgeWord].c_str();
+  _outSystem.tint = SecurityTint(system->security);
+  _outSystem.anchors = m_systemAnchors;
+  _outSystem.backdrop = m_systemBackdrop;
+  _outSystem.ringCount = static_cast<std::uint16_t>(innerRings + siteRings);
+  return true;
+}
+
+Game::AnchorId ReplicatedWorldView::CurrentGrid() const noexcept
+{
+  /*
+   * The live grid if frames have said one, and the configured one before they
+   * have.
+   *
+   * The fallback is not a guess: `Desc::gridAnchor` is where this client was
+   * told to watch, and a strategic map that could not plan a route until a
+   * datagram landed would be blank for the first second of every session -- on
+   * the one screen whose whole content is F15's complete universe copy, which
+   * needs no connection at all to be true.
+   */
+  return m_view.Grid() != Game::INVALID_ID ? m_view.Grid() : m_desc.gridAnchor;
+}
+
+void ReplicatedWorldView::RefreshReachable()
+{
+  const Game::AnchorId grid = CurrentGrid();
+  if (grid == m_reachableFor)
+  {
+    return; // The bake does not move, so neither does this answer.
+  }
+  m_reachableFor = grid;
+  m_reachable = m_desc.universe != nullptr ? Game::ReachableAnchors(*m_desc.universe, grid) : std::vector<Game::AnchorId>{};
+}
+
+Game::SystemId ReplicatedWorldView::MapOriginSystem() const noexcept
+{
+  if (m_desc.universe == nullptr)
+  {
+    return Game::INVALID_ID;
+  }
+  /*
+   * Through the *anchor*, because a grid is a place inside a system rather than
+   * the system itself -- the same indirection a warp order takes, and the
+   * reason `Anchor` carries its system at all.
+   */
+  const Game::Anchor* anchor = m_desc.universe->FindAnchor(CurrentGrid());
+  return anchor != nullptr ? anchor->system : Game::INVALID_ID;
 }
 
 } // namespace Outpost

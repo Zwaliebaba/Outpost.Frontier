@@ -380,10 +380,35 @@ void ExpandOneTextRun(const UiTextRun& _run, const UiDrawList& _ui, const GlyphA
       const GlyphMetrics* glyph = _atlas.Find(sizeIndex, codepoint);
       if (glyph == nullptr)
       {
+        /*
+         * **Substituted rather than skipped**, and counted either way (T3).
+         *
+         * It used to skip and hold the column, on the argument that "a run of
+         * boxes is a bake to fix rather than a layout to nudge". The argument
+         * is right and the conclusion was one step short: a *skipped* glyph is
+         * not a box, it is a gap, and a name made entirely of unpaintable
+         * characters drew as nothing at all -- which is the failure mode
+         * ADR-020 §3 names and forbids ("fails soft to U+FFFD substitution
+         * rather than refusing"). Silence is the one outcome a fail-soft rule
+         * cannot have.
+         *
+         * It became reachable at T3, which put a *player's* typing on the
+         * screen: the widget filters what it can draw as it is typed, but a
+         * hand-edited `Settings.json` and a name from a future build both
+         * arrive by other doors.
+         *
+         * `_outMissing` still counts it, so the telemetry the old comment was
+         * really protecting is unchanged -- a bad bake still shows up as a
+         * number as well as now showing up as a row of markers.
+         */
+        glyph = _atlas.Find(sizeIndex, 0xfffd);
         ++_outMissing;
-        pen += size.cellWidthPixels; // Keep the column, so one gap does not
-                                     // shift the rest of the line.
-        continue;
+        if (glyph == nullptr)
+        {
+          pen += size.cellWidthPixels; // Keep the column, so one gap does not
+                                       // shift the rest of the line.
+          continue;
+        }
       }
       if (glyph->width == 0 || glyph->height == 0)
       {

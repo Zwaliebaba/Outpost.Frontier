@@ -49,6 +49,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace Outpost
@@ -1866,13 +1867,25 @@ void RunWingAssignmentGate(Checklist& _checks)
   const Neuron::StationAction& assign = actions[1];
   std::array<Neuron::OrderOption, Neuron::MAX_STATION_OPTIONS> options{};
   const std::uint32_t optionCount = view.StationActionOptions(assign.verb, options);
+  /*
+   * The named wings, then the number nobody is using, then the disband.
+   *
+   * The last of those arrived at T3's remainder and moved this count from three
+   * to four -- so the claim is written against the *shape* now rather than
+   * against the length: a list whose head is the wings and whose tail is wing
+   * zero survives a fifth wing and a sixth option, and a bare `== 3` did not
+   * survive the first one.
+   */
   _checks.Record("its values are the wings that have names, plus one number nobody is using",
-                 optionCount == 3 && options[0].parameter == 1 && options[1].parameter == 2 && options[2].parameter == 3);
+                 optionCount == 4 && options[0].parameter == 1 && options[1].parameter == 2 &&
+                   options[2].parameter == 3);
+  _checks.Record("and the disband is offered last, where the destructive value belongs",
+                 optionCount >= 1 && options[optionCount - 1].parameter == Game::INVALID_WING_ID);
 
   const std::uint32_t everyone[] = {TALON_A, TALON_B, ANVIL_A, ANVIL_B};
   Neuron::StationIntent intent;
   intent.verb = assign.verb;
-  intent.parameter = optionCount == 3 ? options[2].parameter : 0;
+  intent.parameter = optionCount == 4 ? options[2].parameter : 0;
   intent.anchor = static_cast<std::uint16_t>(STATION);
   intent.orderSeq = 1;
   intent.shipIds = everyone;
@@ -1886,8 +1899,12 @@ void RunWingAssignmentGate(Checklist& _checks)
   elsewhere.shipIds = stranger;
   elsewhere.shipCount = 2;
   const Neuron::OrderVerdict refused = view.PreCheckStation(elsewhere);
+  // `UnknownShip` -- "no such ship" -- rather than `NotDocked` since I2 lifted
+  // `AssignWing` out of docked scope: a verb that no longer needs a dock cannot
+  // answer "not docked here", and the sentence is keyed on the verb so both
+  // machines reach it from the same byte.
   _checks.Record("while a ship this hangar does not hold is refused in the authority's own words",
-                 !refused.accepted && refused.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::NotDocked));
+                 !refused.accepted && refused.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::UnknownShip));
 
   /*
    * Sending it is what mints the name -- not cycling the chip, which would
@@ -1899,7 +1916,7 @@ void RunWingAssignmentGate(Checklist& _checks)
 
   const std::uint32_t afterCount = view.StationActionOptions(assign.verb, options);
   _checks.Record("sending it spends a call sign on the new wing and offers the next number",
-                 sent && afterCount == 4 && options[2].name != nullptr && std::string_view{options[2].name} == "VERGE" &&
+                 sent && afterCount == 5 && options[2].name != nullptr && std::string_view{options[2].name} == "VERGE" &&
                    options[3].parameter == 4);
 
   std::array<Neuron::RosterRow, Neuron::MAX_ROSTER_ROWS> roster{};
@@ -1927,8 +1944,1171 @@ void RunWingAssignmentGate(Checklist& _checks)
   std::array<Neuron::StationAction, Neuron::MAX_STATION_ACTIONS> fullActions{};
   const bool fullFed = feed(fullView) && fullView.BuildStationActions(static_cast<std::uint16_t>(STATION), fullActions) == 2;
   const std::uint32_t fullOptions = fullFed ? fullView.StationActionOptions(fullActions[1].verb, options) : 0;
+  /*
+   * The wings, and the disband -- and *no* new number, which is the claim.
+   *
+   * The `+ 1` is T3's disband rather than a new wing sneaking back in: assigning
+   * *to* wing zero costs no roster row, because the strays' row is drawn only
+   * when there are any and is not one of the cap's sixteen.
+   */
   _checks.Record("a roster with no room for another row offers no new wing, only the ones it has",
-                 fullFed && fullOptions == Neuron::MAX_ROSTER_ROWS);
+                 fullFed && fullOptions == Neuron::MAX_ROSTER_ROWS + 1u &&
+                   options[fullOptions - 1u].parameter == Game::INVALID_WING_ID);
+}
+
+/*
+ * And a wing formed *in space* (I2, ADR-017 §6's 2026-08-23 amendment).
+ *
+ * The gate above proves the hangar can compose a wing. This one proves the
+ * other half of Plan-of-Record §1's rule 3 -- **wings are the control groups**
+ * -- which needs a player to be able to form one where their fleet actually is.
+ * `AssignWing` was docked-scope until this slice, so a control group could only
+ * be created by first flying home.
+ *
+ * **It is here because it is a parity gate, and parity is what has no test
+ * project.** The authority's half is covered in `RegistryTests`; what nothing
+ * else can assert is that the *client* reaches the same verdict from a view it
+ * built out of a snapshot rather than out of a roster. The two halves fill
+ * `RosterView` from sources neither can see -- the registry's owner index on
+ * one side, ADR-022 §8b's two relationship bits on the other -- and one shared
+ * function has to agree over both. That is BounceParity for a verb that has
+ * just changed shape, which is exactly when it is worth re-asserting.
+ */
+void RunInSpaceWingGate(Checklist& _checks)
+{
+  constexpr Game::AnchorId GRID = 41;
+  constexpr Game::ShipId TALON = 1;
+  constexpr Game::ShipId ANVIL = 2;
+
+  Game::World world;
+  world.SetAnchor(GRID, Game::INVALID_SHIP_ID, {});
+
+  Game::ShipSpawn spawn;
+  spawn.hullClass = Game::HullClass::Interceptor;
+  spawn.wing = 1;
+  spawn.xMetres = 0.0f;
+  spawn.yMetres = 0.0f;
+  (void)world.Spawn(spawn, TALON);
+  spawn.hullClass = Game::HullClass::Bomber;
+  spawn.wing = 2;
+  spawn.xMetres = 300.0f;
+  (void)world.Spawn(spawn, ANVIL);
+  world.Tick(1);
+
+  std::vector<Neuron::EntityRecord> records;
+  for (std::uint32_t slot = 0; slot < world.ShipCount(); ++slot)
+  {
+    records.push_back(Game::MakeShipRecord(world, slot, Game::Relationship::Own));
+  }
+
+  std::array<std::uint8_t, Game::MAX_TICK_TAIL_BYTES> tailBytes{};
+  Neuron::ByteWriter tailWriter{tailBytes};
+  if (!Game::WriteTickTail(world, tailWriter, 0) || !tailWriter.Ok())
+  {
+    _checks.Record("the in-space wing gate could write its frame", false);
+    return;
+  }
+
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  desc.wingNames = {"-", "TALON", "ANVIL"};
+  desc.spareWingNames = {"VERGE"};
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  Neuron::ReplicatedFrame frame;
+  frame.tick = world.Tick();
+  frame.gridId = world.Anchor();
+  frame.entities = records;
+  frame.tail = tailWriter.Written();
+  const bool applied = view.ApplyFrame(frame);
+
+  /*
+   * `BuildScene` is not decoration here. The client answers a pre-check from
+   * the ships the *frame drew* (`m_sampled`), which is the same population
+   * `BuildRoster` counts -- so a gate that skipped it would be asking about an
+   * empty fleet and would pass for the wrong reason.
+   */
+  Neuron::RenderScene scene;
+  view.BuildScene(static_cast<double>(world.Tick()), scene);
+  _checks.Record("the in-space wing gate has two ships out of two wings on screen",
+                 applied && scene.entities.size() == 2);
+
+  const std::uint32_t both[] = {TALON, ANVIL};
+  Neuron::StationIntent intent;
+  intent.verb = static_cast<std::uint16_t>(Game::StationVerb::AssignWing);
+  intent.parameter = 7;
+  intent.anchor = static_cast<std::uint16_t>(GRID);
+  intent.orderSeq = 1;
+  intent.shipIds = both;
+  intent.shipCount = 2;
+
+  _checks.Record("a fleet in space may be made a wing without docking first", view.PreCheckStation(intent).accepted);
+
+  /*
+   * And the fence, which is the half a lift is most likely to take with it: the
+   * verbs that move a hull or a hold across a station's threshold still need
+   * one, and the client says so before the wire does.
+   */
+  Neuron::StationIntent undock = intent;
+  undock.verb = static_cast<std::uint16_t>(Game::StationVerb::Undock);
+  undock.parameter = static_cast<std::uint16_t>(Game::FormationId::Line); // A known one, so the refusal is about the dock.
+  const Neuron::OrderVerdict refusedUndock = view.PreCheckStation(undock);
+  _checks.Record("while undocking a fleet that is already flying is still refused, and for being undocked",
+                 !refusedUndock.accepted &&
+                     refusedUndock.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::NotDocked));
+
+  const std::uint32_t stranger[] = {TALON, 99};
+  Neuron::StationIntent unknown = intent;
+  unknown.shipIds = stranger;
+  const Neuron::OrderVerdict refused = view.PreCheckStation(unknown);
+  _checks.Record("and a ship this grid does not carry is refused as 'no such ship' rather than 'not docked'",
+                 !refused.accepted && refused.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::UnknownShip));
+}
+
+/*
+ * The wing names the player owns, across a restart (ADR-012 §3, ADR-017 §6, N2).
+ *
+ * Here for the reason the gate above it is: `ReplicatedWorldView` lives in the
+ * executable and has no test project, and this is behaviour rather than wiring
+ * -- a call sign handed to two wings, or an authored name quietly overwritten,
+ * is the kind of defect that only shows on a roster somebody is looking at.
+ *
+ * It opens no socket. The settings layer's own round trip is covered in
+ * `OutpostTests`; what is left, and what this is, is what the *view* does with
+ * the list of names it is handed at construction.
+ */
+/*
+ * Whose ships a roster row counts, and where the ones in no wing go (T3).
+ *
+ * Two questions one gate can answer because they are the same question read
+ * twice: a wing number is a byte *every* commander numbers from one, so the
+ * roster has to say which hulls are this player's before it can say anything
+ * else about them.
+ *
+ * It needs a frame rather than a summary -- `BuildRoster` counts the ships the
+ * frame drew -- and two relationships in it, which is the arrangement no gate
+ * had built. That is why the defect it fixes had never been seen: it takes two
+ * commanders on one grid, and until U3c there could not be two.
+ */
+/*
+ * A route becomes orders, and a warp is judged on this side at all (U4).
+ *
+ * The client half of U4, which was the whole of what U4 had left: the map
+ * plans, the client feeds one order per completed hop (ADR-016 §8), and until
+ * this slice the client could not even *pre-check* a warp -- `reachableAnchors`
+ * and `jumpAnchor` were the two `ValidationView` fields nothing on this side
+ * filled, so every warp and every jump reached the authority to be refused
+ * there.
+ *
+ * A universe of its own rather than the loaded one, for the gate-crossing
+ * check's reason: twelve systems bake in no time, and a check that depended on
+ * where the committed content happens to put a gate would be a check about
+ * content.
+ */
+void RunRouteFeedGate(Checklist& _checks)
+{
+  Game::UniverseGenConfig recipe;
+  recipe.regionCount = 2;
+  recipe.constellationsPerRegion = 2;
+  recipe.systemCount = 12;
+
+  Game::UniverseDef universe;
+  if (!Game::GenerateUniverse(recipe, Game::SitesInfo{}, universe))
+  {
+    _checks.Record("the route gate bakes a universe", false);
+    return;
+  }
+
+  const Game::AnchorId startAnchor = universe.StartAnchorId();
+  const Game::Anchor* start = universe.FindAnchor(startAnchor);
+  if (start == nullptr)
+  {
+    _checks.Record("the route gate has a grid to start on", false);
+    return;
+  }
+
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  desc.universe = &universe;
+  desc.gridAnchor = startAnchor;
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  /*
+   * The furthest system the planner will reach, so the plan is several hops
+   * rather than one -- a one-hop plan cannot show that the *second* leg is the
+   * pair of the first, which is the arithmetic this gate is really about.
+   */
+  Game::SystemId furthest = Game::INVALID_ID;
+  std::size_t furthestJumps = 0;
+  for (const Game::SolarSystem& system : universe.systems)
+  {
+    const Game::Route probe = Game::SolveRoute(universe, start->system, system.id);
+    if (!probe.systems.empty() && probe.Jumps() > furthestJumps)
+    {
+      furthestJumps = probe.Jumps();
+      furthest = system.id;
+    }
+  }
+  if (furthest == Game::INVALID_ID || furthestJumps < 2)
+  {
+    _checks.Record("the route gate's bake has somewhere worth routing to", false);
+    return;
+  }
+
+  std::array<Neuron::RouteLeg, Neuron::MAX_ROUTE_LEGS> legs{};
+  const std::uint32_t legCount = view.BuildRoutePlan(static_cast<std::uint16_t>(furthest), legs);
+
+  /*
+   * Two legs a hop -- warp to the gate, then warp through it -- minus the one
+   * the fleet does not need when it is already standing on a gate. The start
+   * anchor is a station's, so nothing is skipped and the arithmetic is exact.
+   */
+  _checks.Record("a route becomes two orders per jump", legCount == furthestJumps * 2u);
+
+  bool everyLegIsAWarpToAGate = legCount > 0;
+  for (std::uint32_t index = 0; index < legCount; ++index)
+  {
+    const Game::Anchor* anchor = universe.FindAnchor(static_cast<Game::AnchorId>(legs[index].anchor));
+    everyLegIsAWarpToAGate = everyLegIsAWarpToAGate && anchor != nullptr && anchor->kind == Game::AnchorKind::Gate &&
+                             legs[index].kind == static_cast<std::uint16_t>(Game::OrderKind::Warp);
+  }
+  _checks.Record("and every one of them is a warp to a gate", everyLegIsAWarpToAGate);
+
+  /*
+   * The legs pair up: the odd one is the even one's far side.
+   *
+   * This is what makes the plan a *crossing* rather than a tour of gates in one
+   * system, and it is the half the client must never work out for itself --
+   * `RoutePlan` echoes two numbers and could not tell a jump from a warp.
+   */
+  bool pairsUp = legCount % 2u == 0;
+  for (std::uint32_t index = 0; index + 1 < legCount; index += 2)
+  {
+    pairsUp = pairsUp && universe.PairedGateAnchor(static_cast<Game::AnchorId>(legs[index].anchor)) ==
+                           static_cast<Game::AnchorId>(legs[index + 1].anchor);
+  }
+  _checks.Record("each jump's second order is the far side of its first", pairsUp);
+
+  /*
+   * And each pair carries the *same* hop number, ascending from zero.
+   *
+   * This is the number the HUD's `ROUTE 2/5` counts, and it is stamped here
+   * rather than derived on the client because only this half knows which two
+   * orders are one jump. The claim is exactly that: the stamping agrees with
+   * the pairing above -- so a chip and the map's panel describe one journey
+   * with one number, whichever of them the player is looking at.
+   */
+  bool hopsAgreeWithThePairs = legCount > 0;
+  for (std::uint32_t index = 0; index < legCount; ++index)
+  {
+    hopsAgreeWithThePairs = hopsAgreeWithThePairs && legs[index].hop == static_cast<std::uint16_t>(index / 2u);
+  }
+  _checks.Record("and both of a jump's orders are stamped with that jump's number", hopsAgreeWithThePairs);
+  _checks.Record("so the plan counts as many jumps as the panel drew",
+                 legCount > 0 && static_cast<std::size_t>(legs[legCount - 1].hop) + 1u == furthestJumps);
+
+  // And flying them lands where the player pointed.
+  const Game::Anchor* last = legCount > 0
+                               ? universe.FindAnchor(static_cast<Game::AnchorId>(legs[legCount - 1].anchor))
+                               : nullptr;
+  _checks.Record("the last order arrives in the system the player picked", last != nullptr && last->system == furthest);
+
+  /*
+   * The panel and the feeder cannot disagree, because both solve the same
+   * route with the same tie-break. Asserted rather than assumed: they are two
+   * calls, and two calls are where a divergence would live.
+   */
+  std::array<Neuron::MapRouteHop, Neuron::MAX_MAP_ROUTE_HOPS> hops{};
+  Neuron::MapRouteSummary summary;
+  const std::uint32_t hopCount = view.SolveMapRoute(static_cast<std::uint16_t>(furthest), hops, summary);
+  _checks.Record("the panel's jumps and the plan's orders describe one route",
+                 hopCount > 0 && legCount == (hopCount - 1u) * 2u);
+
+  _checks.Record("a route to where you already are is no plan",
+                 view.BuildRoutePlan(static_cast<std::uint16_t>(start->system), legs) == 0);
+  _checks.Record("and a destination nothing reaches is no plan either", view.BuildRoutePlan(0xfffe, legs) == 0);
+
+  /*
+   * And the feeder flies it: one order at a time, each waiting on the last.
+   *
+   * `strategic-map.png` §3's ruling in a loop -- the queue holds four and the
+   * plan holds twenty-two, and what makes that work is that only one is ever
+   * outstanding.
+   */
+  Neuron::RoutePlan plan;
+  plan.Set(std::span<const Neuron::RouteLeg>{legs.data(), legCount});
+  std::uint32_t sent = 0;
+  bool oneAtATime = true;
+  for (std::uint32_t step = 0; step < legCount + 2u && plan.Active(); ++step)
+  {
+    const Neuron::RouteLeg leg = plan.Ready();
+    if (leg.anchor == Neuron::INVALID_ROUTE_ANCHOR)
+    {
+      oneAtATime = false; // A frame with a plan running and nothing to send.
+      break;
+    }
+    oneAtATime = oneAtATime && leg.anchor == legs[sent].anchor;
+    ++sent;
+    plan.NoteSent(sent);
+
+    // The authority answering that the order is over, which is the same flag a
+    // ghost retires on.
+    Neuron::OrderFeedback feedback;
+    Neuron::OrderProgress progress;
+    progress.clientOrderSeq = sent;
+    progress.finished = true;
+    (void)feedback.Add(progress);
+    plan.NoteFeedback(feedback);
+  }
+  _checks.Record("the feeder sends every leg once, in order, one at a time", oneAtATime && sent == legCount);
+  _checks.Record("and the plan is over when the last one lands", plan.State() == Neuron::RouteState::None);
+
+  /*
+   * And the half without which none of the above could be sent: a warp that
+   * pre-checks on this side.
+   *
+   * `reachableAnchors` and `jumpAnchor` were the two `ValidationView` fields
+   * nothing on the client filled, so `PreCheck` refused every warp with
+   * `UnknownAnchor` -- a feeder that trusted it would have halted on its first
+   * leg, and one that ignored it would have sent every leg to be bounced.
+   * They are filled from the same pure function the registry fills its half
+   * with, which is what makes ADR-014 §3's parity a fact rather than a hope.
+   */
+  Game::World world;
+  world.Reset(1);
+  world.SetAnchor(startAnchor, Game::INVALID_SHIP_ID, Game::ReachableAnchors(universe, startAnchor));
+
+  Game::ShipSpawn ship;
+  ship.hullClass = Game::HullClass::Frigate;
+  ship.wing = 1;
+  const Game::ShipId flier = world.Spawn(ship, 1);
+  world.Tick(1);
+
+  std::vector<Neuron::EntityRecord> records;
+  for (std::uint32_t slot = 0; slot < world.ShipCount(); ++slot)
+  {
+    records.push_back(Game::MakeShipRecord(world, slot, Game::Relationship::Own));
+  }
+  std::array<std::uint8_t, Game::MAX_TICK_TAIL_BYTES> tailBytes{};
+  Neuron::ByteWriter tailWriter{tailBytes};
+  bool framed = flier != Game::INVALID_SHIP_ID && Game::WriteTickTail(world, tailWriter, 0) && tailWriter.Ok();
+
+  Neuron::ReplicatedFrame frame;
+  frame.tick = world.Tick();
+  frame.gridId = startAnchor;
+  frame.entities = records;
+  frame.tail = tailWriter.Written();
+  framed = framed && view.ApplyFrame(frame);
+  Neuron::RenderScene scene;
+  view.BuildScene(static_cast<double>(world.Tick()), scene);
+  if (!framed)
+  {
+    _checks.Record("the route gate could put a fleet on its start grid", false);
+    return;
+  }
+
+  const Neuron::EntityId flying[] = {flier};
+  const auto warpTo = [&](Game::AnchorId _anchor) {
+    Neuron::OrderIntent intent;
+    intent.kind = static_cast<std::uint16_t>(Game::OrderKind::Warp);
+    intent.anchor = static_cast<std::uint16_t>(_anchor);
+    intent.entityIds = flying;
+    intent.entityCount = 1;
+    return intent;
+  };
+
+  // Somewhere in this system that is not this grid: the first thing a route's
+  // first leg names.
+  Game::AnchorId neighbour = Game::INVALID_ID;
+  for (const Game::AnchorId candidate : Game::ReachableAnchors(universe, startAnchor))
+  {
+    neighbour = candidate;
+    break;
+  }
+
+  // `reachable` rather than `near`: `near` is a legacy Windows SDK macro
+  // (`minwindef.h`) that expands to nothing, which would leave the declaration
+  // with no name at all.
+  const Neuron::OrderVerdict reachable = view.PreCheck(warpTo(neighbour));
+  const Neuron::OrderVerdict nowhere = view.PreCheck(warpTo(0xfffe));
+  _checks.Record("the client can finally pre-check a warp, and accepts a reachable anchor",
+                 neighbour != Game::INVALID_ID && reachable.accepted);
+  _checks.Record("and refuses one that is not from here, in the authority's own words",
+                 !nowhere.accepted &&
+                   nowhere.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::UnknownAnchor));
+
+  /*
+   * The parity claim itself, asserted rather than argued: the authority judging
+   * the same order over its own view returns the same verdict. Two routes to
+   * one answer, which is what BounceParity means.
+   */
+  Game::OrderSubmit submit;
+  submit.kind = Game::OrderKind::Warp;
+  submit.anchor = neighbour;
+  submit.shipCount = 1;
+  submit.shipIds[0] = flier;
+  const Game::OrderVerdict authority = Game::ValidateOrder(world.Validation(), submit);
+  _checks.Record("and the authority agrees with it", authority.accepted == reachable.accepted);
+}
+
+/*
+ * The map's fleet markers, folded from the summary family (U3b, ADR-016 §6).
+ *
+ * The claim under test is the fold: a summary row is an *anchor* and the map
+ * draws *systems*, so this is the one place that knows which is which. What
+ * makes it worth a gate rather than a unit test is that it needs a real bake --
+ * the anchor-to-system table is the universe's, and a hand-made one would be
+ * asserting against a fixture instead of against the content.
+ */
+void RunMapMarkerGate(Checklist& _checks)
+{
+  Game::UniverseGenConfig recipe;
+  recipe.regionCount = 2;
+  recipe.constellationsPerRegion = 2;
+  recipe.systemCount = 12;
+
+  Game::UniverseDef universe;
+  if (!Game::GenerateUniverse(recipe, Game::SitesInfo{}, universe))
+  {
+    _checks.Record("the marker gate bakes a universe", false);
+    return;
+  }
+
+  const Game::AnchorId startAnchor = universe.StartAnchorId();
+  const Game::Anchor* start = universe.FindAnchor(startAnchor);
+  if (start == nullptr)
+  {
+    _checks.Record("the marker gate has a grid to start on", false);
+    return;
+  }
+
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  desc.universe = &universe;
+  desc.gridAnchor = startAnchor;
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  std::array<Neuron::MapMarker, Neuron::MAX_MAP_MARKERS> marks{};
+  _checks.Record("a client that has been told nothing marks nothing", view.BuildMapMarkers(marks) == 0);
+
+  /*
+   * Two anchors in the *same* system, so the fold has something to fold. Found
+   * rather than assumed: a bake gives a system a station and a gate, and which
+   * ids those are is the generator's business.
+   */
+  Game::AnchorId second = Game::INVALID_ID;
+  Game::AnchorId elsewhere = Game::INVALID_ID;
+  for (const Game::SolarSystem& system : universe.systems)
+  {
+    for (const Game::Anchor& anchor : system.anchors)
+    {
+      if (system.id == start->system && anchor.id != startAnchor && second == Game::INVALID_ID)
+      {
+        second = anchor.id;
+      }
+      if (system.id != start->system && elsewhere == Game::INVALID_ID)
+      {
+        elsewhere = anchor.id;
+      }
+    }
+  }
+  if (second == Game::INVALID_ID || elsewhere == Game::INVALID_ID)
+  {
+    _checks.Record("the marker gate's bake has two anchors in one system and one in another", false);
+    return;
+  }
+
+  const auto feed = [&](std::span<const Game::FleetSummary> _rows) {
+    std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> bytes{};
+    Neuron::ByteWriter writer{bytes};
+    return Game::BeginSummaryFrame(1, writer) &&
+           Game::BeginSummaryRecord(Game::SummaryKind::FleetSummaries, writer) &&
+           Game::WriteFleetSummaries(_rows, writer) && view.ApplySummary(writer.Written());
+  };
+
+  const Game::FleetSummary rows[] = {
+    {startAnchor, Game::FleetState::OnGrid, 3, Game::FLEET_ETA_NONE},
+    {second, Game::FleetState::Docked, 2, Game::FLEET_ETA_NONE},
+    {elsewhere, Game::FleetState::InTransit, 5, 90},
+  };
+  if (!feed(rows))
+  {
+    _checks.Record("the marker gate's summaries decode", false);
+    return;
+  }
+
+  const std::uint32_t count = view.BuildMapMarkers(marks);
+  _checks.Record("three rows over two systems make two marks", count == 2);
+
+  /*
+   * The fold itself: two anchors in one system are one mark, and the counts add.
+   * Standing and docked are both "there", which is what makes them one number.
+   */
+  const Neuron::MapMarker* home = nullptr;
+  const Neuron::MapMarker* away = nullptr;
+  Neuron::MapTopology topology;
+  (void)view.BuildMapTopology(topology);
+  for (std::uint32_t index = 0; index < count; ++index)
+  {
+    if (marks[index].node >= topology.nodes.size())
+    {
+      continue;
+    }
+    const std::uint16_t system = topology.nodes[marks[index].node].id;
+    if (system == static_cast<std::uint16_t>(start->system))
+    {
+      home = &marks[index];
+    }
+    else
+    {
+      away = &marks[index];
+    }
+  }
+  _checks.Record("both systems got a mark", home != nullptr && away != nullptr);
+  if (home == nullptr || away == nullptr)
+  {
+    return;
+  }
+
+  _checks.Record("standing and docked are one count, because both mean 'there'", home->shipCount == 5);
+  _checks.Record("and nothing is inbound to a system nothing is crossing to", home->incomingCount == 0);
+
+  /*
+   * And the crossing is counted apart, with the game's own ETA word. Adding it
+   * into `shipCount` would draw a fleet in a system it has not reached.
+   */
+  _checks.Record("a crossing is an arrival rather than a presence",
+                 away->incomingCount == 5 && away->shipCount == 0);
+  _checks.Record("and it carries the game's word for when it lands", away->etaLabel != nullptr);
+
+  /*
+   * `anchor` is what a VIEW would ask for, so a system the player is only
+   * *arriving* at supplies none: `MayView` gates on presence and the far end of
+   * a warp that has not landed is a request the authority is right to refuse.
+   */
+  _checks.Record("a system with ships in it offers a grid to watch",
+                 home->anchor != Neuron::INVALID_MAP_ANCHOR);
+  _checks.Record("and one that is only being arrived at offers none",
+                 away->anchor == Neuron::INVALID_MAP_ANCHOR);
+
+  // Ties break by the lower anchor id, for `FollowTarget`'s reason: the camera
+  // has to land the same way twice.
+  _checks.Record("two anchors in one system resolve to the lower id",
+                 home->anchor == static_cast<std::uint16_t>(std::min(startAnchor, second)));
+
+  /*
+   * And a span with no room refuses rather than writing past it. The list is
+   * capped at what the caller offered, which is the same contract every other
+   * builder on this seam has.
+   */
+  std::array<Neuron::MapMarker, 1> tight{};
+  _checks.Record("a span too small for the marks fills what it has", view.BuildMapMarkers(tight) == 1);
+}
+
+/*
+ * The system view against a real bake (U6a, ADR-016 §9b).
+ *
+ * The four owner rulings, checked over every system a bake produces rather than
+ * over a fixture -- which is the whole reason this gate exists next to the
+ * device-free suite. `SystemScreenTests.cpp` proves the *screen* places a ring
+ * index correctly and cannot prove anything about how the index was chosen,
+ * because an engine suite may not link GameLogic. Choosing it is §9b.1 and
+ * §9b.2, and this is where they are true or not.
+ *
+ * Baked **with the economy's sites**, because a bake without them has no site
+ * ring and would pass §9b.2 by having nothing to put on it.
+ */
+void RunSystemViewGate(Checklist& _checks, const Game::EconomyDef& _economy)
+{
+  Game::UniverseGenConfig recipe;
+  recipe.regionCount = 2;
+  recipe.constellationsPerRegion = 2;
+  recipe.systemCount = 12;
+
+  Game::UniverseDef universe;
+  if (!Game::GenerateUniverse(recipe, _economy.sites, universe))
+  {
+    _checks.Record("the system view gate bakes a universe", false);
+    return;
+  }
+
+  const Game::AnchorId startAnchor = universe.StartAnchorId();
+  const Game::Anchor* start = universe.FindAnchor(startAnchor);
+  if (start == nullptr)
+  {
+    _checks.Record("the system view gate has a grid to start on", false);
+    return;
+  }
+
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  desc.universe = &universe;
+  desc.gridAnchor = startAnchor;
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  Neuron::SystemViewData system;
+  _checks.Record("a system the bake does not have is refused rather than drawn empty",
+                 !view.BuildSystemView(0xffffu, system));
+
+  /*
+   * Every system in the bake, because §9b.1's capacity is a claim about *all* of
+   * them: the measurement that produced the ruling says 70.6 % of the committed
+   * universe exceeds eight anchors, so a gate that checked one system would be
+   * checking the case the ruling was not written for.
+   */
+  std::uint32_t systemsChecked = 0;
+  std::uint32_t overCapacity = 0;
+  std::uint32_t siteRingBreaks = 0;
+  std::uint32_t slotClashes = 0;
+  std::uint32_t ringCountBreaks = 0;
+  std::uint32_t gatesWithoutFarSide = 0;
+  std::uint32_t detailsOnNonGates = 0;
+  std::uint32_t unlabelled = 0;
+  std::uint32_t multiRing = 0;
+
+  for (const Game::SolarSystem& baked : universe.systems)
+  {
+    if (!view.BuildSystemView(static_cast<std::uint16_t>(baked.id), system))
+    {
+      _checks.Record("every system in the bake builds a view", false);
+      return;
+    }
+    ++systemsChecked;
+
+    std::uint32_t population[Neuron::MAX_SYSTEM_RINGS] = {};
+    bool taken[Neuron::MAX_SYSTEM_RINGS][Neuron::MAX_SYSTEM_ANCHORS] = {};
+    std::uint16_t highestRing = 0;
+    std::uint16_t outermostNonSite = 0;
+    std::uint16_t innermostSite = 0xffffu;
+    bool anySite = false;
+
+    const auto occupy = [&](std::uint16_t _ring, std::uint16_t _slot) {
+      if (_ring >= Neuron::MAX_SYSTEM_RINGS || _slot >= Neuron::MAX_SYSTEM_ANCHORS)
+      {
+        ++slotClashes;
+        return;
+      }
+      if (taken[_ring][_slot])
+      {
+        ++slotClashes;
+      }
+      taken[_ring][_slot] = true;
+      ++population[_ring];
+      highestRing = std::max(highestRing, _ring);
+    };
+
+    for (const Neuron::SystemAnchor& anchor : system.anchors)
+    {
+      occupy(anchor.ring, anchor.slot);
+
+      const Game::Anchor* baked1 = universe.FindAnchor(anchor.id);
+      if (baked1 == nullptr)
+      {
+        ++unlabelled;
+        continue;
+      }
+      if (baked1->kind == Game::AnchorKind::Site)
+      {
+        anySite = true;
+        innermostSite = std::min(innermostSite, anchor.ring);
+      }
+      else
+      {
+        outermostNonSite = std::max(outermostNonSite, anchor.ring);
+      }
+
+      // §9b.4: a gate names the far side, and nothing else says anything.
+      if (baked1->kind == Game::AnchorKind::Gate)
+      {
+        if (anchor.detail == nullptr)
+        {
+          ++gatesWithoutFarSide;
+        }
+      }
+      else if (anchor.detail != nullptr)
+      {
+        ++detailsOnNonGates;
+      }
+
+      if (anchor.label == nullptr || anchor.label[0] == '\0')
+      {
+        ++unlabelled;
+      }
+    }
+    for (const Neuron::SystemBackdrop& body : system.backdrop)
+    {
+      occupy(body.ring, body.slot);
+    }
+
+    for (std::uint16_t ring = 0; ring < Neuron::MAX_SYSTEM_RINGS; ++ring)
+    {
+      if (population[ring] > 8)
+      {
+        ++overCapacity;
+      }
+    }
+    if (anySite && innermostSite <= outermostNonSite)
+    {
+      ++siteRingBreaks;
+    }
+    if (system.ringCount != highestRing + 1u)
+    {
+      ++ringCountBreaks;
+    }
+    if (system.ringCount > 1)
+    {
+      ++multiRing;
+    }
+  }
+
+  _checks.Record("every system in the bake builds a view", systemsChecked == universe.systems.size());
+  _checks.Record("no ring holds more than eight (ADR-016 \xC2\xA7" "9b.1)", overCapacity == 0);
+  _checks.Record("sites sit outside everything else (ADR-016 \xC2\xA7" "9b.2)", siteRingBreaks == 0);
+  _checks.Record("no two things claim one slot on one ring", slotClashes == 0);
+  _checks.Record("the ring count is the rings there are", ringCountBreaks == 0);
+  _checks.Record("every place the player may click has a word for it", unlabelled == 0);
+  _checks.Record("every gate names its far side (ADR-016 \xC2\xA7" "9b.4)", gatesWithoutFarSide == 0);
+  _checks.Record("and nothing that is not a gate has a second line", detailsOnNonGates == 0);
+
+  /*
+   * The overflow is exercised rather than merely permitted. A rule that never
+   * fires on the content it was written for is a rule nobody has tested, and
+   * §9b.2 guarantees at least a second ring on any bake that has fields.
+   */
+  _checks.Record("the bake actually produces systems with more than one ring", multiRing > 0);
+
+  /*
+   * §9b.3: one marker, two numbers. Docked and standing are counted apart
+   * because at *this* resolution the difference decides the verb; the strategic
+   * map merges them, which is the same fact where it does not.
+   */
+  Game::AnchorId second = Game::INVALID_ID;
+  for (const Game::Anchor& anchor : universe.FindSystem(start->system)->anchors)
+  {
+    if (anchor.id != startAnchor && second == Game::INVALID_ID)
+    {
+      second = anchor.id;
+    }
+  }
+  if (second == Game::INVALID_ID)
+  {
+    _checks.Record("the system view gate's start system has two anchors", false);
+    return;
+  }
+
+  const auto feed = [&](std::span<const Game::FleetSummary> _rows) {
+    std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> bytes{};
+    Neuron::ByteWriter writer{bytes};
+    return Game::BeginSummaryFrame(1, writer) &&
+           Game::BeginSummaryRecord(Game::SummaryKind::FleetSummaries, writer) &&
+           Game::WriteFleetSummaries(_rows, writer) && view.ApplySummary(writer.Written());
+  };
+
+  const Game::FleetSummary rows[] = {
+    {startAnchor, Game::FleetState::OnGrid, 3, Game::FLEET_ETA_NONE},
+    {startAnchor, Game::FleetState::Docked, 2, Game::FLEET_ETA_NONE},
+    {second, Game::FleetState::InTransit, 5, 90},
+  };
+  if (!feed(rows))
+  {
+    _checks.Record("the system view gate's summaries decode", false);
+    return;
+  }
+
+  if (!view.BuildSystemView(static_cast<std::uint16_t>(start->system), system))
+  {
+    _checks.Record("the start system builds a view", false);
+    return;
+  }
+
+  const Neuron::SystemAnchor* home = nullptr;
+  const Neuron::SystemAnchor* crossing = nullptr;
+  for (const Neuron::SystemAnchor& anchor : system.anchors)
+  {
+    if (anchor.id == startAnchor)
+    {
+      home = &anchor;
+    }
+    if (anchor.id == second)
+    {
+      crossing = &anchor;
+    }
+  }
+  _checks.Record("the two anchors the summaries named are both on a ring", home != nullptr && crossing != nullptr);
+  if (home == nullptr || crossing == nullptr)
+  {
+    return;
+  }
+
+  _checks.Record("standing and docked are two numbers on one marker (ADR-016 \xC2\xA7" "9b.3)",
+                 home->shipCount == 3 && home->dockedCount == 2);
+  _checks.Record("and a marker with the player's ships takes the own colour",
+                 home->tint == Neuron::StandingColour::Own);
+
+  /*
+   * A crossing is not a third number. The strategic map draws arrivals because
+   * at that resolution "on its way here" is the question; §9b.3 declined a third
+   * count on the reticle, and what a player is looking for is one screen up and
+   * already drawn.
+   */
+  _checks.Record("a crossing is not counted on the anchor it is crossing to",
+                 crossing->shipCount == 0 && crossing->dockedCount == 0);
+  _checks.Record("and an anchor with nothing on it stays neutral",
+                 crossing->tint == Neuron::StandingColour::Neutral);
+
+  /*
+   * And the lifetime the seam promises: the spans are good until the next call,
+   * which means a second call must actually rebuild rather than hand back the
+   * first system again.
+   */
+  const Game::SystemId other = universe.systems.front().id == start->system ? universe.systems.back().id
+                                                                            : universe.systems.front().id;
+  Neuron::SystemViewData elsewhere;
+  if (!view.BuildSystemView(static_cast<std::uint16_t>(other), elsewhere))
+  {
+    _checks.Record("a second system builds a view", false);
+    return;
+  }
+  _checks.Record("a second call rebuilds rather than returning the first system",
+                 elsewhere.label != nullptr && system.label != nullptr &&
+                   std::strcmp(elsewhere.label, universe.FindSystem(other)->name.c_str()) == 0);
+
+  bool countsCleared = true;
+  for (const Neuron::SystemAnchor& anchor : elsewhere.anchors)
+  {
+    if (anchor.shipCount != 0 || anchor.dockedCount != 0)
+    {
+      countsCleared = false;
+    }
+  }
+  _checks.Record("and it does not carry the first system's counts across", countsCleared);
+}
+
+void RunRosterOwnershipGate(Checklist& _checks)
+{
+  constexpr Game::ShipId MINE_A = 1;
+  constexpr Game::ShipId MINE_B = 2;
+  constexpr Game::ShipId STRAY = 3;
+  constexpr Game::ShipId THEIRS = 4;
+  constexpr Game::ShipId STATION = 5;
+
+  Game::World world;
+  // Any seed: nothing here is random, and Reset wants one.
+  world.Reset(1);
+
+  const auto spawn = [&world](Game::ShipId _id, Game::HullClass _hull, Game::WingId _wing, float _x) {
+    Game::ShipSpawn ship;
+    ship.hullClass = _hull;
+    ship.wing = _wing;
+    ship.xMetres = _x;
+    ship.yMetres = 0.0f;
+    return world.Spawn(ship, _id);
+  };
+
+  bool spawned = spawn(MINE_A, Game::HullClass::Interceptor, 1, 0.0f);
+  spawned = spawn(MINE_B, Game::HullClass::Interceptor, 1, 100.0f) && spawned;
+  // In no wing and this commander's: the strays the disband makes.
+  spawned = spawn(STRAY, Game::HullClass::Corvette, Game::INVALID_WING_ID, 200.0f) && spawned;
+  // Somebody else's, flying *their* wing 1 on the same grid.
+  spawned = spawn(THEIRS, Game::HullClass::Interceptor, 1, 300.0f) && spawned;
+  // And a structure, which is in no wing and belongs to nobody.
+  spawned = spawn(STATION, Game::HullClass::Structure, Game::INVALID_WING_ID, 400.0f) && spawned;
+  if (!spawned)
+  {
+    _checks.Record("the roster ownership gate could build its grid", false);
+    return;
+  }
+  world.Tick(1);
+
+  std::vector<Neuron::EntityRecord> records;
+  for (std::uint32_t slot = 0; slot < world.ShipCount(); ++slot)
+  {
+    const Game::ShipId id = world.Ids()[slot];
+    const Game::Relationship standing =
+      id == THEIRS ? Game::Relationship::Hostile : (id == STATION ? Game::Relationship::Neutral : Game::Relationship::Own);
+    records.push_back(Game::MakeShipRecord(world, slot, standing));
+  }
+
+  std::array<std::uint8_t, Game::MAX_TICK_TAIL_BYTES> tailBytes{};
+  Neuron::ByteWriter tailWriter{tailBytes};
+  if (!Game::WriteTickTail(world, tailWriter, 0) || !tailWriter.Ok())
+  {
+    _checks.Record("the roster ownership gate could write its frame", false);
+    return;
+  }
+
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  desc.wingNames = {"UNASSIGNED", "TALON", "ANVIL"};
+  desc.spareWingNames = {"VERGE", "CINDER"};
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  Neuron::ReplicatedFrame frame;
+  frame.tick = world.Tick();
+  frame.gridId = world.Anchor();
+  frame.entities = records;
+  frame.tail = tailWriter.Written();
+  const bool applied = view.ApplyFrame(frame);
+  Neuron::RenderScene scene;
+  view.BuildScene(static_cast<double>(world.Tick()), scene);
+
+  std::array<Neuron::RosterRow, Neuron::MAX_ROSTER_ROWS> rows{};
+  const std::uint32_t rowCount = applied ? view.BuildRoster(std::span<const Neuron::EntityId>{}, rows) : 0;
+
+  const auto rowFor = [&](std::uint16_t _group) -> const Neuron::RosterRow* {
+    for (std::uint32_t index = 0; index < rowCount; ++index)
+    {
+      if (rows[index].groupId == _group)
+      {
+        return &rows[index];
+      }
+    }
+    return nullptr;
+  };
+
+  const Neuron::RosterRow* talon = rowFor(1);
+  _checks.Record("a hostile fleet flying its own wing 1 is not counted into this player's",
+                 talon != nullptr && talon->shipCount == 2);
+
+  const Neuron::RosterRow* strays = rowFor(Game::INVALID_WING_ID);
+  _checks.Record("a ship in no wing gets a row, in the game's own word for it",
+                 strays != nullptr && strays->shipCount == 1 && strays->name != nullptr &&
+                   std::string_view{strays->name} == "UNASSIGNED");
+
+  // The station is in no wing either, and it is nobody's: the ownership filter
+  // is what tells the two apart, and without it the strays would read two.
+  _checks.Record("and a structure is not one of them", strays != nullptr && strays->shipCount == 1);
+
+  _checks.Record("the strays are last, so a disband does not push the wings down the panel",
+                 rowCount > 0 && rows[rowCount - 1].groupId == Game::INVALID_WING_ID);
+
+  std::array<Neuron::EntityId, 8> members{};
+  const std::uint32_t wingMembers = view.BuildGroupMembers(1, members);
+  _checks.Record("pressing a wing row selects that commander's ships and not the enemy's",
+                 wingMembers == 2 && members[0] != THEIRS && members[1] != THEIRS);
+
+  const std::uint32_t strayMembers = view.BuildGroupMembers(Game::INVALID_WING_ID, members);
+  _checks.Record("and pressing the stray row selects the strays", strayMembers == 1 && members[0] == STRAY);
+
+  /*
+   * The disband, offered last.
+   *
+   * `StationActionOptions` is asked directly rather than through the composer,
+   * because what is being checked is the *list*: that wing zero is in it at all
+   * (it was refused until the strays had a row) and that it is at the end,
+   * where the destructive value belongs.
+   */
+  std::array<Neuron::OrderOption, Neuron::MAX_STATION_OPTIONS> options{};
+  const std::uint32_t optionCount =
+    view.StationActionOptions(static_cast<std::uint16_t>(Game::StationVerb::AssignWing), options);
+  _checks.Record("the assign chip offers the disband, last, and calls it what the row calls it",
+                 optionCount >= 2 && options[optionCount - 1].parameter == Game::INVALID_WING_ID &&
+                   options[optionCount - 1].name != nullptr &&
+                   std::string_view{options[optionCount - 1].name} == "UNASSIGNED");
+
+  /*
+   * And the rename, which is the control T3 owed.
+   *
+   * Asserted through `BuildRoster` rather than through a getter, because what a
+   * rename has to change is the word on the row -- the storage is an
+   * implementation detail and the panel is the promise.
+   */
+  _checks.Record("a wing takes the word the player typed", view.RenameGroup(1, "KESTREL"));
+  const std::uint32_t renamedCount = view.BuildRoster(std::span<const Neuron::EntityId>{}, rows);
+  const Neuron::RosterRow* renamed = nullptr;
+  for (std::uint32_t index = 0; index < renamedCount; ++index)
+  {
+    if (rows[index].groupId == 1)
+    {
+      renamed = &rows[index];
+    }
+  }
+  _checks.Record("and the row says so", renamed != nullptr && renamed->name != nullptr &&
+                                          std::string_view{renamed->name} == "KESTREL");
+
+  // Renaming twice replaces rather than appends, or a player renaming one wing
+  // repeatedly would spend the pointer-stability reserve on one wing.
+  _checks.Record("renaming the same wing again replaces its word", view.RenameGroup(1, "KESTREL PRIME"));
+  const std::uint32_t againCount = view.BuildRoster(std::span<const Neuron::EntityId>{}, rows);
+  std::uint32_t wingOneRows = 0;
+  for (std::uint32_t index = 0; index < againCount; ++index)
+  {
+    wingOneRows += rows[index].groupId == 1 ? 1u : 0u;
+  }
+  _checks.Record("and does not give it a second row", wingOneRows == 1);
+
+  _checks.Record("wing zero cannot be renamed -- it is the absence of a wing rather than one",
+                 !view.RenameGroup(Game::INVALID_WING_ID, "MY SHIPS"));
+  _checks.Record("and an empty name is not a rename", !view.RenameGroup(2, ""));
+
+  /*
+   * A player who types a spare call sign takes it out of the pool.
+   *
+   * Otherwise the hangar hands `VERGE` to the next new wing and two things the
+   * player has told apart carry one word -- the failure the constructor already
+   * guards against on reload, reachable at runtime through this one path.
+   */
+  _checks.Record("typing a spare call sign spends it", view.RenameGroup(2, "VERGE"));
+  const std::vector<std::pair<Game::WingId, std::string>> owned = view.PlayerWingNames();
+  const std::size_t verges = static_cast<std::size_t>(
+    std::count_if(owned.begin(), owned.end(), [](const std::pair<Game::WingId, std::string>& _entry) {
+      return _entry.second == "VERGE";
+    }));
+  _checks.Record("and only one thing carries it", verges == 1);
+}
+
+void RunWingNameLayerGate(Checklist& _checks)
+{
+  constexpr Game::AnchorId STATION = 41;
+
+  // Wing 9 is one the player composed in an earlier session -- a number past
+  // anything the content named -- and wings 1 and 2 are the content's own.
+  const Game::RosterEntry docked[] = {
+    Game::RosterEntry{1, Game::HullClass::Interceptor, 1},
+    Game::RosterEntry{2, Game::HullClass::Bomber, 2},
+    Game::RosterEntry{3, Game::HullClass::Corvette, 9},
+  };
+
+  const auto feed = [&](Outpost::ReplicatedWorldView& _view)
+  {
+    const Game::FleetSummary rows[] = {
+      Game::FleetSummary{STATION, Game::FleetState::Docked, 3, Game::FLEET_ETA_NONE},
+    };
+    std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> bytes{};
+    Neuron::ByteWriter writer{bytes};
+    const bool wrote = Game::BeginSummaryFrame(2, writer) && Game::BeginSummaryRecord(Game::SummaryKind::FleetSummaries, writer) &&
+                       Game::WriteFleetSummaries(rows, writer) && Game::BeginSummaryRecord(Game::SummaryKind::StationRoster, writer) &&
+                       Game::WriteStationRoster(STATION, docked, writer);
+    return wrote && _view.ApplySummary(writer.Written());
+  };
+
+  const auto makeDesc = [](std::vector<std::pair<Game::WingId, std::string>> _saved)
+  {
+    Outpost::ReplicatedWorldView::Desc desc;
+    desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+    desc.wingNames = {"-", "TALON", "ANVIL"};
+    desc.spareWingNames = {"VERGE", "CINDER"};
+    desc.savedWingNames = std::move(_saved);
+    return desc;
+  };
+
+  /// The word on the row for `_group`, or empty if there is no such row.
+  const auto rowName = [](const std::array<Neuron::RosterRow, Neuron::MAX_ROSTER_ROWS>& _rows, std::uint32_t _count,
+                          std::uint16_t _group)
+  {
+    for (std::uint32_t index = 0; index < _count; ++index)
+    {
+      if (_rows[index].groupId == _group && _rows[index].name != nullptr)
+      {
+        return std::string_view{_rows[index].name};
+      }
+    }
+    return std::string_view{};
+  };
+
+  /*
+   * The control: the same content with no settings file behind it.
+   *
+   * Wing 9 is in the hangar and unnamed, so this view does what it has always
+   * done -- spends the first spare call sign on it, which is `EnsureWingName`
+   * covering a wing the player would otherwise not see. That is the *before*
+   * every claim below is a difference against.
+   */
+  Outpost::ReplicatedWorldView shipped{makeDesc({})};
+  std::array<Neuron::RosterRow, Neuron::MAX_ROSTER_ROWS> shippedRoster{};
+  const bool shippedFed = feed(shipped);
+  const std::uint32_t shippedRows = shippedFed ? shipped.BuildRoster(std::span<const Neuron::EntityId>{}, shippedRoster) : 0;
+  _checks.Record("without a settings layer a wing is called what the content calls it",
+                 shippedRows == 3 && rowName(shippedRoster, shippedRows, 2) == "ANVIL" &&
+                   rowName(shippedRoster, shippedRows, 9) == "VERGE");
+
+  Outpost::ReplicatedWorldView restored{makeDesc({{2, "ANVIL PRIME"}, {9, "VERGE"}})};
+  std::array<Neuron::RosterRow, Neuron::MAX_ROSTER_ROWS> roster{};
+  const bool restoredFed = feed(restored);
+  const std::uint32_t rowCount = restoredFed ? restored.BuildRoster(std::span<const Neuron::EntityId>{}, roster) : 0;
+
+  // A rename outranks the authored word; the authored table is never written
+  // to, which is what makes deleting the settings file restore the shipped
+  // names exactly.
+  _checks.Record("a renamed wing shows the player's word and an unrenamed one still shows the content's",
+                 rowCount == 3 && rowName(roster, rowCount, 2) == "ANVIL PRIME" && rowName(roster, rowCount, 1) == "TALON");
+
+  std::array<Neuron::StationAction, Neuron::MAX_STATION_ACTIONS> actions{};
+  const std::uint32_t actionCount = restoredFed ? restored.BuildStationActions(static_cast<std::uint16_t>(STATION), actions) : 0;
+  std::array<Neuron::OrderOption, Neuron::MAX_STATION_OPTIONS> options{};
+  const std::uint32_t optionCount = actionCount == 2 ? restored.StationActionOptions(actions[1].verb, options) : 0;
+
+  /*
+   * A rename costs a word and not a row.
+   *
+   * Three wings are named -- 1 and 2 from the content, 9 from the settings
+   * layer -- so the chip offers those three and the lowest number nobody is
+   * using, which is 3. The arithmetic this replaced counted the two name lists
+   * by adding them, and would have read the rename of wing 2 as a fourth named
+   * wing: eight renames would have closed the NEW WING chip for a reason the
+   * player could not see.
+   */
+  _checks.Record("a restored wing is offered like any other, and a rename spends no roster row",
+                 optionCount == 5 && options[0].parameter == 1 && options[1].parameter == 2 &&
+                   options[2].parameter == 9 && options[3].parameter == 3);
+
+  // And the disband after them, which is T3's addition to this list rather than
+  // a fifth wing (`StationActionOptions`).
+  _checks.Record("with the disband after them", optionCount >= 1 &&
+                                                  options[optionCount - 1].parameter == Game::INVALID_WING_ID);
+
+  /*
+   * The failure this whole gate is here for.
+   *
+   * `spareWingNames` is consumed in order and never returned, so restoring
+   * VERGE without also *spending* it would hand the same word to the next wing
+   * the player composes -- one call sign on two things they had told apart. The
+   * next new wing has to be CINDER.
+   */
+  bool spentTheRightWord = false;
+  if (optionCount == 5)
+  {
+    Neuron::StationIntent intent;
+    intent.verb = actions[1].verb;
+    intent.parameter = options[3].parameter; // The unused number the chip offers.
+    intent.anchor = static_cast<std::uint16_t>(STATION);
+    intent.orderSeq = 1;
+    const std::uint32_t members[] = {1};
+    intent.shipIds = members;
+    intent.shipCount = 1;
+
+    std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> commandBytes{};
+    Neuron::ByteWriter commandWriter{commandBytes};
+    if (restored.EncodeStationCommand(intent, commandWriter) && commandWriter.Ok())
+    {
+      // Asked through the chip rather than through a back door: the name the
+      // player will read is the one the option carries.
+      std::array<Neuron::OrderOption, Neuron::MAX_STATION_OPTIONS> after{};
+      const std::uint32_t afterCount = restored.StationActionOptions(actions[1].verb, after);
+      for (std::uint32_t index = 0; index < afterCount; ++index)
+      {
+        if (after[index].parameter == intent.parameter && after[index].name != nullptr)
+        {
+          spentTheRightWord = std::string_view{after[index].name} == "CINDER";
+        }
+      }
+    }
+  }
+  _checks.Record("a call sign the player is already using is not handed to a second wing", spentTheRightWord);
+
+  /*
+   * And what goes back to the settings layer is exactly what the player owns:
+   * the two names restored plus the one just composed, and nothing the content
+   * named. TALON is not in this list, which is why deleting the file gives it
+   * back.
+   */
+  const std::vector<std::pair<Game::WingId, std::string>> toSave = restored.PlayerWingNames();
+  bool savesWhatIsOwned = toSave.size() == 3;
+  for (const std::pair<Game::WingId, std::string>& entry : toSave)
+  {
+    savesWhatIsOwned = savesWhatIsOwned && !entry.second.empty() && entry.first != Game::INVALID_WING_ID && entry.second != "TALON";
+  }
+  _checks.Record("and what is written back is every name the player owns and nothing the content owns", savesWhatIsOwned);
 }
 
 /*
@@ -2800,6 +3980,12 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   RunMineAvailabilityGate(checks, _economy);
   RunLocationBlockGate(checks);
   RunWingAssignmentGate(checks);
+  RunInSpaceWingGate(checks);
+  RunWingNameLayerGate(checks);
+  RunMapMarkerGate(checks);
+  RunSystemViewGate(checks, _economy);
+  RunRosterOwnershipGate(checks);
+  RunRouteFeedGate(checks);
 
   // U3c's accept, after the single-commander loop has proved the machinery it
   // builds on: two clients at once, on grids of their own.

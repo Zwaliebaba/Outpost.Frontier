@@ -54,7 +54,26 @@ bool ClientConnection::Connect(const std::string& _host, std::uint16_t _port, st
     return false;
   }
 
-  m_transport = std::move(transport);
+  /*
+   * The latency shim, when a harness asked for one (ADR-018 A15).
+   *
+   * Wrapped *after* `Connect`, because connecting is a statement about the
+   * local socket and the shim forwards it untouched anyway -- doing it here
+   * keeps the ordinary path a single line and makes the wrapping visibly
+   * conditional. At zero no shim is constructed at all, so the shipping path
+   * is not "equivalent to" the unshimmed one, it is the unshimmed one.
+   */
+  if (m_injectedOneWayMs > 0.0)
+  {
+    NEURON_LOG_WARNING("transport: injecting %.1f ms each way (%.1f ms round trip) -- this is a measurement build",
+                       m_injectedOneWayMs, InjectedRoundTripMs());
+    m_transport = std::make_unique<DelayedTransport>(std::move(transport),
+                                                     DelayedTransportTuning{m_injectedOneWayMs, 4096});
+  }
+  else
+  {
+    m_transport = std::move(transport);
+  }
   m_state = ClientLinkState::Connecting;
   m_helloSent = false;
   SendHello();

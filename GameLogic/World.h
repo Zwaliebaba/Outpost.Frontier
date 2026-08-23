@@ -449,6 +449,36 @@ public:
   [[nodiscard]] bool TransferOut(ShipId _shipId, TransferMember& _outMember);
 
   /*
+   * Which wing a ship in space flies in (ADR-017 §6's 2026-08-23 amendment, I2).
+   *
+   * False when the id is not here -- the same question `TransferOut` answers,
+   * and worth being able to ask for the same reason.
+   *
+   * **The one field a command may write between ticks**, and it is safe for a
+   * reason worth stating rather than assuming: *nothing in `Tick` reads it*. A
+   * wing is carried, not simulated -- steering, integration and separation
+   * never look at it, and the only readers are `EmitSnapshot`, `WorldHash`,
+   * `TransferOut` and the durable record, all of which run outside a step. So a
+   * write between two ticks cannot change what either tick computes, which is
+   * exactly what `SubmitOrder`'s queue exists to guarantee for the fields that
+   * *are* simulated.
+   *
+   * That is also why this is not an order. An order changes where a ship is
+   * going and must be attributable to a tick for replay to reproduce it; a wing
+   * changes which group a player calls it, and a replay reproduces it from the
+   * same command stream in the same arrival order.
+   *
+   * **Not `noexcept`, and that is the file's rule rather than an oversight**:
+   * `NEURON_ASSERT_OWNER` throws, so every mutator here that asserts the owner
+   * -- `Spawn`, `TransferOut`, `Despawn`, `Tick` -- is non-throwing in practice
+   * and unmarked in the signature. The reads that *are* marked (`FindSlot`,
+   * `IsProtected`) assert nothing. This shipped marked and clang-tidy's
+   * `bugprone-exception-escape` caught it, which is the second time that check
+   * has found a false `noexcept` in this library.
+   */
+  bool SetWing(ShipId _shipId, WingId _wing);
+
+  /*
    * The transfers this world filed and has not handed over yet.
    *
    * A world files; the registry stamps and applies. It cannot do both, because

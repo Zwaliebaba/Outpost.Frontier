@@ -30,12 +30,17 @@ its first records, and U3a inherits it for warp).
 H0/H1), interleaved into the universe phase after U2.
 **§6's wing assignment reached the screen on 2026-08-22** — see the note in §6 for what had
 been holding it and for the two rulings the build made.
+**And left the hangar on 2026-08-23 (I2)** — the docked scope is lifted and a wing can be
+formed in space; see the amendment in §6, which also strikes it from the not-covered list.
 **Built so far (2026-08-19, T1's sim half):** §1's roster, §2's `Dock` order and its
 footprint-derived radius, §3's `Undock` and §6's `AssignWing` as shared-validated station
 commands, §5's protection window and its player-command break, and §9's transfer bus with
 its `(applyTick, transferId)` order, and §4's parking ring with its deterministic berth
-scan. **Not yet built:** §6's hangar screen, which is T3's, and the wire half of §8, which is
-T2's.
+scan. ~~**Not yet built:** §6's hangar screen, which is T3's, and the wire half of §8, which is
+T2's.~~ **Both built:** §8's wire half with T2 (2026-08-19), and §6's hangar screen across
+T3a/T3b (2026-08-22) and T3's remainder (2026-08-23) — which closed the last of it, the wing
+rename control and assigning to wing 0 to disband. What is left of §6 is a visual checkpoint,
+not code.
 
 ## Context
 
@@ -357,9 +362,67 @@ unused number, disbanding is reassigning the last member. No wing table, nothing
 desync. Wing **names** stay what they are today — content injected by the composition
 root — with renames and names-for-new-wings living in the **user settings layer**
 (ADR-012): presentation, client-side, never on the wire. The server knows wings as numbers
-and nothing else. `AssignWing` is docked-scope only for now (`NotDocked` otherwise): the
+and nothing else. ~~`AssignWing` is docked-scope only for now (`NotDocked` otherwise): the
 hangar is the reorganisation room, and in-space reassignment can arrive later without new
-machinery if play demands it.
+machinery if play demands it.~~
+
+> **Amendment, 2026-08-23 — the docked scope is lifted, and play demanded it.**
+>
+> [Plan-of-Record §1](../Plan-of-Record.md)'s rule 3 is what asked: **wings are the control
+> groups**, which is what lets ADR-020's input model select a fleet with no keys, no
+> user-layer storage and no new entity. A control group a player can only *form* by first
+> flying home is not one — so the clause above described a scope this design had outgrown.
+>
+> **It arrived without new machinery, as promised.** A `WingId` already rides on a ship in
+> space (`World::Wings`), `WingPopulation` already walks grids as well as rosters and the
+> bus — so "the lowest unused number" was already counting the fleet that is flying — and
+> the wire, the verb and the shared validator are untouched. What changed is what the
+> validator is judged against: `RosterView` carries a **grid** beside its station, and
+> `RequiresDock` is now a second question `NamesShips` used to answer alone.
+>
+> **A station's anchor is also a grid's**, so the two lists usually fill side by side: what
+> is docked here, and what is flying here. `AssignWing` may name either; `Undock` and the
+> two transfer verbs may name only the roster, because moving a hull or a hold across a
+> station's threshold is the whole of what they do. One command may name ships from both
+> lists, which no surface can compose today and which costs a rule to forbid.
+>
+> **The refusal changed with it.** `NotDocked` reads *"not docked here"*, which is the wrong
+> sentence for a player who selected ships in space, so an `AssignWing` that names a ship
+> the view does not carry is refused `UnknownShip` — *"no such ship"* — true in a hangar and
+> true on a grid. It is keyed on the **verb** and never on which list came up empty: the
+> verb is a byte both machines have, while the view is built from the registry's owner index
+> on one side and ADR-022 §8b's relationship bits on the other. A reason derived from the
+> view would have differed between the halves in exactly the case this lift adds.
+>
+> **What it does not do is give it a surface.** Nothing in the client can compose an in-space
+> assignment yet; that is I3's, alongside the order surfaces. This is the authority half,
+> landed first so a screen slice is a screen slice rather than a screen and an authority
+> change in one sitting.
+
+> **Amendment, 2026-08-23 — the rename control and the disband, which close T3's list.**
+>
+> The sentence above says renames live in the user settings layer. N2 built that layer and
+> T3's remainder builds the **control**: a tap on a wing's column header opens a field on the
+> header itself, seeded with the current word and with the whole of it selected. Escape
+> cancels, Enter commits, and a tap outside commits — the last of which is the one that
+> matters, because touch has no Enter. The engine collects the characters and the game
+> decides whether the word may be stored, which is `WorldView::RenameGroup`: an opaque group
+> id and a string across the seam, and the engine never learns it renamed a wing.
+>
+> **Disbanding was the clause this section stated and the client refused to offer.** *"Disbanding
+> is reassigning the last member"* — and the hangar's wing chip did not offer wing 0, because
+> the tactical roster drew no row for it, so the button would have made ships vanish off the
+> HUD. The strays have a row now, last on the panel and only when there are any, so a disband
+> moves a fleet from one row to another where it can still be seen and re-grouped.
+>
+> **And building that row found a defect this section is the right place to record**, because
+> it is about what a wing number *is*. A `WingId` is a byte **every commander numbers from
+> one** — this design says so, in "any value 1..255" — so a roster that grouped by the number
+> alone was grouping two commanders' fleets together. A hostile wing 1 on your grid was
+> counted into your wing 1's row and would have been selected by a press on it. The fix is
+> ADR-022 §8b's relationship bits, which arrived after the code that needed them; the reason
+> it was never seen is that it takes two commanders on one grid, which is U3c's arrangement
+> and which no gate had built.
 
 **Remote hangars work.** Focus never gates command (ADR-016 §7): the station screen opens
 for any station holding your ships, viewed or not, because the roster it reads is
@@ -533,8 +596,9 @@ dense order with no RNG draw; parking is as replayable as steering.
   universe layer, with the roster among the first things it writes down.)*
 - **No AI commander.** A disconnect mid-approach halts outside the station (§2), the same
   gap ADR-016 §8 accepted, closed by the same future feature.
-- **No in-space wing reassignment** (§6) and **no per-class dock ceremony** — a Carrier
-  and an Interceptor dock alike, instantly; pageantry is presentation's if it ever wants it.
+- ~~**No in-space wing reassignment** (§6)~~ — **built 2026-08-23**, see the amendment in §6;
+  what stands is **no per-class dock ceremony** — a Carrier and an Interceptor dock alike,
+  instantly; pageantry is presentation's if it ever wants it.
 
 ## Alternatives rejected
 

@@ -190,11 +190,43 @@ bool Window::ConsumeResize(std::uint32_t& _outWidth, std::uint32_t& _outHeight)
   return true;
 }
 
+void Window::UpdateMouseContact() noexcept
+{
+  const bool buttonDown = m_input.buttonDown[static_cast<std::uint32_t>(InputButton::Left)];
+  const bool buttonPressed = m_input.buttonPressed[static_cast<std::uint32_t>(InputButton::Left)];
+
+  PointerPhase phase = PointerPhase::None;
+  if (!m_mouseContactDown && (buttonDown || buttonPressed))
+  {
+    // `buttonPressed` as well as `buttonDown`, which is the fast-click case: a
+    // press and release inside one frame leaves the level already false, and
+    // reporting nothing here would lose the click entirely.
+    phase = PointerPhase::Down;
+    m_mouseContactDown = true;
+  }
+  else if (m_mouseContactDown)
+  {
+    phase = buttonDown ? PointerPhase::Held : PointerPhase::Up;
+    m_mouseContactDown = buttonDown;
+  }
+
+  m_input.contactCount = 0;
+  if (phase == PointerPhase::None)
+  {
+    return;
+  }
+  m_input.contacts[0] = PointerContact{MOUSE_CONTACT_ID, m_input.cursorX, m_input.cursorY, phase};
+  m_input.contactCount = 1;
+}
+
 InputFrame Window::ConsumeInput() noexcept
 {
   m_input.viewportWidth = m_width;
   m_input.viewportHeight = m_height;
   m_input.windowFocused = GetForegroundWindow() == m_handle;
+
+  // Last, so the contact is built from the button state this frame ended with.
+  UpdateMouseContact();
 
   const InputFrame frame = m_input;
 
@@ -213,6 +245,10 @@ InputFrame Window::ConsumeInput() noexcept
     released = false;
   }
   for (bool& pressed : m_input.actionPressed)
+  {
+    pressed = false;
+  }
+  for (bool& pressed : m_input.editKeyPressed)
   {
     pressed = false;
   }
@@ -304,6 +340,53 @@ void Window::SetButton(InputButton _button, bool _down) noexcept
 
 void Window::SetKey(WPARAM _virtualKey, bool _down) noexcept
 {
+  /*
+   * The field's keys first, in their own channel (`TextEditKey`).
+   *
+   * Their own switch and not a third entry in the array below, because they are
+   * a different question -- see `InputMap.h`. `Home` is the one key in both
+   * tables: it is `ResetView` to a camera and "start of line" to a field, and
+   * falling through rather than returning is what lets each read its own answer
+   * where the routing already decides which of them is listening.
+   */
+  {
+    TextEditKey key = TextEditKey::Backspace;
+    bool isEditKey = true;
+    switch (_virtualKey)
+    {
+    case VK_BACK:
+      key = TextEditKey::Backspace;
+      break;
+    case VK_DELETE:
+      key = TextEditKey::Delete;
+      break;
+    case VK_LEFT:
+      key = TextEditKey::Left;
+      break;
+    case VK_RIGHT:
+      key = TextEditKey::Right;
+      break;
+    case VK_HOME:
+      key = TextEditKey::Home;
+      break;
+    case VK_END:
+      key = TextEditKey::End;
+      break;
+    default:
+      isEditKey = false;
+      break;
+    }
+
+    // A level rather than an edge would be a caret that runs while a key is
+    // held, at the frame rate rather than at the platform's repeat rate -- so
+    // this takes every `_down`, auto-repeat included, and the repeat rate is
+    // the one the player configured.
+    if (isEditKey && _down)
+    {
+      m_input.editKeyPressed[static_cast<std::uint32_t>(key)] = true;
+    }
+  }
+
   // The whole virtual-key table, in the one file entitled to know about
   // virtual keys. Left and right buttons are deliberately not here: the left
   // one is S8's click and box-select and the right one is S9's order puck, so
@@ -374,6 +457,12 @@ void Window::SetKey(WPARAM _virtualKey, bool _down) noexcept
     // §2): a focused field cancels its edit with it, and only if none does
     // it reach the surface as "back".
     actions[count++] = InputAction::Back;
+    break;
+  case VK_RETURN:
+    // Its twin, and it goes nowhere but a field. `WM_CHAR` also delivers `\r`
+    // for this key; the buffer refuses it as a control character, so binding
+    // the edge here is what gives the key its one meaning rather than two.
+    actions[count++] = InputAction::Confirm;
     break;
   default:
     return; // Not a camera, selection, order or navigation key.

@@ -35,8 +35,11 @@ reading a diff — which is the whole reason to have a manifest rather than a di
 *unbuilt* surface but one.** D1, the system view, was drawn on 2026-08-21 and is **tracked
 upstream from 2026-08-22** — its artefacts left `ScreenPrints/`, and the manifest records that
 as correct rather than as a loss, because the calls that mattered were lifted into ADR-016 §9
-the day it was drawn and are normative there. Four of its questions still wait on an owner
-ruling; none of them is an artefact, so U6 has nothing missing in front of it. The separate inventory of surfaces that had no print **at all** — kept
+the day it was drawn and are normative there. ~~Four of its questions still wait on an owner
+ruling;~~ **all four were ruled on 2026-08-23 ([ADR-016 §9b](ADR/ADR-016-procedural-universe-and-warp.md)),
+so U6 has no design gate left either**; none of them is an artefact, so U6 had nothing missing
+in front of it — and **U6a built its seam and its layout the same day**, which sharpens what the
+plate is still for: it is what U6b's *draw* is checked against, not something U6 was waiting on. The separate inventory of surfaces that had no print **at all** — kept
 so that "not blocking anything" never quietly becomes "forgotten" — was six rows on 2026-08-21
 and is **one** now: character and skills, still correctly blocked on a data model. The five that
 closed are listed below with their plates, because a worked-off row is the evidence that the
@@ -177,8 +180,26 @@ moves between the trees without a rename pass. Three things it changed in these 
   2026-08-22, its calls normative in ADR-016 §9); milestones W0 (first warp)
   / W1 (first crossing) / W2 (the universe on screen). **U1, U2, U3a, U3b's sim and wire
   halves, U4's sim half, U5's pure half and U3c are built** (U3c 2026-08-21, split into
-  ownership in the simulation and the second commander on the wire). **What is left in that
-  plan is screen work, with no exceptions.**
+  ownership in the simulation and the second commander on the wire). ~~**What is left in that
+  plan is screen work, with no exceptions.**~~ **U3d — interest and delta — was added and built
+  2026-08-22/23** (a/b on the 22nd, c's counted chip on the 23rd), which closes R19. What is
+  ~~left of the universe phase is **U4's client half, U5's map and U6**, all of which need a GPU
+  and a person — plus two items that are not screen work and are blocked on different things:
+  **A16's presence edges** have no destination while `SurfaceId::Map` draws nothing, and
+  **A15's view-switch acceptance** needs an injected-delay shim the transport does not have and
+  a timed run either way.~~ Its target is now stated as **RTT + 200 ms** rather than a flat
+  half second.
+
+  **Superseded 2026-08-23, and the pattern in how is worth more than the correction.** U5a,
+  U4's client half, U3b's client half, A15's shim and **U6a** all landed device-free within one
+  day of that sentence calling them GPU work. What is left of the universe phase is **U5b** (ADD
+  WAYPOINT and search, both buildable; the visual checkpoint and frame budget, which are not)
+  and **U6b** — the draw, the plate check, and warp issued from the surface; U6's four owner
+  rulings were answered the same day they were asked and its seam and layout are built. A16's
+  second presence edge is built and its first waits on U6's camera pinning; A15's shim is
+  `NeuronCore/DelayedTransport.h/.cpp` and only its timed run is still owed. **The corpus has now
+  mis-predicted the device-free share of a screen slice five times running**, which is a fact
+  about the estimate rather than about any one slice.
 - [Station-Build-Order.md](Station-Build-Order.md) — the docking phase: T1–T3 slices
   delivering ADR-017 (roster + transfer bus in the sim, the wire and tactical surfaces,
   the hangar screen), interleaved **after U2, before U3a**; milestones **H0 (the headless
@@ -187,9 +208,15 @@ moves between the trees without a rename pass. Three things it changed in these 
   S15 shipped the sound bank). **T1 and T2 are built in full (2026-08-21), and T3 with them
   (2026-08-22, split into T3a's navigation machinery and T3b's hangar)** — so the phase's code
   is in the tree and what it still owes is a person looking at it: the visual checkpoints T2 and
-  T3a each recorded as owed, and the reorganisation room (wing assignment, creation and renames),
-  which is drawn disabled because a wing's *name* is client-side and there is no user settings
-  layer to put one in yet (ADR-017 §6a.4).
+  T3a each recorded as owed. **The reorganisation room is no longer among what it owes.** Wing
+  assignment and creation landed 2026-08-22 — they never needed the settings layer, which is what
+  had been holding all three (ADR-017 §6's note) — and the layer itself landed the same day as
+  **N2**, so a wing's *name* now has somewhere client-side to live (ADR-017 §6, the rule §6a.4
+  cites). What is left of that room is the rename **control**, and assigning to wing 0 to
+  disband, which wants the print's stray column first. **And the room stopped being a room on
+  2026-08-23**: I2 lifted `AssignWing` out of docked scope (ADR-017 §6's amendment), so a wing
+  can be formed wherever the ships are — the authority accepts it and both halves agree, but
+  nothing in the client can compose one in space yet, which is I3's.
 - [Economy-Build-Order.md](Economy-Build-Order.md) — the mining and refining phase: E1a–E5
   slices delivering ADR-024 and ADR-025 (the economy content layer, sites in the bake and the
   epoch that moves them, the Mine order and the site ledger, cargo and the Bay and the wire
@@ -753,8 +780,10 @@ authored onto `accent`, whose colour it already was.
 
 ~~**What is not built is screen work, and as of 2026-08-21 there are no exceptions.**~~
 **Corrected 2026-08-22 — that sentence was true of the build orders and not of the corpus, which
-is exactly the gap it claimed there was none of.** U3b's client half, U4's route feeder and
-icons, U5's map itself and U6 need a GPU and a person, which is the same wall S5 and R1 have been
+is exactly the gap it claimed there was none of.** ~~U3b's client half, U4's route feeder and
+icons, U5's map itself and U6 need a GPU and a person~~ **— corrected again 2026-08-23: all but
+the icons landed device-free, U6 included once it was split, and the icons turned out to need a
+replicated field rather than a screen (ADR-016 §10)** — which is the same wall S5 and R1 have been
 standing at since S8 — **and four more screens have a plate here and no slice anywhere**: 07e
 (session surfaces, blocked on the account service ADR-023 declines to design), 07g §3 (the
 command wheel), 07h (settings) and 07f+ (the map's site layer). **One item that is not screen

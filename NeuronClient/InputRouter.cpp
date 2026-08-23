@@ -16,6 +16,16 @@ void InputRouter::Begin(const InputFrame& _frame, const UiFocus& _focus) noexcep
 
   m_fieldHoldsFocus = _focus.Kind() == FocusKind::EditableField;
   m_captureHoldsFocus = _focus.ClaimsWholeKeyboard();
+
+  // A gesture is per frame like everything else here. A caller that forgets to
+  // hand one over gets `None` rather than last frame's, which is the safe
+  // direction: a stale long-press is an order nobody gave.
+  m_gesture = GestureState{};
+}
+
+const GestureState& InputRouter::Gesture() const noexcept
+{
+  return m_pointerClaimed ? m_noGesture : m_gesture;
 }
 
 bool InputRouter::Pressed(InputButton _button) const noexcept

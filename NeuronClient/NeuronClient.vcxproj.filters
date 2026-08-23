@@ -65,6 +65,9 @@
     <ClCompile Include="GpuUploadRing.cpp">
       <Filter>Gpu</Filter>
     </ClCompile>
+    <ClCompile Include="Gesture.cpp">
+      <Filter>Input</Filter>
+    </ClCompile>
     <ClCompile Include="InputMap.cpp">
       <Filter>Input</Filter>
     </ClCompile>
@@ -212,6 +215,9 @@
     <ClInclude Include="GpuUploadRing.h">
       <Filter>Gpu</Filter>
     </ClInclude>
+    <ClInclude Include="Gesture.h">
+      <Filter>Input</Filter>
+    </ClInclude>
     <ClInclude Include="InputMap.h">
       <Filter>Input</Filter>
     </ClInclude>
@@ -266,6 +272,48 @@
     <ClCompile Include="StationScreen.cpp">
       <Filter>Hud</Filter>
     </ClCompile>
+    <ClInclude Include="SettingsScreen.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClCompile Include="SettingsScreen.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
+    <ClInclude Include="ContrastAudit.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClCompile Include="ContrastAudit.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
+    <ClInclude Include="CountedChip.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClCompile Include="CountedChip.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
+    <ClInclude Include="MapView.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClInclude Include="MapScreen.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClCompile Include="MapScreen.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
+    <ClInclude Include="SystemView.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClInclude Include="SystemScreen.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClCompile Include="SystemScreen.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
+    <ClInclude Include="RoutePlan.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClCompile Include="RoutePlan.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
     <ClInclude Include="RosterSelection.h">
       <Filter>Input</Filter>
     </ClInclude>
@@ -283,6 +331,9 @@
     </ClInclude>
     <ClInclude Include="UiDrawList.h">
       <Filter>Hud</Filter>
+    </ClInclude>
+    <ClInclude Include="UploadBudget.h">
+      <Filter>Gpu</Filter>
     </ClInclude>
     <ClInclude Include="UiLayout.h">
       <Filter>Hud</Filter>

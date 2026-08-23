@@ -31,7 +31,8 @@ namespace
 
 } // namespace
 
-CameraIntent MapCameraInput(const InputFrame& _input, const CameraTuning& _tuning, float _deltaSeconds) noexcept
+CameraIntent MapCameraInput(const InputFrame& _input, const CameraTuning& _tuning, float _deltaSeconds, float _dragPixelsX,
+                            float _dragPixelsY) noexcept
 {
   CameraIntent intent;
 
@@ -72,6 +73,22 @@ CameraIntent MapCameraInput(const InputFrame& _input, const CameraTuning& _tunin
     intent.panRightPixels -= static_cast<float>(_input.cursorDeltaX);
     intent.panUpPixels += static_cast<float>(_input.cursorDeltaY);
   }
+
+  /*
+   * And the primary contact's drag, which is the *touch* pan (I2).
+   *
+   * Added rather than exclusive with the middle-drag above: they are two
+   * devices and a machine may have both, and nothing is gained by making one
+   * suppress the other on the frame somebody is using two hands. The same sign,
+   * for the same reason -- the plane follows the contact.
+   *
+   * The caller passes zero unless the gesture layer says this contact is
+   * dragging, so a press that is still deciding, or one that became a
+   * long-press, moves nothing. That is rule 1's whole content: **tap selects,
+   * drag pans**, and the fork between them is the gesture layer's to make.
+   */
+  intent.panRightPixels -= _dragPixelsX;
+  intent.panUpPixels += _dragPixelsY;
 
   // Releasing an orbit drops onto the nearest detent -- the snap is what makes
   // 45 degrees a rule rather than a suggestion.

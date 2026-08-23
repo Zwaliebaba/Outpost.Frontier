@@ -172,7 +172,9 @@ grid's snapshot was one datagram for everyone watching it; under interest cullin
 grid's update is sized by a per-tick byte budget, packed into as many datagrams as it takes,
 and each viewer gets a different subset. Summaries are untouched — they were already per-player
 and already cheap. §7's presence rules gain one affordance: `culledCount` states how many
-entities the player is **not** being sent, through the icon ladder's counted-chip rung.)*
+entities the player is **not** being sent, through the icon ladder's counted-chip rung.
+**Built 2026-08-23 (U3d-c)** — and as a *screen-space* chip rather than a mark on the plane,
+because a culled entity has no position the client can justify; see ADR-022 §5d's note.)*
 
 *(Amended again 2026-08-22 by U3d-b, and this one contradicts §7 rather than extending it.
 **§7 says "everything else about a view — where the camera is, what is selected, how far it is
@@ -225,6 +227,41 @@ Rules: the view may point at **any grid where the player has ships** — and now
 > station, which §7's own sentence and ADR-017 §7 already folded into one answer — and the
 > `selfTest` asserts the refusal with two real clients over a socket.
 
+> **The viewer half of that rule was built on 2026-08-22 (N5), two slices after it was
+> scheduled.** `WorldRegistry::AddViewer` shipped with U2 and its header named U3b as what
+> would start calling it for a player's view. U3b landed, and every caller in the tree was
+> still the composition root holding its own start grid — so *"a viewer"* meant a grid chosen
+> at boot rather than the grid anybody was looking at. **Presence gating hid it**: a grid you
+> may watch is one your ships are standing on, and ships keep a grid alive on their own. What
+> it did not hide is the case that has no ships — a station whose grid you have docked
+> everything at, a site you are scouting after the field is chewed out. There **the sentence
+> above was simply false**: `RankRelevance` borrowed the grid, which spun it up; the sweep at
+> the end of the tick found it empty and unwatched and tore it down; and the next tick built it
+> again. A whole `World`, its authored occupants and — on a site — a `BuildSiteField` layout,
+> once per tick, for as long as somebody looked.
+>
+> **What it did not do is change what the player saw**, and that is worth stating so the fix is
+> not credited with more than it did. A rebuilt grid resolves its field from the calendar —
+> `ResolveField` reads the shard tick, not the instance that went away — so the picture was
+> stable, and the defect was the work plus a stated rule that was not true. The one place the
+> distinction was already written down is `LedgerIsCurrent`, which gives a shipless viewer-held
+> grid the *calendar's* epoch rather than its own ([ADR-018](ADR-018-scaling-baseline.md) D8, so
+> that what a viewer holds alive cannot change what the session hashes). That branch was written
+> for holds which did not yet exist; it has callers now.
+>
+> The seam is `Simulation::ViewerOpened`/`ViewerClosed`, beside `MayView` and doing the other
+> half of its job: `MayView` says whether a view is legal, these say it happened.
+> **`ViewerOpened` reports the whole answer rather than a delta** — which grid this viewer is
+> watching now — so a missed release is not expressible; the composition root keeps the
+> viewer-to-grid map and the registry keeps a count, which is ADR-022 §1's split (the sim tier
+> has no viewers) applied to a hold.
+>
+> **The hold goes with the socket, not with the commander.** A player inside D5's grace window
+> still owns their fleet, their Bay and their refine jobs, all keyed on the player at the
+> universe layer — but they have no camera, and a hold is about a camera. Worlds forget by
+> design (ADR-018 D2), so a grid that empties while they are away is rebuilt from content on
+> the tick they resume onto it.
+
 Seeing without presence is the intel overlay's territory (`strategic-map.png`'s INTEL PINGS:
 "the shape of your ignorance"), deliberately not given away for free now. Within a grid the
 camera is exactly as free as today. **Auto-follow**: a watched fleet that warps takes the
@@ -258,6 +295,42 @@ closes, not here.
   activity heat, intel pings and the history scrubber remain **stubs** — their content does
   not exist yet, which the print itself anticipates ("depends on content that does not
   exist").
+
+  > **Built 2026-08-23 as U5a — the seam and the device-free half.**
+  >
+  > `MapView.h` is D14's neutral graph and the rows the panels print; `MapScreen.h/.cpp` is the
+  > screen — zones, camera, cull, layout and six hit tests; `ReplicatedWorldView` answers all
+  > five seam calls from the committed bake. The subset landed as this section scopes it, with
+  > the stubs *visible* rather than hidden: four of the five overlays are drawn, disabled, and
+  > carry the game's own word for why, and the history rail is drawn, inert and labelled per
+  > §9a.2. What is deferred is named on the slice rather than discovered — search (no
+  > text-entry surface), ~~SET DESTINATION (U4's feeder)~~, ~~fleet markers and VIEW-on-presence
+  > (U3b's client half)~~ **both built 2026-08-23**.
+  >
+  > **SET DESTINATION landed 2026-08-23 with U4's client half**, and the deferral list was one
+  > entry short. **ADD WAYPOINT** was not named, and it should have been: a waypoint's legs are
+  > planned from the *previous waypoint* rather than from where the fleet is standing, so
+  > serving it means the client hands the game a list of systems to string together — a change
+  > to both `SolveMapRoute` and `BuildRoutePlan`, neither of which takes an origin, because the
+  > origin of a fleet's route is a fact the game owns. That is U5's remaining route work rather
+  > than U4's feeder, and the button is drawn permanently dead until it lands.
+  >
+  > **Search stopped being blocked on the day T3 landed**, which is worth writing down because
+  > nothing re-reads a deferral when the thing it waited for arrives. "No text-entry surface"
+  > was true when this note was written; the wing-rename control built one — `TextEditState`,
+  > the `Confirm` action, the caret and the charset filter — so what search now needs is a
+  > field on this screen rather than a mechanism anywhere.
+  >
+  > **One thing in this list turned out to be stated slightly wrong, and it is worth correcting
+  > here rather than in a build order.** *"The security overlay (its content exists from the
+  > bake)"* is true of the content, and the first draft took it to mean the *colour* could be
+  > baked too — the game computing a gradient and handing over a packed value, on D14's
+  > "colours arrive as data". A packed colour is a colour that ignores the player's
+  > colour-vision palette, on the one screen whose whole subject is a coloured overlay. So what
+  > crosses is D14's other word — a **badge class** — and the client resolves it through its own
+  > palette. The gradient becomes three bands, the exact per-system number still reaches the
+  > player in the badge beside it, and both halves of §4's *"two security values that must stay
+  > distinguishable"* survive: the band is a badge and the number is per-system.
 - **System view** — the screen the corpus names (pinch level: SYSTEM) **and drew on
   2026-08-21** as D1 in the build order. *(Its source is no longer in `ScreenPrints/`; D1 is
   tracked upstream, where the plate is still owed. That costs this section nothing, because the
@@ -290,11 +363,22 @@ closes, not here.
   reported; and a warp issued here is a **single hop**, with multi-hop planning left to the
   strategic map so `UniverseRoute` keeps one caller.
 
-  **Four questions are open for owner ruling before U6 builds**, the way P1's four were before
+  ~~**Four questions are open for owner ruling before U6 builds**, the way P1's four were before
   T3: ring spacing past eight anchors, whether sites sit on their own outer ring or among the
   planets by real orbit, one marker or two at an anchor holding both docked and on-grid ships,
-  and whether a gate shows the far side's name. They are tracked with the deliverable in
+  and whether a gate shows the far side's name.~~ **Answered 2026-08-23 — see §9b below.**
+  They are tracked with the deliverable in
   [Universe-Build-Order.md](../Universe-Build-Order.md).
+
+  **Built 2026-08-23 as U6a, the device-free half**, and all four rulings landed on the *game's*
+  side of the seam: `WorldView::BuildSystemView` hands over a ring index and a slot per anchor,
+  so the capacity rule, the site ring and the gate's far-side line are computed where an anchor
+  is known to be an anchor, and the engine draws ring N at a radius without learning what is on
+  it. Two things the build settled that this section had not: the anchors and the scenery
+  **share one slot space per ring** (a ring is fanned by everything on it, because what a
+  capacity rations is angular room and a moon takes as much as a planet); and the star is drawn
+  from the layout's own centre rather than carried as data, which is how *"the player never
+  clicks something and is told no"* becomes structural rather than a branch.
   Contents: the sun, orbit rings at **presentation scale** (real orbital distances are not
   linearly renderable — "layout is legibility" applies inside a system too), anchor icons
   (planets, stations, gates), fleet markers, in-warp fleets sliding along route lines. This
@@ -320,8 +404,37 @@ landed, and the reconnect away-log is one of its four designed consumers. So the
 thing the game can *say* — "your fleet stopped at KIL-7 while you were away" — rather than
 something the player discovers by looking. That does not close the gap, and it is not meant
 to: it makes the gap honest, which is the difference between a designed limitation and a bug.
-U4 emits the halt into the record when it builds the route feeder. **The print's §3 note is
+~~U4 emits the halt into the record when it builds the route feeder.~~ **The print's §3 note is
 answered by §8; nothing in the tree needs to change to make it true.**
+
+> **Amended 2026-08-23 (U4's client half): the struck sentence cannot be carried out, and the
+> reason is §8's own ruling read one step further.**
+>
+> D19's record is per-commander at the **universe layer** — server-side, beside the transfer
+> bus and the rosters. A route lives in one client's memory, because §8 chose the option with
+> "no schema change, no server work". So emitting the halt into that record means either a
+> client→server message — the server work §8 refused — or a second, client-side record.
+>
+> The second is worse than it looks, and this is the finding: **the halt worth logging is the
+> one the client is not there for.** The cost §8 priced is *"a disconnected player's fleet
+> halts at the next gate"*, and the client that would write that entry is the client that went
+> away. Every other halt is one the player watches happen — the pre-check refuses, a toast
+> carries the game's own reason, and the HUD's route chip stays red until they plan another
+> route. An away-log line about an event the player witnessed is not an away-log line.
+>
+> What the tree already records is the **arrival**: `EventKind::Arrived` fires wherever the
+> fleet stops, so the away-log can say "your fleet reached KIL-7" today. What it cannot carry
+> is the *intent* — "of fourteen" — and intent is client-side by construction. Closing that
+> needs something server-side that holds the route, which is precisely the AI commander §8
+> already named as where this gap closes. So this clause is not dropped; it is **re-pointed at
+> the same future feature the rest of §8's cost is pointed at**, and U4 reports it rather than
+> half-building it.
+>
+> What U4 did build in its place is the client-side half a present player is owed, and it is
+> more than the toast: the route chip on the context bar carries `ROUTE 2/5` through every
+> surface, states `HALTED` in the alarm colour and **stays** stated until another route is
+> planned — because a player who was in a hangar when the toast dwelled out would otherwise
+> have a fleet parked at a gate and nothing on screen saying so.
 
 **9a.2 — The history scrubber is a reserved rail, not a built feature and not a cut one.**
 §9 already lists it among the stubs; what §4 asked, and §9 did not answer, is whether the rail
@@ -362,6 +475,57 @@ is answered once for every surface. It belongs with the DPI-to-scale rule and th
 minimum client area that the scaling review (UI-4) already records as undocumented — the same
 envelope U5 would otherwise be laying zone tables against blind.
 
+### 9b. The system view's four *(owner rulings, 2026-08-23)*
+
+§9's system-view bullet left four questions for owner ruling before U6 builds. They are
+answered here, and two of them turned out to be one question — which is the finding worth
+keeping.
+
+**The bake was measured before any of them was decided.** Over the committed 2,500 systems:
+
+| | min | max | mean | over eight |
+|---|---|---|---|---|
+| all anchors | 5 | 15 | 9.9 | **70.6 %** |
+| anchors minus sites | 3 | 13 | 7.4 | **34.9 %** |
+
+Every system holds 2–3 sites, 1–4 gates, 1–2 stations and 0–7 planets.
+
+**9b.1 — Rings have a capacity and overflow outward.** §9's phrasing — *"even spacing by bake
+order is legible to about eight; the committed universe has systems with more"* — understated
+it: more is **70.6 %**, so this is the ordinary case and not an edge. The ruling is that a ring
+holds about eight and the next anchor starts a ring further out, which makes it the ring system
+having a capacity rather than a special case bolted on for large systems. Order is **bake
+order**, so a system's layout is the same in two sessions; the alternatives (an outer belt, a
+second column, a pinch) were declined as, respectively, a special case, a break in the ring
+metaphor, and a second map on the one surface this ADR lays out rather than projects.
+
+**9b.2 — Sites sit on their own outer ring, and this is half of 9b.1's answer.** The
+measurement is the argument: taking sites off the main rings drops the over-eight share from
+70.6 % to 34.9 %, so the two questions were never independent and deciding them apart would
+have produced two mechanisms for one problem.
+
+Two further reasons, and the second is not recorded anywhere else. A field is a **place you go
+to** rather than a body you pass, which is §9's own framing. And **sites move**:
+`SiteEpochPlacement` recomputes them per epoch (ADR-024 §3a), so placing them among the planets
+by real orbit means the planets' ring re-lays itself when an epoch rolls — a screen that
+rearranges overnight for a reason the player cannot see. A dedicated ring lets an epoch change
+*which* sites are there without disturbing anything else on the screen.
+
+**9b.3 — One marker with a split count at a mixed anchor.** Precise without crowding, and it
+keeps one mechanism across two resolutions: `MapMarker` on the strategic map (U3b) merges
+docked and on-grid into one number because at *that* resolution both mean "there", and the
+system view is where the difference becomes actionable — docked and on-grid take different
+verbs (ADR-017). So the same single mark carries two numbers rather than becoming two marks.
+Ring capacity is the scarce resource by 9b.1, which is the other half of why nothing new is
+added to the ring.
+
+**9b.4 — A gate names the far side.** `GATE → KIL-7`, and it costs nothing: the client holds
+the whole topology from boot (ADR-018 D14 — `BuildMapTopology` is asked once from the committed
+bake), so the far side is an index lookup and not a message. Systems carry up to four gates,
+and four gates a player cannot tell apart are four anchors they must guess between on the
+screen where they are choosing. The *"this makes the system view a one-hop map"* objection is
+real and narrow: the strategic map remains the multi-hop surface, and one hop is not a map.
+
 ### 10. The gate hull
 
 Gates on their grids follow the one pattern the tree has for static presence: **a ship-table
@@ -381,6 +545,17 @@ vertices, 1,144 triangles, 168 m of silhouette on the plane against the station'
 is where the class's pick and contact radii now come from. The class's numbers were set from
 the mesh rather than the other way round, which is the order that keeps art from having to
 live with a guess.
+
+**Amended again 2026-08-23 (U4's client half): the STATIC-family icon is blocked twice, and
+the second block is the one worth recording.** The clause above lists "a STATIC-family icon"
+among the things the class takes, as though it were a table row. It is not: the icon *system*
+(`tactical-icon-system.png`) is unbuilt — U3d-c established this when the counted chip turned
+out to have no ladder rung to render through — so there is no family for a gate to join. But
+the client also **does not know an entity's hull class at all**. `SceneEntity` carries an id, a
+plane position, a pick radius, two gauges and a status byte; nothing on the wire says what
+shape a thing is, because until now nothing needed to. So the icon wants a replicated field as
+well as a system, which makes it a slice rather than a line. Recorded on U6, and named here so
+the next reader of this section does not cost themselves the same afternoon.
 
 It cost one conformance edit, and it is the case the five-material rule exists to catch. The
 export carried a *sixth* material, `aperture`, for the two faces of the portal disc — with the

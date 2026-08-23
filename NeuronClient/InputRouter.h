@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Gesture.h"
 #include "InputMap.h"
 #include "UiDrawList.h"
 #include "UiFocus.h"
@@ -94,6 +95,18 @@ namespace Neuron
   case InputAction::ResetView:
   case InputAction::CycleParameter:
     return false;
+
+  /*
+   * `Confirm` is the field's own key and reaches nothing behind it.
+   *
+   * Suppressed rather than routed, which is the opposite answer from `Back` and
+   * for a reason the two do not share: Escape means something to a *surface*
+   * as well as to a field -- go back -- so it has to reach one when no field
+   * wants it. Enter means nothing to any surface in this client, so a rule that
+   * let it through would be a rule reserving a key for a future somebody.
+   */
+  case InputAction::Confirm:
+    return false;
   }
   return false; // Unreachable for a value from the enumeration; see below.
 }
@@ -103,7 +116,7 @@ namespace Neuron
 /// safe direction but a silent one. This is the noisy version: adding an action
 /// fails the build here until somebody has decided what it does while a player
 /// is typing.
-static_assert(INPUT_ACTION_COUNT == 16,
+static_assert(INPUT_ACTION_COUNT == 17,
               "ActionSurvivesTextEditing must answer for every InputAction -- add the new one to its switch");
 
 class InputRouter
@@ -124,6 +137,30 @@ public:
    * and cancelling an in-flight drag -- which `WindowDeactivated` is for.
    */
   void Begin(const InputFrame& _frame, const UiFocus& _focus) noexcept;
+
+  /*
+   * What this frame's contacts meant (I1, ADR-020's 2026-08-22 amendment).
+   *
+   * Recognised outside and handed in, rather than tracked here: a gesture spans
+   * frames and this object is rebuilt every one of them. The caller owns a
+   * `GestureRecognizer`, updates it once, and passes the answer to `Begin`'s
+   * companion here so that every stage reads the same one.
+   *
+   * **Gated by the pointer claim, exactly like the buttons are.** A long-press
+   * that landed on chrome must not also reach the world, and a stage that has
+   * claimed the pointer is the one stage entitled to the gesture. That is why
+   * this is on the router at all rather than read straight off the recognizer:
+   * the claim is the mechanism, and a second way in would route around it.
+   */
+  void NoteGesture(const GestureState& _gesture) noexcept { m_gesture = _gesture; }
+
+  /*
+   * This frame's gesture, or a `None` one once the pointer has been claimed.
+   *
+   * A later stage asks the same question and gets a different answer, which is
+   * the whole mechanism -- the same sentence the button edges carry.
+   */
+  [[nodiscard]] const GestureState& Gesture() const noexcept;
 
   /// The latched frame, for everything a claim does not gate: the cursor
   /// position, the viewport size, whether the cursor is inside the window.
@@ -210,6 +247,12 @@ public:
 
 private:
   InputFrame m_frame;
+
+  /// This frame's gesture, and the answer handed out once the pointer is
+  /// claimed. A member rather than a constant so `Gesture()` can return a
+  /// reference either way.
+  GestureState m_gesture;
+  GestureState m_noGesture;
 
   bool m_pointerClaimed = true;
   bool m_wheelClaimed = true;

@@ -41,6 +41,7 @@
     <ClCompile Include="GpuPipelines.cpp" />
     <ClCompile Include="GpuUploadRing.cpp" />
     <ClCompile Include="HudRoster.cpp" />
+    <ClCompile Include="Gesture.cpp" />
     <ClCompile Include="InputMap.cpp" />
     <ClCompile Include="InputRouter.cpp" />
     <ClCompile Include="IsoCamera.cpp" />
@@ -56,7 +57,13 @@
     <ClCompile Include="RosterSelection.cpp" />
     <ClCompile Include="SnapshotBuffer.cpp" />
     <ClCompile Include="SoundBank.cpp" />
+    <ClCompile Include="SettingsScreen.cpp" />
+    <ClCompile Include="ContrastAudit.cpp" />
+    <ClCompile Include="CountedChip.cpp" />
+    <ClCompile Include="MapScreen.cpp" />
+    <ClCompile Include="RoutePlan.cpp" />
     <ClCompile Include="StationScreen.cpp" />
+    <ClCompile Include="SystemScreen.cpp" />
     <ClCompile Include="SurfaceStack.cpp" />
     <ClCompile Include="TextEditState.cpp" />
     <ClCompile Include="ToastStack.cpp" />
@@ -94,6 +101,7 @@
     <ClInclude Include="GpuPasses.h" />
     <ClInclude Include="GpuPipelines.h" />
     <ClInclude Include="GpuUploadRing.h" />
+    <ClInclude Include="Gesture.h" />
     <ClInclude Include="InputMap.h" />
     <ClInclude Include="InputRouter.h" />
     <ClInclude Include="IsoCamera.h" />
@@ -107,8 +115,16 @@
     <ClInclude Include="SignalLamp.h" />
     <ClInclude Include="RenderWorld.h" />
     <ClInclude Include="RosterSelection.h" />
+    <ClInclude Include="SettingsScreen.h" />
+    <ClInclude Include="ContrastAudit.h" />
+    <ClInclude Include="CountedChip.h" />
+    <ClInclude Include="MapScreen.h" />
+    <ClInclude Include="MapView.h" />
+    <ClInclude Include="RoutePlan.h" />
     <ClInclude Include="StationScreen.h" />
     <ClInclude Include="StationView.h" />
+    <ClInclude Include="SystemScreen.h" />
+    <ClInclude Include="SystemView.h" />
     <ClInclude Include="SoundBank.h" />
     <ClInclude Include="SurfaceStack.h" />
     <ClInclude Include="TextEditState.h" />
@@ -118,6 +134,7 @@
     <ClInclude Include="WavClip.h" />
     <ClInclude Include="ToastStack.h" />
     <ClInclude Include="UiDrawList.h" />
+    <ClInclude Include="UploadBudget.h" />
     <ClInclude Include="CommandRow.h" />
     <ClInclude Include="GhostLane.h" />
     <ClInclude Include="HudPalette.h" />

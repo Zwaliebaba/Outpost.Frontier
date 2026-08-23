@@ -231,6 +231,15 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
     SessionInfo& session = m_sessions.emplace_back(m_nextClientId++, playerId, _event.connection, grid);
     session.handshakeComplete = true;
 
+    /*
+     * And the game is told, so the grid this session opens on is the grid held
+     * alive (ADR-016 §7, N5).
+     *
+     * After the session exists rather than before, because a hold whose session
+     * failed to be created would be a world nothing is ever going to release.
+     */
+    m_simulation->ViewerOpened(playerId, grid);
+
     // The per-tick byte budget is a deployment number (ADR-022 §5b), so it
     // comes from config and the sender is told rather than deciding. Zero in
     // the config means "whatever the engine thinks is sane", which is what a
@@ -336,6 +345,14 @@ void ServerHost::HandleMessage(const TransportEvent& _event)
 
     std::uint16_t reasonCode = 0;
     const bool accepted = session->sender.RequestView(*m_simulation, request.gridAnchor, reasonCode);
+    if (accepted)
+    {
+      // The camera moved, so the hold moves with it (ADR-016 §7, N5). Reported
+      // as the whole answer rather than as a release and a take, so the grid
+      // they are arriving on is held before the one they are leaving is let go
+      // -- and a switch back to the same grid is not a teardown and a respawn.
+      m_simulation->ViewerOpened(session->playerId, session->sender.Grid());
+    }
 
     std::array<std::uint8_t, 64> buffer{};
     ByteWriter writer{buffer};
@@ -530,6 +547,17 @@ void ServerHost::PollTransport()
           const std::uint32_t nowTick = m_tick.load(std::memory_order_relaxed);
           m_resume.Lapse(session->playerId, session->resumeToken, session->sender.Grid(),
                          ResumeDeadlineTick(nowTick, TICK_RATE));
+
+          /*
+           * And the hold goes with the socket (ADR-016 §7, N5).
+           *
+           * A commander inside the grace window still owns everything that is
+           * keyed on the player -- the paragraph above is the whole list -- but
+           * they have no camera, and a hold is about a camera. Worlds forget by
+           * design (ADR-018 D2), so a grid that empties while they are away is
+           * rebuilt from content on the tick they resume onto it.
+           */
+          m_simulation->ViewerClosed(session->playerId);
 
           NEURON_LOG_INFO("client %u left (reason %u); player %u may resume for %u s", session->clientId,
                           static_cast<unsigned>(event.reason), session->playerId, SESSION_GRACE_SECONDS);

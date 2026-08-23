@@ -98,9 +98,24 @@ public:
   /// registry keeping its own would be a second clock to drift.
   void Tick(std::uint32_t _shardTick);
 
-  /// A viewer holds a grid alive even when nothing is on it (ADR-016 §7): a
-  /// world is never torn down under someone's camera. U3b is what starts
-  /// calling these; U2 builds the hold.
+  /*
+   * A viewer holds a grid alive even when nothing is on it (ADR-016 §7): a
+   * world is never torn down under someone's camera.
+   *
+   * U2 built the hold and named U3b as what would start calling it for a
+   * player's view. **N5 is what actually did, on 2026-08-22**, and the gap is
+   * worth a sentence: until then every caller was the composition root holding
+   * its own start grid, so the clause `TearDownIdle` consults was decided at
+   * boot rather than by where anybody was looking. A player watching any other
+   * empty grid was watching a world torn down and rebuilt once a tick -- which
+   * cost the work rather than the picture, since a rebuilt grid resolves from
+   * content and the calendar and comes back identical.
+   *
+   * **A count, not a table.** Who is watching is session state and the sim tier
+   * has no viewers (ADR-022 §1); what this holds is a fact about the grid. The
+   * composition root keeps the viewer-to-grid map, because it is the only tier
+   * entitled to know both.
+   */
   void AddViewer(AnchorId _anchor);
   void RemoveViewer(AnchorId _anchor);
 
@@ -132,6 +147,25 @@ public:
    * walk of every commander.
    */
   [[nodiscard]] std::vector<RosterEntry> DockedFor(Neuron::PlayerId _owner, AnchorId _anchor) const;
+
+  /*
+   * And the same question of a *grid* (I2, ADR-017 §6's 2026-08-23 amendment):
+   * this commander's ships flying at an anchor, as the rows a `RosterView` is
+   * judged against.
+   *
+   * `RosterEntry` for a ship that is not on any roster, which reads oddly until
+   * you notice what the validator actually asks of a row: an id and a wing. The
+   * hold and the owner come along because the row has them, and the alternative
+   * -- a second row type differing by two fields nobody reads -- would be two
+   * shapes for one question and a second `any_of` in `ValidateStationCommand`
+   * to search them with.
+   *
+   * Empty for a world that is not resident, which is the honest answer rather
+   * than a failure: a grid nobody is watching has no ships this host can name,
+   * and a command about one is refused as though the fleet were elsewhere --
+   * which, from where the authority stands, it is.
+   */
+  [[nodiscard]] std::vector<RosterEntry> OnGridFor(Neuron::PlayerId _owner, AnchorId _anchor) const;
 
   /*
    * What is left of a mining field (ADR-024 §3d), or null for a site nobody has
@@ -415,8 +449,14 @@ public:
    * The station half of order submission, and it goes through the same shared
    * validator both machines run. An accepted `Undock` files a transfer, so the
    * fleet arrives between ticks like everything else that crosses; an accepted
-   * `AssignWing` writes the roster row on the spot, because nothing crosses --
-   * a wing is a number a ship carries, not a place it is.
+   * `AssignWing` writes on the spot, because nothing crosses -- a wing is a
+   * number a ship carries, not a place it is.
+   *
+   * **`AssignWing` may name ships in space as well as on the roster** (I2,
+   * ADR-017 §6's 2026-08-23 amendment), which is why the view this builds
+   * carries a grid beside the station. The write lands in whichever of the two
+   * holds the ship, and writing a grid between ticks is safe for the reason
+   * `World::SetWing` states: a wing is carried, not simulated.
    */
   [[nodiscard]] OrderVerdict SubmitStationCommand(Neuron::PlayerId _owner, const StationCommand& _command);
 
@@ -499,8 +539,22 @@ private:
   };
 
   [[nodiscard]] StationRoster& RosterFor(AnchorId _anchor);
+
+  /// The same lookup without the creation. For a command that may name an
+  /// anchor with no station on it (`AssignWing`, since I2): `RosterFor` would
+  /// mint an empty roster for a plain grid, and an empty roster is durable
+  /// state, a hash input and something teardown has to sweep.
+  [[nodiscard]] StationRoster* FindRoster(AnchorId _anchor) noexcept;
   void ApplyUndock(const TransferRequest& _request);
-  void ApplyTransit(const TransferRequest& _request);
+  /*
+   * Arrival, at an offset the crossing's own id decides (ADR-018 D18).
+   *
+   * The id is passed rather than looked up because the *whole* of D18's answer
+   * to contention is that the offset is "a function of the transfer record, not
+   * randomness" -- so the record's identity has to reach the placement, and the
+   * bus is the only thing that has it.
+   */
+  void ApplyTransit(const TransferRequest& _request, const TransferId& _id);
 
   /// Debits a completed cycle against the ledger, creating one for a site that
   /// has not been worked this epoch (ADR-024 §4b).

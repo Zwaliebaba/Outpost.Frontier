@@ -568,6 +568,23 @@ bool World::IsProtected(ShipId _shipId, std::uint32_t _tick) const noexcept
   return _tick < m_protectedUntil[slot];
 }
 
+bool World::SetWing(ShipId _shipId, WingId _wing)
+{
+  NEURON_ASSERT_OWNER(m_owner);
+
+  std::uint32_t slot = 0;
+  if (!FindSlot(_shipId, slot))
+  {
+    return false;
+  }
+
+  // No validation of the value, deliberately: 1..255 are wings and zero is
+  // "no wing", which is how one disbands (ADR-017 §6). Every byte means
+  // something, so there is nothing here to refuse.
+  m_wings[slot] = _wing;
+  return true;
+}
+
 bool World::TransferOut(ShipId _shipId, TransferMember& _outMember)
 {
   NEURON_ASSERT_OWNER(m_owner);

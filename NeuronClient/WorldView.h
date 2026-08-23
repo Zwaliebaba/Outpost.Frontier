@@ -3,13 +3,17 @@
 #include "ByteWriter.h"
 #include "DeltaReceiver.h"
 #include "HudRoster.h"
+#include "MapView.h"
 #include "OrderIntent.h"
+#include "RoutePlan.h"
 #include "StationIntent.h"
 #include "StationView.h"
+#include "SystemView.h"
 #include "RenderWorld.h"
 
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 /*
  * The engine/game seam, client side (ADR-014 §2).
@@ -406,6 +410,32 @@ public:
   }
 
   /*
+   * Renames a group, and says whether the game took it (ADR-017 §6, T3).
+   *
+   * The other end of `BuildGroupMembers`' opaque handle: the engine collects
+   * the characters, and the game decides what a name may be and where it is
+   * kept. It never learns that the thing it renamed is a wing, that the word
+   * outranks an authored one rather than replacing it, or that it will be in a
+   * settings file at shutdown -- all three are this game's answers (ADR-012 §3).
+   *
+   * **The engine owns one half of the validation and the game owns the other,
+   * and the split is not arbitrary.** Which characters exist is a question about
+   * *this build's glyph atlas*, so the widget asks the atlas as each one is
+   * typed (ADR-018 D15.1) -- a name the game accepted and the client cannot
+   * draw would render as boxes. Whether the name may be *stored* is the game's:
+   * an empty one, a group that is not nameable, a table already full.
+   *
+   * False leaves the old name standing, which is what the caller draws either
+   * way -- so a refusal costs the player their typing and never their wing.
+   */
+  [[nodiscard]] virtual bool RenameGroup(std::uint16_t _groupId, std::string_view _name)
+  {
+    (void)_groupId;
+    (void)_name;
+    return false;
+  }
+
+  /*
    * The composer's actions for this station: what the primary button says, and
    * which verb it sends.
    *
@@ -489,6 +519,222 @@ public:
    * sent" rather than as "no limit".
    */
   [[nodiscard]] virtual std::uint32_t ShipsPerStationCommand() const { return 0; }
+
+  /*
+   * --- the universe surfaces (ADR-018 D14, ADR-016 §9, ADR-020 §6) ----------
+   *
+   * **Eight calls in three shapes**, which is §6's screen-data contract spent
+   * the way the station surface already spends it: two **asked-once** builders
+   * (the graph and the overlay list), three at **summary rate** (the legend,
+   * the fleet markers, and one system's rings), and three **pure query
+   * functions** (a system's facts, a route, and the orders that fly it).
+   *
+   * It was five when U5 wrote this, and the growth is the point rather than a
+   * drift: §6's tripwire is a *fourth shape*, and three slices of screen work
+   * have added methods without ever needing one. A ninth call of an existing
+   * shape is not the thing to argue about; a call that is asked per frame, or
+   * that hands back storage on a lifetime none of these three has, is.
+   *
+   * All eight carry defaults, so a view with no universe -- `NullWorldView`, a
+   * test's stub -- inherits an honest nothing. The screen opens on that and
+   * draws its chrome around an empty viewport, which is `MapTopology::Empty`'s
+   * promise.
+   */
+
+  /*
+   * The whole graph, once.
+   *
+   * **Asked at boot rather than per frame**, because a bake is generated, hashed
+   * and fixed before a session starts -- asking every frame would be asking a
+   * question whose answer is compiled in, and asking per node would put 2,500
+   * seam calls in a frame. What changes per frame is where the camera is, and
+   * that is the client's own state.
+   *
+   * The spans point at storage the *game* owns and are valid for the session,
+   * which is what "asked once" means on this side of it. False from a view with
+   * no universe, which is not a failure: the surface opens either way.
+   */
+  [[nodiscard]] virtual bool BuildMapTopology(MapTopology& _outTopology) const
+  {
+    (void)_outTopology;
+    return false;
+  }
+
+  /*
+   * Which overlays this game offers, in the order the rail should show them.
+   *
+   * `BuildStationTabs` exactly, and for the same reason: a fixed list where some
+   * entries have nothing behind them yet, drawn and disabled with the game's own
+   * word for why. Four of the five are stubs today (ADR-016 §9, §9a.3) and the
+   * engine learns only that they are off -- never that "intel" is a thing this
+   * game has not built, which would be the leak test failing on the first screen
+   * it was written for.
+   *
+   * Returns how many were written, never more than the span holds.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildMapOverlays(std::span<MapOverlayOption> _outOverlays) const
+  {
+    (void)_outOverlays;
+    return 0;
+  }
+
+  /*
+   * The active overlay's key: a swatch, a word and a count per line.
+   *
+   * At summary rate rather than per frame, because what it counts changes when a
+   * summary lands. **The game counts**, including the count, for `BuildRoster`'s
+   * reason: the engine has the nodes and could tally them by tint in four lines,
+   * and would thereby have decided that a legend counts systems rather than
+   * jumps, or hulls, or days held.
+   *
+   * Zero is the common answer today and is not a failure -- see `MapLegendRow`.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildMapLegend(std::uint16_t _overlay, std::span<MapLegendRow> _outRows) const
+  {
+    (void)_overlay;
+    (void)_outRows;
+    return 0;
+  }
+
+  /*
+   * What the panel says about the selected system.
+   *
+   * A pure query asked on the selection rather than per frame, which is §6's
+   * third shape. `_systemId` is the opaque `MapNode::id` the client echoed back;
+   * it never learned what the number means, which is the whole of the handle
+   * pattern `RosterRow::groupId` established.
+   *
+   * A game that can answer only some of the print's five rows reports only
+   * those. It does not report a row with an empty value: a label with nothing
+   * beside it is a promise the game has not kept, where a missing row is a fact
+   * this game does not have.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildMapFacts(std::uint16_t _systemId, std::span<MapFactRow> _outRows) const
+  {
+    (void)_systemId;
+    (void)_outRows;
+    return 0;
+  }
+
+  /*
+   * How to get there, as hops and a sentence.
+   *
+   * The other pure query, and D14 puts it here in as many words: *"search and
+   * route-solve are GameLogic pure functions reached through seam calls"*. A
+   * route solved in the client would be a route that cannot be replayed, and a
+   * second solver the day one is planned from anywhere else.
+   *
+   * The hops come back as **indices** into the topology this same view built,
+   * which is asked once and lives for the session -- so there is no moment when
+   * one refers to a graph that has moved. Zero means no route, which is a real
+   * answer and the honest one for a SET DESTINATION on a system nothing reaches.
+   *
+   * **Only the destination crosses.** The origin is the game's to know: the
+   * client holds a grid id and "which system is that grid in" is a fact about
+   * the universe, so a client that supplied a start would either be reading the
+   * bake or guessing. It is the same split `ContextActionFor` makes -- the
+   * client says what the player pointed at and the game says what it means.
+   */
+  [[nodiscard]] virtual std::uint32_t SolveMapRoute(std::uint16_t _toSystem, std::span<MapRouteHop> _outHops,
+                                                    MapRouteSummary& _outSummary) const
+  {
+    (void)_toSystem;
+    (void)_outHops;
+    (void)_outSummary;
+    return 0;
+  }
+
+  /*
+   * Where the player's ships are, as marks on the map (ADR-016 §6, §7, U3b).
+   *
+   * Asked at the summary family's rate rather than per frame -- the answer
+   * changes at about 1 Hz because that is how often the summaries arrive, and
+   * a per-frame call would be re-folding the same rows sixty times to get the
+   * same marks. That makes it ADR-020 §6's *second* shape, the one
+   * `BuildMapLegend` already uses on this screen.
+   *
+   * **Counts at places, and the aggregation is the game's.** A summary row is
+   * an anchor, and the map draws systems; folding one into the other means
+   * knowing which system an anchor is in, which is a fact about the universe.
+   * A client doing it would need the anchor table, and then it would have the
+   * universe.
+   *
+   * Zero is the honest answer before the first summary lands, and it draws
+   * nothing rather than drawing a guess.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildMapMarkers(std::span<MapMarker> _outMarkers) const
+  {
+    (void)_outMarkers;
+    return 0;
+  }
+
+  /*
+   * The inside of one system, as places on rings (ADR-016 §9, §9b, U6).
+   *
+   * `BuildMapTopology`'s shape rather than a per-frame call: it hands over
+   * spans and the game owns what they point at. **Unlike the topology, the
+   * storage is only good until the next call** -- the graph is the whole bake
+   * and is built once, and this is one system out of 2,500, so keeping every
+   * one alive for the session would be keeping the bake twice. A caller that
+   * wants two systems at once wants two copies, and it should make them.
+   *
+   * Asked when the screen opens and when a summary lands, which is ADR-020
+   * §6's second shape -- the same one `BuildMapMarkers` takes, and for the same
+   * reason: the rings are a fact about the bake and do not move, and the two
+   * counts on them move at the summary family's ~1 Hz.
+   *
+   * **The ring assignment is the game's, and that is the whole of §9b.1 and
+   * §9b.2.** Which anchors share a ring, what a ring holds before the next one
+   * starts, and that mining fields take an outermost ring of their own are all
+   * decisions that need to know what an anchor *is*. The engine receives a ring
+   * index and a slot, draws them, and never learns that the outer ring is
+   * fields -- which is the leak test that `MapNode::badge` passes one screen up.
+   *
+   * `_systemId` is the opaque `MapNode::id` the client echoed back, exactly as
+   * `BuildMapFacts` takes it.
+   *
+   * False from a view with no universe, or for a system this game does not
+   * have. Not a failure: the surface opens on an empty disc, which is the same
+   * honest nothing `MapTopology::Empty` promises one level up.
+   */
+  [[nodiscard]] virtual bool BuildSystemView(std::uint16_t _systemId, SystemViewData& _outSystem) const
+  {
+    (void)_systemId;
+    (void)_outSystem;
+    return false;
+  }
+
+  /*
+   * The orders that would fly a route, in order (ADR-016 §8, U4).
+   *
+   * `SolveMapRoute`'s sibling and deliberately a second call: that one answers
+   * *"what does the panel say"* -- a system per hop, with a name and a security
+   * badge -- and this answers *"what would the client send"*. They are
+   * different lengths and different things, and one call returning both would
+   * be a call whose answer the caller has to take apart before either half is
+   * usable.
+   *
+   * **They cannot disagree**, which is what makes two calls safe: both solve
+   * the same route between the same two systems with the same tie-break
+   * (`SolveRoute` breaks ties by system id, so two equally short routes are
+   * *the same* route), so the line on the map is the line the fleet flies.
+   *
+   * **The legs carry a kind because the client may not spell one.** Crossing a
+   * gate is a warp to the gate on this side and then a warp through it -- and a
+   * fleet already standing on the gate needs only the second. Which of those a
+   * route needs is a fact about gates, so the game composes the whole sequence
+   * and the client feeds it (`RoutePlan`).
+   *
+   * The origin is this view's, as it is for `SolveMapRoute`. Zero means no
+   * plan, which is the honest answer for a destination nothing reaches and for
+   * a system the fleet is already standing in.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildRoutePlan(std::uint16_t _toSystem, std::span<RouteLeg> _outLegs) const
+  {
+    (void)_toSystem;
+    (void)_outLegs;
+    return 0;
+  }
 
   /*
    * The diagnostic text for a reason code.

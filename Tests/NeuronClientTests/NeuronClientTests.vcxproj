@@ -103,9 +103,15 @@
     <ClCompile Include="ObjMeshTests.cpp" />
     <ClCompile Include="GhostTests.cpp" />
     <ClCompile Include="DockingTests.cpp" />
+    <ClCompile Include="GestureTests.cpp" />
     <ClCompile Include="OverlayTests.cpp" />
     <ClCompile Include="DeltaTests.cpp" />
     <ClCompile Include="PickingTests.cpp" />
+    <ClCompile Include="SettingsTests.cpp" />
+    <ClCompile Include="CountedChipTests.cpp" />
+    <ClCompile Include="MapScreenTests.cpp" />
+    <ClCompile Include="SystemScreenTests.cpp" />
+    <ClCompile Include="RoutePlanTests.cpp" />
     <ClCompile Include="PuckTests.cpp" />
     <ClCompile Include="CommandTests.cpp" />
     <ClCompile Include="LaneTests.cpp" />

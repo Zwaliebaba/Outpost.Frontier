@@ -185,9 +185,19 @@ public:
     config.hostId = 0; // ADR-019: three roles, one process, one host.
     m_registry.Reset(&_universe, &_economy, config);
 
-    // The session holds a viewer on the grid it serves, so the world is never
-    // torn down under the wire (ADR-016 §7). U3b generalises this to the
-    // player's actual view; U2 builds the hold.
+    /*
+     * The **shard's** own hold on its start grid, and it is no longer standing
+     * in for a player's (ADR-016 §7).
+     *
+     * It said "the session holds a viewer on the grid it serves" and named U3b
+     * as what would generalise it to the player's actual view. N5 did that --
+     * `ViewerOpened`/`ViewerClosed` below take a hold per commander on the grid
+     * they are actually watching -- and this one stays for the case that has
+     * nothing to do with a session: a headless shard with no client at all,
+     * whose start grid would otherwise be torn down the moment its fleet docked
+     * and rebuilt when they undocked. The counts sum, so a player watching this
+     * grid adds to it rather than replacing it.
+     */
     m_registry.AddViewer(m_startAnchor);
   }
 
@@ -357,6 +367,72 @@ public:
   }
 
   /*
+   * The hold that stops a world being torn down under somebody's camera
+   * (ADR-016 §7, N5).
+   *
+   * `MayView` says whether a view is legal; this pair is what makes one *cost*
+   * something. `WorldRegistry::TearDownIdle` removes a grid when the last ship
+   * leaves **and nobody is watching**, and until now the second clause was
+   * decided by a hold the composition root took on its own start grid at boot.
+   * A player looking at any other empty grid -- a station they have ships
+   * docked at, a site whose field they are scouting -- was watching a world
+   * torn down and rebuilt on every tick, because `RankRelevance` borrows the
+   * grid (which spins it up) and the sweep at the end of the tick finds it
+   * empty and unwatched. A whole `World`, its authored occupants and a site's
+   * `BuildSiteField` layout, once a tick, for as long as they looked.
+   *
+   * It never changed what they *saw* -- a rebuilt grid resolves its field from
+   * the calendar rather than from the instance that went away -- so what the
+   * gap cost was the work, and a rule ADR-016 §7 states that nothing enforced.
+   *
+   * **The table is here rather than in the registry, and that is ADR-022 §1's
+   * rule rather than a preference.** Which grid a commander is watching is
+   * session state, the sim tier has no viewers, and a registry that held a
+   * viewer *table* would be the session's business living one library too deep.
+   * What the registry holds is a count -- how many holds are on this grid --
+   * which is a fact about the grid and nothing about who is looking.
+   */
+  void ViewerOpened(PlayerId _viewer, std::uint16_t _grid) override
+  {
+    const auto anchor = static_cast<Game::AnchorId>(_grid);
+    const auto held = std::find_if(m_viewerGrids.begin(), m_viewerGrids.end(),
+                                   [_viewer](const ViewerGrid& _entry) { return _entry.viewer == _viewer; });
+    if (held != m_viewerGrids.end() && held->anchor == anchor)
+    {
+      return; // The seam reports the whole answer, so the same answer twice is not two holds.
+    }
+
+    /*
+     * Taken before the old one is let go. The order does not decide anything --
+     * `TearDownIdle` sweeps once, inside `Tick`, so this pair is atomic with
+     * respect to it -- and it is this way round because `AddViewer` is the call
+     * that can fail: a grid nobody authored takes no hold, and finding that out
+     * before letting go of a real one keeps the failure to a viewer with no
+     * grid rather than a viewer with a stale one.
+     */
+    m_registry.AddViewer(anchor);
+    if (held != m_viewerGrids.end())
+    {
+      m_registry.RemoveViewer(held->anchor);
+      held->anchor = anchor;
+      return;
+    }
+    m_viewerGrids.push_back(ViewerGrid{_viewer, anchor});
+  }
+
+  void ViewerClosed(PlayerId _viewer) override
+  {
+    const auto held = std::find_if(m_viewerGrids.begin(), m_viewerGrids.end(),
+                                   [_viewer](const ViewerGrid& _entry) { return _entry.viewer == _viewer; });
+    if (held == m_viewerGrids.end())
+    {
+      return; // A handshake that never completed never took one.
+    }
+    m_registry.RemoveViewer(held->anchor);
+    m_viewerGrids.erase(held);
+  }
+
+  /*
    * What this commander is owed at the summary cadence (ADR-016 §6, A13).
    *
    * Two members of the family answer together, and they answer *about each
@@ -427,8 +503,10 @@ public:
     if (dropped > 0 && !m_summaryDropLogged)
     {
       m_summaryDropLogged = true;
-      NEURON_LOG_WARNING("player %u: %u station roster(s) did not fit one summary frame; the family needs paging (ADR-016 §6)",
-                         _viewer, dropped);
+      NEURON_LOG_WARNING(
+        "player %u: %u station roster(s) did not fit one summary frame; the family needs paging (ADR-016 \xC2\xA7"
+        "6)",
+        _viewer, dropped);
     }
 
     /*
@@ -953,6 +1031,28 @@ private:
   Game::WorldRegistry m_registry;
   Game::AnchorId m_startAnchor = Game::INVALID_ID;
 
+  /*
+   * Which grid each commander is watching, and therefore which hold is theirs
+   * (ADR-016 §7, N5).
+   *
+   * One row per *live session*, so it is bounded by `server.maxSessions` and a
+   * linear scan is the whole lookup. A vector rather than a map for that
+   * reason, and because the order it iterates in has to be stable: this is read
+   * on the Sim thread beside the registry it is about.
+   *
+   * It exists to answer one question the engine cannot: *what did this viewer
+   * hold before?* `ViewerOpened` reports the whole answer rather than a delta,
+   * which is what makes a missed release impossible -- but only if somebody
+   * remembers the previous answer, and the engine deliberately does not know
+   * that holds exist at all.
+   */
+  struct ViewerGrid
+  {
+    Neuron::PlayerId viewer = Neuron::INVALID_PLAYER_ID;
+    Game::AnchorId anchor = Game::INVALID_ID;
+  };
+  std::vector<ViewerGrid> m_viewerGrids;
+
   /// Said once, not once a second: a summary frame that cannot hold every
   /// roster will not hold them next second either, and a warning at 1 Hz is a
   /// log nobody reads the rest of.
@@ -1166,7 +1266,16 @@ void ReportParkedFleet(const std::vector<ParkedHull>& _parked)
 {
   std::vector<std::string> names;
   names.reserve(std::size(STARTING_FLEET) + 1);
-  names.emplace_back("-"); // WingId 0: no wing. The stations are here.
+  /*
+   * `WingId` 0 is `INVALID_WING_ID`, and since T3 its word is drawn (the stray
+   * row and the disband option both take it from here).
+   *
+   * It was `-`, a placeholder nothing looked up. It is content now for the
+   * reason every other call sign here is: what a game calls the ships that
+   * belong to no wing is that game's word, and an engine that spelled it would
+   * have decided that "no wing" is a thing worth naming at all.
+   */
+  names.emplace_back("UNASSIGNED");
   for (const FleetWing& entry : STARTING_FLEET)
   {
     names.emplace_back(entry.name);
@@ -1479,6 +1588,70 @@ void LogResolvedUniverse(const Outpost::UniverseLoadResult& _universe)
 }
 
 /*
+ * The player's settings on the way out (ADR-012 §A3, N2).
+ *
+ * **The one file this program writes**, and it is written here rather than at
+ * the moment a wing is renamed for a reason worth stating: a rename is a
+ * keystroke and a save is a file rename, and doing the second on every one of
+ * the first would put the settings file in the path of a fast typist. Shutdown
+ * is when the session's answer is final.
+ *
+ * The cost of that choice is that a session killed rather than closed loses the
+ * names it minted. That is the right trade while the layer holds call signs --
+ * they are cheap to redo, and `EnsureWingName` already covers a wing whose name
+ * did not survive -- and it is the thing to revisit first when the settings
+ * screen lands, because a display mode the player cannot get back to is not.
+ *
+ * A failure is a log line and nothing more. Preferences that could not be saved
+ * are never worth failing a shutdown over, and the exit code belongs to what the
+ * client did rather than to what its settings file did afterwards.
+ */
+void SaveUserLayer(Outpost::AppConfig& _config, const Outpost::AppConfig& _shipped, const Outpost::ConfigPaths& _paths,
+                   const Outpost::ReplicatedWorldView& _worldView, const Neuron::ClientApp& _client)
+{
+  _config.wings.clear();
+  for (const std::pair<Game::WingId, std::string>& wing : _worldView.PlayerWingNames())
+  {
+    _config.wings.push_back(Outpost::WingName{static_cast<std::uint32_t>(wing.first), wing.second});
+  }
+
+  /*
+   * And what the settings screen changed (N3) -- the write-back N2 recorded as
+   * owed, in ADR-012 §A3's own words: *"the display and audio families are
+   * written the moment something changes them and nothing does yet"*.
+   *
+   * Mapped field by field rather than by holding a pointer to the client's
+   * config, which is `MakeClientConfig` run backwards and deliberately so: the
+   * two directions sit in one file where a field added to one and forgotten in
+   * the other is visible, and the client never learns that a settings file
+   * exists (ADR-014).
+   *
+   * Asked only when the player touched the screen. An untouched session leaves
+   * the file exactly as it found it, because a layer that records *changes*
+   * should not be rewritten by a session that made none.
+   */
+  if (_client.SettingsChanged())
+  {
+    const Neuron::ClientConfig& live = _client.Config();
+    _config.client.ui.scale = live.uiScale;
+    _config.client.ui.palette = live.uiPalette;
+    _config.client.ui.highContrast = live.uiHighContrast;
+    _config.client.ui.reduceMotion = live.uiReduceMotion;
+    _config.client.ui.alwaysShowHullBars = live.uiAlwaysShowHullBars;
+    _config.client.input.handedness = live.uiHandedness;
+    _config.client.input.longPressSeconds = live.longPressSeconds;
+    _config.client.renderer.vsync = live.vsync;
+    _config.client.renderer.frameCap = live.frameCap;
+  }
+
+  std::string error;
+  if (!Outpost::SaveUserSettings(_config, _shipped, _paths, error))
+  {
+    NEURON_LOG_WARNING("user settings not saved: %s", error.c_str());
+  }
+}
+
+/*
  * The client's half of the seam (ADR-014 §2a).
  *
  * The one table that maps the game's hull taxonomy onto the renderer's mesh
@@ -1505,6 +1678,22 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
   desc.contentHash = _contentHash;
   desc.wingNames = WingNames();
   desc.spareWingNames = SpareWingNames();
+
+  /*
+   * And what the player has called them since (ADR-012 §3).
+   *
+   * Widened on the way in and narrowed here, which is the seam working rather
+   * than a wart: `AppConfig` is spelled without game types so the composition
+   * root's own test suite can compile it, so `WingId` is put back on at the one
+   * point that knows both -- this project, which is the same reason
+   * `renderClassByHull` is built here.
+   */
+  desc.savedWingNames.reserve(_config.wings.size());
+  for (const Outpost::WingName& wing : _config.wings)
+  {
+    desc.savedWingNames.emplace_back(static_cast<Game::WingId>(wing.wing), wing.name);
+  }
+
   // Which grid this client watches, so a station has a number the client can
   // address it by (ADR-017 8). The same anchor the `Welcome` carries; taken
   // from the universe here because the composition root builds both.
@@ -1514,6 +1703,17 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
   // the way the authority answers it. Borrowed: the definition outlives the
   // view, and copying it would be a second copy of the balance file.
   desc.economy = &_economy;
+
+  /*
+   * And the universe itself, for the strategic map (ADR-018 D14, U5).
+   *
+   * Borrowed for `economy`'s reason -- it is loaded once here and outlives every
+   * view -- and it is a pointer rather than pre-derived `Desc` fields because
+   * the map asks two different questions of it: a graph handed over once at
+   * boot, which could have been baked into a field, and a route solved wherever
+   * the player points, which could not.
+   */
+  desc.universe = &_universe.universe;
 
   /*
    * What each anchor is called (ADR-017 1, ADR-016 9).
@@ -1725,6 +1925,10 @@ ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
   client.vsync = _config.client.renderer.vsync;
   client.frameCap = _config.client.renderer.frameCap;
   client.msaaSamples = _config.client.renderer.msaa; // S14: the 4x offscreen target.
+  // Zero travels through unchanged: the client is the tier that knows what its
+  // own passes cost, so "decide for yourself" is a thing this layer forwards
+  // rather than resolves (ADR-018 A20).
+  client.uploadBytesPerFrame = _config.client.renderer.uploadBytesPerFrame;
   client.serverHost = _config.client.connectHost;
   client.serverPort = _config.client.connectPort;
 
@@ -1820,6 +2024,15 @@ ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
   client.cameraYawSnapDegrees = static_cast<float>(_config.client.camera.yawSnapDegrees);
   client.uiScale = static_cast<float>(_config.client.ui.scale);
   client.uiPalette = _config.client.ui.palette;
+
+  // N3's two families. Carried across as words and numbers rather than resolved
+  // here: the client is what owns `ResolveHandedness` and the palette table, and
+  // the composition root's job is to hand over what the file said.
+  client.uiHighContrast = _config.client.ui.highContrast;
+  client.uiReduceMotion = _config.client.ui.reduceMotion;
+  client.uiAlwaysShowHullBars = _config.client.ui.alwaysShowHullBars;
+  client.uiHandedness = _config.client.input.handedness;
+  client.longPressSeconds = static_cast<float>(_config.client.input.longPressSeconds);
   client.diagnosticsStrip = _config.client.diagnostics.strip; // S14: the Tier-1 strip's setting.
 
   /*
@@ -1872,9 +2085,12 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
   (void)Telemetry::RegisterLane("Main");
 
   Outpost::AppConfig config;
+  // The same configuration without the player's layer over it, kept for the
+  // whole run because it is what a save is a difference against (ADR-012 §A3).
+  Outpost::AppConfig shipped;
   Outpost::ConfigPaths paths;
   Outpost::ConfigDiagnostics diagnostics;
-  if (!Outpost::LoadAppConfig(config, paths, diagnostics))
+  if (!Outpost::LoadAppConfig(config, shipped, paths, diagnostics))
   {
     ReportStartupFailure(diagnostics);
     return 1;
@@ -2086,6 +2302,7 @@ int WINAPI wWinMain(_In_ HINSTANCE, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int)
       // Client first, always: it must never render against a server that has
       // already gone (ADR-008 §6).
       client.Shutdown();
+      SaveUserLayer(config, shipped, paths, worldView, client);
       break;
     }
 

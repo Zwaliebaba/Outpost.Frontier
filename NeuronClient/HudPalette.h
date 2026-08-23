@@ -67,6 +67,52 @@ struct HudPalette
 /// A colour at a different opacity, for the treatments the prints specify as
 /// "half alpha" -- spelled as an operation on a palette entry rather than as a
 /// second literal, so the entry stays the single source of the hue.
+/*
+ * The colours a standing glyph can be drawn in.
+ *
+ * Four, and not by coincidence: the wire spends exactly two bits on the
+ * relationship channel (ADR-022 §8b), so four is what a viewer can ever be told
+ * about a hull. These are palette entries rather than a second copy of that
+ * enum -- `HudPalette` already carries the words -- and the mapping lives in
+ * `StandingColourOf` so a palette swap moves all of them together.
+ *
+ * **Here rather than in `ContrastAudit.h`, where they were written.** The
+ * audit was their only caller until the strategic map became the second one,
+ * and a seam header that had to pull in an *audit* to name a colour is a
+ * smell. What makes this the right home is the same thing that makes the set
+ * closed: these are the four the audit *proves* clear the contrast floor in
+ * every palette, so a screen reaching for a fifth is a screen the audit no
+ * longer covers.
+ */
+enum class StandingColour : std::uint8_t
+{
+  Own = 0,
+  Allied = 1,
+  Neutral = 2,
+  Hostile = 3
+};
+
+inline constexpr std::uint32_t STANDING_COLOUR_COUNT = 4;
+
+/// The palette entry a standing is drawn in. `Own` is the phosphor rather than
+/// an entry of its own, which is the same statement `OverlayTuning` makes when
+/// it takes its ring colour from there: own-fleet *is* the chrome's accent.
+[[nodiscard]] constexpr std::uint32_t StandingColourOf(const HudPalette& _palette, StandingColour _standing) noexcept
+{
+  switch (_standing)
+  {
+  case StandingColour::Allied:
+    return _palette.allied;
+  case StandingColour::Neutral:
+    return _palette.neutral;
+  case StandingColour::Hostile:
+    return _palette.hostile;
+  case StandingColour::Own:
+  default:
+    return _palette.phosphor;
+  }
+}
+
 [[nodiscard]] constexpr std::uint32_t WithAlpha(std::uint32_t _colourRgba, std::uint8_t _alpha) noexcept
 {
   return (_colourRgba & 0x00FFFFFFu) | (static_cast<std::uint32_t>(_alpha) << 24);
