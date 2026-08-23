@@ -568,7 +568,7 @@ bool World::IsProtected(ShipId _shipId, std::uint32_t _tick) const noexcept
   return _tick < m_protectedUntil[slot];
 }
 
-bool World::SetWing(ShipId _shipId, WingId _wing) noexcept
+bool World::SetWing(ShipId _shipId, WingId _wing)
 {
   NEURON_ASSERT_OWNER(m_owner);
 

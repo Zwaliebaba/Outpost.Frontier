@@ -467,8 +467,16 @@ public:
    * going and must be attributable to a tick for replay to reproduce it; a wing
    * changes which group a player calls it, and a replay reproduces it from the
    * same command stream in the same arrival order.
+   *
+   * **Not `noexcept`, and that is the file's rule rather than an oversight**:
+   * `NEURON_ASSERT_OWNER` throws, so every mutator here that asserts the owner
+   * -- `Spawn`, `TransferOut`, `Despawn`, `Tick` -- is non-throwing in practice
+   * and unmarked in the signature. The reads that *are* marked (`FindSlot`,
+   * `IsProtected`) assert nothing. This shipped marked and clang-tidy's
+   * `bugprone-exception-escape` caught it, which is the second time that check
+   * has found a false `noexcept` in this library.
    */
-  bool SetWing(ShipId _shipId, WingId _wing) noexcept;
+  bool SetWing(ShipId _shipId, WingId _wing);
 
   /*
    * The transfers this world filed and has not handed over yet.
