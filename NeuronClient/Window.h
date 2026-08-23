@@ -94,6 +94,22 @@ private:
   /// character buffer (ADR-020 §3).
   void AppendCharacter(WPARAM _codeUnit) noexcept;
 
+  /*
+   * The mouse, as a contact on the pointer seam (ADR-020's 2026-08-22
+   * amendment).
+   *
+   * D15.4's reversal is precise that the mouse is expressed *through* the
+   * abstraction and not beside it, because a second path would drift and the
+   * drift would be invisible -- the mouse is what a developer uses and touch is
+   * what ships. This is that one line: the left button is a finger, at the
+   * cursor, in slot zero.
+   *
+   * The other two buttons stay buttons. A finger has no right button, so they
+   * are a desk's conveniences rather than contacts, and no interaction may
+   * require one.
+   */
+  void UpdateMouseContact() noexcept;
+
   HWND m_handle = nullptr;
   HINSTANCE m_instance = nullptr;
   std::uint32_t m_width = 0;
@@ -105,6 +121,18 @@ private:
   bool m_haveCursor = false;   // False until the first move, so the first frame
                                // reports no delta rather than a jump from 0,0.
   std::uint32_t m_captureCount = 0;
+
+  /*
+   * Whether the mouse *contact* is down, which lags the button by up to a frame
+   * and has to.
+   *
+   * A click faster than one frame arrives as a press and a release in the same
+   * `InputFrame`, and a contact reported straight from `buttonDown` would then
+   * be a lift the gesture layer never saw go down -- a tap that silently does
+   * nothing. Carrying the down into this frame and the up into the next is what
+   * makes a fast click still a click.
+   */
+  bool m_mouseContactDown = false;
 
   /// The lead half of a UTF-16 surrogate pair, waiting for its trail half.
   /// Zero when none is pending -- see `AppendCharacter`. It deliberately

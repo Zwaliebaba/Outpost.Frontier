@@ -23,6 +23,7 @@
 #include "HudPalette.h"
 #include "HudRoster.h"
 #include "InputMap.h"
+#include "Gesture.h"
 #include "InputRouter.h"
 #include "IsoCamera.h"
 #include "OrderGhost.h"
@@ -112,7 +113,9 @@ private:
    * gets first refusal on the pointer, so pressing FORMATION does not also
    * start a box selection across the fleet underneath it.
    */
-  void UpdateHud();
+  /// `_deltaSeconds` because the gesture recognizer measures a dwell in seconds
+  /// and may not read a clock, exactly as `UpdateCamera` takes one (I1).
+  void UpdateHud(float _deltaSeconds);
 
   void UpdateSelection();
   void UpdateOrders();
@@ -509,6 +512,22 @@ private:
   SurfaceStack m_surfaces{SurfaceId::Tactical};
   UiFocus m_focus;
   InputRouter m_router;
+
+  /*
+   * What this frame's contacts meant (I1, ADR-020's 2026-08-22 amendment).
+   *
+   * Here rather than inside the router because a gesture spans frames and the
+   * router is latched fresh every one of them: this holds where a press began
+   * and how long it has been down, and hands the answer over so that every
+   * stage reads the same one through the pointer claim.
+   *
+   * **Nothing consumes it yet, and that is I1's whole shape.** The seam is
+   * built, the mouse arrives through it, and the surfaces that will read it are
+   * I2's selection and I3's order surfaces. Wiring it now is what makes those
+   * slices a change of consumer rather than a change of architecture.
+   */
+  GestureRecognizer m_gestures;
+  GestureTuning m_gestureTuning;
 
   /*
    * Which station the hangar was opened for.

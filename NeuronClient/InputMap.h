@@ -111,6 +111,86 @@ static_assert(static_cast<std::uint32_t>(InputAction::Back) + 1u == INPUT_ACTION
  */
 inline constexpr std::uint32_t MAX_FRAME_CHARACTERS = 16;
 
+/*
+ * --- contacts (ADR-020's 2026-08-22 amendment) -----------------------------
+ *
+ * A pointer touching the screen, which is the primary input this game is
+ * designed for and the thing the mouse is now expressed *through*.
+ *
+ * D15.4 said "no pointer abstraction beyond the mouse is built, reserved or
+ * hinted at", and the amendment that reversed it is precise about why the
+ * replacement is a seam rather than a second path: **a second path would
+ * drift, and the drift would be invisible**, because the mouse is what a
+ * developer uses and touch is what ships. So there is one contact array,
+ * `Window` fills it from whatever messages the machine sends, and everything
+ * downstream reads contacts.
+ *
+ * The button arrays above are *not* superseded. A mouse has three buttons and
+ * a finger has none, so they remain what a desk uses for the conveniences that
+ * are not part of the touch design -- and no interaction may *require* one,
+ * which is the amendment's load-bearing rule.
+ */
+enum class PointerPhase : std::uint8_t
+{
+  /// This slot holds nothing. Everything past `contactCount` is this.
+  None,
+
+  /// Arrived this frame. An edge, so a surface can take a press once.
+  Down,
+
+  /// Still down, and was down last frame too.
+  Held,
+
+  /// Left this frame, at the position it left from. An edge for the same
+  /// reason `Down` is, and it carries a position because a tap is decided by
+  /// where the finger *lifted* as much as by where it landed.
+  Up
+};
+
+/*
+ * One contact, in client-area pixels.
+ *
+ * `id` is the platform's, opaque and only ever compared: a finger keeps its id
+ * from `Down` to `Up`, and that is what makes "the second finger" a thing the
+ * recognizer can follow across a frame in which both moved.
+ */
+struct PointerContact
+{
+  std::uint32_t id = 0;
+  std::int32_t x = 0;
+  std::int32_t y = 0;
+  PointerPhase phase = PointerPhase::None;
+};
+
+/*
+ * How many contacts one frame may carry.
+ *
+ * **The design spends two** -- the puck places with one and twists arrival
+ * facing with the other, the wheel is one, and a pinch is two -- and a third
+ * finger means nothing in it. Five is a hand, and the extra three are carried
+ * rather than interpreted for one reason: a palm or a resting knuckle that
+ * *occupied* one of two slots would lock out the finger that has meaning, and
+ * dropping contacts at the window is how that becomes an unreproducible
+ * "sometimes the second finger does nothing".
+ *
+ * The recognizer follows the two **oldest**, which is the rule that makes the
+ * extra slots free: a stray contact arriving later cannot displace a gesture
+ * already in progress.
+ */
+inline constexpr std::uint32_t MAX_POINTER_CONTACTS = 5;
+
+/*
+ * The id the mouse's contact carries.
+ *
+ * A constant rather than a counter because a mouse has exactly one, and a value
+ * a real digitiser will not mint: platform contact ids start low and count up,
+ * so the top of the range is free. Nothing downstream tests for it -- the whole
+ * point of the seam is that a click and a finger are the same thing by the time
+ * anything reads them -- and it exists so that a machine with both a mouse and
+ * a touchscreen cannot have the two collide on an id.
+ */
+inline constexpr std::uint32_t MOUSE_CONTACT_ID = 0xffffffffu;
+
 /// One frame of input, already reduced to logical state. Edges (`pressed`,
 /// `released`) are separate from levels (`down`) because a detent nudge must
 /// fire once per press and a pan must run every frame the key is held.
@@ -149,6 +229,21 @@ struct InputFrame
    */
   char32_t characters[MAX_FRAME_CHARACTERS] = {};
   std::uint32_t characterCount = 0;
+
+  /*
+   * What is touching the screen, oldest first (ADR-020's amendment).
+   *
+   * Oldest first is a contract rather than an artefact: `GestureRecognizer`
+   * takes the first two, so the order is what decides which finger places and
+   * which one twists. `Window` maintains it -- a contact keeps its slot until
+   * it lifts, and a new one lands at the end.
+   *
+   * The mouse fills slot zero from its left button, which is what "the mouse is
+   * expressed through the seam" means in one line. Its other two buttons stay
+   * where they are: they are a desk's conveniences, not fingers.
+   */
+  PointerContact contacts[MAX_POINTER_CONTACTS] = {};
+  std::uint32_t contactCount = 0;
 
   std::uint32_t viewportWidth = 0;
   std::uint32_t viewportHeight = 0;

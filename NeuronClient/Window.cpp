@@ -190,11 +190,43 @@ bool Window::ConsumeResize(std::uint32_t& _outWidth, std::uint32_t& _outHeight)
   return true;
 }
 
+void Window::UpdateMouseContact() noexcept
+{
+  const bool buttonDown = m_input.buttonDown[static_cast<std::uint32_t>(InputButton::Left)];
+  const bool buttonPressed = m_input.buttonPressed[static_cast<std::uint32_t>(InputButton::Left)];
+
+  PointerPhase phase = PointerPhase::None;
+  if (!m_mouseContactDown && (buttonDown || buttonPressed))
+  {
+    // `buttonPressed` as well as `buttonDown`, which is the fast-click case: a
+    // press and release inside one frame leaves the level already false, and
+    // reporting nothing here would lose the click entirely.
+    phase = PointerPhase::Down;
+    m_mouseContactDown = true;
+  }
+  else if (m_mouseContactDown)
+  {
+    phase = buttonDown ? PointerPhase::Held : PointerPhase::Up;
+    m_mouseContactDown = buttonDown;
+  }
+
+  m_input.contactCount = 0;
+  if (phase == PointerPhase::None)
+  {
+    return;
+  }
+  m_input.contacts[0] = PointerContact{MOUSE_CONTACT_ID, m_input.cursorX, m_input.cursorY, phase};
+  m_input.contactCount = 1;
+}
+
 InputFrame Window::ConsumeInput() noexcept
 {
   m_input.viewportWidth = m_width;
   m_input.viewportHeight = m_height;
   m_input.windowFocused = GetForegroundWindow() == m_handle;
+
+  // Last, so the contact is built from the button state this frame ended with.
+  UpdateMouseContact();
 
   const InputFrame frame = m_input;
 

@@ -65,6 +65,9 @@
     <ClCompile Include="GpuUploadRing.cpp">
       <Filter>Gpu</Filter>
     </ClCompile>
+    <ClCompile Include="Gesture.cpp">
+      <Filter>Input</Filter>
+    </ClCompile>
     <ClCompile Include="InputMap.cpp">
       <Filter>Input</Filter>
     </ClCompile>
@@ -211,6 +214,9 @@
     </ClInclude>
     <ClInclude Include="GpuUploadRing.h">
       <Filter>Gpu</Filter>
+    </ClInclude>
+    <ClInclude Include="Gesture.h">
+      <Filter>Input</Filter>
     </ClInclude>
     <ClInclude Include="InputMap.h">
       <Filter>Input</Filter>

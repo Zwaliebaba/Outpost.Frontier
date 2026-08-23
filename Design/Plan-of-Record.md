@@ -1,7 +1,7 @@
 # Plan of Record
 
 **Status:** standing document, **revised in place** · opened 2026-08-22 · current as of
-2026-08-23 (U3d-a, U3d-b, N2, N5, N4 and N6's sizing half built). **This is the only document that says what is built next.** The three build orders
+2026-08-23 (U3d-a, U3d-b, N2, N5, N4, N6's sizing half and I1 built). **This is the only document that says what is built next.** The three build orders
 say what a slice *contains* and record what happened when it landed; this one says which slice,
 and when. Where it and an ADR disagree the ADR wins on *what*, which is the rule the build
 orders already run under.
@@ -105,11 +105,27 @@ re-eroded.
 
 ### The slices this becomes
 
-- **I1 — The input seam.** The pointer abstraction D15.4 refused: a device-free gesture layer
-  over `Window`'s messages carrying tap, drag, long-press, second-finger and pinch, with the
-  mouse expressed *through* it rather than beside it. `InputRouter`'s three channels are the
-  seam it extends. Device-free and testable in `NeuronClientTests`, which is what makes it the
-  first slice rather than part of a screen.
+- ~~**I1 — The input seam.**~~ **Built 2026-08-23.** The pointer abstraction D15.4 refused:
+  `InputFrame` now carries **contacts** — what is touching the screen, oldest first — and
+  `Gesture.h` turns them into the five things the design spends: tap, drag, long-press, second
+  finger, pinch. `Window` fills contact zero from the left button, which is the whole of "the
+  mouse is expressed *through* it rather than beside it"; the recognizer contains no mouse case.
+  `InputRouter` hands the gesture out behind the pointer claim, so a long-press that landed on
+  chrome cannot also reach the world.
+
+  **It changes no behaviour, and that is the shape of the slice.** Nothing consumes a gesture
+  yet — selection is I2 and the order surfaces are I3 — so the seam lands without a retrofit and
+  those become a change of consumer rather than a change of architecture.
+
+  Three decisions it had to take rather than look up. **The dwell is 350 ms**, lifted from
+  `puck-and-wheel.png`'s own step 1 rather than invented, and **`dwellProgress` is a level**
+  because the print requires the ring to fill "from the first millisecond … so a player who did
+  not mean to long-press knows to lift" — a recognizer reporting only the completed press could
+  not draw it. **The slop is a quarter of the 48 px target floor**, derived rather than picked so
+  the two numbers cannot drift apart. And **the frame carries five contacts while the recognizer
+  follows two**: the design spends two, but a palm occupying one of exactly two slots would lock
+  out the finger that has meaning, and dropping contacts at the window is how that becomes an
+  unreproducible "sometimes the second finger does nothing".
 - **I2 — Selection.** The five rules above, plus the in-space `AssignWing` lift (a validator
   scope change and its parity row, not new machinery).
 - **I3 — The order surfaces.** §1's modality toggle, the two-finger puck, and the wheel with its
@@ -132,7 +148,7 @@ is a decision rather than a surprise.
 | ~~**N1**~~ | **Interest & delta** — now **[U3d](Universe-Build-Order.md)**, split a/b/c | ~~no build order absorbed it~~ **Homed 2026-08-22**; it is D6's implementation slice and takes A14's own "after U3c" as its number | large |
 | ~~**N2**~~ | ~~**The user layer**~~ — **built 2026-08-22** | ~~ADR-012 §3 calls `Settings.json` "the only file the game writes" and nothing writes it~~ | small |
 | **N3** | **The settings screen** | ADR-020 §8 names "the settings screen's first slice"; no build order contains it | medium |
-| **I1–I3** | **The input model** | §1 above | large |
+| ~~**I1**~~ **built 2026-08-23** · **I2–I3** | **The input model** | §1 above | large |
 | ~~**N4**~~ | ~~**D18, arrival contention**~~ — **built 2026-08-22** | ~~Baked, parsed, hashed, never read — fell between U1 and U3a~~ | small |
 | ~~**N5**~~ | ~~**The viewer hold**~~ — **built 2026-08-22** | ~~`AddViewer`/`RemoveViewer` have no caller for a player's view; the "until U3b" deferral expired~~ | small |
 | **N6** | **A20 — spike 3 + the S5 frame check** · ~~**and the upload-ring sizing**~~ **built 2026-08-23** | ~~Stated as "Before U5", no slice, no owner~~ **The measuring half still is**, and it needs a GPU | small |
@@ -263,8 +279,11 @@ fleet but has no camera.
     exists on the wire and on the session with nothing connecting it to `AddViewer`. It got
     cheaper and more load-bearing in the same slice.
 
-**Then the input model, which is its own phase:** I1 → I2 → I3. I1 and I2 are device-free and
-can land before a touch device exists; I3 cannot be accepted without one.
+**Then the input model, which is its own phase:** ~~I1~~ **built 2026-08-23** → I2 → I3. I1 and
+I2 are device-free and can land before a touch device exists; I3 cannot be accepted without one.
+**I2 is next**: the five selection rules, the roster row that stops moving the camera
+(`ClientApp.cpp:855`'s unconditional `FocusOn` is the defect), and the in-space `AssignWing`
+lift.
 
 **Then the screens, unchanged in content but re-based on the input model:** N3 (settings, which
 I3 needs for handedness and the Auto toggle), **U3d-c's counted chip**, U3b's remainder, U4's
@@ -324,6 +343,16 @@ named.
 ---
 
 ## Revision log
+
+- **2026-08-23 — I1 built; the input phase has started.** Contacts on `InputFrame`, `Gesture.h`
+  over them, the mouse filling slot zero, and the router handing gestures out behind the pointer
+  claim. It consumes nothing: I2 and I3 are the consumers, and landing the seam first is what
+  stops them being an architecture change. **Two bugs were caught by running the state machine
+  rather than by reading it**, and both are the kind that would have been miserable on a device:
+  ending a gesture cleared the `tapped` flag the same frame had just set, so every tap silently
+  did nothing; and the pinch scale was computed a frame late, so a zoom jumped on its second
+  frame. Ending and cancelling are now two operations, and the pinch's numbers are computed on
+  the frame it begins.
 
 - **2026-08-23 — N6's sizing half built, and N6 turned out to be two slices.** A20 asks for a
   measurement *and* a sizing rule; only the measurement needs a GPU, and the sizing is the half

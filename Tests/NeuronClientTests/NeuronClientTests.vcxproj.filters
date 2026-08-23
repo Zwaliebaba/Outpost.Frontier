@@ -66,6 +66,9 @@
     <ClCompile Include="StationScreenTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="GestureTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="OverlayTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Gesture.h"
 #include "InputMap.h"
 #include "UiDrawList.h"
 #include "UiFocus.h"
@@ -125,6 +126,30 @@ public:
    */
   void Begin(const InputFrame& _frame, const UiFocus& _focus) noexcept;
 
+  /*
+   * What this frame's contacts meant (I1, ADR-020's 2026-08-22 amendment).
+   *
+   * Recognised outside and handed in, rather than tracked here: a gesture spans
+   * frames and this object is rebuilt every one of them. The caller owns a
+   * `GestureRecognizer`, updates it once, and passes the answer to `Begin`'s
+   * companion here so that every stage reads the same one.
+   *
+   * **Gated by the pointer claim, exactly like the buttons are.** A long-press
+   * that landed on chrome must not also reach the world, and a stage that has
+   * claimed the pointer is the one stage entitled to the gesture. That is why
+   * this is on the router at all rather than read straight off the recognizer:
+   * the claim is the mechanism, and a second way in would route around it.
+   */
+  void NoteGesture(const GestureState& _gesture) noexcept { m_gesture = _gesture; }
+
+  /*
+   * This frame's gesture, or a `None` one once the pointer has been claimed.
+   *
+   * A later stage asks the same question and gets a different answer, which is
+   * the whole mechanism -- the same sentence the button edges carry.
+   */
+  [[nodiscard]] const GestureState& Gesture() const noexcept;
+
   /// The latched frame, for everything a claim does not gate: the cursor
   /// position, the viewport size, whether the cursor is inside the window.
   [[nodiscard]] const InputFrame& Frame() const noexcept { return m_frame; }
@@ -210,6 +235,12 @@ public:
 
 private:
   InputFrame m_frame;
+
+  /// This frame's gesture, and the answer handed out once the pointer is
+  /// claimed. A member rather than a constant so `Gesture()` can return a
+  /// reference either way.
+  GestureState m_gesture;
+  GestureState m_noGesture;
 
   bool m_pointerClaimed = true;
   bool m_wheelClaimed = true;

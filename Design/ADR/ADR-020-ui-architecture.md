@@ -533,6 +533,26 @@ place is 200 chips, so the hangar's wing columns scroll.
 > through it.** Not beside it — a second path would drift, and the drift would be invisible
 > because the mouse is what the developer uses and the touch path is what ships.
 >
+> > **Built 2026-08-23 as I1.** `InputFrame` carries **contacts** — what is touching the screen,
+> > oldest first — and `NeuronClient/Gesture.h` turns them into the five gestures this design
+> > spends: tap, drag, long-press, second finger, pinch. `Window` fills contact zero from the left
+> > button and the recognizer contains **no mouse case at all**, which is what "expressed through
+> > it, not beside it" had to mean in code for the drift this clause warns about to be
+> > impossible. `InputRouter` hands the gesture out behind the pointer claim, like every other
+> > pointer question.
+> >
+> > **It consumes nothing**: selection is I2 and the order surfaces are I3, so the seam lands
+> > without a retrofit. Three numbers came with it. The dwell is **350 ms**, taken from
+> > `puck-and-wheel.png`'s own step 1 rather than invented. `dwellProgress` is a **level rather
+> > than only an edge**, because the print requires the ring to fill *"from the first millisecond
+> > … so a player who did not mean to long-press knows to lift"*. And the slop is **a quarter of
+> > the 48 px floor** below — derived rather than picked, so the two cannot drift apart when the
+> > floor is re-argued.
+> >
+> > One thing the mouse cannot do is put down a *second* contact, and I1 does not pretend
+> > otherwise: `secondContactDown` is simply false on a desk, and the surfaces that need a second
+> > finger sequence it differently there (the puck as anchor-then-drag).
+>
 > **48 px survives untouched, and now for its real reason.** It was always a touch floor; D15.4
 > kept the number and dropped the argument. `settings.png` states it, `CommandRow.h:76-83`
 > enforces it, and every widget added since has obeyed it — so nothing built under D15.4 has to

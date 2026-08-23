@@ -450,7 +450,7 @@ int ClientApp::Run()
     {
       NEURON_SPAN("Game");
       UpdateCamera(deltaSeconds);
-      UpdateHud();
+      UpdateHud(deltaSeconds);
       UpdateSelection();
       UpdateOrders();
       // After the camera and the selection, because it reports both.
@@ -665,7 +665,7 @@ std::uint32_t ClientApp::KindSlot(std::uint16_t _kind) const noexcept
  * Nothing here reaches the server. A selection is a client-side fact until an
  * order names it (ADR-006 §11: no round trip).
  */
-void ClientApp::UpdateHud()
+void ClientApp::UpdateHud(float _deltaSeconds)
 {
   m_uiLayout = ResolveUiLayout(m_input.viewportWidth, m_input.viewportHeight, m_config.uiScale, m_uiTuning);
 
@@ -678,6 +678,16 @@ void ClientApp::UpdateHud()
    * frame.
    */
   m_router.Begin(m_input, m_focus);
+
+  /*
+   * And what the contacts meant, on the same latched frame (I1).
+   *
+   * After `Begin`, which clears the router's copy: the recognizer is what
+   * carries a gesture across frames, and handing the answer over here is what
+   * puts it behind the pointer claim like every other pointer question.
+   */
+  m_router.NoteGesture(m_gestures.Update(m_input, m_gestureTuning, _deltaSeconds));
+
   if (m_router.WindowDeactivated())
   {
     // One of focus's three clearing rules, and the only one the router can

@@ -103,6 +103,7 @@
     <ClCompile Include="ObjMeshTests.cpp" />
     <ClCompile Include="GhostTests.cpp" />
     <ClCompile Include="DockingTests.cpp" />
+    <ClCompile Include="GestureTests.cpp" />
     <ClCompile Include="OverlayTests.cpp" />
     <ClCompile Include="DeltaTests.cpp" />
     <ClCompile Include="PickingTests.cpp" />

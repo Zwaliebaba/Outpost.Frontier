@@ -41,6 +41,7 @@
     <ClCompile Include="GpuPipelines.cpp" />
     <ClCompile Include="GpuUploadRing.cpp" />
     <ClCompile Include="HudRoster.cpp" />
+    <ClCompile Include="Gesture.cpp" />
     <ClCompile Include="InputMap.cpp" />
     <ClCompile Include="InputRouter.cpp" />
     <ClCompile Include="IsoCamera.cpp" />
@@ -94,6 +95,7 @@
     <ClInclude Include="GpuPasses.h" />
     <ClInclude Include="GpuPipelines.h" />
     <ClInclude Include="GpuUploadRing.h" />
+    <ClInclude Include="Gesture.h" />
     <ClInclude Include="InputMap.h" />
     <ClInclude Include="InputRouter.h" />
     <ClInclude Include="IsoCamera.h" />
