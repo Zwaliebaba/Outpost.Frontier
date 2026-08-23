@@ -45,6 +45,29 @@ file MSBuild does not use for compilation, and the flat namespace must be manage
    `D3DCompileFromFile` under §6's "assets are the client's own business". They are built now.
    §6 still holds for meshes, universe files and sound banks; shaders left the category.
 
+1b. **What each `pch.h` reaches is a boundary with teeth, and U4 found them** (2026-08-23).
+   `NeuronCore`, `NeuronClient`, `NeuronServer` and **`Outpost`** all chain their `pch.h` to a
+   header that ends in `windows.h`; `GameLogic` and both test projects have a deliberately bare
+   one — `NeuronClientTests/pch.h` says so in as many words, because those tests *"cover
+   presentation maths and configuration defaults, which need no window, no device and no COM"*.
+
+   The consequence nobody had written down: the Windows SDK's legacy macros are in scope for
+   the four that chain, and several of them **expand to nothing**. `minwindef.h` has `#define
+   far` and `#define near`, so `const AnchorId far = ...;` compiles to `const AnchorId = ...;`
+   — MSVC C2513, *"no variable declared before '='"*, pointing at a line that looks perfectly
+   correct. `pascal`, `cdecl`, `IN`, `OUT` and `OPTIONAL` do the same, and `small` and `hyper`
+   are types rather than nothing.
+
+   So `far` and `near` are usable identifiers in `GameLogic` and in the test projects — the
+   tree has a dozen of each and they compile — and are **unusable** in the four that reach
+   Win32. That is not a rule to remember so much as a trap to recognise: the symptom is a
+   syntax error on a declaration with nothing wrong with it, and the fix is to rename the
+   variable. `farSide` is what `ReplicatedWorldView` uses.
+
+   It is also the one class of defect a Linux/clang harness structurally cannot see, since it
+   has no `minwindef.h` — which is worth knowing about a tree whose device-free half is
+   verified that way.
+
 2. **Grouping is `.vcxproj.filters` only** — virtual folders, maintained per project, and
    allowed to nest freely (`Wire`, `Transport`, `Gpu\Passes`). Filters cost nothing at build
    time and are the directive's intended mechanism. The template's extension-driven

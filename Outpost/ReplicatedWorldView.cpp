@@ -3295,8 +3295,14 @@ std::uint32_t ReplicatedWorldView::BuildRoutePlan(std::uint16_t _toSystem, std::
   for (std::size_t hop = 0; hop + 1 < route.systems.size(); ++hop)
   {
     const Game::AnchorId here = GateAnchorTowards(*m_desc.universe, route.systems[hop], route.systems[hop + 1]);
-    const Game::AnchorId far = here != Game::INVALID_ID ? m_desc.universe->PairedGateAnchor(here) : Game::INVALID_ID;
-    if (here == Game::INVALID_ID || far == Game::INVALID_ID)
+
+    // `farSide` rather than `far`: `far` is a legacy Windows SDK macro
+    // (`minwindef.h`) that expands to *nothing*, so the declaration would lose
+    // its name and the file would not compile on the only platform that
+    // matters here. `near` is the same, and its pair is in the self test.
+    const Game::AnchorId farSide =
+      here != Game::INVALID_ID ? m_desc.universe->PairedGateAnchor(here) : Game::INVALID_ID;
+    if (here == Game::INVALID_ID || farSide == Game::INVALID_ID)
     {
       /*
        * A route through a gate the bake did not pair, which authored content
@@ -3311,11 +3317,11 @@ std::uint32_t ReplicatedWorldView::BuildRoutePlan(std::uint16_t _toSystem, std::
     {
       return 0; // Past the caller's span, and a truncated plan is worse than none.
     }
-    if (!push(far, hop))
+    if (!push(farSide, hop))
     {
       return 0;
     }
-    standing = far;
+    standing = farSide;
   }
   return legs;
 }

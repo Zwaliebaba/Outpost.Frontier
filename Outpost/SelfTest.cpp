@@ -2326,10 +2326,13 @@ void RunRouteFeedGate(Checklist& _checks)
     break;
   }
 
-  const Neuron::OrderVerdict near = view.PreCheck(warpTo(neighbour));
+  // `reachable` rather than `near`: `near` is a legacy Windows SDK macro
+  // (`minwindef.h`) that expands to nothing, which would leave the declaration
+  // with no name at all.
+  const Neuron::OrderVerdict reachable = view.PreCheck(warpTo(neighbour));
   const Neuron::OrderVerdict nowhere = view.PreCheck(warpTo(0xfffe));
   _checks.Record("the client can finally pre-check a warp, and accepts a reachable anchor",
-                 neighbour != Game::INVALID_ID && near.accepted);
+                 neighbour != Game::INVALID_ID && reachable.accepted);
   _checks.Record("and refuses one that is not from here, in the authority's own words",
                  !nowhere.accepted &&
                    nowhere.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::UnknownAnchor));
@@ -2345,7 +2348,7 @@ void RunRouteFeedGate(Checklist& _checks)
   submit.shipCount = 1;
   submit.shipIds[0] = flier;
   const Game::OrderVerdict authority = Game::ValidateOrder(world.Validation(), submit);
-  _checks.Record("and the authority agrees with it", authority.accepted == near.accepted);
+  _checks.Record("and the authority agrees with it", authority.accepted == reachable.accepted);
 }
 
 void RunRosterOwnershipGate(Checklist& _checks)
