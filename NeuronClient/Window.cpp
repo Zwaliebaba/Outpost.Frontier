@@ -248,6 +248,10 @@ InputFrame Window::ConsumeInput() noexcept
   {
     pressed = false;
   }
+  for (bool& pressed : m_input.editKeyPressed)
+  {
+    pressed = false;
+  }
   m_input.characterCount = 0;
 
   return frame;
@@ -336,6 +340,53 @@ void Window::SetButton(InputButton _button, bool _down) noexcept
 
 void Window::SetKey(WPARAM _virtualKey, bool _down) noexcept
 {
+  /*
+   * The field's keys first, in their own channel (`TextEditKey`).
+   *
+   * Their own switch and not a third entry in the array below, because they are
+   * a different question -- see `InputMap.h`. `Home` is the one key in both
+   * tables: it is `ResetView` to a camera and "start of line" to a field, and
+   * falling through rather than returning is what lets each read its own answer
+   * where the routing already decides which of them is listening.
+   */
+  {
+    TextEditKey key = TextEditKey::Backspace;
+    bool isEditKey = true;
+    switch (_virtualKey)
+    {
+    case VK_BACK:
+      key = TextEditKey::Backspace;
+      break;
+    case VK_DELETE:
+      key = TextEditKey::Delete;
+      break;
+    case VK_LEFT:
+      key = TextEditKey::Left;
+      break;
+    case VK_RIGHT:
+      key = TextEditKey::Right;
+      break;
+    case VK_HOME:
+      key = TextEditKey::Home;
+      break;
+    case VK_END:
+      key = TextEditKey::End;
+      break;
+    default:
+      isEditKey = false;
+      break;
+    }
+
+    // A level rather than an edge would be a caret that runs while a key is
+    // held, at the frame rate rather than at the platform's repeat rate -- so
+    // this takes every `_down`, auto-repeat included, and the repeat rate is
+    // the one the player configured.
+    if (isEditKey && _down)
+    {
+      m_input.editKeyPressed[static_cast<std::uint32_t>(key)] = true;
+    }
+  }
+
   // The whole virtual-key table, in the one file entitled to know about
   // virtual keys. Left and right buttons are deliberately not here: the left
   // one is S8's click and box-select and the right one is S9's order puck, so
@@ -406,6 +457,12 @@ void Window::SetKey(WPARAM _virtualKey, bool _down) noexcept
     // §2): a focused field cancels its edit with it, and only if none does
     // it reach the surface as "back".
     actions[count++] = InputAction::Back;
+    break;
+  case VK_RETURN:
+    // Its twin, and it goes nowhere but a field. `WM_CHAR` also delivers `\r`
+    // for this key; the buffer refuses it as a control character, so binding
+    // the edge here is what gives the key its one meaning rather than two.
+    actions[count++] = InputAction::Confirm;
     break;
   default:
     return; // Not a camera, selection, order or navigation key.

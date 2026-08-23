@@ -166,6 +166,29 @@ arrived some other way (a hand-edited `Settings.json`, an older build, a future 
 service) fails soft to U+FFFD substitution rather than refusing the file — ADR-012's posture
 toward every hand-edited artefact.
 
+> **Built 2026-08-23 with T3's rename control, and the second place turned out to be the
+> wrong place.**
+>
+> The widget half is as written: every character is asked of the atlas at **every baked size**
+> before it is stored, which is the clause's own wording and is the difference between a name
+> that is legible and a name that is legible *here* — a call sign is drawn at the body size on
+> a hangar column and at the small size on a roster row.
+>
+> The load half moved to the **draw**, and the reason is that substituting at load would
+> corrupt the file. A name from a future build round-trips through `Settings.json` untouched if
+> nothing rewrites it, and is drawn as replacement characters *now*; substituting on the way in
+> would write the boxes back out on the next save and lose the original permanently. So the
+> rule is kept where it cannot be bypassed rather than where it was first written down: an
+> unpaintable codepoint anywhere in this client draws as U+FFFD.
+>
+> **U+FFFD had to be baked for that to mean anything**, and finding out that it was not is the
+> useful part. `ExpandOneTextRun` *skipped* a missing glyph and held its column, on the
+> argument that "a run of boxes is a bake to fix rather than a layout to nudge" — which is
+> right, and one step short: a skipped glyph is not a box, it is a gap, so a name made entirely
+> of unpaintable characters drew as **nothing at all**. Silence is the one outcome a fail-soft
+> rule cannot have. It is counted as well as drawn, so the telemetry that argument was really
+> protecting is unchanged.
+
 ### 4. One scrolling list, and it scrolls by whole rows
 
 `UiScrollState` is an offset in rows, a content count and a visible count, with a clamp. One

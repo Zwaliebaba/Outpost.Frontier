@@ -1010,13 +1010,36 @@ std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const Neuron::EntityId>
 
   for (const Game::ReplicatedShip& ship : m_sampled)
   {
-    // Wing zero is `INVALID_WING_ID` and belongs to nothing -- the stations
-    // are in it. A row for "no wing" would be a row the player cannot command.
-    if (ship.wing == Game::INVALID_WING_ID)
+    /*
+     * **Only this commander's**, which is a fix rather than a refinement (T3).
+     *
+     * A wing number is a byte every commander numbers from one, so a hostile
+     * fleet flying their wing 3 on this grid was being counted into *this*
+     * player's row 3 -- inflating its count and dragging its gauges towards a
+     * fleet they do not command. It needed two commanders on one grid to show,
+     * which U3c made possible and no gate had built.
+     *
+     * The bits that make the distinction are ADR-022 §8b's, which arrived after
+     * this function did: before them there was no way to ask, and the code that
+     * could not ask read like code that had decided not to.
+     */
+    if (Game::RelationshipFrom(ship.statusBits) != Game::Relationship::Own)
     {
       continue;
     }
 
+    /*
+     * Wing zero is `INVALID_WING_ID`, and since T3 it is a **row**.
+     *
+     * It used to be skipped with "the stations are in it", which was true and
+     * was not the reason: the stations are in it because they are in nobody's
+     * wing *and* nobody's fleet, and the ownership filter above now tells those
+     * two apart. What is left in wing zero after it is exactly this
+     * commander's strays -- ships an `AssignWing` to zero disbanded, or that
+     * arrived unassigned -- and they need a row for the reason
+     * `StationActionOptions` refused to offer the disband at all: a fleet with
+     * no row is a fleet that vanished off the HUD.
+     */
     Accumulator& wing = byWing[ship.wing];
     ++wing.ships;
     wing.hullTotal += ship.hullGauge;
@@ -1114,6 +1137,36 @@ std::uint32_t ReplicatedWorldView::BuildRoster(std::span<const Neuron::EntityId>
     row.cargoGauge = row.carriesCargo
                        ? static_cast<std::uint8_t>(std::min<std::uint64_t>(255u, wing.usedLitres * 255u / wing.holdLitres))
                        : 0u;
+    ++rows;
+  }
+
+  /*
+   * And the strays, last (T3).
+   *
+   * **Last rather than first**, because they are the leftovers: a row at the
+   * top would push TALON down the panel every time a ship came out of a wing,
+   * and the roster's order is the one thing a player points at without reading.
+   *
+   * **Only when there are any**, unlike a wing, which keeps its row at zero.
+   * The difference is that a wing is a thing the player made and an empty one
+   * is news -- *which* wing did I just lose -- while "no ships are unassigned"
+   * is the ordinary state and a permanent row saying so is a row that has to be
+   * read before it can be ignored. `CountedChip`'s argument, one panel along.
+   */
+  const Accumulator& strays = byWing[Game::INVALID_WING_ID];
+  if (strays.ships > 0 && rows < _outRows.size())
+  {
+    RosterRow& row = _outRows[rows];
+    row.name = WingName(Game::INVALID_WING_ID);
+    row.groupId = Game::INVALID_WING_ID;
+    row.shipCount = strays.ships;
+    row.selectedCount = strays.selected;
+    row.hullGauge = static_cast<std::uint8_t>(strays.hullTotal / strays.ships);
+    row.shieldGauge = static_cast<std::uint8_t>(strays.shieldTotal / strays.ships);
+    row.carriesCargo = strays.holdLitres > 0;
+    row.cargoGauge = row.carriesCargo ? static_cast<std::uint8_t>(std::min<std::uint64_t>(
+                                          255u, strays.usedLitres * 255u / strays.holdLitres))
+                                      : 0u;
     ++rows;
   }
   return rows;
@@ -1935,17 +1988,18 @@ Neuron::StationRosterCounts ReplicatedWorldView::BuildStationRoster(std::uint16_
  * `BuildScene` makes. Answering from anywhere else would let a press select a
  * ship the player cannot see, or miss one they can.
  *
- * Wing zero is `INVALID_WING_ID` and never a row, so it can never be asked for
- * here either; a group id no wing carries answers zero, which the caller reads
- * as "nothing to select".
+ * **Wing zero answers now**, which it did not until T3 gave the strays a row.
+ * The refusal here was a consequence of there being no row to press rather than
+ * a rule of its own, and leaving it in place would have made the new row the one
+ * row on the panel that does nothing when tapped.
+ *
+ * **And only this commander's ships**, for `BuildRoster`'s reason exactly: a
+ * wing number is a byte every commander numbers from one, so without the
+ * ownership filter a press on TALON would have selected a hostile wing 3 along
+ * with it -- and then offered an order over the pair.
  */
 std::uint32_t ReplicatedWorldView::BuildGroupMembers(std::uint16_t _groupId, std::span<Neuron::EntityId> _outIds) const
 {
-  if (_groupId == Game::INVALID_WING_ID)
-  {
-    return 0;
-  }
-
   std::uint32_t count = 0;
   for (const Game::ReplicatedShip& ship : m_sampled)
   {
@@ -1953,13 +2007,92 @@ std::uint32_t ReplicatedWorldView::BuildGroupMembers(std::uint16_t _groupId, std
     {
       break;
     }
-    if (ship.wing == _groupId)
+    if (ship.wing == _groupId && Game::RelationshipFrom(ship.statusBits) == Game::Relationship::Own)
     {
       _outIds[count] = ship.id;
       ++count;
     }
   }
   return count;
+}
+
+/*
+ * A wing's new call sign (ADR-017 §6, ADR-012 §3, T3).
+ *
+ * `EnsureWingName`'s twin, and deliberately not the same function: that one
+ * *invents* a word for a wing that has none, refusing at capacity because the
+ * alternative is spending a spare call sign nobody asked for. This one carries
+ * a word the player typed, so it must not be refused for want of a spare and
+ * must not consume one.
+ *
+ * **It replaces rather than appends when the wing already has a player word**,
+ * which is what stops a player renaming one wing four times from spending four
+ * of the sixteen entries the pointer-stability reserve holds.
+ */
+bool ReplicatedWorldView::RenameGroup(std::uint16_t _groupId, std::string_view _name)
+{
+  const auto wing = static_cast<Game::WingId>(_groupId);
+  if (_groupId > std::numeric_limits<Game::WingId>::max() || wing == Game::INVALID_WING_ID || _name.empty())
+  {
+    /*
+     * Wing zero is refused, and that is a rule rather than a bounds check: it
+     * is not a wing, it is the absence of one. The row the strays draw is a
+     * heading over "ships in no wing", so a player who renamed it would have
+     * named a category the game does not have and the next disband would fill
+     * it with somebody else's idea of what it meant.
+     */
+    return false;
+  }
+
+  const auto found = std::find_if(m_playerWingNames.begin(), m_playerWingNames.end(),
+                                  [wing](const std::pair<Game::WingId, std::string>& _entry) { return _entry.first == wing; });
+  if (found != m_playerWingNames.end())
+  {
+    /*
+     * Assigned in place, which keeps the pointer this entry has already handed
+     * out valid **only because a `std::string` owns its own storage**: the
+     * vector does not move, the string may reallocate, and every borrowed
+     * `const char*` came from `c_str()` on *this* string. So a rename between a
+     * frame's `BuildRoster` and its draw would leave that frame pointing at
+     * freed bytes -- which is why the caller commits a rename on an input edge,
+     * before the frame's rows are built, and never mid-draw.
+     */
+    found->second = _name;
+    return true;
+  }
+
+  /*
+   * A first player word for this wing costs an entry, and the reserve is
+   * absolute: growing the vector would move every name already on screen.
+   *
+   * The *row cap* is deliberately not checked here, unlike `EnsureWingName`.
+   * That function decides whether a wing is worth naming at all; this one is
+   * told that it is, by a player looking at its row. A wing being renamed
+   * already has a row -- it is where the gesture landed -- so refusing it for
+   * the roster's row budget would be refusing to rename something the roster is
+   * currently drawing.
+   */
+  if (m_playerWingNames.size() == m_playerWingNames.capacity())
+  {
+    return false;
+  }
+  m_playerWingNames.emplace_back(wing, std::string(_name));
+
+  /*
+   * And the word is struck off the spare pool if it was one of them.
+   *
+   * A player who types `KESTREL` on to wing 4 has taken the call sign the
+   * hangar would otherwise have handed to the next new wing, and two things
+   * with one word is the failure the constructor already guards against on
+   * reload. Cheap, and it keeps that invariant true through the one path that
+   * can introduce a collision at runtime.
+   */
+  const auto spare = std::find(m_desc.spareWingNames.begin(), m_desc.spareWingNames.end(), _name);
+  if (spare != m_desc.spareWingNames.end())
+  {
+    m_desc.spareWingNames.erase(spare);
+  }
+  return true;
 }
 
 /*
@@ -2048,11 +2181,14 @@ std::uint32_t ReplicatedWorldView::BuildStationActions(std::uint16_t _anchor,
  * as a value rather than as a second verb. It is still a cycling chip: the list
  * is bounded by the roster's row cap, which is what makes it short.
  *
- * Wing zero is **not** offered, and its absence is a decision. Assigning to it
- * is how a wing disbands, but `BuildRoster` draws no row for it -- strays
- * belong to nothing -- so the button would be one that made ships disappear
- * off the HUD, which is a worse affordance than not having it. The stray column
- * the print reserves is what makes that offerable, and it is not built.
+ * ~~Wing zero is **not** offered~~ **and since T3 it is, because the thing that
+ * blocked it was built.** The objection was never to the verb: assigning to
+ * zero is how a wing disbands, and the reason to refuse was that `BuildRoster`
+ * drew no row for it, so the button would have made ships disappear off the HUD.
+ * The strays have a row now -- last on the panel, and only when there are any --
+ * so a disband moves a fleet from one row to another where it can still be seen,
+ * selected and re-grouped. It is offered **last**, after the wings and after the
+ * next unused number, because it is the destructive one.
  *
  * The economy's four answer zero: they carry ores, alloys and quantities, none
  * of them a short list, so a screen for them is E5's rather than a longer table
@@ -2098,6 +2234,21 @@ std::uint32_t ReplicatedWorldView::StationActionOptions(std::uint16_t _verb,
     {
       _outOptions[wings].parameter = fresh;
       _outOptions[wings].name = "NEW WING";
+      ++wings;
+    }
+
+    /*
+     * And the disband, last (T3).
+     *
+     * Its word is the strays' own row heading rather than a second one, so the
+     * chip says where the ships are going and the player can then read the row
+     * they went to. A verb whose destination is named one way in the control
+     * and another on the panel is a verb the player has to learn twice.
+     */
+    if (wings < _outOptions.size())
+    {
+      _outOptions[wings].parameter = Game::INVALID_WING_ID;
+      _outOptions[wings].name = WingName(Game::INVALID_WING_ID);
       ++wings;
     }
     return wings;

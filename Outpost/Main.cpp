@@ -1264,7 +1264,16 @@ void ReportParkedFleet(const std::vector<ParkedHull>& _parked)
 {
   std::vector<std::string> names;
   names.reserve(std::size(STARTING_FLEET) + 1);
-  names.emplace_back("-"); // WingId 0: no wing. The stations are here.
+  /*
+   * `WingId` 0 is `INVALID_WING_ID`, and since T3 its word is drawn (the stray
+   * row and the disband option both take it from here).
+   *
+   * It was `-`, a placeholder nothing looked up. It is content now for the
+   * reason every other call sign here is: what a game calls the ships that
+   * belong to no wing is that game's word, and an engine that spelled it would
+   * have decided that "no wing" is a thing worth naming at all.
+   */
+  names.emplace_back("UNASSIGNED");
   for (const FleetWing& entry : STARTING_FLEET)
   {
     names.emplace_back(entry.name);

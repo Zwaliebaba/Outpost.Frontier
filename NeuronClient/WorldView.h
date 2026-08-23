@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 /*
  * The engine/game seam, client side (ADR-014 §2).
@@ -404,6 +405,32 @@ public:
     (void)_groupId;
     (void)_outIds;
     return 0;
+  }
+
+  /*
+   * Renames a group, and says whether the game took it (ADR-017 §6, T3).
+   *
+   * The other end of `BuildGroupMembers`' opaque handle: the engine collects
+   * the characters, and the game decides what a name may be and where it is
+   * kept. It never learns that the thing it renamed is a wing, that the word
+   * outranks an authored one rather than replacing it, or that it will be in a
+   * settings file at shutdown -- all three are this game's answers (ADR-012 §3).
+   *
+   * **The engine owns one half of the validation and the game owns the other,
+   * and the split is not arbitrary.** Which characters exist is a question about
+   * *this build's glyph atlas*, so the widget asks the atlas as each one is
+   * typed (ADR-018 D15.1) -- a name the game accepted and the client cannot
+   * draw would render as boxes. Whether the name may be *stored* is the game's:
+   * an empty one, a group that is not nameable, a table already full.
+   *
+   * False leaves the old name standing, which is what the caller draws either
+   * way -- so a refusal costs the player their typing and never their wing.
+   */
+  [[nodiscard]] virtual bool RenameGroup(std::uint16_t _groupId, std::string_view _name)
+  {
+    (void)_groupId;
+    (void)_name;
+    return false;
   }
 
   /*

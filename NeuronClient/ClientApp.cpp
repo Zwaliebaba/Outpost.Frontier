@@ -1755,6 +1755,36 @@ void ClientApp::UpdateStationSurface()
                                       m_stationColumns, m_stationChipRects);
 
   /*
+   * And the open rename field follows its column (T3).
+   *
+   * Re-found by the wing's own number rather than kept as an index, because the
+   * roster is rebuilt from a summary at about 1 Hz and a wing whose ships all
+   * undocked while the player was typing takes its column with it. Found: the
+   * field sits on the header, which is the rect a tap will be tested against.
+   * Not found: the field closes, because a caret over a column that is no longer
+   * there would be an edit with nothing to commit to.
+   */
+  if (m_focus.HeldBy(SurfaceId::Station, RENAME_WIDGET))
+  {
+    m_renameFieldRect = UiRect{};
+    for (std::uint32_t index = 0; index < m_stationLaid.groups; ++index)
+    {
+      const std::uint32_t group = m_stationColumns[index].group;
+      if (group < m_stationRoster.groups && m_stationGroups[group].idTag == m_renameGroupId)
+      {
+        m_renameGroup = group;
+        m_renameFieldRect = m_stationColumns[index].header;
+        break;
+      }
+    }
+    if (m_renameFieldRect.width <= 0.0f)
+    {
+      m_focus.Clear();
+      m_wingRename.Clear();
+    }
+  }
+
+  /*
    * Whether UNDOCK is a promise, from the authority's own validator.
    *
    * `PreCheckStation` runs `ValidateStationCommand` over the same `RosterView`
@@ -1806,33 +1836,40 @@ void ClientApp::UpdateStationSurface()
     return;
   }
 
-  const float cursorX = m_router.CursorX();
-  const float cursorY = m_router.CursorY();
-
-  if (m_router.Pressed(InputButton::Left))
+  /*
+   * --- the rename field, before anything else can take the frame's input ---
+   *
+   * It holds the keyboard (`UiFocus`), so the characters this frame carries are
+   * *its* characters and nothing else may read them; and it holds the press,
+   * because a tap that lands outside the field is how a player finishes typing.
+   *
+   * `TextEditState` is T3a's, built and then unused for a slice: this is its
+   * first consumer, and it is what ADR-018 D15.1 meant by "editable text".
+   */
+  if (m_focus.HeldBy(SurfaceId::Station, RENAME_WIDGET))
   {
-    if (const StationTabButton* tab = HitStationTab(
-            std::span<const StationTabButton>{m_stationTabButtons, m_stationTabButtonCount}, cursorX, cursorY);
-        tab != nullptr)
-    {
-      // Only the hangar is live today and this client cannot tell which one it
-      // is -- the tab hands back the game's number and the screen echoes it.
-      // A disabled tab never reaches here; the hit test refused it.
-      m_stationTab = tab->id;
-    }
-    else if (const StationColumnRect* column = HitStationColumnHeader(
-                 std::span<const StationColumnRect>{m_stationColumns, m_stationLaid.groups}, cursorX, cursorY);
-             column != nullptr)
+    UpdateWingRename();
+  }
+
+  const GestureState& gesture = m_router.Gesture();
+
+  /*
+   * **A hold takes the wing, and that restores the print** (`station-screen.png`
+   * §1: *"Tap toggles a ship; holding a wing header takes"*).
+   *
+   * T3b built it as a press, with the reason written down: *"a header has no
+   * competing gesture: it is not a chip, and nothing else on it does anything"*.
+   * It has one now -- a tap renames -- which is exactly the condition that
+   * comment named for when a dwell earns its cost. So the departure is undone
+   * rather than defended, and the two gestures land where the print put them.
+   */
+  if (gesture.longPressed)
+  {
+    if (const StationColumnRect* column = HitStationColumnHeader(
+            std::span<const StationColumnRect>{m_stationColumns, m_stationLaid.groups}, gesture.x, gesture.y);
+        column != nullptr)
     {
       /*
-       * The print's second gesture: taking a whole wing.
-       *
-       * **A press rather than a hold**, which is a departure from the print
-       * and worth naming. A hold needs a dwell timer this frame loop does not
-       * otherwise keep, and it earns its cost on a *chip*, where holding has
-       * to be told apart from tapping. A header has no competing gesture: it
-       * is not a chip, and nothing else on it does anything.
-       *
        * Additive, which is the part that matters: taking a wing extends the
        * composition rather than replacing it, so "Talon plus two spare
        * Battleships from Reserve" stays three gestures.
@@ -1848,6 +1885,42 @@ void ClientApp::UpdateStationSurface()
         }
       }
       m_composer.AddAll(std::span<const std::uint32_t>{wing, count});
+    }
+    (void)m_router.ClaimPointer();
+    return;
+  }
+
+  const float cursorX = gesture.tapX;
+  const float cursorY = gesture.tapY;
+
+  if (gesture.tapped)
+  {
+    if (const StationTabButton* tab = HitStationTab(
+            std::span<const StationTabButton>{m_stationTabButtons, m_stationTabButtonCount}, cursorX, cursorY);
+        tab != nullptr)
+    {
+      // Only the hangar is live today and this client cannot tell which one it
+      // is -- the tab hands back the game's number and the screen echoes it.
+      // A disabled tab never reaches here; the hit test refused it.
+      m_stationTab = tab->id;
+    }
+    else if (const StationColumnRect* column = HitStationColumnHeader(
+                 std::span<const StationColumnRect>{m_stationColumns, m_stationLaid.groups}, cursorX, cursorY);
+             column != nullptr && column->group < m_stationRoster.groups)
+    {
+      /*
+       * A tap on a header **renames the wing** (T3, ADR-017 §6, ADR-012 §3).
+       *
+       * The rare action on the cheap gesture, which is the right way round here
+       * for one reason: a tap on a header did nothing at all before, and an
+       * accidental rename costs one press of Escape while an accidental *take*
+       * changes a composition the player is part-way through building.
+       *
+       * The field opens seeded with the current word and with the whole of it
+       * selected, so the common case -- replacing a name outright -- is typing,
+       * and the uncommon one is one arrow key away.
+       */
+      BeginWingRename(column->group);
     }
     else if (const StationChipRect* chip = HitStationChip(
                  std::span<const StationChipRect>{m_stationChipRects, m_stationLaid.chips}, cursorX, cursorY);
@@ -1897,6 +1970,173 @@ void ClientApp::UpdateStationSurface()
   // full-screen surface owns every button of the pointer for as long as it is
   // up (ADR-020 §1).
   (void)m_router.ClaimPointer();
+}
+
+/*
+ * Opens the rename field on a wing's header (T3, ADR-018 D15.1, ADR-012 §3).
+ *
+ * Seeded with the word the header is currently drawing rather than with
+ * nothing, and with the whole of it selected -- so the common case, replacing a
+ * call sign outright, is *typing*, and keeping part of it is one arrow key
+ * away. A field that opened empty would make the second case impossible and the
+ * first no easier.
+ */
+void ClientApp::BeginWingRename(std::uint32_t _group)
+{
+  if (_group >= m_stationRoster.groups)
+  {
+    return;
+  }
+  const StationGroup& group = m_stationGroups[_group];
+
+  m_renameGroup = _group;
+  m_renameGroupId = group.idTag;
+  m_wingRename.SetText(group.name != nullptr ? std::string_view{group.name} : std::string_view{});
+  m_wingRename.SelectAll();
+  m_focus.Claim(SurfaceId::Station, RENAME_WIDGET, FocusKind::EditableField);
+}
+
+/*
+ * One frame of the open field, and whether it took the frame's input.
+ *
+ * **Three ways out, and they are three different answers.** Escape cancels and
+ * the old word stands. Enter commits, which is the keyboard's convenience. And
+ * a tap anywhere outside the field commits too -- which is the one that
+ * matters, because touch has no Enter and a field a finger cannot finish is a
+ * field a finger cannot use.
+ *
+ * Committing on blur rather than cancelling is a choice about whose work is
+ * cheaper to lose: a player who typed a name and then reached for a chip meant
+ * the name, and discarding it would throw away the only thing on this screen
+ * they cannot get back by pressing again.
+ */
+bool ClientApp::UpdateWingRename()
+{
+  /*
+   * Escape first, and the field *claims* the channel with it.
+   *
+   * `ActionSurvivesTextEditing` routes `Back` rather than suppressing it --
+   * "the field sees Escape first and claims the channel when it cancels an edit
+   * with it" -- so not claiming here would cancel the edit *and* leave the
+   * station surface, which is two answers to one key.
+   */
+  if (m_router.Pressed(InputAction::Back))
+  {
+    (void)m_router.ClaimKeyboard();
+    m_focus.Clear();
+    m_wingRename.Clear();
+    return true;
+  }
+
+  /*
+   * Then the characters, filtered by what this build can *draw*.
+   *
+   * ADR-018 D15.1's rule, asked where the rule says to ask it: the atlas is the
+   * only thing that knows which codepoints were baked, and a second copy of that
+   * list is how a name renders at one size and boxes at another.
+   * `TextEditState` has already refused the control characters; this refuses the
+   * unpaintable.
+   *
+   * A refused character is dropped silently rather than announced. The player is
+   * looking at the field, so the letter not appearing *is* the feedback, and the
+   * alternative is a toast per keystroke.
+   */
+  for (const char32_t typed : m_router.Characters())
+  {
+    /*
+     * **Every baked size, not the one this field draws at**, which is ADR-020
+     * §3's rule as written and is the difference between a name that is legible
+     * and a name that is legible *here*. A wing's call sign is drawn at the body
+     * size on this header and at the small size on the tactical roster's rows,
+     * so a codepoint baked at one and not the other would store cleanly and box
+     * on the other screen.
+     */
+    bool paintable = m_glyphAtlas.SizeCount() > 0;
+    for (std::uint32_t size = 0; size < m_glyphAtlas.SizeCount(); ++size)
+    {
+      paintable = paintable && m_glyphAtlas.Find(size, typed) != nullptr;
+    }
+    if (paintable)
+    {
+      (void)m_wingRename.Insert(typed);
+    }
+  }
+
+  // And the editing keys, which are the field's whatever else is bound to them.
+  // Shift comes from `SelectAdd` rather than from a second spelling of one
+  // modifier -- see `TextEditKey`.
+  const InputFrame& frame = m_router.Frame();
+  const bool extend = m_router.Down(InputAction::SelectAdd);
+  if (frame.editKeyPressed[static_cast<std::uint32_t>(TextEditKey::Backspace)])
+  {
+    (void)m_wingRename.Backspace();
+  }
+  if (frame.editKeyPressed[static_cast<std::uint32_t>(TextEditKey::Delete)])
+  {
+    (void)m_wingRename.DeleteForward();
+  }
+  if (frame.editKeyPressed[static_cast<std::uint32_t>(TextEditKey::Left)])
+  {
+    m_wingRename.MoveLeft(extend);
+  }
+  if (frame.editKeyPressed[static_cast<std::uint32_t>(TextEditKey::Right)])
+  {
+    m_wingRename.MoveRight(extend);
+  }
+  if (frame.editKeyPressed[static_cast<std::uint32_t>(TextEditKey::Home)])
+  {
+    m_wingRename.MoveHome(extend);
+  }
+  if (frame.editKeyPressed[static_cast<std::uint32_t>(TextEditKey::End)])
+  {
+    m_wingRename.MoveEnd(extend);
+  }
+  (void)m_router.ClaimKeyboard();
+
+  const bool confirmed = m_router.Pressed(InputAction::Confirm);
+  const GestureState& gesture = m_router.Gesture();
+  const bool blurred = gesture.tapped && !m_renameFieldRect.Contains(gesture.tapX, gesture.tapY);
+
+  if (!confirmed && !blurred)
+  {
+    return false; // Still typing. The screen behind carries on without its keys.
+  }
+
+  /*
+   * The commit, and it is the game that decides whether the word is kept.
+   *
+   * The engine collected the characters and knows what it can draw; whether a
+   * name may be *stored*, and against what, is the game's -- so this hands over
+   * an opaque group id and a string and takes the answer. A refusal leaves the
+   * old word standing, which is what the header was drawing anyway.
+   *
+   * **On this edge rather than during the draw**, which is the lifetime rule
+   * `RenameGroup` states from the other side: a rename replaces a `std::string`
+   * that this frame's `BuildStationRoster` may already have handed a `c_str()`
+   * out of.
+   *
+   * An empty name is not a rename. It is what a player who selected everything
+   * and pressed Backspace has, mid-edit, and committing it would be reading an
+   * unfinished thought as a decision -- so the field closes and the wing keeps
+   * the word it had.
+   */
+  if (m_worldView != nullptr && !m_wingRename.Empty())
+  {
+    (void)m_worldView->RenameGroup(m_renameGroupId, m_wingRename.Text());
+  }
+  m_focus.Clear();
+  m_wingRename.Clear();
+
+  /*
+   * A blur consumed the tap that caused it. A player finishing a name and a
+   * player toggling a chip are two gestures, and the tap that ends the first
+   * must not also be the second.
+   */
+  if (blurred)
+  {
+    (void)m_router.ClaimPointer();
+  }
+  return true;
 }
 
 /*
@@ -5009,9 +5249,43 @@ void ClientApp::BuildStationSurface()
     const StationColumnRect& column = m_stationColumns[index];
     const StationGroup& group = m_stationGroups[column.group];
 
-    UpperCaseInto(group.name != nullptr ? group.name : "UNASSIGNED", upper);
-    m_ui.AddText(column.header.x, column.header.y + (column.header.height - bodyPx) * 0.5f - 2.0f * scale,
-                 m_uiTuning.bodySizeIndex, m_palette.phosphor, upper);
+    /*
+     * The header is a word, or -- on the one column being renamed -- a field
+     * (T3).
+     *
+     * The same rect either way, which is what makes the blur test mean
+     * something: the thing a tap lands outside of is the thing the player can
+     * see. The caret is a quad at the caret's cell and the selection is a quad
+     * behind the selected run, both from `TextEditState`'s byte offsets counted
+     * as cells -- the face is monospace, so a cell is a codepoint and no
+     * measurement is needed.
+     */
+    const bool renaming = m_focus.HeldBy(SurfaceId::Station, RENAME_WIDGET) && column.group == m_renameGroup;
+    const float headerTextY = column.header.y + (column.header.height - bodyPx) * 0.5f - 2.0f * scale;
+    if (renaming)
+    {
+      m_ui.AddQuad(column.header, AtHalfAlpha(m_palette.phosphorGhost));
+      m_ui.AddBorder(column.header, line, m_palette.phosphor);
+
+      const std::string_view typed = m_wingRename.Text();
+      const auto selectFrom = static_cast<float>(Utf8CodepointCount(typed.substr(0, m_wingRename.SelectionBegin())));
+      const auto selectTo = static_cast<float>(Utf8CodepointCount(typed.substr(0, m_wingRename.SelectionEnd())));
+      if (selectTo > selectFrom)
+      {
+        m_ui.AddQuad(UiRect{column.header.x + selectFrom * cell, headerTextY, (selectTo - selectFrom) * cell, bodyPx},
+                     AtHalfAlpha(m_palette.phosphor));
+      }
+      m_ui.AddText(column.header.x, headerTextY, m_uiTuning.bodySizeIndex, m_palette.phosphorHot, typed);
+
+      const auto caretCells = static_cast<float>(Utf8CodepointCount(typed.substr(0, m_wingRename.Caret())));
+      m_ui.AddQuad(UiRect{column.header.x + caretCells * cell, headerTextY, line * 2.0f, bodyPx},
+                   m_palette.phosphorHot);
+    }
+    else
+    {
+      UpperCaseInto(group.name != nullptr ? group.name : "UNASSIGNED", upper);
+      m_ui.AddText(column.header.x, headerTextY, m_uiTuning.bodySizeIndex, m_palette.phosphor, upper);
+    }
 
     // The count beside the name is the game's, and it is on screen at all
     // because names live in the user settings layer: two clients without

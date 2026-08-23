@@ -2057,6 +2057,192 @@ void RunInSpaceWingGate(Checklist& _checks)
  * `OutpostTests`; what is left, and what this is, is what the *view* does with
  * the list of names it is handed at construction.
  */
+/*
+ * Whose ships a roster row counts, and where the ones in no wing go (T3).
+ *
+ * Two questions one gate can answer because they are the same question read
+ * twice: a wing number is a byte *every* commander numbers from one, so the
+ * roster has to say which hulls are this player's before it can say anything
+ * else about them.
+ *
+ * It needs a frame rather than a summary -- `BuildRoster` counts the ships the
+ * frame drew -- and two relationships in it, which is the arrangement no gate
+ * had built. That is why the defect it fixes had never been seen: it takes two
+ * commanders on one grid, and until U3c there could not be two.
+ */
+void RunRosterOwnershipGate(Checklist& _checks)
+{
+  constexpr Game::ShipId MINE_A = 1;
+  constexpr Game::ShipId MINE_B = 2;
+  constexpr Game::ShipId STRAY = 3;
+  constexpr Game::ShipId THEIRS = 4;
+  constexpr Game::ShipId STATION = 5;
+
+  Game::World world;
+  // Any seed: nothing here is random, and Reset wants one.
+  world.Reset(1);
+
+  const auto spawn = [&world](Game::ShipId _id, Game::HullClass _hull, Game::WingId _wing, float _x) {
+    Game::ShipSpawn ship;
+    ship.hullClass = _hull;
+    ship.wing = _wing;
+    ship.xMetres = _x;
+    ship.yMetres = 0.0f;
+    return world.Spawn(ship, _id);
+  };
+
+  bool spawned = spawn(MINE_A, Game::HullClass::Interceptor, 1, 0.0f);
+  spawned = spawn(MINE_B, Game::HullClass::Interceptor, 1, 100.0f) && spawned;
+  // In no wing and this commander's: the strays the disband makes.
+  spawned = spawn(STRAY, Game::HullClass::Corvette, Game::INVALID_WING_ID, 200.0f) && spawned;
+  // Somebody else's, flying *their* wing 1 on the same grid.
+  spawned = spawn(THEIRS, Game::HullClass::Interceptor, 1, 300.0f) && spawned;
+  // And a structure, which is in no wing and belongs to nobody.
+  spawned = spawn(STATION, Game::HullClass::Structure, Game::INVALID_WING_ID, 400.0f) && spawned;
+  if (!spawned)
+  {
+    _checks.Record("the roster ownership gate could build its grid", false);
+    return;
+  }
+  world.Tick(1);
+
+  std::vector<Neuron::EntityRecord> records;
+  for (std::uint32_t slot = 0; slot < world.ShipCount(); ++slot)
+  {
+    const Game::ShipId id = world.Ids()[slot];
+    const Game::Relationship standing =
+      id == THEIRS ? Game::Relationship::Hostile : (id == STATION ? Game::Relationship::Neutral : Game::Relationship::Own);
+    records.push_back(Game::MakeShipRecord(world, slot, standing));
+  }
+
+  std::array<std::uint8_t, Game::MAX_TICK_TAIL_BYTES> tailBytes{};
+  Neuron::ByteWriter tailWriter{tailBytes};
+  if (!Game::WriteTickTail(world, tailWriter, 0) || !tailWriter.Ok())
+  {
+    _checks.Record("the roster ownership gate could write its frame", false);
+    return;
+  }
+
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  desc.wingNames = {"UNASSIGNED", "TALON", "ANVIL"};
+  desc.spareWingNames = {"VERGE", "CINDER"};
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  Neuron::ReplicatedFrame frame;
+  frame.tick = world.Tick();
+  frame.gridId = world.Anchor();
+  frame.entities = records;
+  frame.tail = tailWriter.Written();
+  const bool applied = view.ApplyFrame(frame);
+  Neuron::RenderScene scene;
+  view.BuildScene(static_cast<double>(world.Tick()), scene);
+
+  std::array<Neuron::RosterRow, Neuron::MAX_ROSTER_ROWS> rows{};
+  const std::uint32_t rowCount = applied ? view.BuildRoster(std::span<const Neuron::EntityId>{}, rows) : 0;
+
+  const auto rowFor = [&](std::uint16_t _group) -> const Neuron::RosterRow* {
+    for (std::uint32_t index = 0; index < rowCount; ++index)
+    {
+      if (rows[index].groupId == _group)
+      {
+        return &rows[index];
+      }
+    }
+    return nullptr;
+  };
+
+  const Neuron::RosterRow* talon = rowFor(1);
+  _checks.Record("a hostile fleet flying its own wing 1 is not counted into this player's",
+                 talon != nullptr && talon->shipCount == 2);
+
+  const Neuron::RosterRow* strays = rowFor(Game::INVALID_WING_ID);
+  _checks.Record("a ship in no wing gets a row, in the game's own word for it",
+                 strays != nullptr && strays->shipCount == 1 && strays->name != nullptr &&
+                   std::string_view{strays->name} == "UNASSIGNED");
+
+  // The station is in no wing either, and it is nobody's: the ownership filter
+  // is what tells the two apart, and without it the strays would read two.
+  _checks.Record("and a structure is not one of them", strays != nullptr && strays->shipCount == 1);
+
+  _checks.Record("the strays are last, so a disband does not push the wings down the panel",
+                 rowCount > 0 && rows[rowCount - 1].groupId == Game::INVALID_WING_ID);
+
+  std::array<Neuron::EntityId, 8> members{};
+  const std::uint32_t wingMembers = view.BuildGroupMembers(1, members);
+  _checks.Record("pressing a wing row selects that commander's ships and not the enemy's",
+                 wingMembers == 2 && members[0] != THEIRS && members[1] != THEIRS);
+
+  const std::uint32_t strayMembers = view.BuildGroupMembers(Game::INVALID_WING_ID, members);
+  _checks.Record("and pressing the stray row selects the strays", strayMembers == 1 && members[0] == STRAY);
+
+  /*
+   * The disband, offered last.
+   *
+   * `StationActionOptions` is asked directly rather than through the composer,
+   * because what is being checked is the *list*: that wing zero is in it at all
+   * (it was refused until the strays had a row) and that it is at the end,
+   * where the destructive value belongs.
+   */
+  std::array<Neuron::OrderOption, Neuron::MAX_STATION_OPTIONS> options{};
+  const std::uint32_t optionCount =
+    view.StationActionOptions(static_cast<std::uint16_t>(Game::StationVerb::AssignWing), options);
+  _checks.Record("the assign chip offers the disband, last, and calls it what the row calls it",
+                 optionCount >= 2 && options[optionCount - 1].parameter == Game::INVALID_WING_ID &&
+                   options[optionCount - 1].name != nullptr &&
+                   std::string_view{options[optionCount - 1].name} == "UNASSIGNED");
+
+  /*
+   * And the rename, which is the control T3 owed.
+   *
+   * Asserted through `BuildRoster` rather than through a getter, because what a
+   * rename has to change is the word on the row -- the storage is an
+   * implementation detail and the panel is the promise.
+   */
+  _checks.Record("a wing takes the word the player typed", view.RenameGroup(1, "KESTREL"));
+  const std::uint32_t renamedCount = view.BuildRoster(std::span<const Neuron::EntityId>{}, rows);
+  const Neuron::RosterRow* renamed = nullptr;
+  for (std::uint32_t index = 0; index < renamedCount; ++index)
+  {
+    if (rows[index].groupId == 1)
+    {
+      renamed = &rows[index];
+    }
+  }
+  _checks.Record("and the row says so", renamed != nullptr && renamed->name != nullptr &&
+                                          std::string_view{renamed->name} == "KESTREL");
+
+  // Renaming twice replaces rather than appends, or a player renaming one wing
+  // repeatedly would spend the pointer-stability reserve on one wing.
+  _checks.Record("renaming the same wing again replaces its word", view.RenameGroup(1, "KESTREL PRIME"));
+  const std::uint32_t againCount = view.BuildRoster(std::span<const Neuron::EntityId>{}, rows);
+  std::uint32_t wingOneRows = 0;
+  for (std::uint32_t index = 0; index < againCount; ++index)
+  {
+    wingOneRows += rows[index].groupId == 1 ? 1u : 0u;
+  }
+  _checks.Record("and does not give it a second row", wingOneRows == 1);
+
+  _checks.Record("wing zero cannot be renamed -- it is the absence of a wing rather than one",
+                 !view.RenameGroup(Game::INVALID_WING_ID, "MY SHIPS"));
+  _checks.Record("and an empty name is not a rename", !view.RenameGroup(2, ""));
+
+  /*
+   * A player who types a spare call sign takes it out of the pool.
+   *
+   * Otherwise the hangar hands `VERGE` to the next new wing and two things the
+   * player has told apart carry one word -- the failure the constructor already
+   * guards against on reload, reachable at runtime through this one path.
+   */
+  _checks.Record("typing a spare call sign spends it", view.RenameGroup(2, "VERGE"));
+  const std::vector<std::pair<Game::WingId, std::string>> owned = view.PlayerWingNames();
+  const std::size_t verges = static_cast<std::size_t>(
+    std::count_if(owned.begin(), owned.end(), [](const std::pair<Game::WingId, std::string>& _entry) {
+      return _entry.second == "VERGE";
+    }));
+  _checks.Record("and only one thing carries it", verges == 1);
+}
+
 void RunWingNameLayerGate(Checklist& _checks)
 {
   constexpr Game::AnchorId STATION = 41;
@@ -3077,6 +3263,7 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   RunWingAssignmentGate(checks);
   RunInSpaceWingGate(checks);
   RunWingNameLayerGate(checks);
+  RunRosterOwnershipGate(checks);
 
   // U3c's accept, after the single-commander loop has proved the machinery it
   // builds on: two clients at once, on grids of their own.

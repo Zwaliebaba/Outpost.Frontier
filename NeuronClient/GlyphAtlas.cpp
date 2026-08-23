@@ -47,6 +47,12 @@ constexpr char32_t BOX_AND_MARKER_GLYPHS[] = {
     0x25b8, 0x25be,                                 // small triangles: the ▸ token separator
                                                     // and the ▾ picker caret
     0x25cf, 0x25cb, 0x25a0, 0x25a1,                 // discs and squares
+    0xfffd,                                         // U+FFFD REPLACEMENT CHARACTER: what a
+                                                    // codepoint this bake has no glyph for is
+                                                    // drawn as (ADR-020 §3's fail-soft). Baked
+                                                    // rather than assumed, because a
+                                                    // substitution the atlas cannot draw either
+                                                    // is silence wearing a rule's clothes.
     0x25a3, 0x25a5, 0x25c8,                         // the summary's ▣, the menu's ▥ and the
                                                     // location's ◈ (tactical-hud.png top bar)
     0x00b0, 0x00b1, 0x00d7, 0x2022, 0x00b7,         // degree, plus-minus, times, bullet, and

@@ -214,6 +214,19 @@ private:
   void UpdateSettingsSurface();
 
   /*
+   * The wing rename, opened by a tap on a column header (T3, ADR-018 D15.1).
+   *
+   * Two functions because a text field has two lives: the frame it opens on,
+   * and every frame after it in which it owns the keyboard. `BeginWingRename`
+   * seeds the buffer and takes focus; `UpdateWingRename` spends the frame's
+   * characters and edges and reports whether it consumed the input, so the
+   * screen behind it does not also act on a tap that was only meant to finish
+   * a name.
+   */
+  void BeginWingRename(std::uint32_t _group);
+  [[nodiscard]] bool UpdateWingRename();
+
+  /*
    * `UpdateHud`'s map half, and the only surface whose update moves a *camera*
    * (ADR-020 §7: "the graph is a viewport").
    *
@@ -746,6 +759,31 @@ private:
   /// map -- `tactical-hud.png` draws it as `◈ VESTA-3 ▸ FRONTIER 0.4` with a
   /// drill-up chevron, and this is that chevron made real.
   UiRect m_locationChipRect;
+
+  /*
+   * The wing rename's state (T3).
+   *
+   * `TextEditState` was built at T3a and had no consumer for a slice; this is
+   * it, and it is the first editable field anywhere in this client.
+   *
+   * `RENAME_WIDGET` is a `WidgetId` rather than the group number, because
+   * `UiFocus` is asked "is the field open" and not "which wing" -- there is one
+   * field on this screen and two of them would be two carets.
+   */
+  static constexpr WidgetId RENAME_WIDGET = 1;
+  TextEditState m_wingRename;
+
+  /// Which group the open field is renaming, by index into the frame's groups,
+  /// and the opaque handle it will hand back. Both, because the first is what
+  /// the draw needs and the second is what the commit needs -- and the roster
+  /// can be rebuilt between them by a summary landing mid-edit.
+  std::uint32_t m_renameGroup = 0;
+  std::uint16_t m_renameGroupId = 0;
+
+  /// Where the open field is, for the blur test. Resolved from the column's own
+  /// header rect in `UpdateStationSurface`, so the rect a tap is tested against
+  /// is the rect the header drew -- ADR-020 §5.1 on a control that appears.
+  UiRect m_renameFieldRect;
 
   SettingsScreenTuning m_settingsTuning;
   SettingsScreenLayout m_settingsLayout;

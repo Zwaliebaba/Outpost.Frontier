@@ -81,6 +81,12 @@ struct StationGroup
    * print decided to admit something rather than hide it: names live in the
    * user settings layer, so two clients without shared settings see different
    * words for the same group, and the number is the part they agree on.
+   *
+   * **And since T3 it is also the handle**, which follows from that sentence
+   * rather than adding to it: the number two clients agree on is exactly the
+   * thing a rename has to name. It is echoed to `WorldView::RenameGroup` and
+   * still never read here -- `RosterRow::groupId`'s arrangement, on the screen
+   * that edits what the other one draws.
    */
   std::uint16_t idTag = 0;
 

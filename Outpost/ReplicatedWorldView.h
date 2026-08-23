@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -223,6 +224,7 @@ public:
                                                                std::span<Neuron::StationChip> _outChips) const override;
   [[nodiscard]] std::uint32_t BuildGroupMembers(std::uint16_t _groupId,
                                                 std::span<Neuron::EntityId> _outIds) const override;
+  [[nodiscard]] bool RenameGroup(std::uint16_t _groupId, std::string_view _name) override;
   [[nodiscard]] std::uint32_t BuildStationActions(std::uint16_t _anchor,
                                                   std::span<Neuron::StationAction> _outActions) const override;
   [[nodiscard]] std::uint32_t StationActionOptions(std::uint16_t _verb,

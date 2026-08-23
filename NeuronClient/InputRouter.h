@@ -95,6 +95,18 @@ namespace Neuron
   case InputAction::ResetView:
   case InputAction::CycleParameter:
     return false;
+
+  /*
+   * `Confirm` is the field's own key and reaches nothing behind it.
+   *
+   * Suppressed rather than routed, which is the opposite answer from `Back` and
+   * for a reason the two do not share: Escape means something to a *surface*
+   * as well as to a field -- go back -- so it has to reach one when no field
+   * wants it. Enter means nothing to any surface in this client, so a rule that
+   * let it through would be a rule reserving a key for a future somebody.
+   */
+  case InputAction::Confirm:
+    return false;
   }
   return false; // Unreachable for a value from the enumeration; see below.
 }
@@ -104,7 +116,7 @@ namespace Neuron
 /// safe direction but a silent one. This is the noisy version: adding an action
 /// fails the build here until somebody has decided what it does while a player
 /// is typing.
-static_assert(INPUT_ACTION_COUNT == 16,
+static_assert(INPUT_ACTION_COUNT == 17,
               "ActionSurvivesTextEditing must answer for every InputAction -- add the new one to its switch");
 
 class InputRouter

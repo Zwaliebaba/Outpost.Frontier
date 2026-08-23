@@ -82,7 +82,7 @@ enum class InputAction : std::uint8_t
                      // on-screen "feed cut" badge would alter the very picture
                      // this exists to let someone look at.
 
-  Back               // Escape: leave whatever is in front of you (ADR-020 §2).
+  Back,              // Escape: leave whatever is in front of you (ADR-020 §2).
                      // An *action* rather than a key the surfaces each test for
                      // themselves, because it is the one input with a routing
                      // order written into the design -- focused field first to
@@ -90,14 +90,31 @@ enum class InputAction : std::uint8_t
                      // nothing -- and an order can only be honoured where the
                      // routing is. Arrives with T3, the first slice where there
                      // is anywhere to go back *to*.
+
+  /*
+   * Enter: finish what you are typing. `Back`'s twin, and it arrives with the
+   * first editable field (T3's wing rename).
+   *
+   * **A convenience over the real commit rather than the commit itself**, which
+   * is the reversal's shape applied to a keyboard: touch has no Enter, so a
+   * field has to be finishable by tapping away from it, and that blur *is* the
+   * commit. This saves a keyboard user the tap. A field with no focus never
+   * sees it and nothing else listens, so it does nothing at all today outside
+   * one.
+   *
+   * It reaches the buffer only as an action: `WM_CHAR` delivers `\r`, which
+   * `IsStorableCodepoint` refuses along with every other C0 control, so the key
+   * cannot arrive as text and as an edge at once.
+   */
+  Confirm
 };
 
-inline constexpr std::uint32_t INPUT_ACTION_COUNT = 16;
+inline constexpr std::uint32_t INPUT_ACTION_COUNT = 17;
 
 /// `InputFrame`'s action arrays are sized by the count above, so an action
 /// added without touching it writes past their end rather than failing to
 /// build. This is that build failure.
-static_assert(static_cast<std::uint32_t>(InputAction::Back) + 1u == INPUT_ACTION_COUNT,
+static_assert(static_cast<std::uint32_t>(InputAction::Confirm) + 1u == INPUT_ACTION_COUNT,
               "INPUT_ACTION_COUNT must count every InputAction");
 
 /*
@@ -192,6 +209,37 @@ inline constexpr std::uint32_t MAX_POINTER_CONTACTS = 5;
  */
 inline constexpr std::uint32_t MOUSE_CONTACT_ID = 0xffffffffu;
 
+/*
+ * The keys an editable field spends, and nothing else does (ADR-020 §3, T3).
+ *
+ * **A third question rather than more actions**, and the split is the one this
+ * file already draws: an action asks *"was this button pressed"*, text asks
+ * *"what did the player mean to write"*, and these ask *"how did they mean to
+ * move or delete"*. Backspace and the arrows have no meaning outside a field
+ * and never will -- so binding them as actions would put six entries in
+ * `ActionSurvivesTextEditing` whose answer is the same and whose question is
+ * not really the table's.
+ *
+ * It also keeps `Home` honest. `ResetView` is bound to it, and the table's own
+ * comment has to explain that a field takes the key on two counts; with the
+ * field's keys in their own channel, the explanation is a fact about two
+ * bindings on one key rather than a rule about an action.
+ *
+ * Shift is not here: `InputAction::SelectAdd` already carries it, and a second
+ * spelling of one modifier is how two of them come to disagree.
+ */
+enum class TextEditKey : std::uint8_t
+{
+  Backspace = 0,
+  Delete,
+  Left,
+  Right,
+  Home,
+  End
+};
+
+inline constexpr std::uint32_t TEXT_EDIT_KEY_COUNT = 6;
+
 /// One frame of input, already reduced to logical state. Edges (`pressed`,
 /// `released`) are separate from levels (`down`) because a detent nudge must
 /// fire once per press and a pan must run every frame the key is held.
@@ -213,6 +261,11 @@ struct InputFrame
 
   bool actionDown[INPUT_ACTION_COUNT] = {};
   bool actionPressed[INPUT_ACTION_COUNT] = {};
+
+  /// Edges only: a field deletes once per press. Auto-repeat arrives as more
+  /// presses from the platform, which is where the repeat rate is configured
+  /// and the one place it should be read from.
+  bool editKeyPressed[TEXT_EDIT_KEY_COUNT] = {};
 
   /*
    * What was typed this frame, as codepoints rather than as key edges

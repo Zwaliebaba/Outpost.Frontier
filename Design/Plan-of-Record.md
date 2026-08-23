@@ -405,6 +405,23 @@ named.
 
 ## Revision log
 
+- **2026-08-23 — T3's remainder: the rename control, the disband, and the defect the second
+  found.** The control was owed one thing and the layer under it had already landed, so what it
+  actually needed was two input channels — `InputAction::Confirm` and `TextEditKey` — and the
+  station surface moved onto the gesture seam to make room for a second gesture on a header.
+  That closes half of R30, and the way it closed is the part to remember: **the chrome converts
+  when something asks it to, one surface at a time**, rather than in a sweep nobody scheduled.
+
+  **Two findings, and neither was in the slice's list.** Giving the strays a roster row meant
+  asking who owns a ship — and `BuildRoster` had never asked, so a hostile fleet flying *their*
+  wing 1 was being counted into this player's wing 1 and would have been selected by a press on
+  it. A wing number is a byte every commander numbers from one; the bits that tell them apart
+  arrived after the code that needed them, so the function that could not ask read like one that
+  had decided not to. And ADR-020 §3's "fail soft to U+FFFD" was unmet twice over: the draw
+  *skipped* an unpaintable glyph rather than substituting, so a name made of them drew as
+  nothing at all — and U+FFFD was not in the bake, so a substitution would have drawn nothing
+  either. Silence is the one outcome a fail-soft rule cannot have.
+
 - **2026-08-23 — U5a: the strategic map's seam and device-free half.** The largest screen in the
   corpus, and the first with a camera rather than a zone table. Three things came out of it that
   belong in a plan rather than in a slice note.

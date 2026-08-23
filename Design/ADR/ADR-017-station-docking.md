@@ -396,6 +396,31 @@ machinery if play demands it.~~
 > landed first so a screen slice is a screen slice rather than a screen and an authority
 > change in one sitting.
 
+> **Amendment, 2026-08-23 — the rename control and the disband, which close T3's list.**
+>
+> The sentence above says renames live in the user settings layer. N2 built that layer and
+> T3's remainder builds the **control**: a tap on a wing's column header opens a field on the
+> header itself, seeded with the current word and with the whole of it selected. Escape
+> cancels, Enter commits, and a tap outside commits — the last of which is the one that
+> matters, because touch has no Enter. The engine collects the characters and the game
+> decides whether the word may be stored, which is `WorldView::RenameGroup`: an opaque group
+> id and a string across the seam, and the engine never learns it renamed a wing.
+>
+> **Disbanding was the clause this section stated and the client refused to offer.** *"Disbanding
+> is reassigning the last member"* — and the hangar's wing chip did not offer wing 0, because
+> the tactical roster drew no row for it, so the button would have made ships vanish off the
+> HUD. The strays have a row now, last on the panel and only when there are any, so a disband
+> moves a fleet from one row to another where it can still be seen and re-grouped.
+>
+> **And building that row found a defect this section is the right place to record**, because
+> it is about what a wing number *is*. A `WingId` is a byte **every commander numbers from
+> one** — this design says so, in "any value 1..255" — so a roster that grouped by the number
+> alone was grouping two commanders' fleets together. A hostile wing 1 on your grid was
+> counted into your wing 1's row and would have been selected by a press on it. The fix is
+> ADR-022 §8b's relationship bits, which arrived after the code that needed them; the reason
+> it was never seen is that it takes two commanders on one grid, which is U3c's arrangement
+> and which no gate had built.
+
 **Remote hangars work.** Focus never gates command (ADR-016 §7): the station screen opens
 for any station holding your ships, viewed or not, because the roster it reads is
 replicated regardless (§8). Undocking remotely spawns the fleet under its summary; the

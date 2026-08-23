@@ -598,10 +598,56 @@ the player composed now comes back next session, and a name they put on an autho
 the content's without overwriting it — so deleting `Settings.json` restores TALON and ANVIL
 exactly. Gated in `RunWingNameLayerGate`, beside the assignment gate and for the same reason.
 
-**Still owed by T3:** the rename **control** — the layer is under it now, so what is left is the
-gesture and the text field, and T3a already built both; assigning to wing 0 to disband, which
-needs the print's stray column first, or the button would make ships vanish off the HUD. And the
-visual checkpoints above.
+~~**Still owed by T3:** the rename **control**~~ **built 2026-08-23**, ~~assigning to wing 0 to
+disband~~ **built the same day**. What is left of T3 is the visual checkpoints above.
+
+**The rename control, and the two things it needed that were not the layer.** T3a built
+`TextEditState` and `UiFocus` and neither had a consumer for two slices; this is the first
+editable field anywhere in this client, and it is what ADR-018 D15.1 meant by "editable text".
+A tap on a wing header opens it, seeded with the current word and with the whole of it selected,
+so replacing a call sign is *typing* and keeping part of it is one arrow key away. It closes
+three ways and they are three different answers: Escape cancels, Enter commits, and **a tap
+outside commits** — which is the one that matters, because touch has no Enter and a field a
+finger cannot finish is a field a finger cannot use. Committing on blur rather than cancelling
+is a choice about whose work is cheaper to lose.
+
+Two channels had to arrive with it. `InputAction::Confirm` is Enter, and it is the pair that
+makes `ActionSurvivesTextEditing` a real question rather than a formality: Escape is *routed*
+because it means something to a surface as well as to a field, and Enter is *suppressed* because
+it means nothing to any surface here. And `TextEditKey` is a **third input channel** beside
+actions and characters — an action asks "was this button pressed", text asks "what did the
+player mean to write", and Backspace and the arrows ask "how did they mean to move or delete".
+Six actions with the same table answer would have been six entries whose question was not
+really the table's; it also keeps `Home` honest, which is `ResetView` to a camera and
+start-of-line to a field.
+
+**The charset filter is asked of the atlas**, which is where D15.1 says to ask it: the atlas is
+the only thing that knows which codepoints this build baked, and a second copy of that list is
+how a name renders at one size and boxes at another. It is the one line of this control no
+device-free test covers.
+
+**And the station surface moved onto the gesture seam to make room for it**, which closes half
+of R30. `station-screen.png` §1 says *"holding a wing header takes"* and T3b built it as a
+press, with the reason written down: *"a header has no competing gesture"*. It has one now, so
+the departure is undone rather than defended and both gestures land where the print put them.
+
+**Disband, and the thing that was really blocking it.** `StationActionOptions` refused to offer
+wing 0 because `BuildRoster` drew no row for it, so the button would have made ships vanish off
+the HUD. The strays have a row now — last on the panel, and only when there are any, because a
+wing is a thing the player made and an empty one is news while "nothing is unassigned" is the
+ordinary state.
+
+**What the stray row found on the way there is the more serious half of this commit.** Wing 0
+was skipped with *"the stations are in it"*, which was true and was not the reason. A wing
+number is a byte **every commander numbers from one**, and `BuildRoster` was counting *every*
+ship on the grid — so a hostile fleet flying their wing 1 inflated this player's TALON row and
+dragged its gauges towards a fleet they do not command. `BuildGroupMembers` had it too: a press
+on TALON would have selected the enemy wing 1 with it, and then offered an order over the pair.
+It needs two commanders on one grid to show, which U3c made possible and no gate had built; the
+bits that tell them apart are ADR-022 §8b's, which arrived *after* this code, so the function
+that could not ask read like a function that had decided not to. Gated in
+`RunRosterOwnershipGate`, which is the arrangement that was missing: a frame with two
+relationships in it.
 
 **One thing N2 moved rather than closed, recorded so it is not counted twice.** The names the
 player owns are written at **shutdown**, not at the keystroke — a rename is a keypress and a save
@@ -615,8 +661,8 @@ context action, open the hangar, move three ships into a new wing, select a mixe
 composition, UNDOCK, and watch the new fleet appear at the undock point, shimmer, and park
 itself on a free berth clear of a fleet already parked; visual checkpoint against P1;
 rename a wing and see it survive a client restart (user layer — **its layer is built as of
-2026-08-22 and the round trip is gated in two suites; what this clause still needs is the rename
-control and a person to press it**); undock at an unviewed
+2026-08-22, the round trip is gated in two suites, and the rename *control* landed 2026-08-23;
+what this clause still needs is a person to press it**); undock at an unviewed
 station from the roster block and jump to it with VIEW.
 
 ---
