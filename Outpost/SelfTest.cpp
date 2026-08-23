@@ -1887,8 +1887,12 @@ void RunWingAssignmentGate(Checklist& _checks)
   elsewhere.shipIds = stranger;
   elsewhere.shipCount = 2;
   const Neuron::OrderVerdict refused = view.PreCheckStation(elsewhere);
+  // `UnknownShip` -- "no such ship" -- rather than `NotDocked` since I2 lifted
+  // `AssignWing` out of docked scope: a verb that no longer needs a dock cannot
+  // answer "not docked here", and the sentence is keyed on the verb so both
+  // machines reach it from the same byte.
   _checks.Record("while a ship this hangar does not hold is refused in the authority's own words",
-                 !refused.accepted && refused.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::NotDocked));
+                 !refused.accepted && refused.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::UnknownShip));
 
   /*
    * Sending it is what mints the name -- not cycling the chip, which would
@@ -1930,6 +1934,115 @@ void RunWingAssignmentGate(Checklist& _checks)
   const std::uint32_t fullOptions = fullFed ? fullView.StationActionOptions(fullActions[1].verb, options) : 0;
   _checks.Record("a roster with no room for another row offers no new wing, only the ones it has",
                  fullFed && fullOptions == Neuron::MAX_ROSTER_ROWS);
+}
+
+/*
+ * And a wing formed *in space* (I2, ADR-017 §6's 2026-08-23 amendment).
+ *
+ * The gate above proves the hangar can compose a wing. This one proves the
+ * other half of Plan-of-Record §1's rule 3 -- **wings are the control groups**
+ * -- which needs a player to be able to form one where their fleet actually is.
+ * `AssignWing` was docked-scope until this slice, so a control group could only
+ * be created by first flying home.
+ *
+ * **It is here because it is a parity gate, and parity is what has no test
+ * project.** The authority's half is covered in `RegistryTests`; what nothing
+ * else can assert is that the *client* reaches the same verdict from a view it
+ * built out of a snapshot rather than out of a roster. The two halves fill
+ * `RosterView` from sources neither can see -- the registry's owner index on
+ * one side, ADR-022 §8b's two relationship bits on the other -- and one shared
+ * function has to agree over both. That is BounceParity for a verb that has
+ * just changed shape, which is exactly when it is worth re-asserting.
+ */
+void RunInSpaceWingGate(Checklist& _checks)
+{
+  constexpr Game::AnchorId GRID = 41;
+  constexpr Game::ShipId TALON = 1;
+  constexpr Game::ShipId ANVIL = 2;
+
+  Game::World world;
+  world.SetAnchor(GRID, Game::INVALID_SHIP_ID, {});
+
+  Game::ShipSpawn spawn;
+  spawn.hullClass = Game::HullClass::Interceptor;
+  spawn.wing = 1;
+  spawn.xMetres = 0.0f;
+  spawn.yMetres = 0.0f;
+  (void)world.Spawn(spawn, TALON);
+  spawn.hullClass = Game::HullClass::Bomber;
+  spawn.wing = 2;
+  spawn.xMetres = 300.0f;
+  (void)world.Spawn(spawn, ANVIL);
+  world.Tick(1);
+
+  std::vector<Neuron::EntityRecord> records;
+  for (std::uint32_t slot = 0; slot < world.ShipCount(); ++slot)
+  {
+    records.push_back(Game::MakeShipRecord(world, slot, Game::Relationship::Own));
+  }
+
+  std::array<std::uint8_t, Game::MAX_TICK_TAIL_BYTES> tailBytes{};
+  Neuron::ByteWriter tailWriter{tailBytes};
+  if (!Game::WriteTickTail(world, tailWriter, 0) || !tailWriter.Ok())
+  {
+    _checks.Record("the in-space wing gate could write its frame", false);
+    return;
+  }
+
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  desc.wingNames = {"-", "TALON", "ANVIL"};
+  desc.spareWingNames = {"VERGE"};
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  Neuron::ReplicatedFrame frame;
+  frame.tick = world.Tick();
+  frame.gridId = world.Anchor();
+  frame.entities = records;
+  frame.tail = tailWriter.Written();
+  const bool applied = view.ApplyFrame(frame);
+
+  /*
+   * `BuildScene` is not decoration here. The client answers a pre-check from
+   * the ships the *frame drew* (`m_sampled`), which is the same population
+   * `BuildRoster` counts -- so a gate that skipped it would be asking about an
+   * empty fleet and would pass for the wrong reason.
+   */
+  Neuron::RenderScene scene;
+  view.BuildScene(static_cast<double>(world.Tick()), scene);
+  _checks.Record("the in-space wing gate has two ships out of two wings on screen",
+                 applied && scene.entities.size() == 2);
+
+  const std::uint32_t both[] = {TALON, ANVIL};
+  Neuron::StationIntent intent;
+  intent.verb = static_cast<std::uint16_t>(Game::StationVerb::AssignWing);
+  intent.parameter = 7;
+  intent.anchor = static_cast<std::uint16_t>(GRID);
+  intent.orderSeq = 1;
+  intent.shipIds = both;
+  intent.shipCount = 2;
+
+  _checks.Record("a fleet in space may be made a wing without docking first", view.PreCheckStation(intent).accepted);
+
+  /*
+   * And the fence, which is the half a lift is most likely to take with it: the
+   * verbs that move a hull or a hold across a station's threshold still need
+   * one, and the client says so before the wire does.
+   */
+  Neuron::StationIntent undock = intent;
+  undock.verb = static_cast<std::uint16_t>(Game::StationVerb::Undock);
+  undock.parameter = static_cast<std::uint16_t>(Game::FormationId::Line); // A known one, so the refusal is about the dock.
+  const Neuron::OrderVerdict refusedUndock = view.PreCheckStation(undock);
+  _checks.Record("while undocking a fleet that is already flying is still refused, and for being undocked",
+                 !refusedUndock.accepted &&
+                     refusedUndock.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::NotDocked));
+
+  const std::uint32_t stranger[] = {TALON, 99};
+  Neuron::StationIntent unknown = intent;
+  unknown.shipIds = stranger;
+  const Neuron::OrderVerdict refused = view.PreCheckStation(unknown);
+  _checks.Record("and a ship this grid does not carry is refused as 'no such ship' rather than 'not docked'",
+                 !refused.accepted && refused.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::UnknownShip));
 }
 
 /*
@@ -2962,6 +3075,7 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   RunMineAvailabilityGate(checks, _economy);
   RunLocationBlockGate(checks);
   RunWingAssignmentGate(checks);
+  RunInSpaceWingGate(checks);
   RunWingNameLayerGate(checks);
 
   // U3c's accept, after the single-commander loop has proved the machinery it

@@ -169,6 +169,39 @@ void DockAndLand(WorldRegistry& _registry, AnchorId _anchor, std::span<const Shi
   return command;
 }
 
+/// A wing assignment, which since I2 may name an anchor with no station on it.
+[[nodiscard]] StationCommand Assign(AnchorId _anchor, std::span<const ShipId> _ships, WingId _wing)
+{
+  StationCommand command;
+  command.orderSeq = 1;
+  command.verb = StationVerb::AssignWing;
+  command.station = _anchor;
+  command.wing = _wing;
+  for (const ShipId ship : _ships)
+  {
+    Assert::IsTrue(command.AddShip(ship));
+  }
+  return command;
+}
+
+/// An anchor with no station on it -- the place an in-space wing assignment has
+/// to work for the lift to mean anything.
+[[nodiscard]] AnchorId PlainAnchor(const UniverseDef& _universe)
+{
+  for (const SolarSystem& system : _universe.systems)
+  {
+    for (const Anchor& anchor : system.anchors)
+    {
+      if (anchor.kind != AnchorKind::Station)
+      {
+        return anchor.id;
+      }
+    }
+  }
+  Assert::Fail(L"the test universe is all stations");
+  return INVALID_ID;
+}
+
 /// Two anchors of the *same* system, which is what an in-system warp needs.
 [[nodiscard]] std::vector<AnchorId> TwoAnchorsInOneSystem(const UniverseDef& _universe)
 {
@@ -578,6 +611,108 @@ public:
         Assert::AreEqual<std::uint32_t>(7, world->Wings()[slot], L"the wing the hangar assigned is the wing it flies in");
       }
     }
+  }
+
+  /*
+   * --- the wing lifts out of the hangar (I2, ADR-017 §6's 2026-08-23 amendment)
+   *
+   * `AssignWing` was docked-scope, and §6 said so with the reason attached: the
+   * hangar is the reorganisation room, and in-space reassignment "can arrive
+   * later without new machinery". [Plan-of-Record §1](../../Design/Plan-of-Record.md)
+   * rule 3 is what asked for it -- **wings are the control groups**, and a
+   * control group a player can only *form* at a station is not one.
+   *
+   * The three tests below are the lift and its two fences. The lift is that a
+   * fleet in space can be made a wing. The fences are that nothing else moved
+   * with it -- `Undock` and the transfer verbs still require a dock -- and that
+   * an assignment at an anchor with no station on it does not quietly mint a
+   * roster for the place, which would be durable state, a hash input and
+   * something teardown has to sweep.
+   */
+  TEST_METHOD(AFleetInSpaceCanBeMadeAWingWithoutDockingFirst)
+  {
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, nullptr, Config());
+    const ShipId talon = AddShip(registry, station, 200.0f, 0.0f, 1);
+    const ShipId anvil = AddShip(registry, station, 400.0f, 0.0f, 2);
+    const ShipId both[] = {talon, anvil};
+
+    const std::uint64_t before = registry.Hash();
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Assign(station, both, 7)).accepted,
+                   L"two ships flying at a station may be made one wing");
+
+    Assert::AreEqual<std::uint32_t>(7, WingOnGrid(registry.Peek(station), talon));
+    Assert::AreEqual<std::uint32_t>(7, WingOnGrid(registry.Peek(station), anvil),
+                                    L"both of them, from two wings into one");
+    Assert::AreEqual<std::uint32_t>(0, registry.PendingTransferCount(), L"a wing is still a number, not a place");
+    Assert::AreNotEqual(before, registry.Hash(), L"and the wing is authoritative state, so the hash moved");
+  }
+
+  TEST_METHOD(TheVerbsThatMoveHullsOrHoldsStillRequireADock)
+  {
+    /*
+     * The fence, and the reason the validator asks `RequiresDock` rather than
+     * `NamesShips`: `Undock` and the two transfer verbs move a hull or a hold
+     * across a station's threshold, which is meaningless from out on the grid.
+     * A lift that took them along would let a player undock a ship that was
+     * never inside.
+     */
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId station = StationAnchors(universe, 1)[0];
+
+    WorldRegistry registry;
+    registry.Reset(&universe, nullptr, Config());
+    const ShipId flying = AddShip(registry, station, 200.0f, 0.0f, 1);
+    const ShipId fleet[] = {flying};
+
+    const OrderVerdict undock = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(station, fleet));
+    Assert::IsFalse(undock.accepted);
+    Assert::IsTrue(undock.reason == OrderReason::NotDocked, L"a ship in space is not a ship to undock");
+
+    // The ore and the amount are left at their defaults: the ship check comes
+    // before the quantity one (the check order in `Station.h`), so what this
+    // asserts is reached without them.
+    StationCommand toBay = Assign(station, fleet, 7);
+    toBay.verb = StationVerb::TransferToBay;
+    toBay.units = 1;
+    const OrderVerdict stored = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, toBay);
+    Assert::IsFalse(stored.accepted);
+    Assert::IsTrue(stored.reason == OrderReason::NotDocked, L"nor is it one to unload into the Bay");
+
+    // And a ship this commander does not have anywhere is refused in the
+    // wing verb's own words rather than the hangar's -- "no such ship", since
+    // being docked stopped being the question.
+    const ShipId stranger[] = {static_cast<ShipId>(4242)};
+    const OrderVerdict unknown = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Assign(station, stranger, 7));
+    Assert::IsFalse(unknown.accepted);
+    Assert::IsTrue(unknown.reason == OrderReason::UnknownShip);
+  }
+
+  TEST_METHOD(AWingFormedAwayFromAStationMintsNoRosterForThePlace)
+  {
+    const UniverseDef universe = SmallUniverse();
+    const AnchorId plain = PlainAnchor(universe);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, nullptr, Config());
+    const ShipId ship = AddShip(registry, plain, 0.0f, 0.0f, 1);
+    const ShipId fleet[] = {ship};
+
+    const std::size_t rostersBefore = registry.Rosters().size();
+    Assert::IsTrue(registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Assign(plain, fleet, 5)).accepted,
+                   L"an anchor with no station on it is still a place a wing can be formed");
+    Assert::AreEqual<std::uint32_t>(5, WingOnGrid(registry.Peek(plain), ship));
+    Assert::AreEqual(rostersBefore, registry.Rosters().size(),
+                     L"and forming one there creates no hangar for a place that has none");
+
+    // The other half of the same rule: a verb that needs a station is refused
+    // for want of one rather than for want of a docked ship.
+    const OrderVerdict undock = registry.SubmitStationCommand(Neuron::SOLE_PLAYER_ID, Undock(plain, fleet));
+    Assert::IsFalse(undock.accepted);
+    Assert::IsTrue(undock.reason == OrderReason::UnknownStation);
   }
 
   TEST_METHOD(TheCommandCheckOrderIsTheContract)

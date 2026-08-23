@@ -149,6 +149,25 @@ public:
   [[nodiscard]] std::vector<RosterEntry> DockedFor(Neuron::PlayerId _owner, AnchorId _anchor) const;
 
   /*
+   * And the same question of a *grid* (I2, ADR-017 §6's 2026-08-23 amendment):
+   * this commander's ships flying at an anchor, as the rows a `RosterView` is
+   * judged against.
+   *
+   * `RosterEntry` for a ship that is not on any roster, which reads oddly until
+   * you notice what the validator actually asks of a row: an id and a wing. The
+   * hold and the owner come along because the row has them, and the alternative
+   * -- a second row type differing by two fields nobody reads -- would be two
+   * shapes for one question and a second `any_of` in `ValidateStationCommand`
+   * to search them with.
+   *
+   * Empty for a world that is not resident, which is the honest answer rather
+   * than a failure: a grid nobody is watching has no ships this host can name,
+   * and a command about one is refused as though the fleet were elsewhere --
+   * which, from where the authority stands, it is.
+   */
+  [[nodiscard]] std::vector<RosterEntry> OnGridFor(Neuron::PlayerId _owner, AnchorId _anchor) const;
+
+  /*
    * What is left of a mining field (ADR-024 §3d), or null for a site nobody has
    * worked this epoch.
    *
@@ -430,8 +449,14 @@ public:
    * The station half of order submission, and it goes through the same shared
    * validator both machines run. An accepted `Undock` files a transfer, so the
    * fleet arrives between ticks like everything else that crosses; an accepted
-   * `AssignWing` writes the roster row on the spot, because nothing crosses --
-   * a wing is a number a ship carries, not a place it is.
+   * `AssignWing` writes on the spot, because nothing crosses -- a wing is a
+   * number a ship carries, not a place it is.
+   *
+   * **`AssignWing` may name ships in space as well as on the roster** (I2,
+   * ADR-017 §6's 2026-08-23 amendment), which is why the view this builds
+   * carries a grid beside the station. The write lands in whichever of the two
+   * holds the ship, and writing a grid between ticks is safe for the reason
+   * `World::SetWing` states: a wing is carried, not simulated.
    */
   [[nodiscard]] OrderVerdict SubmitStationCommand(Neuron::PlayerId _owner, const StationCommand& _command);
 
@@ -514,6 +539,12 @@ private:
   };
 
   [[nodiscard]] StationRoster& RosterFor(AnchorId _anchor);
+
+  /// The same lookup without the creation. For a command that may name an
+  /// anchor with no station on it (`AssignWing`, since I2): `RosterFor` would
+  /// mint an empty roster for a plain grid, and an empty roster is durable
+  /// state, a hash input and something teardown has to sweep.
+  [[nodiscard]] StationRoster* FindRoster(AnchorId _anchor) noexcept;
   void ApplyUndock(const TransferRequest& _request);
   /*
    * Arrival, at an offset the crossing's own id decides (ADR-018 D18).

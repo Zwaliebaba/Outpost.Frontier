@@ -88,9 +88,11 @@ probe radius):
    follows. The unconditional `FocusOn` at `ClientApp.cpp:855` is the defect.
 3. **Wings are the control groups.** `AssignWing` exists with emergent ids 1..255, wings are
    server-side, and they survive restart and reconnect for free — so this needs no user-layer
-   storage, no keybindings, and no answer to the device-local-versus-account ruling. **It is
+   storage, no keybindings, and no answer to the device-local-versus-account ruling. ~~**It is
    docked-scope today** (`Station.cpp:237`), and the code comment already anticipates the lift:
-   *"in-space reassignment can arrive later without new machinery."* That lift is in scope here.
+   *"in-space reassignment can arrive later without new machinery."* That lift is in scope
+   here.~~ **Lifted 2026-08-23** — and the comment was right: `RosterView` grew a grid beside
+   its station, `NamesShips` split into a second question, and no wire, verb or entity moved.
 4. **Long-press on a roster row adds to the selection.** The world's long-press is spent; the
    roster's is not, and T3b's press-versus-hold reasoning already establishes the idiom where it
    collides with nothing.
@@ -148,11 +150,11 @@ re-eroded.
   follows two**: the design spends two, but a palm occupying one of exactly two slots would lock
   out the finger that has meaning, and dropping contacts at the window is how that becomes an
   unreproducible "sometimes the second finger does nothing".
-- **I2 — Selection.** ~~The five rules above~~ **built 2026-08-23**, plus the in-space
-  `AssignWing` lift (a validator scope change and its parity row, not new machinery) — **still
-  owed**, and split out rather than rushed at the end of the same sitting: it is an authority
-  change and it touches both halves' views, which is a different kind of care from the client
-  work beside it.
+- ~~**I2 — Selection.**~~ **Built 2026-08-23**, in two commits and deliberately: the five rules
+  first, then the in-space `AssignWing` lift. Splitting them was worth it — the lift turned out
+  to change what a *refusal says* as well as what the authority accepts, and it needed the
+  fences (`Undock` and the transfer verbs still require a dock) and a parity gate of its own.
+  What it did **not** need was new machinery, exactly as ADR-017 §6 predicted it would not.
 - **I3 — The order surfaces.** §1's modality toggle, the two-finger puck, and the wheel with its
   handedness, cascade and reason-carrying hub. Its accept is a visual checkpoint and a person
   with a touch display — the R1 category, and the first slice in this corpus that cannot be
@@ -173,7 +175,7 @@ is a decision rather than a surprise.
 | ~~**N1**~~ | **Interest & delta** — now **[U3d](Universe-Build-Order.md)**, split a/b/c | ~~no build order absorbed it~~ **Homed 2026-08-22**; it is D6's implementation slice and takes A14's own "after U3c" as its number | large |
 | ~~**N2**~~ | ~~**The user layer**~~ — **built 2026-08-22** | ~~ADR-012 §3 calls `Settings.json` "the only file the game writes" and nothing writes it~~ | small |
 | **N3** | **The settings screen** | ADR-020 §8 names "the settings screen's first slice"; no build order contains it | medium |
-| ~~**I1**~~ **built 2026-08-23** · **I2–I3** | **The input model** | §1 above | large |
+| ~~**I1**~~ · ~~**I2**~~ **both built 2026-08-23** · **I3** | **The input model** | §1 above | large |
 | ~~**N4**~~ | ~~**D18, arrival contention**~~ — **built 2026-08-22** | ~~Baked, parsed, hashed, never read — fell between U1 and U3a~~ | small |
 | ~~**N5**~~ | ~~**The viewer hold**~~ — **built 2026-08-22** | ~~`AddViewer`/`RemoveViewer` have no caller for a player's view; the "until U3b" deferral expired~~ | small |
 | **N6** | **A20 — spike 3 + the S5 frame check** · ~~**and the upload-ring sizing**~~ **built 2026-08-23** | ~~Stated as "Before U5", no slice, no owner~~ **The measuring half still is**, and it needs a GPU | small |
@@ -304,11 +306,11 @@ fleet but has no camera.
     exists on the wire and on the session with nothing connecting it to `AddViewer`. It got
     cheaper and more load-bearing in the same slice.
 
-**Then the input model, which is its own phase:** ~~I1~~ → ~~I2's rules~~ **both built
-2026-08-23** → I2's `AssignWing` lift → I3. I1 and I2 are device-free and can land before a touch
-device exists; I3 cannot be accepted without one. **What is next is I2's remainder**: `AssignWing`
-is docked-scope (`Station.cpp`), so a player can only *form* a wing at a station — lifting it is a
-validator scope change and its `BounceParity` row rather than new machinery.
+**Then the input model, which is its own phase:** ~~I1~~ → ~~I2~~ **both built 2026-08-23** → I3.
+I1 and I2 were device-free and landed before a touch device exists; **I3 cannot be accepted
+without one**, which makes it the first slice in this corpus blocked on hardware rather than on
+work. What is buildable behind it is the screens, re-based on the input model — so the next
+question is whether to procure a touch display or to take N3 and the screen slices first.
 
 **Then the screens, unchanged in content but re-based on the input model:** N3 (settings, which
 I3 needs for handedness and the Auto toggle), **U3d-c's counted chip**, U3b's remainder, U4's
@@ -368,6 +370,28 @@ named.
 ---
 
 ## Revision log
+
+- **2026-08-23 — I2's `AssignWing` lift built, and the input phase is done to the hardware
+  wall.** A wing can now be formed in space: `RosterView` carries a grid beside its station,
+  `RequiresDock` splits off `NamesShips`, and the registry writes `World::SetWing` for a ship
+  that is flying. No wire change, no new verb, no wing table — ADR-017 §6's "without new
+  machinery" held.
+
+  Three things the build had to decide rather than look up. **The refusal changed**:
+  `NotDocked` reads "not docked here", which is the wrong sentence for a player who selected
+  ships in space, so an `AssignWing` naming a ship the view does not carry is refused
+  `UnknownShip`. It is keyed on the **verb** rather than on which list came up empty, because
+  the verb is a byte both machines have while the view is built from the registry's owner index
+  on one side and the relationship bits on the other — a reason derived from the view would
+  have forked the halves in the very case the lift adds. **Writing a grid between ticks is
+  safe** for a narrower reason than the old comment's: nothing in `Tick` reads a wing, so it is
+  carried rather than simulated. And **an assignment away from a station mints no roster** for
+  the place, which needed a non-creating lookup beside `RosterFor`.
+
+  One adjacent gap, seen and left: `BuildGroupMembers` selects by wing without filtering on the
+  relationship bits, so a hostile hull in wing 3 would be selected by the client. It is a
+  selection wart rather than an authority hole — the server refuses the order `NotOwned` — and
+  it belongs to whichever slice gives the roster its second commander.
 
 - **2026-08-23 — I2's selection rules built; its `AssignWing` lift is not.** Rules 1, 2, 4 and 5
   are in: tap selects, drag pans, the roster row stops moving the camera, a second tap frames, a

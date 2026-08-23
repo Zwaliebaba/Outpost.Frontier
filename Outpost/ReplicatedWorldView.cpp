@@ -9,6 +9,7 @@
 #include "SchemaHash.h"
 #include "SiteEpoch.h"
 #include "ShipClass.h"
+#include "Snapshot.h"
 #include "StationMessages.h"
 #include "SummaryMessages.h"
 #include "Validate.h"
@@ -2106,6 +2107,48 @@ Neuron::OrderVerdict ReplicatedWorldView::PreCheckStation(const Neuron::StationI
   if (place != nullptr)
   {
     view.docked = place->docked;
+  }
+
+  /*
+   * And this commander's ships *flying* at the same anchor (I2, ADR-017 §6's
+   * 2026-08-23 amendment), which is the other half of what an `AssignWing` may
+   * name.
+   *
+   * Only when the watched grid is the one the command is about. The client has
+   * exactly one grid's worth of entities at a time (ADR-022 §1), so a command
+   * naming any other anchor gets an empty span -- which the validator reads as
+   * "the caller cannot say" and refuses, on the same designed asymmetry
+   * `bayUnits` already runs on. The authority is still what decides.
+   *
+   * **`m_sampled` rather than the newest snapshot's records**, which is what
+   * `BuildRoster` and `BuildGroupMembers` both do and for the same reason:
+   * these are the ships the frame drew, so a pre-check cannot accept a ship the
+   * player cannot see or refuse one they can.
+   *
+   * The relationship bits are what stand in for the server's owner filter
+   * (ADR-022 §8b): the wire spends two bits saying what a viewer is to a ship,
+   * so `Own` here is the same set `OnGridFor` builds from the registry's index.
+   * That the two halves reach it by different routes is the point -- neither
+   * machine can see what the other used.
+   */
+  std::vector<Game::RosterEntry> flying;
+  if (m_view.Grid() == command.station)
+  {
+    flying.reserve(m_sampled.size());
+    for (const Game::ReplicatedShip& ship : m_sampled)
+    {
+      if (Game::RelationshipFrom(ship.statusBits) != Game::Relationship::Own)
+      {
+        continue;
+      }
+      Game::RosterEntry row;
+      row.shipId = ship.id;
+      row.hullClass = static_cast<Game::HullClass>(ship.classId);
+      row.wing = ship.wing;
+      flying.push_back(row);
+    }
+    view.grid = command.station;
+    view.onGrid = flying;
   }
 
   const Game::OrderVerdict decided = Game::ValidateStationCommand(view, command);

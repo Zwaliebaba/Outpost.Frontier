@@ -597,11 +597,17 @@ place is 200 chips, so the hangar's wing columns scroll.
 > > gesture may only begin over the world, and once begun it may leave freely. That is the rule
 > > the box-select drag already carried, which is why it outlives its own removal.
 > >
-> > **What is still owed is rule 3's second half.** `AssignWing` is still docked-scope
-> > (`Station.cpp`), so wings are control groups a player can only *form* at a station. Lifting
-> > it is a validator scope change and a parity row rather than new machinery, and it is split
-> > out because it changes what the authority accepts — a different kind of care from the client
-> > work beside it.
+> > **Rule 3's second half landed the same day, in its own commit.** `AssignWing` was
+> > docked-scope, so wings were control groups a player could only *form* at a station;
+> > [ADR-017 §6's amendment](ADR-017-station-docking.md) lifts it. It was split out because it
+> > changes what the authority accepts, and that turned out to be the right call: it also
+> > changed what a refusal *says* — an `AssignWing` naming a ship the view does not carry is
+> > refused "no such ship" rather than "not docked here" — and needed fences of its own, since
+> > `Undock` and the transfer verbs must not travel with it.
+> >
+> > **What has no surface yet is issuing one in space.** Nothing in the client can compose an
+> > in-space assignment; that is I3's, beside the order surfaces. The authority half landed
+> > first so the screen slice is a screen slice.
 >
 > **The command wheel is therefore built, not superseded.** It is half the order model — under
 > §1's table, ATTACK and ABILITY have no other entry point — and `MAX_ORDER_KINDS = 8`

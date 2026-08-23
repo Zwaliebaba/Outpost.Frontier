@@ -159,6 +159,28 @@ struct RosterView
   std::span<const RosterEntry> docked;
 
   /*
+   * And the grid, for the one verb that no longer needs a dock (I2, ADR-017
+   * §6's 2026-08-23 amendment).
+   *
+   * **Two spans at one place rather than a second view.** A station's anchor is
+   * also a grid's, so `station` and `grid` are usually the same id -- what
+   * differs is which set of this commander's ships is being named: the ones on
+   * the roster, or the ones flying outside it. An `AssignWing` may name either,
+   * because a wing is a control group and a player forms one wherever the ships
+   * are; every other verb reads `docked` and nothing else.
+   *
+   * They are separate rather than concatenated because the difference is a
+   * *rule*: `Undock` searching a merged list would accept a ship in space and
+   * try to undock it from a station it was never in.
+   *
+   * `INVALID_ID` and an empty span are "the caller cannot say", the shape
+   * `bayUnits` already has and for the same reason -- a client whose snapshot
+   * has not arrived pre-refuses, and the authority is what decides.
+   */
+  AnchorId grid = INVALID_ID;
+  std::span<const RosterEntry> onGrid;
+
+  /*
    * What the commanding player already has in the Bay here, per ore, and
    * **empty when the caller cannot say** -- the shape `ValidationView`'s own
    * optional spans have, for the same reason.
@@ -286,13 +308,31 @@ enum class StationVerb : std::uint8_t
   ProjectContribute = 6
 };
 
-/// Does this verb name ships and require them docked? The fork the check order
-/// turns on, written once so the validator and the registry cannot disagree
-/// about which family a verb is in.
+/// Does this verb name ships? The fork the check order turns on, written once
+/// so the validator and the registry cannot disagree about which family a verb
+/// is in.
 [[nodiscard]] constexpr bool NamesShips(StationVerb _verb) noexcept
 {
   return _verb == StationVerb::Undock || _verb == StationVerb::AssignWing || _verb == StationVerb::TransferToBay
          || _verb == StationVerb::TransferToShip;
+}
+
+/*
+ * And does it require those ships to be *docked*?
+ *
+ * Everything that names ships did until I2, which is why this was one question
+ * and is now two. `AssignWing` is the exception (ADR-017 §6's 2026-08-23
+ * amendment): a wing is a number a ship carries rather than a place it is, so
+ * reassigning one in space asks nothing of a station. The other three move
+ * hulls or holds across a station's threshold and are meaningless without it.
+ *
+ * Split out rather than spelled at each site for `NamesShips`' own reason: the
+ * validator and the registry both branch on it, and a rule written twice is a
+ * rule that can be changed once.
+ */
+[[nodiscard]] constexpr bool RequiresDock(StationVerb _verb) noexcept
+{
+  return NamesShips(_verb) && _verb != StationVerb::AssignWing;
 }
 
 /// What to call one. Never null, for the same reason `OrderReasonText` is not.
@@ -392,6 +432,14 @@ struct StationCommand
  *
  *   `EmptySelection` -> `TooManyShips` -> `InvalidFormation` -> `UnknownStation`
  *   -> `NotDocked` -> `InsufficientMaterials`
+ *
+ * **`NotDocked` reads `UnknownShip` for `AssignWing`** (I2): the position in the
+ * order is the same and so is the question -- "is this ship here" -- but the
+ * sentence has to match the verb. "Not docked here" is the wrong complaint to a
+ * player who selected ships in space, and "no such ship" is true wherever the
+ * ships were. Keyed on the verb rather than on which of the view's two lists
+ * came up empty, because the verb is a byte both machines have and the view is
+ * built differently on each.
  *
  * **The refining verbs take a different order, because they name no ships**
  * (ADR-024 §6b, E4b):

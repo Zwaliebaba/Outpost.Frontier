@@ -78,8 +78,9 @@ hash. Rosters, logs, and transfer records carry **u32 ship ids** and key on **`P
 berth-hold events **emit into the per-commander event record** (ADR-018 A17) from this
 slice. §5's protection window is implemented against the **corrected** arithmetic
 (~1.2–1.6 km in fifteen Battleship seconds, not ~3 km — ADR-018 D7). Station commands as pure shared validation over a `RosterView`:
-`Undock` (≤ 64 ships, formation) and `AssignWing` (emergent 1..255, docked-scope,
-`NotDocked`). Undock applies as: formation solve at the anchor's authored undock point and
+`Undock` (≤ 64 ships, formation) and `AssignWing` (emergent 1..255, ~~docked-scope,
+`NotDocked`~~ — **lifted 2026-08-23 by I2**: it may name ships on the grid as well as on the
+roster, and a ship it cannot find is `UnknownShip`; see ADR-017 §6's amendment). Undock applies as: formation solve at the anchor's authored undock point and
 facing → per-ship `protectedUntilTick` (15 s; cleared on ingesting any player order naming
 the ship; system orders exempt) → the **system-issued parking order** to the first free
 berth (two rings × 12 bearings, deterministic scan, freedom = clear solved stations + no
