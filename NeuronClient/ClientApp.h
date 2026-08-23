@@ -533,6 +533,29 @@ private:
    */
   static constexpr double VIEW_SETTLE_SECONDS = 0.2;
 
+  /*
+   * What a view switch is allowed to cost, given what the link costs
+   * (ADR-018 A15, risk register R18).
+   *
+   * **The acceptance was written flat and the flat number was wrong.** U3b's
+   * accept says *"roster click switches view to smooth motion in under half a
+   * second"*, which is true at loopback RTT and an unstated assumption about
+   * the network everywhere else: a switch is a request, an answer, and the
+   * settle over the interpolation refill, so its floor is the round trip and
+   * half a second was a target *plus* a guess. A15's correction is to
+   * parameterise it, and this is the parameterisation -- one function, so the
+   * number a measurement is judged against and the number a document quotes
+   * cannot drift apart.
+   *
+   * At 200 ms of settle a 40 ms link has 240 ms to beat and a 300 ms link has
+   * 500, which is the whole finding: the old flat number was not conservative,
+   * it was conditional.
+   */
+  [[nodiscard]] static constexpr double ViewSwitchBudgetSeconds(double _roundTripMs) noexcept
+  {
+    return VIEW_SETTLE_SECONDS + _roundTripMs / 1000.0;
+  }
+
   /// When the current settle ends, or negative when the feed is not settling.
   double m_settleUntilSeconds = -1.0;
 

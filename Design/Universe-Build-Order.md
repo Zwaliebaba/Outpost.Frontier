@@ -365,8 +365,39 @@ proves it. **D16's first edge — presence lost under a pinned camera — is not
 is not forgotten: camera pinning is U6's focus polish and does not exist, so there is no
 pinned state to test.
 
-**Still owed by U3b:** A15's RTT-parameterised acceptance, which needs a transport shim and a
-stopwatch on a real client, and D16's pinned-camera edge behind U6.
+~~**Still owed by U3b:** A15's RTT-parameterised acceptance, which needs a transport shim and a
+stopwatch on a real client~~ **the shim landed 2026-08-23**, and D16's pinned-camera edge behind U6.
+
+**Built (A15's buildable half, 2026-08-23).** `NeuronCore/DelayedTransport.h/.cpp` is the
+latency hook `Transport.h` had none of, and `ClientApp::ViewSwitchBudgetSeconds` is the
+acceptance stated as a function instead of as a sentence.
+
+**The old acceptance was not conservative, it was conditional.** *"Roster click switches view
+to smooth motion in under half a second"* is true at loopback RTT and is an unstated assumption
+about the network everywhere else: a switch is a request, an answer and the settle over the
+interpolation refill, so its floor is the round trip. At 200 ms of settle a 40 ms link has
+240 ms to beat and a 300 ms link has 500 — the flat number was a target *plus* a guess, and
+`ViewSwitchBudgetSeconds(roundTripMs)` is the two separated so a measurement and a document
+cannot quote different numbers.
+
+**A decorator, so the shipping transport never learns latency injection exists.** `QuicTransport`
+is wrapped rather than modified: no branch in the real send path, and no configuration key that
+could ship enabled — the hook is `ClientConnection::SetInjectedOneWayMs`, set in code by a
+harness and never read from a file. At zero no shim is constructed at all, so the ordinary path
+is not *equivalent to* the unshimmed one, it **is** it.
+
+**The delay lands on delivery rather than on send**, which is truer as well as simpler: `Send`
+returning "accepted" is a statement about the local socket, and deferring it would make that
+statement a guess about the future. Wrap both ends of a loopback pair and the two directions
+are the two halves of a real round trip, which is why the shim reports `2 x oneWayMs`.
+
+**Constant delay and never jitter**, stated because it is a limit rather than an oversight:
+held events are released in arrival order, which is only FIFO-safe while every event waits the
+same time. A jittered shim would reorder a channel the transport guarantees is ordered.
+Reordering and loss are a different experiment with a different acceptance.
+
+**Still owed by A15:** the timed observation itself — a stopwatch on a real client at a chosen
+RTT — which needs a person and a running game, and is an R1 item rather than a slice.
 
 > **Both examined 2026-08-23, and neither is buildable here — for different reasons, which is
 > why they should stop being one line.**

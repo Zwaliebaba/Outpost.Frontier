@@ -22,6 +22,7 @@
     </ClCompile>
     <ClCompile Include="EntityRecord.cpp" />
     <ClCompile Include="Json.cpp" />
+    <ClCompile Include="DelayedTransport.cpp" />
     <ClCompile Include="QuicTransport.cpp" />
     <ClCompile Include="Wire.cpp" />
     <ClCompile Include="JsonWriter.cpp" />
@@ -49,6 +50,7 @@
     <ClInclude Include="Log.h" />
     <ClInclude Include="Random.h" />
     <ClInclude Include="Transport.h" />
+    <ClInclude Include="DelayedTransport.h" />
     <ClInclude Include="QuicTransport.h" />
     <ClInclude Include="Wire.h" />
     <ClInclude Include="RingBuffer.h" />

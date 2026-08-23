@@ -3,6 +3,7 @@
 #include "DeltaReceiver.h"
 #include "EntityRecord.h"
 #include "OrderIntent.h"
+#include "DelayedTransport.h"
 #include "Transport.h"
 #include "Wire.h"
 
@@ -46,6 +47,23 @@ public:
   /// The optional pair reclaims a session the server has not yet expired
   /// (ADR-018 D5): the `PlayerId` and token a previous `Welcome` carried.
   /// Omitted, this is a first connection and the server mints a new commander.
+  /*
+   * Adds latency to everything this connection receives, for measuring what
+   * latency costs (ADR-018 A15).
+   *
+   * **Set in code and never from a file**, which is the one design constraint
+   * this hook has. A configuration key would be a way for a shipped client to
+   * be slow because somebody left a number in a JSON file; a call site is a
+   * thing that exists only in a harness. Applied on the *next* `Connect`, so it
+   * is set up before a link rather than swapped underneath one.
+   *
+   * Zero -- the default -- wraps nothing at all: no shim is constructed and the
+   * real transport is used directly, so the ordinary path is not merely
+   * equivalent to the unshimmed one, it *is* it.
+   */
+  void SetInjectedOneWayMs(double _oneWayMs) noexcept { m_injectedOneWayMs = _oneWayMs; }
+  [[nodiscard]] double InjectedRoundTripMs() const noexcept { return m_injectedOneWayMs * 2.0; }
+
   [[nodiscard]] bool Connect(const std::string& _host, std::uint16_t _port, std::uint64_t _schemaHash, std::uint64_t _contentHash,
                              const std::string& _playerName, PlayerId _resumePlayer = INVALID_PLAYER_ID,
                              std::uint64_t _resumeToken = 0);
@@ -270,6 +288,10 @@ private:
   void LogNetStats();
 
   std::unique_ptr<Transport> m_transport;
+
+  /// A15's injected one-way latency, in milliseconds. Zero means no shim is
+  /// built at all rather than a shim configured to do nothing.
+  double m_injectedOneWayMs = 0.0;
   ConnectionId m_connection = INVALID_CONNECTION;
   ClientLinkState m_state = ClientLinkState::Idle;
 
