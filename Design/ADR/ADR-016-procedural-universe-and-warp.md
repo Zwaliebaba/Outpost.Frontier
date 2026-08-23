@@ -363,10 +363,11 @@ closes, not here.
   reported; and a warp issued here is a **single hop**, with multi-hop planning left to the
   strategic map so `UniverseRoute` keeps one caller.
 
-  **Four questions are open for owner ruling before U6 builds**, the way P1's four were before
+  ~~**Four questions are open for owner ruling before U6 builds**, the way P1's four were before
   T3: ring spacing past eight anchors, whether sites sit on their own outer ring or among the
   planets by real orbit, one marker or two at an anchor holding both docked and on-grid ships,
-  and whether a gate shows the far side's name. They are tracked with the deliverable in
+  and whether a gate shows the far side's name.~~ **Answered 2026-08-23 — see §9b below.**
+  They are tracked with the deliverable in
   [Universe-Build-Order.md](../Universe-Build-Order.md).
   Contents: the sun, orbit rings at **presentation scale** (real orbital distances are not
   linearly renderable — "layout is legibility" applies inside a system too), anchor icons
@@ -463,6 +464,57 @@ of the **display envelope**, not of a screen, and if a couch or handheld target 
 is answered once for every surface. It belongs with the DPI-to-scale rule and the stated
 minimum client area that the scaling review (UI-4) already records as undocumented — the same
 envelope U5 would otherwise be laying zone tables against blind.
+
+### 9b. The system view's four *(owner rulings, 2026-08-23)*
+
+§9's system-view bullet left four questions for owner ruling before U6 builds. They are
+answered here, and two of them turned out to be one question — which is the finding worth
+keeping.
+
+**The bake was measured before any of them was decided.** Over the committed 2,500 systems:
+
+| | min | max | mean | over eight |
+|---|---|---|---|---|
+| all anchors | 5 | 15 | 9.9 | **70.6 %** |
+| anchors minus sites | 3 | 13 | 7.4 | **34.9 %** |
+
+Every system holds 2–3 sites, 1–4 gates, 1–2 stations and 0–7 planets.
+
+**9b.1 — Rings have a capacity and overflow outward.** §9's phrasing — *"even spacing by bake
+order is legible to about eight; the committed universe has systems with more"* — understated
+it: more is **70.6 %**, so this is the ordinary case and not an edge. The ruling is that a ring
+holds about eight and the next anchor starts a ring further out, which makes it the ring system
+having a capacity rather than a special case bolted on for large systems. Order is **bake
+order**, so a system's layout is the same in two sessions; the alternatives (an outer belt, a
+second column, a pinch) were declined as, respectively, a special case, a break in the ring
+metaphor, and a second map on the one surface this ADR lays out rather than projects.
+
+**9b.2 — Sites sit on their own outer ring, and this is half of 9b.1's answer.** The
+measurement is the argument: taking sites off the main rings drops the over-eight share from
+70.6 % to 34.9 %, so the two questions were never independent and deciding them apart would
+have produced two mechanisms for one problem.
+
+Two further reasons, and the second is not recorded anywhere else. A field is a **place you go
+to** rather than a body you pass, which is §9's own framing. And **sites move**:
+`SiteEpochPlacement` recomputes them per epoch (ADR-024 §3a), so placing them among the planets
+by real orbit means the planets' ring re-lays itself when an epoch rolls — a screen that
+rearranges overnight for a reason the player cannot see. A dedicated ring lets an epoch change
+*which* sites are there without disturbing anything else on the screen.
+
+**9b.3 — One marker with a split count at a mixed anchor.** Precise without crowding, and it
+keeps one mechanism across two resolutions: `MapMarker` on the strategic map (U3b) merges
+docked and on-grid into one number because at *that* resolution both mean "there", and the
+system view is where the difference becomes actionable — docked and on-grid take different
+verbs (ADR-017). So the same single mark carries two numbers rather than becoming two marks.
+Ring capacity is the scarce resource by 9b.1, which is the other half of why nothing new is
+added to the ring.
+
+**9b.4 — A gate names the far side.** `GATE → KIL-7`, and it costs nothing: the client holds
+the whole topology from boot (ADR-018 D14 — `BuildMapTopology` is asked once from the committed
+bake), so the far side is an index lookup and not a message. Systems carry up to four gates,
+and four gates a player cannot tell apart are four anchors they must guess between on the
+screen where they are choosing. The *"this makes the system view a one-hop map"* objection is
+real and narrow: the strategic map remains the multi-hop surface, and one hop is not a map.
 
 ### 10. The gate hull
 

@@ -23,7 +23,8 @@ need a GPU. U3b's client half, U4's route feeder and icons, and U6 need a GPU an
 establishes**, since a screen built against the mouse adaptation would be retrofitted for touch
 afterwards. **U5 also grew a fifth overlay it does not yet mention** — the RESOURCES site layer,
 drawn 2026-08-22, tracked as N7 in the plan. **D1, U6's design gate, was drawn on 2026-08-21** — source in,
-plate and four rulings owed. U3c was the exception and it is done — it split into **U3c-a**
+plate owed upstream and ~~four rulings owed~~ **all four answered 2026-08-23 (ADR-016 §9b), so
+U6 has no design gate left**. U3c was the exception and it is done — it split into **U3c-a**
 (ownership in the simulation) and **U3c-b** (the second commander on the wire), because a ship
 had no owner and minting a second id against a registry where both commanders owned everything
 would have passed the privacy accept for the wrong reason. **🏁 Its accept is met (run 188):
@@ -1389,24 +1390,40 @@ one sitting.
   places from the summary family, and a warp issued here is a single hop with routing left to
   the map.
 
-  **Open — four rulings owed before U6 builds:**
-  1. **Ring spacing past eight anchors.** Even spacing by bake order is legible to about eight;
-     the committed universe has systems with more. An outer belt, a second column, or a pinch.
-  2. **Where sites sit.** Drawn on their own outer ring, because a field is a place you go to
-     rather than a body you pass. The alternative is placing them by real orbit among the planets.
-  3. **One marker or two at a mixed anchor.** A station with three docked and six on grid is
-     drawn as one marker with a split count; two reads more precisely and crowds the ring.
-  4. **Does a gate name the far side?** Drawn as `GATE → KIL-7`, which the bake knows. Naming it
-     makes the system view a one-hop map; hiding it sends the player to the map to answer
-     "where does this go".
+  ~~**Open — four rulings owed before U6 builds:**~~ **All four answered 2026-08-23**, recorded
+  at [ADR-016 §9b](ADR/ADR-016-procedural-universe-and-warp.md) with the measurements that
+  produced them. **U6 has no design gate left.**
+  1. **Ring spacing past eight anchors** → **rings have a capacity and overflow outward**, in
+     bake order so a layout is stable between sessions. §7's *"the committed universe has
+     systems with more"* understated it: the bake says **70.6 %** of systems exceed eight, so
+     this is the ordinary case rather than an edge.
+  2. **Where sites sit** → **their own outer ring**, and this is *half of ruling 1's answer*:
+     taking sites off the main rings drops the over-eight share from 70.6 % to **34.9 %**, so
+     the two questions were never independent. The reason not previously written down is that
+     sites **move** — `SiteEpochPlacement` is per epoch, so placing them among the planets makes
+     the planets' ring re-lay itself overnight.
+  3. **One marker or two at a mixed anchor** → **one marker with a split count**, which keeps
+     one mechanism across two resolutions: the strategic map merges docked and on-grid because
+     at that resolution both mean "there", and the system view splits the same single mark
+     because there the difference takes different verbs.
+  4. **Does a gate name the far side?** → **yes, `GATE → KIL-7`.** It costs nothing — the client
+     holds the topology from boot, so it is an index lookup and no message — and four gates a
+     player cannot tell apart are four anchors they must guess between.
 - **D2 — `Gate.obj` + icons.** Ring/portal silhouette, radially symmetric, the shared
   five-material palette; STATIC-family tactical icon and map glyph. Structure stands in from
   U4 until this lands. **Half delivered 2026-08-20: the mesh, as `Stargate.obj`** — it arrived
   with U4 rather than after it, so the Structure stand-in was never needed. Ring/portal as
   specified, 1,888 vertices and 1,144 triangles, on the corpus palette (one sixth material in
   the export was authored onto `accent`, whose colour it already was — see
-  [ADR-016 §10](ADR/ADR-016-procedural-universe-and-warp.md)). **The icons are still owed**
-  and land with U4's client half, beside the route progress they sit next to.
+  [ADR-016 §10](ADR/ADR-016-procedural-universe-and-warp.md)). ~~**The icons are still owed**
+  and land with U4's client half, beside the route progress they sit next to.~~ **Corrected
+  2026-08-23: they did not, and could not.** U4's client half landed without them because the
+  icon *system* is unbuilt (`tactical-icon-system.png`'s density ladder — the same thing U3d-c
+  found had no rung) **and** the client does not know an entity's hull class at all:
+  `SceneEntity` carries an id, a plane position, a pick radius, two gauges and a status byte,
+  and nothing on the wire says what shape a thing is. So the icons need a replicated field as
+  well as a system, which makes them a slice rather than a line. Recorded on U6 and at
+  [ADR-016 §10](ADR/ADR-016-procedural-universe-and-warp.md).
 - **D3 — Name root lists.** The curated region/constellation vocabularies the bake draws
   from — content authoring inside U1, named here because curation is a task, not a fallout.
 - **D4 — Warp audio cues.** Spool/depart/arrive; lands only after S15 gives audio a home in
