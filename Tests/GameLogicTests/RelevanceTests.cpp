@@ -181,7 +181,7 @@ public:
     Assert::IsNotNull(world);
 
     std::vector<ShipId> ranked;
-    RankRelevance(registry, *world, Looking(ONE, grid), ranked);
+    (void)RankRelevance(registry, *world, Looking(ONE, grid), ranked);
 
     Assert::AreEqual(static_cast<std::size_t>(world->ShipCount()), ranked.size(), L"the ranking changed the population");
 
@@ -211,7 +211,7 @@ public:
     Assert::AreEqual<std::uint32_t>(0, world->ShipCount(), L"the planet fixture was not empty");
 
     std::vector<ShipId> ranked{7, 8, 9};
-    RankRelevance(registry, *world, Looking(ONE, grid), ranked);
+    (void)RankRelevance(registry, *world, Looking(ONE, grid), ranked);
     Assert::AreEqual<std::size_t>(0, ranked.size());
   }
 
@@ -238,8 +238,8 @@ public:
     const World* world = registry.Borrow(grid);
     std::vector<ShipId> first;
     std::vector<ShipId> second;
-    RankRelevance(registry, *world, Looking(ONE, grid), first);
-    RankRelevance(registry, *world, Looking(ONE, grid), second);
+    (void)RankRelevance(registry, *world, Looking(ONE, grid), first);
+    (void)RankRelevance(registry, *world, Looking(ONE, grid), second);
     Assert::IsTrue(first == second, L"equidistant ships ranked differently on two identical queries");
   }
 };
@@ -266,7 +266,7 @@ public:
 
     const World* world = registry.Borrow(grid);
     std::vector<ShipId> ranked;
-    RankRelevance(registry, *world, Looking(ONE, grid), ranked);
+    (void)RankRelevance(registry, *world, Looking(ONE, grid), ranked);
 
     Assert::IsTrue(PlaceOf(ranked, mineFarAway) < PlaceOf(ranked, theirsUnderCursor),
                    L"a neutral hull under the cursor outranked the commander's own fleet");
@@ -294,14 +294,14 @@ public:
     query.selection = selection;
 
     std::vector<ShipId> ranked;
-    RankRelevance(registry, *world, query, ranked);
+    (void)RankRelevance(registry, *world, query, ranked);
 
     Assert::IsTrue(PlaceOf(ranked, theirsFarAway) < PlaceOf(ranked, theirsNearer),
                    L"a selected ship did not reach tier 0");
     // And it is genuinely the selection doing it: unselected, the same hull
     // sits behind the nearer one.
     query.selection = {};
-    RankRelevance(registry, *world, query, ranked);
+    (void)RankRelevance(registry, *world, query, ranked);
     Assert::IsTrue(PlaceOf(ranked, theirsNearer) < PlaceOf(ranked, theirsFarAway),
                    L"the fixture did not actually depend on the selection");
     Assert::IsTrue(PlaceOf(ranked, mine) < PlaceOf(ranked, theirsNearer));
@@ -341,7 +341,7 @@ public:
     const ShipId theirs = registry.Spawn(grid, At(10.0f, 10.0f), TWO);
 
     std::vector<ShipId> ranked;
-    RankRelevance(registry, *world, Looking(ONE, grid), ranked);
+    (void)RankRelevance(registry, *world, Looking(ONE, grid), ranked);
     Assert::IsTrue(PlaceOf(ranked, structure) < PlaceOf(ranked, theirs), L"the grid's landmark was not tier 0");
   }
 
@@ -362,7 +362,7 @@ public:
 
     const World* world = registry.Borrow(grid);
     std::vector<ShipId> ranked;
-    RankRelevance(registry, *world, Looking(ONE, grid, 0.0f, 0.0f, 1000.0f), ranked);
+    (void)RankRelevance(registry, *world, Looking(ONE, grid, 0.0f, 0.0f, 1000.0f), ranked);
 
     Assert::IsTrue(PlaceOf(ranked, inCorner) < PlaceOf(ranked, justBeyond),
                    L"a corner of the player's own screen ranked below empty space beside it");
@@ -382,12 +382,12 @@ public:
 
     // Both outside a tight camera, so both are tier 2 and distance is the only
     // thing ordering them.
-    RankRelevance(registry, *world, Looking(ONE, grid, 0.0f, 0.0f, 100.0f), ranked);
+    (void)RankRelevance(registry, *world, Looking(ONE, grid, 0.0f, 0.0f, 100.0f), ranked);
     Assert::IsTrue(PlaceOf(ranked, nearTheOrigin) < PlaceOf(ranked, furtherOut));
 
     // Now move the camera past both of them. The ranking must follow the focus
     // rather than the plane's origin, so the order inverts.
-    RankRelevance(registry, *world, Looking(ONE, grid, 6500.0f, 0.0f, 100.0f), ranked);
+    (void)RankRelevance(registry, *world, Looking(ONE, grid, 6500.0f, 0.0f, 100.0f), ranked);
     Assert::IsTrue(PlaceOf(ranked, furtherOut) < PlaceOf(ranked, nearTheOrigin),
                    L"the ranking read the origin instead of the focus");
   }
@@ -448,7 +448,7 @@ public:
     {
       RelevanceQuery query = Looking(ONE, grid, 0.0f, 0.0f, 10.0f);
       query.tick = tick;
-      RankRelevance(registry, *world, query, ranked);
+      (void)RankRelevance(registry, *world, query, ranked);
       Assert::AreEqual<std::size_t>(POPULATION, ranked.size());
       ledTheTier.push_back(ranked.front());
     }
@@ -481,7 +481,7 @@ public:
     {
       RelevanceQuery query = Looking(ONE, grid, 0.0f, 0.0f, 10.0f);
       query.tick = tick;
-      RankRelevance(registry, *world, query, ranked);
+      (void)RankRelevance(registry, *world, query, ranked);
       Assert::AreEqual<std::size_t>(0, PlaceOf(ranked, mine), L"the commander's own ship lost the lead to the rotation");
     }
   }

@@ -1888,9 +1888,9 @@ void ClientApp::UpdateStationSurface()
    * `TextEditState` is T3a's, built and then unused for a slice: this is its
    * first consumer, and it is what ADR-018 D15.1 meant by "editable text".
    */
-  if (m_focus.HeldBy(SurfaceId::Station, RENAME_WIDGET))
+  if (m_focus.HeldBy(SurfaceId::Station, RENAME_WIDGET) && UpdateWingRename())
   {
-    UpdateWingRename();
+    return;
   }
 
   const GestureState& gesture = m_router.Gesture();
@@ -3146,7 +3146,8 @@ void ClientApp::BuildTacticalHud(double _nowSeconds)
     const char* said = CountedChipText(m_scene.culledCount, chipText, sizeof chipText);
     if (said[0] != '\0')
     {
-      const UiRect chip = CountedChipRect(layout.world, TextCellCount(said), cell, layout.scale, m_countedChipTuning);
+      const UiRect chip = CountedChipRect(layout.world, static_cast<std::uint32_t>(TextCellCount(said)), cell,
+                                          layout.scale, m_countedChipTuning);
       m_ui.AddQuad(chip, m_palette.chipBg);
       m_ui.AddBorder(chip, 1.0f * layout.scale, m_palette.border);
       m_ui.AddText(chip.x + m_countedChipTuning.paddingX * layout.scale,
@@ -5283,7 +5284,14 @@ void ClientApp::BuildSettingsSurface()
    * always reach.
    */
   m_ui.AddQuad(UiRect{screen.footer.x + pad, screen.footer.y, screen.footer.width - pad * 2.0f, line}, m_palette.rule);
-  std::snprintf(buffer, sizeof buffer, "SCHEMA %08X", m_worldView->SchemaHash());
+  /*
+   * The low half of the hash, and eight digits of it: the footer is a number a
+   * player is asked to read *out loud* when a session refuses them, and sixteen
+   * digits is a number nobody finishes saying. The truncation is written down
+   * rather than left to the format string, which is the difference between a
+   * short name and a lost one.
+   */
+  std::snprintf(buffer, sizeof buffer, "SCHEMA %08X", static_cast<unsigned>(m_worldView->SchemaHash() & 0xFFFFFFFFull));
   m_ui.AddText(screen.footer.x + pad, screen.footer.y + pad, m_uiTuning.smallSizeIndex, m_palette.phosphorGhost,
                buffer);
 
