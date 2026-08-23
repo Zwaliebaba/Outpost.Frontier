@@ -1867,13 +1867,25 @@ void RunWingAssignmentGate(Checklist& _checks)
   const Neuron::StationAction& assign = actions[1];
   std::array<Neuron::OrderOption, Neuron::MAX_STATION_OPTIONS> options{};
   const std::uint32_t optionCount = view.StationActionOptions(assign.verb, options);
+  /*
+   * The named wings, then the number nobody is using, then the disband.
+   *
+   * The last of those arrived at T3's remainder and moved this count from three
+   * to four -- so the claim is written against the *shape* now rather than
+   * against the length: a list whose head is the wings and whose tail is wing
+   * zero survives a fifth wing and a sixth option, and a bare `== 3` did not
+   * survive the first one.
+   */
   _checks.Record("its values are the wings that have names, plus one number nobody is using",
-                 optionCount == 3 && options[0].parameter == 1 && options[1].parameter == 2 && options[2].parameter == 3);
+                 optionCount == 4 && options[0].parameter == 1 && options[1].parameter == 2 &&
+                   options[2].parameter == 3);
+  _checks.Record("and the disband is offered last, where the destructive value belongs",
+                 optionCount >= 1 && options[optionCount - 1].parameter == Game::INVALID_WING_ID);
 
   const std::uint32_t everyone[] = {TALON_A, TALON_B, ANVIL_A, ANVIL_B};
   Neuron::StationIntent intent;
   intent.verb = assign.verb;
-  intent.parameter = optionCount == 3 ? options[2].parameter : 0;
+  intent.parameter = optionCount == 4 ? options[2].parameter : 0;
   intent.anchor = static_cast<std::uint16_t>(STATION);
   intent.orderSeq = 1;
   intent.shipIds = everyone;
@@ -1904,7 +1916,7 @@ void RunWingAssignmentGate(Checklist& _checks)
 
   const std::uint32_t afterCount = view.StationActionOptions(assign.verb, options);
   _checks.Record("sending it spends a call sign on the new wing and offers the next number",
-                 sent && afterCount == 4 && options[2].name != nullptr && std::string_view{options[2].name} == "VERGE" &&
+                 sent && afterCount == 5 && options[2].name != nullptr && std::string_view{options[2].name} == "VERGE" &&
                    options[3].parameter == 4);
 
   std::array<Neuron::RosterRow, Neuron::MAX_ROSTER_ROWS> roster{};
@@ -1932,8 +1944,16 @@ void RunWingAssignmentGate(Checklist& _checks)
   std::array<Neuron::StationAction, Neuron::MAX_STATION_ACTIONS> fullActions{};
   const bool fullFed = feed(fullView) && fullView.BuildStationActions(static_cast<std::uint16_t>(STATION), fullActions) == 2;
   const std::uint32_t fullOptions = fullFed ? fullView.StationActionOptions(fullActions[1].verb, options) : 0;
+  /*
+   * The wings, and the disband -- and *no* new number, which is the claim.
+   *
+   * The `+ 1` is T3's disband rather than a new wing sneaking back in: assigning
+   * *to* wing zero costs no roster row, because the strays' row is drawn only
+   * when there are any and is not one of the cap's sixteen.
+   */
   _checks.Record("a roster with no room for another row offers no new wing, only the ones it has",
-                 fullFed && fullOptions == Neuron::MAX_ROSTER_ROWS);
+                 fullFed && fullOptions == Neuron::MAX_ROSTER_ROWS + 1u &&
+                   options[fullOptions - 1u].parameter == Game::INVALID_WING_ID);
 }
 
 /*
@@ -2070,6 +2090,264 @@ void RunInSpaceWingGate(Checklist& _checks)
  * had built. That is why the defect it fixes had never been seen: it takes two
  * commanders on one grid, and until U3c there could not be two.
  */
+/*
+ * A route becomes orders, and a warp is judged on this side at all (U4).
+ *
+ * The client half of U4, which was the whole of what U4 had left: the map
+ * plans, the client feeds one order per completed hop (ADR-016 §8), and until
+ * this slice the client could not even *pre-check* a warp -- `reachableAnchors`
+ * and `jumpAnchor` were the two `ValidationView` fields nothing on this side
+ * filled, so every warp and every jump reached the authority to be refused
+ * there.
+ *
+ * A universe of its own rather than the loaded one, for the gate-crossing
+ * check's reason: twelve systems bake in no time, and a check that depended on
+ * where the committed content happens to put a gate would be a check about
+ * content.
+ */
+void RunRouteFeedGate(Checklist& _checks)
+{
+  Game::UniverseGenConfig recipe;
+  recipe.regionCount = 2;
+  recipe.constellationsPerRegion = 2;
+  recipe.systemCount = 12;
+
+  Game::UniverseDef universe;
+  if (!Game::GenerateUniverse(recipe, Game::SitesInfo{}, universe))
+  {
+    _checks.Record("the route gate bakes a universe", false);
+    return;
+  }
+
+  const Game::AnchorId startAnchor = universe.StartAnchorId();
+  const Game::Anchor* start = universe.FindAnchor(startAnchor);
+  if (start == nullptr)
+  {
+    _checks.Record("the route gate has a grid to start on", false);
+    return;
+  }
+
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  desc.universe = &universe;
+  desc.gridAnchor = startAnchor;
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  /*
+   * The furthest system the planner will reach, so the plan is several hops
+   * rather than one -- a one-hop plan cannot show that the *second* leg is the
+   * pair of the first, which is the arithmetic this gate is really about.
+   */
+  Game::SystemId furthest = Game::INVALID_ID;
+  std::size_t furthestJumps = 0;
+  for (const Game::SolarSystem& system : universe.systems)
+  {
+    const Game::Route probe = Game::SolveRoute(universe, start->system, system.id);
+    if (!probe.systems.empty() && probe.Jumps() > furthestJumps)
+    {
+      furthestJumps = probe.Jumps();
+      furthest = system.id;
+    }
+  }
+  if (furthest == Game::INVALID_ID || furthestJumps < 2)
+  {
+    _checks.Record("the route gate's bake has somewhere worth routing to", false);
+    return;
+  }
+
+  std::array<Neuron::RouteLeg, Neuron::MAX_ROUTE_LEGS> legs{};
+  const std::uint32_t legCount = view.BuildRoutePlan(static_cast<std::uint16_t>(furthest), legs);
+
+  /*
+   * Two legs a hop -- warp to the gate, then warp through it -- minus the one
+   * the fleet does not need when it is already standing on a gate. The start
+   * anchor is a station's, so nothing is skipped and the arithmetic is exact.
+   */
+  _checks.Record("a route becomes two orders per jump", legCount == furthestJumps * 2u);
+
+  bool everyLegIsAWarpToAGate = legCount > 0;
+  for (std::uint32_t index = 0; index < legCount; ++index)
+  {
+    const Game::Anchor* anchor = universe.FindAnchor(static_cast<Game::AnchorId>(legs[index].anchor));
+    everyLegIsAWarpToAGate = everyLegIsAWarpToAGate && anchor != nullptr && anchor->kind == Game::AnchorKind::Gate &&
+                             legs[index].kind == static_cast<std::uint16_t>(Game::OrderKind::Warp);
+  }
+  _checks.Record("and every one of them is a warp to a gate", everyLegIsAWarpToAGate);
+
+  /*
+   * The legs pair up: the odd one is the even one's far side.
+   *
+   * This is what makes the plan a *crossing* rather than a tour of gates in one
+   * system, and it is the half the client must never work out for itself --
+   * `RoutePlan` echoes two numbers and could not tell a jump from a warp.
+   */
+  bool pairsUp = legCount % 2u == 0;
+  for (std::uint32_t index = 0; index + 1 < legCount; index += 2)
+  {
+    pairsUp = pairsUp && universe.PairedGateAnchor(static_cast<Game::AnchorId>(legs[index].anchor)) ==
+                           static_cast<Game::AnchorId>(legs[index + 1].anchor);
+  }
+  _checks.Record("each jump's second order is the far side of its first", pairsUp);
+
+  /*
+   * And each pair carries the *same* hop number, ascending from zero.
+   *
+   * This is the number the HUD's `ROUTE 2/5` counts, and it is stamped here
+   * rather than derived on the client because only this half knows which two
+   * orders are one jump. The claim is exactly that: the stamping agrees with
+   * the pairing above -- so a chip and the map's panel describe one journey
+   * with one number, whichever of them the player is looking at.
+   */
+  bool hopsAgreeWithThePairs = legCount > 0;
+  for (std::uint32_t index = 0; index < legCount; ++index)
+  {
+    hopsAgreeWithThePairs = hopsAgreeWithThePairs && legs[index].hop == static_cast<std::uint16_t>(index / 2u);
+  }
+  _checks.Record("and both of a jump's orders are stamped with that jump's number", hopsAgreeWithThePairs);
+  _checks.Record("so the plan counts as many jumps as the panel drew",
+                 legCount > 0 && static_cast<std::size_t>(legs[legCount - 1].hop) + 1u == furthestJumps);
+
+  // And flying them lands where the player pointed.
+  const Game::Anchor* last = legCount > 0
+                               ? universe.FindAnchor(static_cast<Game::AnchorId>(legs[legCount - 1].anchor))
+                               : nullptr;
+  _checks.Record("the last order arrives in the system the player picked", last != nullptr && last->system == furthest);
+
+  /*
+   * The panel and the feeder cannot disagree, because both solve the same
+   * route with the same tie-break. Asserted rather than assumed: they are two
+   * calls, and two calls are where a divergence would live.
+   */
+  std::array<Neuron::MapRouteHop, Neuron::MAX_MAP_ROUTE_HOPS> hops{};
+  Neuron::MapRouteSummary summary;
+  const std::uint32_t hopCount = view.SolveMapRoute(static_cast<std::uint16_t>(furthest), hops, summary);
+  _checks.Record("the panel's jumps and the plan's orders describe one route",
+                 hopCount > 0 && legCount == (hopCount - 1u) * 2u);
+
+  _checks.Record("a route to where you already are is no plan",
+                 view.BuildRoutePlan(static_cast<std::uint16_t>(start->system), legs) == 0);
+  _checks.Record("and a destination nothing reaches is no plan either", view.BuildRoutePlan(0xfffe, legs) == 0);
+
+  /*
+   * And the feeder flies it: one order at a time, each waiting on the last.
+   *
+   * `strategic-map.png` §3's ruling in a loop -- the queue holds four and the
+   * plan holds twenty-two, and what makes that work is that only one is ever
+   * outstanding.
+   */
+  Neuron::RoutePlan plan;
+  plan.Set(std::span<const Neuron::RouteLeg>{legs.data(), legCount});
+  std::uint32_t sent = 0;
+  bool oneAtATime = true;
+  for (std::uint32_t step = 0; step < legCount + 2u && plan.Active(); ++step)
+  {
+    const Neuron::RouteLeg leg = plan.Ready();
+    if (leg.anchor == Neuron::INVALID_ROUTE_ANCHOR)
+    {
+      oneAtATime = false; // A frame with a plan running and nothing to send.
+      break;
+    }
+    oneAtATime = oneAtATime && leg.anchor == legs[sent].anchor;
+    ++sent;
+    plan.NoteSent(sent);
+
+    // The authority answering that the order is over, which is the same flag a
+    // ghost retires on.
+    Neuron::OrderFeedback feedback;
+    Neuron::OrderProgress progress;
+    progress.clientOrderSeq = sent;
+    progress.finished = true;
+    (void)feedback.Add(progress);
+    plan.NoteFeedback(feedback);
+  }
+  _checks.Record("the feeder sends every leg once, in order, one at a time", oneAtATime && sent == legCount);
+  _checks.Record("and the plan is over when the last one lands", plan.State() == Neuron::RouteState::None);
+
+  /*
+   * And the half without which none of the above could be sent: a warp that
+   * pre-checks on this side.
+   *
+   * `reachableAnchors` and `jumpAnchor` were the two `ValidationView` fields
+   * nothing on the client filled, so `PreCheck` refused every warp with
+   * `UnknownAnchor` -- a feeder that trusted it would have halted on its first
+   * leg, and one that ignored it would have sent every leg to be bounced.
+   * They are filled from the same pure function the registry fills its half
+   * with, which is what makes ADR-014 §3's parity a fact rather than a hope.
+   */
+  Game::World world;
+  world.Reset(1);
+  world.SetAnchor(startAnchor, Game::INVALID_SHIP_ID, Game::ReachableAnchors(universe, startAnchor));
+
+  Game::ShipSpawn ship;
+  ship.hullClass = Game::HullClass::Frigate;
+  ship.wing = 1;
+  const Game::ShipId flier = world.Spawn(ship, 1);
+  world.Tick(1);
+
+  std::vector<Neuron::EntityRecord> records;
+  for (std::uint32_t slot = 0; slot < world.ShipCount(); ++slot)
+  {
+    records.push_back(Game::MakeShipRecord(world, slot, Game::Relationship::Own));
+  }
+  std::array<std::uint8_t, Game::MAX_TICK_TAIL_BYTES> tailBytes{};
+  Neuron::ByteWriter tailWriter{tailBytes};
+  bool framed = flier != Game::INVALID_SHIP_ID && Game::WriteTickTail(world, tailWriter, 0) && tailWriter.Ok();
+
+  Neuron::ReplicatedFrame frame;
+  frame.tick = world.Tick();
+  frame.gridId = startAnchor;
+  frame.entities = records;
+  frame.tail = tailWriter.Written();
+  framed = framed && view.ApplyFrame(frame);
+  Neuron::RenderScene scene;
+  view.BuildScene(static_cast<double>(world.Tick()), scene);
+  if (!framed)
+  {
+    _checks.Record("the route gate could put a fleet on its start grid", false);
+    return;
+  }
+
+  const Neuron::EntityId flying[] = {flier};
+  const auto warpTo = [&](Game::AnchorId _anchor) {
+    Neuron::OrderIntent intent;
+    intent.kind = static_cast<std::uint16_t>(Game::OrderKind::Warp);
+    intent.anchor = static_cast<std::uint16_t>(_anchor);
+    intent.entityIds = flying;
+    intent.entityCount = 1;
+    return intent;
+  };
+
+  // Somewhere in this system that is not this grid: the first thing a route's
+  // first leg names.
+  Game::AnchorId neighbour = Game::INVALID_ID;
+  for (const Game::AnchorId candidate : Game::ReachableAnchors(universe, startAnchor))
+  {
+    neighbour = candidate;
+    break;
+  }
+
+  const Neuron::OrderVerdict near = view.PreCheck(warpTo(neighbour));
+  const Neuron::OrderVerdict nowhere = view.PreCheck(warpTo(0xfffe));
+  _checks.Record("the client can finally pre-check a warp, and accepts a reachable anchor",
+                 neighbour != Game::INVALID_ID && near.accepted);
+  _checks.Record("and refuses one that is not from here, in the authority's own words",
+                 !nowhere.accepted &&
+                   nowhere.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::UnknownAnchor));
+
+  /*
+   * The parity claim itself, asserted rather than argued: the authority judging
+   * the same order over its own view returns the same verdict. Two routes to
+   * one answer, which is what BounceParity means.
+   */
+  Game::OrderSubmit submit;
+  submit.kind = Game::OrderKind::Warp;
+  submit.anchor = neighbour;
+  submit.shipCount = 1;
+  submit.shipIds[0] = flier;
+  const Game::OrderVerdict authority = Game::ValidateOrder(world.Validation(), submit);
+  _checks.Record("and the authority agrees with it", authority.accepted == near.accepted);
+}
+
 void RunRosterOwnershipGate(Checklist& _checks)
 {
   constexpr Game::ShipId MINE_A = 1;
@@ -2335,8 +2613,13 @@ void RunWingNameLayerGate(Checklist& _checks)
    * player could not see.
    */
   _checks.Record("a restored wing is offered like any other, and a rename spends no roster row",
-                 optionCount == 4 && options[0].parameter == 1 && options[1].parameter == 2 && options[2].parameter == 9 &&
-                   options[3].parameter == 3);
+                 optionCount == 5 && options[0].parameter == 1 && options[1].parameter == 2 &&
+                   options[2].parameter == 9 && options[3].parameter == 3);
+
+  // And the disband after them, which is T3's addition to this list rather than
+  // a fifth wing (`StationActionOptions`).
+  _checks.Record("with the disband after them", optionCount >= 1 &&
+                                                  options[optionCount - 1].parameter == Game::INVALID_WING_ID);
 
   /*
    * The failure this whole gate is here for.
@@ -2347,7 +2630,7 @@ void RunWingNameLayerGate(Checklist& _checks)
    * next new wing has to be CINDER.
    */
   bool spentTheRightWord = false;
-  if (optionCount == 4)
+  if (optionCount == 5)
   {
     Neuron::StationIntent intent;
     intent.verb = actions[1].verb;
@@ -3264,6 +3547,7 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   RunInSpaceWingGate(checks);
   RunWingNameLayerGate(checks);
   RunRosterOwnershipGate(checks);
+  RunRouteFeedGate(checks);
 
   // U3c's accept, after the single-commander loop has proved the machinery it
   // builds on: two clients at once, on grids of their own.

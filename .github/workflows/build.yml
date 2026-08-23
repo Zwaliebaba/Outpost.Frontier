@@ -279,6 +279,125 @@ jobs:
           }
           Write-Host 'the engine references no game'
 
+      # The source files carry no byte-order mark and the projects pass no
+      # /utf-8, so MSVC reads a narrow string literal in the *host's ANSI code
+      # page* and re-encodes it to the execution charset. On a CP-1252 runner
+      # the bytes happen to round-trip; on any other they do not, and five byte
+      # values have no CP-1252 mapping at all. `GlyphAtlas.cpp` has warned about
+      # exactly this since it was written -- "a non-ASCII character literal
+      # would be read in the compiler's current code page and silently become
+      # the wrong glyph" -- and its own table is spelled as codepoints for the
+      # reason.
+      #
+      # Nothing checked it, and U4 found what that costs. A marker glyph in the
+      # context bar's warp chip had been written as a literal and had
+      # *double-encoded* into the file, so it drew as three Latin-1 boxes;
+      # nobody saw it, because the source looks correct in every editor that
+      # reads UTF-8. Two more drawn strings and two log lines were one code page
+      # away from the same fate.
+      #
+      # So: no non-ASCII inside a **narrow** literal, anywhere. Escapes are the
+      # convention (`"\xC2\xB7"`), comments are free to carry whatever reads
+      # best, and wide `L"..."` literals are out of scope -- they are test
+      # assertion messages, never drawn and never logged.
+      #
+      # The scan is a character walk rather than a regex, because `//` inside a
+      # string and a quote inside a comment both defeat the obvious pattern --
+      # and this guard exists because an obvious reading was wrong once already.
+      # It runs as compiled C# rather than as a PowerShell loop for one reason:
+      # four million characters, and a guard nobody wants to wait for is a guard
+      # that gets moved to a nightly.
+      - name: Check no narrow string literal carries a non-ASCII byte
+        if: matrix.configuration == 'Debug'
+        shell: pwsh
+        run: |
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Collections.Generic;
+          using System.IO;
+
+          public static class LiteralScan
+          {
+            public static string[] Findings(string path)
+            {
+              var bad = new List<string>();
+              string text = File.ReadAllText(path);
+              int line = 1;
+              // 0 code, 1 line comment, 2 block comment, 3 narrow/wide string
+              int state = 0;
+              bool wide = false;
+              for (int i = 0; i < text.Length; i++)
+              {
+                char c = text[i];
+                char next = i + 1 < text.Length ? text[i + 1] : '\0';
+                if (c == '\n') { line++; if (state == 1) { state = 0; } continue; }
+
+                if (state == 0)
+                {
+                  if (c == '/' && next == '/') { state = 1; i++; }
+                  else if (c == '/' && next == '*') { state = 2; i++; }
+                  else if (c == '"') { wide = i > 0 && text[i - 1] == 'L'; state = 3; }
+                  else if (c == '\'')
+                  {
+                    // A quote in code is a character literal only when it reads
+                    // like one. `70'000'000'000` is five apostrophes and no
+                    // literal at all, and a scanner that took the first for an
+                    // opening quote would swallow the rest of the file --
+                    // finding nothing, or worse, finding a comment's glyph
+                    // inside what it believed was a literal. Character literals
+                    // are skipped rather than inspected: a non-ASCII one is a
+                    // multi-character literal MSVC warns about on its own, and
+                    // the tree has none. What this branch is really for is
+                    // `'"'`, which would otherwise open a string.
+                    int close = -1;
+                    if (next == '\\') { for (int j = i + 2; j < text.Length && j < i + 8; j++) { if (text[j] == '\'') { close = j; break; } } }
+                    else if (i + 2 < text.Length && text[i + 2] == '\'') { close = i + 2; }
+                    if (close >= 0) { i = close; }
+                  }
+                }
+                else if (state == 2)
+                {
+                  if (c == '*' && next == '/') { state = 0; i++; }
+                }
+                else if (state == 3)
+                {
+                  if (c == '\\') { i++; }
+                  else if (c == '"') { state = 0; }
+                  else if (!wide && c > 127)
+                  {
+                    bad.Add(string.Format("{0}: a narrow string literal carries U+{1:X4}", line, (int)c));
+                  }
+                }
+              }
+              return bad.ToArray();
+            }
+          }
+          '@
+
+          # Deliberate: the JSON parser's suite feeds it real UTF-8, which is
+          # the one place a literal's *bytes* are the thing under test.
+          $allowed = @('Tests/NeuronCoreTests/JsonTests.cpp')
+
+          $projects = @(Get-ChildItem -Directory | Where-Object { Test-Path "$($_.Name)/$($_.Name).vcxproj" } | ForEach-Object { $_.Name })
+          $bad = @()
+          $scanned = 0
+          foreach ($dir in ($projects + 'Tests'))
+          {
+            Get-ChildItem -Path $dir -Include *.h, *.cpp -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              $relative = ((Resolve-Path -Relative $_.FullName) -replace '^\.[\\/]', '') -replace '\\', '/'
+              if ($allowed -contains $relative) { return }
+              $scanned++
+              foreach ($finding in [LiteralScan]::Findings($_.FullName)) { $bad += "${relative}:${finding}" }
+            }
+          }
+
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_" }
+            throw 'spell it as an escape -- these files have no BOM and the build passes no /utf-8'
+          }
+          Write-Host "$scanned files: every narrow literal is ASCII"
+
       # ADR-005 §5: same-binary replay determinism is bought by construction,
       # and every one of these is a way to spend it by accident. The replay
       # suite would catch most of them eventually; this says which line did it.

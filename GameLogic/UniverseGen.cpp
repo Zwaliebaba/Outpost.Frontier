@@ -1001,7 +1001,11 @@ bool WriteUniverseJson(const UniverseDef& _universe, std::string& _outJson)
   // the first thing anyone opening six megabytes of JSON needs to know is that
   // editing it is pointless.
   _outJson =
-      "// Outpost: Frontier -- the baked universe (ADR-016 §2, build order U1).\n"
+      // The section sign as an escape, and split because a C++ hex escape is
+      // greedy -- `\xA72` is one character of value 0xA72, not the sign and a
+      // 2. The bytes are the ones already in the committed bake, so this is
+      // the same banner spelled portably rather than a re-bake.
+      "// Outpost: Frontier -- the baked universe (ADR-016 \xC2\xA7" "2, build order U1).\n"
       "//\n"
       "// GENERATED. Produced by GenerateUniverse() and committed as the authored\n"
       "// universe: this file is the content, and the generator is how it was made.\n"

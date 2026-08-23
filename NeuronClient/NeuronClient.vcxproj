@@ -61,6 +61,7 @@
     <ClCompile Include="ContrastAudit.cpp" />
     <ClCompile Include="CountedChip.cpp" />
     <ClCompile Include="MapScreen.cpp" />
+    <ClCompile Include="RoutePlan.cpp" />
     <ClCompile Include="StationScreen.cpp" />
     <ClCompile Include="SurfaceStack.cpp" />
     <ClCompile Include="TextEditState.cpp" />
@@ -118,6 +119,7 @@
     <ClInclude Include="CountedChip.h" />
     <ClInclude Include="MapScreen.h" />
     <ClInclude Include="MapView.h" />
+    <ClInclude Include="RoutePlan.h" />
     <ClInclude Include="StationScreen.h" />
     <ClInclude Include="StationView.h" />
     <ClInclude Include="SoundBank.h" />

@@ -9,6 +9,7 @@
 #include "SchemaHash.h"
 #include "SiteEpoch.h"
 #include "SiteField.h"
+#include "UniverseRoute.h"
 #include "Transfer.h"
 #include "ShipClass.h"
 #include "Snapshot.h"
@@ -333,6 +334,16 @@ ReplicatedWorldView::ReplicatedWorldView(Desc _desc)
    * opens on an empty viewport.
    */
   BuildMapGraph();
+
+  /*
+   * And the configured grid's reachable list, before any frame lands.
+   *
+   * `CurrentGrid` falls back to `Desc::gridAnchor`, so a pre-check asked in the
+   * first second of a session is judged against the same list every later one
+   * is -- rather than against an empty one, which reads as "nowhere is
+   * reachable" and refuses every warp.
+   */
+  RefreshReachable();
 }
 
 bool ReplicatedWorldView::ApplyFrame(const Neuron::ReplicatedFrame& _frame)
@@ -355,6 +366,16 @@ bool ReplicatedWorldView::ApplyFrame(const Neuron::ReplicatedFrame& _frame)
     ++m_rejectedSnapshots;
     return false;
   }
+
+  /*
+   * And the grid's own facts, when the grid has changed (U4).
+   *
+   * Here rather than in `MakeValidationView`, which is `const noexcept` and
+   * hands out a *span* into this vector -- rebuilding it there would be
+   * allocating inside a `noexcept` function and handing back a span into
+   * storage the same call had just moved.
+   */
+  RefreshReachable();
   return true;
 }
 
@@ -383,6 +404,7 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
   m_validationIds.clear();
   m_validationMarks.clear();
   m_stationEntityId = Game::INVALID_SHIP_ID;
+  m_gateEntityId = Game::INVALID_SHIP_ID;
   m_validationIds.reserve(m_sampled.size());
 
   std::uint32_t renderClassCount = 0;
@@ -470,6 +492,24 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
       m_stationYCm = Neuron::MetresToCentimetres(ship.positionMetres.y);
     }
 
+    /*
+     * And which of them is the gate (U4's client half).
+     *
+     * The station's twin, in the same loop and for the same two reasons: it has
+     * the hull class in hand, and an entity a player cannot see must not be one
+     * the client measures a jump against. `ValidationView::gateXCm` is exactly
+     * that measurement -- "is every member inside the jump radius of the
+     * structure" -- so a client with no gate on screen fills no `jumpAnchor`
+     * and lets the authority answer, which is the posture every optional field
+     * on that view already takes.
+     */
+    if (hull == Game::HullClass::Gate)
+    {
+      m_gateEntityId = ship.id;
+      m_gateXCm = Neuron::MetresToCentimetres(ship.positionMetres.x);
+      m_gateYCm = Neuron::MetresToCentimetres(ship.positionMetres.y);
+    }
+
     // The same id again, for `ValidateOrder`. Filled here rather than in
     // `PreCheck` so that the ships an order may name are exactly the ships this
     // frame drew -- including the exclusions above, which is the point: a hull
@@ -536,6 +576,36 @@ Game::ValidationView ReplicatedWorldView::MakeValidationView() const noexcept
   if (!m_siteStatus.empty())
   {
     view.siteAnchor = m_siteStatus.front().anchor;
+  }
+
+  /*
+   * Where a `Warp` may go, and which of those is a jump (U4's client half).
+   *
+   * **A `Warp` had never been pre-checkable on this side.** `reachableAnchors`
+   * and `jumpAnchor` were the two fields nothing here filled, so every warp and
+   * every jump reached the authority to be refused there -- and ADR-014 §3's
+   * whole claim is that the two halves answer alike. They are filled from the
+   * *same pure function* the registry fills its half with (`ReachableAnchors`),
+   * which is what makes that a fact rather than a hope: not two lists that
+   * agree, one list asked twice.
+   *
+   * `jumpAnchor` is gated on having *seen* the gate, exactly as `stationAnchor`
+   * is gated on having seen the station, and the reason is the field beside it:
+   * a jump is judged on where the fleet is standing relative to the structure,
+   * so naming the destination without a position to measure against would be
+   * inventing the measurement. A client that cannot see the gate fills neither
+   * and the authority answers alone.
+   */
+  view.reachableAnchors = m_reachable;
+  if (m_gateEntityId != Game::INVALID_SHIP_ID && m_desc.universe != nullptr)
+  {
+    const Game::AnchorId paired = m_desc.universe->PairedGateAnchor(CurrentGrid());
+    if (paired != Game::INVALID_ID)
+    {
+      view.jumpAnchor = paired;
+      view.gateXCm = m_gateXCm;
+      view.gateYCm = m_gateYCm;
+    }
   }
 
   /*
@@ -3098,7 +3168,11 @@ std::uint32_t ReplicatedWorldView::SolveMapRoute(std::uint16_t _toSystem, std::s
 
   {
     char buffer[40] = {};
-    std::snprintf(buffer, sizeof buffer, "FASTEST · %zu JUMPS", route.Jumps());
+    // The separator as an escape rather than as a literal, which is the
+    // convention `GhostLane` already prints its `%s \xC2\xB7 ETA %s` under:
+    // these files carry no byte-order mark and no `/utf-8`, so a literal is
+    // read in whatever code page the compiler is running under.
+    std::snprintf(buffer, sizeof buffer, "FASTEST \xC2\xB7 %zu JUMPS", route.Jumps());
     m_routeNote = buffer;
   }
 
@@ -3122,12 +3196,132 @@ std::uint32_t ReplicatedWorldView::SolveMapRoute(std::uint16_t _toSystem, std::s
   return written;
 }
 
-Game::SystemId ReplicatedWorldView::MapOriginSystem() const noexcept
+namespace
 {
-  if (m_desc.universe == nullptr)
+
+/*
+ * The gate anchor in `_from` that leads to `_to`, or `INVALID_ID`.
+ *
+ * Two lookups because the bake keeps two things: a `Gate` says where it goes,
+ * and an `Anchor` is the grid you fly to. They are joined by the gate's id in
+ * the anchor's `owner`, which is scoped by `kind` -- so the kind has to be
+ * checked as well as the number, or a planet with the same id would answer.
+ *
+ * Local to this file rather than public in `UniverseRoute`, because nothing
+ * else asks it yet and a public function with one caller is a guess about the
+ * second one.
+ */
+[[nodiscard]] Game::AnchorId GateAnchorTowards(const Game::UniverseDef& _universe, Game::SystemId _from,
+                                               Game::SystemId _to)
+{
+  const Game::SolarSystem* system = _universe.FindSystem(_from);
+  if (system == nullptr)
   {
     return Game::INVALID_ID;
   }
+  for (const Game::Gate& gate : system->gates)
+  {
+    if (gate.toSystem != _to)
+    {
+      continue;
+    }
+    for (const Game::Anchor& anchor : system->anchors)
+    {
+      if (anchor.kind == Game::AnchorKind::Gate && anchor.owner == gate.id)
+      {
+        return anchor.id;
+      }
+    }
+  }
+  return Game::INVALID_ID;
+}
+
+} // namespace
+
+std::uint32_t ReplicatedWorldView::BuildRoutePlan(std::uint16_t _toSystem, std::span<Neuron::RouteLeg> _outLegs) const
+{
+  if (m_desc.universe == nullptr)
+  {
+    return 0;
+  }
+  const Game::SystemId from = MapOriginSystem();
+  if (from == Game::INVALID_ID)
+  {
+    return 0;
+  }
+
+  /*
+   * The same solve `SolveMapRoute` runs, which is what makes two calls safe.
+   *
+   * `SolveRoute` is breadth-first with ties broken by **system id**, so two
+   * equally short routes are *the same* route -- the panel's line and the
+   * fleet's path come out of one deterministic function asked twice rather
+   * than out of two functions that happen to agree.
+   */
+  const Game::Route route = Game::SolveRoute(*m_desc.universe, from, static_cast<Game::SystemId>(_toSystem));
+  if (route.systems.size() < 2)
+  {
+    return 0; // Nowhere to go, or already there. Both are "no plan".
+  }
+
+  /*
+   * Two orders a hop, minus the one the fleet does not need.
+   *
+   * Crossing a gate is a warp *to* the gate on this side and then a warp
+   * *through* it -- ADR-016 §5 judges the second on where the fleet is
+   * standing, which is what makes the first necessary. A fleet already sitting
+   * on the gate skips it, and that can only ever be the first hop: after a
+   * jump the fleet is on the *arrival* gate, and the gate onwards is a
+   * different anchor because a gate leads to exactly one system.
+   */
+  Game::AnchorId standing = CurrentGrid();
+  std::uint32_t legs = 0;
+  const auto push = [&](Game::AnchorId _anchor, std::size_t _hop) {
+    if (legs >= _outLegs.size())
+    {
+      return false;
+    }
+    _outLegs[legs].kind = static_cast<std::uint16_t>(Game::OrderKind::Warp);
+    _outLegs[legs].anchor = static_cast<std::uint16_t>(_anchor);
+
+    // Which jump this order is part of, so the HUD can count in the unit the
+    // map's panel counts in. Stamped here because this loop is the only place
+    // that knows the two orders of a hop are one hop.
+    _outLegs[legs].hop = static_cast<std::uint16_t>(_hop);
+    ++legs;
+    return true;
+  };
+
+  for (std::size_t hop = 0; hop + 1 < route.systems.size(); ++hop)
+  {
+    const Game::AnchorId here = GateAnchorTowards(*m_desc.universe, route.systems[hop], route.systems[hop + 1]);
+    const Game::AnchorId far = here != Game::INVALID_ID ? m_desc.universe->PairedGateAnchor(here) : Game::INVALID_ID;
+    if (here == Game::INVALID_ID || far == Game::INVALID_ID)
+    {
+      /*
+       * A route through a gate the bake did not pair, which authored content
+       * cannot produce and a hand-written file can. **Refused whole**, for
+       * `RoutePlan::Set`'s reason: a plan that stopped four jumps in would
+       * strand a fleet somewhere the player believes is on the way.
+       */
+      return 0;
+    }
+
+    if (standing != here && !push(here, hop))
+    {
+      return 0; // Past the caller's span, and a truncated plan is worse than none.
+    }
+    if (!push(far, hop))
+    {
+      return 0;
+    }
+    standing = far;
+  }
+  return legs;
+}
+
+Game::AnchorId ReplicatedWorldView::CurrentGrid() const noexcept
+{
   /*
    * The live grid if frames have said one, and the configured one before they
    * have.
@@ -3135,15 +3329,35 @@ Game::SystemId ReplicatedWorldView::MapOriginSystem() const noexcept
    * The fallback is not a guess: `Desc::gridAnchor` is where this client was
    * told to watch, and a strategic map that could not plan a route until a
    * datagram landed would be blank for the first second of every session -- on
-   * the one screen whose whole content is `F15`'s complete universe copy, which
+   * the one screen whose whole content is F15's complete universe copy, which
    * needs no connection at all to be true.
-   *
-   * Through the *anchor* either way, because a grid is a place inside a system
-   * rather than the system itself -- the same indirection a warp order takes,
-   * and the reason `Anchor` carries its system at all.
    */
-  const Game::AnchorId grid = m_view.Grid() != Game::INVALID_ID ? m_view.Grid() : m_desc.gridAnchor;
-  const Game::Anchor* anchor = m_desc.universe->FindAnchor(grid);
+  return m_view.Grid() != Game::INVALID_ID ? m_view.Grid() : m_desc.gridAnchor;
+}
+
+void ReplicatedWorldView::RefreshReachable()
+{
+  const Game::AnchorId grid = CurrentGrid();
+  if (grid == m_reachableFor)
+  {
+    return; // The bake does not move, so neither does this answer.
+  }
+  m_reachableFor = grid;
+  m_reachable = m_desc.universe != nullptr ? Game::ReachableAnchors(*m_desc.universe, grid) : std::vector<Game::AnchorId>{};
+}
+
+Game::SystemId ReplicatedWorldView::MapOriginSystem() const noexcept
+{
+  if (m_desc.universe == nullptr)
+  {
+    return Game::INVALID_ID;
+  }
+  /*
+   * Through the *anchor*, because a grid is a place inside a system rather than
+   * the system itself -- the same indirection a warp order takes, and the
+   * reason `Anchor` carries its system at all.
+   */
+  const Game::Anchor* anchor = m_desc.universe->FindAnchor(CurrentGrid());
   return anchor != nullptr ? anchor->system : Game::INVALID_ID;
 }
 

@@ -34,6 +34,7 @@
 #include "OverlayMark.h"
 #include "RenderWorld.h"
 #include "RosterSelection.h"
+#include "RoutePlan.h"
 #include "Selection.h"
 #include "SettingsScreen.h"
 #include "StationScreen.h"
@@ -236,6 +237,17 @@ private:
    * zoom until this screen.
    */
   void UpdateMapSurface();
+
+  /*
+   * --- the route feeder (U4, ADR-016 §8) -----------------------------------
+   *
+   * SET DESTINATION asks the game for a plan and captures the fleet flying it;
+   * the frame loop hands over one leg at a time. Two functions because the two
+   * happen at different rates -- a plan is set on a press and fed on every
+   * frame after it, which is exactly the split the print's ruling produces.
+   */
+  void SetRouteDestination(std::uint16_t _systemId, double _nowSeconds);
+  void FeedRoutePlan(double _nowSeconds);
 
   /*
    * What one row is currently set to, 0..1 along its control.
@@ -729,6 +741,19 @@ private:
   std::uint16_t m_mapSelected = 0;
   bool m_mapHasSelection = false;
 
+  /*
+   * Whether SET DESTINATION would do anything: a system is picked *and* there
+   * is a fleet to send.
+   *
+   * Resolved in `UpdateMapSurface` and read by `BuildMapSurface`, which is this
+   * screen's habit for everything the two halves must agree on -- and here the
+   * agreement is the whole point. The hit test refuses on the same flag the
+   * draw greys on, so a button that looks dead cannot be pressed and a button
+   * that looks live always does something. Two expressions would drift, and the
+   * drift is invisible until a player presses a lit button and nothing happens.
+   */
+  bool m_mapCanRoute = false;
+
   /// The rail's two pressable runs, laid out each frame.
   MapOverlayRowRect m_mapOverlayRows[MAX_MAP_OVERLAYS];
   std::uint32_t m_mapOverlayRowCount = 0;
@@ -759,6 +784,41 @@ private:
   /// map -- `tactical-hud.png` draws it as `◈ VESTA-3 ▸ FRONTIER 0.4` with a
   /// drill-up chevron, and this is that chevron made real.
   UiRect m_locationChipRect;
+
+  /*
+   * The route being flown, and the fleet flying it (U4).
+   *
+   * `m_routeFleet` is captured at SET DESTINATION rather than read from the
+   * selection each leg, because a player who selects something else mid-route
+   * has not changed their mind about where the *first* fleet is going -- and a
+   * feeder that sent the next leg for whatever happened to be selected would
+   * send it to a fleet that never agreed to go.
+   *
+   * A `std::vector` filled once on a press rather than a fixed array, because
+   * the cap is the *game's* (`MAX_SHIPS_PER_ORDER`) and the engine may not name
+   * it. One allocation per route is not the per-frame allocation the HUD rules
+   * are about.
+   */
+  RoutePlan m_routePlan;
+  std::vector<EntityId> m_routeFleet;
+
+  /*
+   * Whether the plan has a leg ready that the client cannot judge yet.
+   *
+   * **A hold rather than a halt, and the distinction is the honest half of this
+   * feeder.** The client can only pre-check an order for ships in its own
+   * scene, and every leg of a route takes the fleet off the grid this client is
+   * watching. So from the second leg the fleet is simply not there to judge --
+   * a fact about this client's knowledge rather than about the world, and one
+   * the client establishes by looking at its own scene rather than by reading a
+   * meaning into the game's reason code.
+   *
+   * Held, retried every frame, and stated on the HUD. What lifts it is the view
+   * following the fleet, which is U3b's client half and U6's auto-follow; until
+   * then a route runs while the player watches it, which is the same shape as
+   * §8's already-accepted cost for a player who stops watching entirely.
+   */
+  bool m_routeHeld = false;
 
   /*
    * The wing rename's state (T3).

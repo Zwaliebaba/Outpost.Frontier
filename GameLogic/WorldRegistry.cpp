@@ -2,6 +2,8 @@
 
 #include "WorldRegistry.h"
 
+#include "UniverseRoute.h"
+
 #include "DurableState.h"
 #include "FixedAngle.h"
 #include "Formation.h"
@@ -1318,61 +1320,16 @@ void WorldRegistry::ApplyDueTransfers()
 std::vector<AnchorId> WorldRegistry::ReachableFrom(AnchorId _anchor) const
 {
   /*
-   * Every other anchor in the same system (ADR-016 §5).
+   * Straight through to the pure function, and that indirection is the point
+   * (U4's client half).
    *
-   * In-system only, and that is U3a's whole scope: leaving a system is what
-   * gates are for, and routing through them is U4's. Itself excluded, because
-   * "warp to where you already are" is not a refusal worth a reason -- it is a
-   * destination that should not be offered.
+   * This *was* the implementation. The client needed the same answer to
+   * pre-check a `Warp` at all, and two implementations of one rule are exactly
+   * what ADR-014 §3's parity claim forbids -- so it moved to `UniverseRoute`
+   * beside the route solver, which is where a pure question about the bake
+   * belongs, and both halves now call it.
    */
-  std::vector<AnchorId> reachable;
-  if (m_universe == nullptr)
-  {
-    return reachable;
-  }
-  const Anchor* here = m_universe->FindAnchor(_anchor);
-  if (here == nullptr)
-  {
-    return reachable;
-  }
-  const SolarSystem* system = m_universe->FindSystem(here->system);
-  if (system == nullptr)
-  {
-    return reachable;
-  }
-  reachable.reserve(system->anchors.size() + 1);
-  for (const Anchor& anchor : system->anchors)
-  {
-    if (anchor.id != _anchor)
-    {
-      reachable.push_back(anchor.id);
-    }
-  }
-
-  /*
-   * And the far side of the gate, if this grid is one (U4).
-   *
-   * **One id, appended to the same list**, so that `UnknownAnchor` keeps
-   * meaning exactly "not from here" and the validator needs no second question
-   * to decide whether a destination exists. Which of these is a *jump* is said
-   * separately, by `SetJump`, because that changes how the order is judged and
-   * not whether the place can be named.
-   *
-   * One hop and no further: a gate leads to the gate that leads back, and the
-   * anchors around *that* system are reachable from there rather than from
-   * here. Routing across several systems is the client feeding one order per
-   * completed hop (ADR-016 §8) -- there is no server-side planner, and this
-   * list is deliberately not the beginning of one.
-   */
-  if (here->kind == AnchorKind::Gate)
-  {
-    const AnchorId paired = m_universe->PairedGateAnchor(_anchor);
-    if (paired != INVALID_ID)
-    {
-      reachable.push_back(paired);
-    }
-  }
-  return reachable;
+  return m_universe != nullptr ? ReachableAnchors(*m_universe, _anchor) : std::vector<AnchorId>{};
 }
 
 std::uint32_t WorldRegistry::TransitTicks(AnchorId _from, const TransferRequest& _request) const

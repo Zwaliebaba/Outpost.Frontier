@@ -203,9 +203,9 @@ public:
   [[nodiscard]] bool EncodeOrder(const Neuron::OrderIntent& _intent, Neuron::ByteWriter& _writer) override;
   [[nodiscard]] Neuron::OrderDefaults DefaultOrder() const override;
   [[nodiscard]] std::uint32_t OrderOptions(std::uint16_t _kind, std::span<Neuron::OrderOption> _outOptions) const override;
-  [[nodiscard]] std::uint32_t OrderKinds(std::span<const EntityId> _selectedIds,
+  [[nodiscard]] std::uint32_t OrderKinds(std::span<const Neuron::EntityId> _selectedIds,
                                          std::span<Neuron::OrderKindOption> _outKinds) const override;
-  [[nodiscard]] std::uint32_t BuildRoster(std::span<const EntityId> _selectedIds,
+  [[nodiscard]] std::uint32_t BuildRoster(std::span<const Neuron::EntityId> _selectedIds,
                                           std::span<Neuron::RosterRow> _outRows) const override;
   [[nodiscard]] bool ContextActionFor(Neuron::EntityId _entityId, std::span<const Neuron::EntityId> _selectedIds,
                                       Neuron::ContextAction& _outAction) const override;
@@ -250,6 +250,8 @@ public:
                                             std::span<Neuron::MapFactRow> _outRows) const override;
   [[nodiscard]] std::uint32_t SolveMapRoute(std::uint16_t _toSystem, std::span<Neuron::MapRouteHop> _outHops,
                                             Neuron::MapRouteSummary& _outSummary) const override;
+  [[nodiscard]] std::uint32_t BuildRoutePlan(std::uint16_t _toSystem,
+                                             std::span<Neuron::RouteLeg> _outLegs) const override;
 
   /// Which system this client's view is standing in, for the route's origin and
   /// for the top bar's region line. `INVALID_ID` before a world has arrived.
@@ -407,6 +409,43 @@ private:
   /// function because the validation view, the submit and the command row's
   /// availability must all mean the same station or none.
   [[nodiscard]] Game::AnchorId StationAnchor() const noexcept;
+
+  /*
+   * The grid this client is watching: what the frames say, or what it was told
+   * to watch before any landed.
+   *
+   * One function because three things now ask it -- the route's origin, the
+   * reachable list and the jump -- and a client that answered "where am I"
+   * differently in three places would pre-check a warp against one grid and
+   * plan a route from another.
+   */
+  [[nodiscard]] Game::AnchorId CurrentGrid() const noexcept;
+
+  /*
+   * Where this grid can warp to, recomputed when the grid changes (U4).
+   *
+   * A member because `ValidationView::reachableAnchors` is a span and the
+   * validator reads it after this class has returned; refreshed on a change
+   * rather than per frame because it is a fact about the *bake* and the bake
+   * does not move. `m_reachableFor` is the anchor it was computed for, which is
+   * what makes "has it changed" a comparison rather than a rebuild.
+   */
+  void RefreshReachable();
+  std::vector<Game::AnchorId> m_reachable;
+  Game::AnchorId m_reachableFor = Game::INVALID_ID;
+
+  /*
+   * The gate structure on this grid, if the client has drawn one.
+   *
+   * `m_stationEntityId`'s twin exactly, and for its reason: a jump is judged on
+   * *where the fleet is standing* relative to the gate, so a client that named
+   * a jump destination without having seen the gate would be judging distance
+   * against a position it does not have. Both are filled in `BuildScene`, which
+   * is the one loop that sees every entity the frame will draw.
+   */
+  Game::ShipId m_gateEntityId = Game::INVALID_SHIP_ID;
+  std::int32_t m_gateXCm = 0;
+  std::int32_t m_gateYCm = 0;
 
   [[nodiscard]] Game::ValidationView MakeValidationView() const noexcept;
 

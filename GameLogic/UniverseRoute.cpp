@@ -174,4 +174,51 @@ std::vector<SystemId> FindSystems(const UniverseDef& _universe, std::string_view
   return found;
 }
 
+std::vector<AnchorId> ReachableAnchors(const UniverseDef& _universe, AnchorId _from)
+{
+  std::vector<AnchorId> reachable;
+  const Anchor* here = _universe.FindAnchor(_from);
+  if (here == nullptr)
+  {
+    return reachable;
+  }
+  const SolarSystem* system = _universe.FindSystem(here->system);
+  if (system == nullptr)
+  {
+    return reachable;
+  }
+
+  reachable.reserve(system->anchors.size() + 1);
+  for (const Anchor& anchor : system->anchors)
+  {
+    if (anchor.id != _from)
+    {
+      reachable.push_back(anchor.id);
+    }
+  }
+
+  /*
+   * And the far side of the gate, if this grid is one.
+   *
+   * **One id, appended to the same list**, so that `UnknownAnchor` keeps meaning
+   * exactly "not from here" and the validator needs no second question to decide
+   * whether a destination exists. Which of these is a *jump* is said separately,
+   * by `ValidationView::jumpAnchor`, because that changes how the order is
+   * judged and not whether the place can be named.
+   *
+   * One hop and no further: routing across several systems is the client
+   * feeding one order per completed hop (ADR-016 §8), and this list is
+   * deliberately not the beginning of a server-side planner.
+   */
+  if (here->kind == AnchorKind::Gate)
+  {
+    const AnchorId paired = _universe.PairedGateAnchor(_from);
+    if (paired != INVALID_ID)
+    {
+      reachable.push_back(paired);
+    }
+  }
+  return reachable;
+}
+
 } // namespace Game

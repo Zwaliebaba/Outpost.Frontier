@@ -219,6 +219,23 @@ makes those libraries worth having.
    — it is reached through an interface instead of a link-time symbol. Same code, same reason
    codes, same bounce. This was the one thing worth checking before accepting the ruling, and
    it costs nothing.
+
+   **Amended 2026-08-23 (U4's client half): running the same function is not the whole of
+   parity, and `Warp` is where that showed.** `ValidateOrder` was shared from the first day,
+   and a `Warp` had still never been pre-checked correctly on the client — because the function
+   is only as true as the `ValidationView` it is handed, and `reachableAnchors` and
+   `jumpAnchor` were two fields nothing on this side filled. A client running the right code
+   over an empty view refuses everything, which looks exactly like a client with no
+   validation at all. So parity has a second half: **the same inputs, not only the same
+   code.**
+
+   The fix is the shape worth keeping. "Which anchors can a fleet here reach" was a private
+   loop inside `WorldRegistry::ReachableFrom`; it came out as `Game::ReachableAnchors`, a pure
+   function over a `UniverseDef`, and both halves now call it. That is *one list asked twice*
+   rather than two lists that agree — the same distinction §3 already draws for `ReasonText`,
+   where asking the side that assigned a code beats two tables that match today. The rule
+   generalises: whenever a `ValidationView` field is left unfilled on the client, parity is
+   silently broken for every rule that reads it, and no test of the shared function can see it.
 4. **The replication record is engine-level and game-neutral.** NeuronCore defines
    `EntityRecord { id, typeId, groupId, pos, vel, heading, gaugeA, gaugeB }` — it names no
    ship, order, formation or hull class, so it passes NeuronCore's zero-game-semantics test

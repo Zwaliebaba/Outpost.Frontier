@@ -78,6 +78,9 @@
     <ClCompile Include="MapScreenTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="RoutePlanTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="OverlayTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

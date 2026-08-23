@@ -5,6 +5,7 @@
 #include "HudRoster.h"
 #include "MapView.h"
 #include "OrderIntent.h"
+#include "RoutePlan.h"
 #include "StationIntent.h"
 #include "StationView.h"
 #include "RenderWorld.h"
@@ -634,6 +635,38 @@ public:
     (void)_toSystem;
     (void)_outHops;
     (void)_outSummary;
+    return 0;
+  }
+
+  /*
+   * The orders that would fly a route, in order (ADR-016 §8, U4).
+   *
+   * `SolveMapRoute`'s sibling and deliberately a second call: that one answers
+   * *"what does the panel say"* -- a system per hop, with a name and a security
+   * badge -- and this answers *"what would the client send"*. They are
+   * different lengths and different things, and one call returning both would
+   * be a call whose answer the caller has to take apart before either half is
+   * usable.
+   *
+   * **They cannot disagree**, which is what makes two calls safe: both solve
+   * the same route between the same two systems with the same tie-break
+   * (`SolveRoute` breaks ties by system id, so two equally short routes are
+   * *the same* route), so the line on the map is the line the fleet flies.
+   *
+   * **The legs carry a kind because the client may not spell one.** Crossing a
+   * gate is a warp to the gate on this side and then a warp through it -- and a
+   * fleet already standing on the gate needs only the second. Which of those a
+   * route needs is a fact about gates, so the game composes the whole sequence
+   * and the client feeds it (`RoutePlan`).
+   *
+   * The origin is this view's, as it is for `SolveMapRoute`. Zero means no
+   * plan, which is the honest answer for a destination nothing reaches and for
+   * a system the fleet is already standing in.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildRoutePlan(std::uint16_t _toSystem, std::span<RouteLeg> _outLegs) const
+  {
+    (void)_toSystem;
+    (void)_outLegs;
     return 0;
   }
 

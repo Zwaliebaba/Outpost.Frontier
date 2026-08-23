@@ -1062,7 +1062,7 @@ its silhouette rather than guessed ahead of it. Its export carried a sixth mater
 five-material palette does not have; the two faces were authored onto `accent`, whose albedo
 it already matched exactly.
 
-**Still owed by U4, and it is the client half:** the route feeder (Dijkstra over the gate
+~~**Still owed by U4, and it is the client half:** the route feeder (Dijkstra over the gate
 graph, one order per completed hop — the pure half of it, search and route-solve, is
 `UniverseRoute` and already built), route progress on the HUD, the STATIC-family tactical icon
 and map glyph, and the halt in the event record, which is a *client* fact today — the server
@@ -1072,7 +1072,76 @@ client's view was built from ids alone, so no `Dock` or `Warp` had ever been pre
 `MakeValidationView` now fills the marks, the station, the site and the hold room. Dock
 pre-checks properly (which is what made T2's approach chain fire at all); `Warp` still cannot,
 because `reachableAnchors` and `jumpAnchor` are the two fields nothing on this side fills, and the fields
-those need arrive together with the surfaces that raise them.
+those need arrive together with the surfaces that raise them.~~
+
+**Built (U4's client half, 2026-08-23).** A fleet crosses a route the player drew on the map.
+`NeuronClient/RoutePlan.h/.cpp` is the feeder — a fixed sequence of legs, one sendable at a
+time, advancing on the authority's own `OrderProgress::finished`; `WorldView::BuildRoutePlan`
+is the seam that composes them; `ClientApp::SetRouteDestination`/`FeedRoutePlan` press it and
+pump it, and the map's SET DESTINATION is wired to the first. `Warp` pre-checks now: the two
+fields nothing filled are filled, which took **one function asked twice** rather than two that
+agree — `ReachableAnchors` came out of `WorldRegistry::ReachableFrom` into `UniverseRoute` so
+both halves call it.
+
+Five things are worth reading rather than inferring from the diff.
+
+**The client may not spell `Warp`, so the game composes the orders.** A `RouteLeg` is a kind
+and an anchor, both opaque and both echoed. That is not fastidiousness: a hop across a gate is
+*two* orders — warp to the gate on this side, then warp through it — minus the one a fleet
+already standing on the gate does not need, and which of those a route needs is a fact about
+gates. `RoutePlan` would feed a chain of anything; what makes it a route is entirely on the
+other side of the seam.
+
+**A leg carries the hop it belongs to, and that field is the HUD not contradicting the map.**
+The panel lists a route in *jumps* and the plan holds it in *orders*, so a chip counting legs
+would read `7/10` beside a panel that said five. Only the half that pairs the orders knows
+which two are one jump, so it stamps the number and the client reads it.
+
+**The hold is the honest half of the feeder, and it is a named limitation rather than a bug.**
+A client can only pre-check an order for ships in its own scene, and *every leg takes the fleet
+off the grid this client is watching*. So from the second leg the local pre-check answers
+`UnknownShip` — which here means "not on the grid I am watching" rather than "no such ship".
+The plan therefore **holds and retries** on that one reason and halts on every other, and the
+chip says `WAITING` rather than `STOPPED`. What lifts it is the view following the fleet
+(U3b's client half / U6's auto-follow), not more work here.
+
+**SET DESTINATION greys on a fleet as well as on a system**, which U5a's draw did not: the
+button was lit whenever a system was selected, while the handler refuses without ships. The
+map is a screen a player can reach with nothing selected at all — which is not true of the
+command row — so the two now read one flag.
+
+**ADD WAYPOINT stays drawn and dead, and the reason narrowed.** U5a refused both buttons
+because the feeder did not exist. A waypoint's legs start from the *previous waypoint* rather
+than from the fleet, so serving it means handing the game a list of systems to string together
+— a change to both route seam calls. That is U5's remaining route work, not U4's feeder.
+
+**Two of the four owed items are reported rather than built, and both are blocked on
+something real** (see the two notes below): the halt in the event record, and the
+STATIC-family icon.
+
+**The halt cannot go into D19's event record, and ADR-016 §9a.1's instruction to put it there
+cannot be carried out as written.** The record is per-commander at the *universe* layer —
+server-side, beside the transfer bus and the rosters — and a route exists only in one client's
+memory, by §8's own choice of "no schema change, no server work". So emitting into it means
+either a client→server message (the server work §8 refused) or a client-side second record.
+The second is worse than it looks: **the halt worth logging is the one the client is not there
+for.** §8's priced cost is *"a disconnected player's fleet halts at the next gate"*, and the
+client that would write that entry is the one that went away. Every other halt happens with
+the player watching, where the toast and the chip already say so, and an away-log line about
+an event they witnessed is not an away-log line. What the tree *does* record is the arrival:
+`EventKind::Arrived` fires wherever the fleet stops, so the away-log can already say "your
+fleet reached KIL-7". What it cannot carry is the *intent* — "of fourteen" — and intent is
+client-side until something server-side holds the route. That is exactly §8's named future AI
+commander, and this is the second thing that waits on it.
+
+**The STATIC-family tactical icon is blocked twice over, and the second one is the surprise.**
+The icon *system* (`tactical-icon-system.png`) is unbuilt — U3d-c established this when the
+counted chip turned out to have no ladder rung to render through — so there is no family for a
+gate to join. But the client also does not know an entity's hull class at all: `SceneEntity`
+carries an id, a plane position, a pick radius, two gauges and a status byte, and nothing on
+the wire tells it what shape a thing is. So the icon needs a replicated field as well as a
+system, which makes it a slice rather than a line, and it is recorded on U6 rather than
+pretended at here.
 
 **Not driven over the wire, on purpose.** A jump is 400 ticks by design, so a loopback
 scenario would add twenty seconds of wall clock to a gate that runs on every push in two

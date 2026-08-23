@@ -59,10 +59,16 @@ constexpr char32_t BOX_AND_MARKER_GLYPHS[] = {
                                                     // the · the order label separates with
     0x2316, 0x26a0, 0x238c,                         // the ⌖ ship-count glyph, the ⚠ alert
                                                     // triangle and the ⎌ undo chip
-    0x231b, 0x23f3};                                // hourglasses, for the pending chip --
+    0x231b, 0x23f3,                                 // hourglasses, for the pending chip --
                                                     // listed so a face that has one shows it;
                                                     // a face without bakes .notdef and the
                                                     // chip degrades to its count
+    0x27e1, 0x2026};                                // the ⟡ the context bar's chips are marked
+                                                    // with and the … the approach chip trails.
+                                                    // Both were being *drawn* before they were
+                                                    // baked, so both came out as the
+                                                    // replacement box: a charset is only as
+                                                    // complete as the strings that use it
 
 /// One glyph, rasterised but not yet placed. Produced by the per-size tasks and
 /// consumed by the single-threaded packer.

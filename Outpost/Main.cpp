@@ -503,8 +503,10 @@ public:
     if (dropped > 0 && !m_summaryDropLogged)
     {
       m_summaryDropLogged = true;
-      NEURON_LOG_WARNING("player %u: %u station roster(s) did not fit one summary frame; the family needs paging (ADR-016 §6)",
-                         _viewer, dropped);
+      NEURON_LOG_WARNING(
+        "player %u: %u station roster(s) did not fit one summary frame; the family needs paging (ADR-016 \xC2\xA7"
+        "6)",
+        _viewer, dropped);
     }
 
     /*

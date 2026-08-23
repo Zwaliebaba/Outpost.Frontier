@@ -1302,6 +1302,18 @@ void ClientApp::UpdateOrders()
    */
   AdvanceApproach(nowSeconds);
 
+  /*
+   * And the route, for `AdvanceApproach`'s reason exactly: a fleet keeps flying
+   * while the player is on the map or in a hangar, so a feeder that only ran on
+   * the tactical surface would be a route that stopped when they looked away.
+   *
+   * Advanced from the same `OrderFeedback` the ghosts were: `finished` is one
+   * fact read for two purposes -- the ghost may retire, and the fleet has
+   * arrived.
+   */
+  m_routePlan.NoteFeedback(m_orderFeedback);
+  FeedRoutePlan(nowSeconds);
+
   if (m_connection.State() != ClientLinkState::Joined && !m_ghosts.Empty())
   {
     // The link went away. Every promise it was carrying died with it, and the
@@ -2433,6 +2445,155 @@ void ClientApp::CommitOrder(const PuckSample& _sample, double _nowSeconds)
     NEURON_LOG_WARNING("order %u could not be sent", orderSeq);
     return;
   }
+}
+
+/*
+ * SET DESTINATION: the map plans, and this takes the plan (U4, ADR-016 §8).
+ *
+ * `strategic-map.png` §3's ruling, at the moment it is spent. The player picked
+ * a system; the *game* turns that into the orders that would fly there, because
+ * the sequence is a fact about gates; and what this holds afterwards is a queue
+ * of one, fed below.
+ *
+ * The fleet is captured here rather than read per leg. A player who selects
+ * something else mid-route has not changed their mind about where the first
+ * fleet is going, and a feeder that sent the next leg for whatever happened to
+ * be selected would send it to a fleet that never agreed to go.
+ */
+void ClientApp::SetRouteDestination(std::uint16_t _systemId, double _nowSeconds)
+{
+  m_routePlan.Clear();
+  m_routeFleet.clear();
+  m_routeHeld = false;
+
+  if (m_worldView == nullptr || m_selection.Empty())
+  {
+    return; // No fleet, no route. The button is greyed for this, and this is
+            // the second half of that promise.
+  }
+
+  std::array<RouteLeg, MAX_ROUTE_LEGS> legs{};
+  const std::uint32_t count = m_worldView->BuildRoutePlan(_systemId, legs);
+  if (count == 0)
+  {
+    /*
+     * No plan, and the player is told rather than left pressing a live button
+     * that does nothing. Three things produce it and none is an error: the
+     * fleet is already there, nothing reaches the destination, or the route is
+     * longer than a plan may be.
+     */
+    (void)m_toasts.Raise(ToastPriority::Routine, 0, "NO ROUTE", "Nothing reaches that system from here.",
+                         _nowSeconds);
+    return;
+  }
+
+  m_routePlan.Set(std::span<const RouteLeg>{legs.data(), count});
+  m_routeFleet.assign(m_selection.Ids().begin(), m_selection.Ids().end());
+}
+
+/*
+ * One leg, when there is one to send and the client can judge it.
+ *
+ * Called every frame from `UpdateHud`, before the surfaces, because a fleet
+ * keeps flying while the player is on the map or in a hangar -- `AdvanceApproach`
+ * runs there for the same reason, and a route that only advanced on the
+ * tactical surface would be a route that stopped when the player looked away.
+ *
+ * **The hold is the honest part.** The client can only pre-check an order for
+ * ships in its own scene, and every leg takes the fleet off the grid this
+ * client is watching -- so from the second leg the pre-check answers
+ * `UnknownShip`, which here means "not on the grid I am watching" rather than
+ * "no such ship". That is a fact about this client's knowledge, so it holds and
+ * retries rather than halting; any *other* refusal is the game refusing, and
+ * halts.
+ */
+void ClientApp::FeedRoutePlan(double _nowSeconds)
+{
+  const RouteLeg leg = m_routePlan.Ready();
+  if (leg.anchor == INVALID_ROUTE_ANCHOR || m_worldView == nullptr || m_routeFleet.empty())
+  {
+    return;
+  }
+
+  /*
+   * Can this client judge the order at all? Asked *before* the pre-check, and
+   * asked of the client's own scene rather than of a reason code.
+   *
+   * The pre-check runs over the ships this client has been sent, so a fleet
+   * that is not in the scene is one it cannot judge -- it would refuse, and the
+   * refusal would say nothing about the world. The tempting version reads the
+   * verdict and holds when the reason is "unknown ship", but that means the
+   * engine deciding which of the game's reason codes means *"ask me later"*,
+   * which is exactly the game semantics ADR-014 §4 keeps out of here. The
+   * client already knows whether it can see the fleet; that is the question,
+   * and it is one it can answer itself.
+   *
+   * **This is the honest half of the feeder.** Every leg of a route takes the
+   * fleet off the grid this client is watching, so from the second leg the
+   * answer is normally "no" -- and the plan holds and retries rather than
+   * halting. What lifts it is the view following the fleet (U3b's client half,
+   * U6's auto-follow), not more work here.
+   */
+  m_liveIds.clear();
+  for (const SceneEntity& entity : m_scene.entities)
+  {
+    m_liveIds.push_back(entity.id);
+  }
+  if (!FleetIsInScene(m_routeFleet, m_liveIds))
+  {
+    m_routeHeld = true;
+    return;
+  }
+
+  const std::uint32_t orderSeq = m_nextOrderSeq++;
+  OrderIntent intent;
+  intent.kind = leg.kind;
+  intent.anchor = leg.anchor;
+  intent.orderSeq = orderSeq;
+  intent.entityIds = m_routeFleet.data();
+  intent.entityCount = static_cast<std::uint32_t>(m_routeFleet.size());
+
+  const OrderVerdict local = m_worldView->PreCheck(intent);
+  if (!local.accepted)
+  {
+    /*
+     * The fleet is in front of this client and the game still said no, so this
+     * is the game refusing rather than the client not knowing. The plan stops:
+     * one that kept re-sending a refused order would be a plan that toasts once
+     * a frame.
+     */
+
+    m_routePlan.Halt();
+    m_routeHeld = false;
+    --m_nextOrderSeq;
+    const char* reason = m_worldView->ReasonText(local.reasonCode);
+    /*
+     * "HALTED", not "HELD", and the two words are the two states.
+     *
+     * A hold is the branch above -- the plan is fine and this client cannot see
+     * the fleet, so it waits. This is the game refusing, and the route is over.
+     * The HUD chip says the same word for the same reason, so a player who
+     * reads one and then the other is not told two things.
+     */
+    (void)m_toasts.Raise(ToastPriority::Urgent, local.reasonCode, "ROUTE HALTED", reason, _nowSeconds);
+    NEURON_LOG_INFO("route halted at leg %u: %s", m_routePlan.LegNumber(), reason);
+    return;
+  }
+
+  std::array<std::uint8_t, MAX_DATAGRAM_BYTES> payload{};
+  ByteWriter writer{payload};
+  if (!m_worldView->EncodeOrder(intent, writer) || !writer.Ok() || !m_connection.SendOrder(writer.Written()))
+  {
+    // It never left, so nothing is in flight and nothing is refused. Held, and
+    // tried again next frame -- a link hiccup is not a route the player must
+    // re-plan.
+    m_routeHeld = true;
+    --m_nextOrderSeq;
+    return;
+  }
+
+  m_routeHeld = false;
+  m_routePlan.NoteSent(orderSeq);
 }
 
 void ClientApp::ExtractScene()
@@ -3592,6 +3753,47 @@ void ClientApp::BuildTacticalHud(double _nowSeconds)
    * authority has not confirmed is exactly what that colour means here.
    */
   float chipRight = layout.contextBar.Right() - pad;
+
+  /*
+   * The route chip: how far through a multi-jump crossing the fleet is (U4,
+   * ADR-016 §8).
+   *
+   * Rightmost and drawn first, which is the one placement decision here. Every
+   * other chip in this row is transient -- an order in flight, a verb about to
+   * happen -- and a route outlives all of them, so anchoring it at the edge
+   * keeps the long-lived number still while the short-lived ones come and go
+   * beside it.
+   *
+   * **It counts jumps, not orders.** The map's panel lists a route in systems
+   * and the plan holds it in warps; `RoutePlan::HopNumber` reads the game's own
+   * grouping so the two agree. A chip that counted the plan's legs would say
+   * nine where the map said five.
+   *
+   * Three states and three colours, and the middle one is the honest one:
+   *
+   * - flying, in the own-fleet phosphor -- the fleet is crossing;
+   * - **held**, in the caution amber -- the next leg is composed and cannot be
+   *   pre-checked, because it flies from a grid this client is not watching.
+   *   That is a fact about what this client can see rather than about the
+   *   fleet, and the word says "waiting" rather than "stopped";
+   * - halted, in the alarm red -- something refused the leg and the route is
+   *   over. The toast said why when it happened; this is what is still true
+   *   afterwards, and it stays until the player plans another route. A player
+   *   who was in a hangar when the toast dwelled out would otherwise have a
+   *   fleet parked at a gate and nothing on screen saying so.
+   */
+  if (m_routePlan.State() != RouteState::None)
+  {
+    const bool halted = m_routePlan.State() == RouteState::Halted;
+    std::snprintf(buffer, sizeof(buffer), "\xE2\x86\x92 ROUTE %u/%u%s", m_routePlan.HopNumber(),
+                  m_routePlan.HopCount(), halted ? " HALTED" : (m_routeHeld ? " WAITING" : ""));
+    const std::uint32_t routeColour =
+        halted ? m_palette.hostile : (m_routeHeld ? m_palette.caution : m_palette.phosphor);
+    chipRight -= static_cast<float>(TextCellCount(buffer)) * cell;
+    m_ui.AddText(chipRight, contextY, m_uiTuning.bodySizeIndex, routeColour, buffer);
+    chipRight -= 2.0f * cell;
+  }
+
   if (const std::size_t pendingOrders = m_ghosts.PendingCount(); pendingOrders > 0)
   {
     std::snprintf(buffer, sizeof(buffer), "\xE2\x8F\xB3 %zu ORDER%s PENDING", pendingOrders,
@@ -3668,7 +3870,11 @@ void ClientApp::BuildTacticalHud(double _nowSeconds)
     }
 
     const bool underWay = ghost.state == GhostState::UnderWay;
-    std::snprintf(buffer, sizeof(buffer), "â¡ %s", ghost.preview.label);
+    // Spelled as escapes rather than as a literal, for `GlyphAtlas`'s reason:
+    // these files carry no byte-order mark and no `/utf-8`, so a non-ASCII
+    // character literal is read in the compiler's code page. This one had been
+    // written as a literal and had double-encoded into three Latin-1 codepoints.
+    std::snprintf(buffer, sizeof(buffer), "\xE2\x9F\xA1 %s", ghost.preview.label);
     UpperCaseInto(buffer, upper);
     chipRight -= static_cast<float>(TextCellCount(upper)) * cell;
     m_ui.AddText(chipRight, contextY, m_uiTuning.bodySizeIndex,
@@ -4335,6 +4541,17 @@ void ClientApp::UpdateMapSurface()
     m_mapRouteScroll.ScrollByWheel(m_router.WheelSteps());
   }
 
+  /*
+   * What the two actions are worth this frame.
+   *
+   * A system to go to and a fleet to send: `SetRouteDestination` refuses both
+   * of those, and a button that stayed lit while one was missing would be the
+   * client promising something it was about to decline. The fleet half matters
+   * more than it looks -- the map is a screen a player can reach with nothing
+   * selected at all, which is not true of the command row.
+   */
+  m_mapCanRoute = m_mapHasSelection && !m_selection.Empty();
+
   // --- the press ----------------------------------------------------------
   if (!gesture.tapped)
   {
@@ -4364,18 +4581,40 @@ void ClientApp::UpdateMapSurface()
     return;
   }
 
-  if (HitMapAction(m_mapLayout, m_mapHasSelection, tapX, tapY) != MapActionHit::None)
+  if (const MapActionHit action = HitMapAction(m_mapLayout, m_mapCanRoute, tapX, tapY);
+      action != MapActionHit::None)
   {
-    /*
-     * Drawn and refused rather than acted on, and this is the honest end of U5a.
-     *
-     * SET DESTINATION drives the U4 route feeder -- the map plans and the client
-     * feeds the queue one jump at a time (`strategic-map.png` §3, ADR-016 §9a.1)
-     * -- and that feeder is not built. Sending the first hop as a bare warp
-     * would be a different promise from the one the button makes, so the route
-     * is *shown* and the order is not sent. The route line is what this screen
-     * gives the player today, and it is real.
-     */
+    if (action == MapActionHit::SetDestination)
+    {
+      /*
+       * `strategic-map.png` §3's ruling, spent: the map plans and the client
+       * feeds the queue one jump at a time (ADR-016 §8, re-ruled §9a.1). U5a
+       * drew this button and refused it because the feeder did not exist; U4's
+       * client half is that feeder, and this is the press that starts it.
+       *
+       * The player stays on the map afterwards rather than being thrown back to
+       * the tactical view. A route is a thing you watch progress on the map,
+       * and a surface swap on the press would take away the one screen that
+       * shows where the fleet is going.
+       */
+      SetRouteDestination(m_mapSelected, Clock::SecondsSinceStart());
+    }
+    else
+    {
+      /*
+       * ADD WAYPOINT is drawn dead and refused here, and the reason is narrower
+       * than U5a's was.
+       *
+       * A waypoint is a second destination appended to a plan, so its legs are
+       * planned from the *previous waypoint* rather than from where the fleet is
+       * standing -- and `BuildRoutePlan` deliberately does not take an origin,
+       * because the origin of a fleet's route is a fact the game owns. Serving
+       * a waypoint means the client hands the game the whole list of systems to
+       * string together, which changes both seam calls. That is U5's remaining
+       * route work and not U4's feeder, so the button keeps its place, reads
+       * dead, and says so (`station-screen.png` §2).
+       */
+    }
     return;
   }
 
@@ -4752,14 +4991,27 @@ void ClientApp::BuildMapSurface()
    * moment they pick a system.
    */
   {
-    const bool live = m_mapHasSelection;
+    // The same flag the hit test refuses on, and read rather than recomputed --
+    // see `m_mapCanRoute`. A lit button that does nothing is worse than a dark
+    // one that explains itself.
+    const bool live = m_mapCanRoute;
     m_ui.AddQuad(screen.setDestination, live ? AtHalfAlpha(m_palette.phosphorGhost) : m_palette.trackHull);
     m_ui.AddBorder(screen.setDestination, line, live ? m_palette.phosphor : m_palette.phosphorDead);
     centred(screen.setDestination, m_uiTuning.bodySizeIndex, live ? m_palette.phosphorHot : m_palette.phosphorDead,
             "SET DESTINATION");
-    m_ui.AddBorder(screen.addWaypoint, line, live ? m_palette.border : m_palette.phosphorDead);
-    centred(screen.addWaypoint, m_uiTuning.smallSizeIndex, live ? m_palette.phosphor : m_palette.phosphorDead,
-            "ADD WAYPOINT");
+
+    /*
+     * ADD WAYPOINT keeps its place and reads dead, always.
+     *
+     * U4's feeder flies a plan the game composed from *one* destination. A
+     * waypoint's legs start from the previous waypoint rather than from the
+     * fleet, so serving it means handing the game a list of systems to string
+     * together -- a change to both route seam calls, and U5's remaining route
+     * work rather than U4's. Drawn rather than hidden, because the print puts
+     * it here and a button that appears later moves the one above it.
+     */
+    m_ui.AddBorder(screen.addWaypoint, line, m_palette.phosphorDead);
+    centred(screen.addWaypoint, m_uiTuning.smallSizeIndex, m_palette.phosphorDead, "ADD WAYPOINT");
   }
 
   /*
