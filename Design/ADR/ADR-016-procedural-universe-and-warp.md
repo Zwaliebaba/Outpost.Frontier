@@ -304,8 +304,8 @@ closes, not here.
   > the stubs *visible* rather than hidden: four of the five overlays are drawn, disabled, and
   > carry the game's own word for why, and the history rail is drawn, inert and labelled per
   > §9a.2. What is deferred is named on the slice rather than discovered — search (no
-  > text-entry surface), ~~SET DESTINATION (U4's feeder)~~, fleet markers and VIEW-on-presence
-  > (U3b's client half).
+  > text-entry surface), ~~SET DESTINATION (U4's feeder)~~, ~~fleet markers and VIEW-on-presence
+  > (U3b's client half)~~ **both built 2026-08-23**.
   >
   > **SET DESTINATION landed 2026-08-23 with U4's client half**, and the deferral list was one
   > entry short. **ADD WAYPOINT** was not named, and it should have been: a waypoint's legs are

@@ -324,7 +324,49 @@ half a naive implementation gets wrong by switching first and validating after. 
 is its own reason rather than a reused one, because the refusal is a sentence the player
 reads and `NotAtStation` would name a different problem with a different action.
 
-**Still owed by U3b:** A15's RTT-parameterised acceptance and A16's presence edges.
+~~**Still owed by U3b:** A15's RTT-parameterised acceptance and A16's presence edges.~~
+**A16 built 2026-08-23; A15 stands.**
+
+**Built (U3b's client half, 2026-08-23).** The map shows where the player's ships are, and a
+system with ships in it can be watched from it.
+
+Four things are worth reading rather than inferring from the diff.
+
+**Most of this slice turned out to be already built, which is the third time in a row.** The
+build order says U3b's client half *"needs a GPU and a person"*; auto-follow, the settle, the
+refusal path and the location blocks' IN WARP state were all in the tree and device-free, and
+what was actually missing was the markers, VIEW and one presence rule. That line has now been
+wrong for U5a, for U4's client half and for this — the device-free share of a screen slice is
+consistently larger than the plan assumes, and it is worth stopping saying otherwise.
+
+**Markers are counts at places, and the fold is the game's.** A summary row is an *anchor* and
+the map draws *systems*, so `BuildMapMarkers` is where one becomes the other — a client that
+could do it would need the anchor table, and a client with the anchor table has the universe.
+Two counts rather than one: ships that are *there* (standing or docked, which are one number
+because both mean "there") and ships *crossing to* it, which draw as an arrival with the
+game's own ETA word. Adding them together would put a fleet in a system it has not reached, on
+the one screen a player uses to decide where things are.
+
+**VIEW is gated on presence and not on routing**, which is a distinction the panel has to make
+because routing a fleet to a system you have nothing in is the *ordinary* use of this screen.
+A system the player is only arriving at carries no anchor at all — `MayView` gates on presence
+and the far end of a warp that has not landed is a request the authority is right to refuse,
+which is the same reason auto-follow follows on arrival rather than on departure.
+
+**A16's second edge was a gap in a function that already existed, and that is why it was
+invisible.** `FollowTarget` answers `NO_FOLLOW_TARGET` for two situations that look identical
+from outside and are opposite to a player: having ships where you stand (a reason to stay) and
+having nothing here and nothing to go to because everything you own is mid-crossing (D16's
+*"every fleet in transit → the map is the view"*). `EveryFleetIsCrossing` is that second
+question asked separately. Its own edge case is the one a mutation test found: a player
+watching the grid a fleet is *arriving at* has every block crossing and is doing the most
+reasonable thing on the screen, so the here-guard is load-bearing and now has a test that
+proves it. **D16's first edge — presence lost under a pinned camera — is not built**, and it
+is not forgotten: camera pinning is U6's focus polish and does not exist, so there is no
+pinned state to test.
+
+**Still owed by U3b:** A15's RTT-parameterised acceptance, which needs a transport shim and a
+stopwatch on a real client, and D16's pinned-camera edge behind U6.
 
 > **Both examined 2026-08-23, and neither is buildable here — for different reasons, which is
 > why they should stop being one line.**

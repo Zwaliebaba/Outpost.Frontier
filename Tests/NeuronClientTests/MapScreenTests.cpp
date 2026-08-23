@@ -292,7 +292,7 @@ public:
     const float x = spans[0].x + spans[0].width * 0.5f;
     const float y = spans[0].y + spans[0].height * 0.5f;
     Assert::IsTrue(HitMapTopBar(layout, x, y) == MapTopBarHit::None, L"the top bar does not reach down here");
-    Assert::IsTrue(HitMapAction(layout, true, x, y) == MapActionHit::None, L"nor do the actions");
+    Assert::IsTrue(HitMapAction(layout, true, false, x, y) == MapActionHit::None, L"nor do the actions");
   }
 
   TEST_METHOD(TheHintSitsInsideTheGraphsOwnCorner)
@@ -1032,14 +1032,166 @@ public:
 
     const float x = layout.setDestination.x + 4.0f;
     const float y = layout.setDestination.y + 4.0f;
-    Assert::IsTrue(HitMapAction(layout, false, x, y) == MapActionHit::None, L"nothing to route to, nothing happens");
-    Assert::IsTrue(HitMapAction(layout, true, x, y) == MapActionHit::SetDestination, L"and it fires when there is");
+    Assert::IsTrue(HitMapAction(layout, false, false, x, y) == MapActionHit::None, L"nothing to route to, nothing happens");
+    Assert::IsTrue(HitMapAction(layout, true, false, x, y) == MapActionHit::SetDestination, L"and it fires when there is");
 
     const float wx = layout.addWaypoint.x + 4.0f;
     const float wy = layout.addWaypoint.y + 4.0f;
-    Assert::IsTrue(HitMapAction(layout, true, wx, wy) == MapActionHit::AddWaypoint, L"and the secondary is its own");
+    Assert::IsTrue(HitMapAction(layout, true, false, wx, wy) == MapActionHit::AddWaypoint, L"and the secondary is its own");
     Assert::IsTrue(layout.setDestination.height > layout.addWaypoint.height,
                    L"the primary is taller, which is what makes it primary without a second colour");
+  }
+
+  TEST_METHOD(ViewIsGatedSeparatelyFromRouting)
+  {
+    /*
+     * Two gates rather than one, and the reason is the ordinary use of this
+     * screen: routing a fleet to a system you have nothing in is the *point*.
+     * One flag for both buttons would have lit VIEW on every system a route
+     * could reach -- an offer to watch a grid the authority would refuse.
+     */
+    const MapScreenTuning tuning;
+    const MapScreenLayout layout = ResolveMapScreen(PRINT_WIDTH, PRINT_HEIGHT, 1.0f, tuning);
+
+    const float vx = layout.view.x + 4.0f;
+    const float vy = layout.view.y + 4.0f;
+    Assert::IsTrue(HitMapAction(layout, true, false, vx, vy) == MapActionHit::None,
+                   L"a system you can route to but have nothing in does not offer VIEW");
+    Assert::IsTrue(HitMapAction(layout, false, true, vx, vy) == MapActionHit::View,
+                   L"and one you have ships in offers it with no fleet selected at all");
+
+    const float sx = layout.setDestination.x + 4.0f;
+    const float sy = layout.setDestination.y + 4.0f;
+    Assert::IsTrue(HitMapAction(layout, false, true, sx, sy) == MapActionHit::None,
+                   L"presence alone does not light the route buttons");
+  }
+
+  TEST_METHOD(TheThreeActionsDoNotOverlap)
+  {
+    // Three buttons in a foot-anchored stack: a gap between each, and the panel
+    // body ending above all of them. An overlap here is a press that lands on
+    // the wrong verb, which no screenshot would show.
+    const MapScreenTuning tuning;
+    const MapScreenLayout layout = ResolveMapScreen(PRINT_WIDTH, PRINT_HEIGHT, 1.0f, tuning);
+
+    Assert::IsTrue(layout.view.Bottom() <= layout.setDestination.y, L"VIEW sits above SET DESTINATION");
+    Assert::IsTrue(layout.setDestination.Bottom() <= layout.addWaypoint.y, L"which sits above ADD WAYPOINT");
+    Assert::IsTrue(layout.panelBody.Bottom() <= layout.view.y, L"and the rows end above all three");
+  }
+};
+
+/*
+ * The fleet markers' join against the projected graph (U3b).
+ *
+ * The marks arrive at about 1 Hz and the graph is projected every frame, so
+ * this is where the two rates meet -- and it is a binary search rather than a
+ * scan because at the corpus's cap a scan is 256 x 2,500 comparisons a frame.
+ */
+TEST_CLASS(MapMarkerTests)
+{
+public:
+  /// A node run as `BuildMapGraph` leaves it: sorted by node index, with gaps
+  /// where the cull removed one.
+  [[nodiscard]] static std::vector<MapNodeRect> Culled(std::initializer_list<std::uint32_t> _nodes)
+  {
+    std::vector<MapNodeRect> rects;
+    for (const std::uint32_t node : _nodes)
+    {
+      MapNodeRect rect;
+      rect.node = node;
+      rect.point = MapPoint{100.0f + static_cast<float>(node) * 10.0f, 200.0f};
+      rects.push_back(rect);
+    }
+    return rects;
+  }
+
+  TEST_METHOD(AMarkerIsPlacedAgainstItsOwnNode)
+  {
+    const MapScreenTuning tuning;
+    const std::vector<MapNodeRect> nodes = Culled({2, 5, 9});
+
+    MapMarker marks[2] = {};
+    marks[0].node = 5;
+    marks[0].shipCount = 3;
+    marks[1].node = 9;
+    marks[1].incomingCount = 2;
+
+    MapMarkerRect placed[4] = {};
+    const std::uint32_t count = BuildMapMarkerRects(marks, nodes, 1.0f, tuning, placed);
+    Assert::AreEqual(std::uint32_t{2}, count);
+
+    // Above and right of the dot, which is the corner the label does not use.
+    Assert::AreEqual(std::uint32_t{0}, placed[0].marker);
+    Assert::IsTrue(placed[0].badge.x > nodes[1].point.x, L"right of its node");
+    Assert::IsTrue(placed[0].badge.Bottom() <= nodes[1].point.y, L"and above it");
+    Assert::AreEqual(std::uint32_t{1}, placed[1].marker);
+    Assert::IsTrue(placed[1].badge.x > nodes[2].point.x, L"and the second is against the second's node");
+  }
+
+  TEST_METHOD(AMarkerOnACulledNodeDrawsNothing)
+  {
+    /*
+     * Not drawn, so nothing to place -- and *silently*, which is right here and
+     * would not be at the seam. A node off screen is the ordinary state of
+     * 2,490 of the corpus's 2,500; the count line under the graph is where
+     * "there is more than you can see" belongs.
+     */
+    const MapScreenTuning tuning;
+    const std::vector<MapNodeRect> nodes = Culled({2, 5, 9});
+
+    MapMarker marks[2] = {};
+    marks[0].node = 7; // culled
+    marks[0].shipCount = 4;
+    marks[1].node = 2;
+    marks[1].shipCount = 1;
+
+    MapMarkerRect placed[4] = {};
+    const std::uint32_t count = BuildMapMarkerRects(marks, nodes, 1.0f, tuning, placed);
+    Assert::AreEqual(std::uint32_t{1}, count, L"one of the two is on screen");
+    Assert::AreEqual(std::uint32_t{1}, placed[0].marker, L"and it is the second marker, not the first");
+  }
+
+  TEST_METHOD(AnEmptyGraphPlacesNothing)
+  {
+    // Every node culled, which is what a camera pointed at empty space gives.
+    const MapScreenTuning tuning;
+    MapMarker marks[1] = {};
+    marks[0].shipCount = 9;
+    MapMarkerRect placed[4] = {};
+    Assert::AreEqual(std::uint32_t{0}, BuildMapMarkerRects(marks, {}, 1.0f, tuning, placed));
+  }
+
+  TEST_METHOD(TheBadgeScalesWithTheInterface)
+  {
+    // It is a readout rather than a target, so it scales rather than meeting the
+    // 48 px floor -- the thing a finger presses is the node underneath it.
+    const MapScreenTuning tuning;
+    const std::vector<MapNodeRect> nodes = Culled({1});
+    MapMarker marks[1] = {};
+    marks[0].node = 1;
+    marks[0].shipCount = 2;
+
+    MapMarkerRect atOneX[1] = {};
+    MapMarkerRect atTwoX[1] = {};
+    (void)BuildMapMarkerRects(marks, nodes, 1.0f, tuning, atOneX);
+    (void)BuildMapMarkerRects(marks, nodes, 2.0f, tuning, atTwoX);
+    Assert::IsTrue(atTwoX[0].badge.height > atOneX[0].badge.height * 1.9f, L"twice the scale, twice the badge");
+    Assert::IsTrue(atOneX[0].badge.height < TARGET_FLOOR_PIXELS,
+                   L"and it is deliberately under the target floor, being a readout");
+  }
+
+  TEST_METHOD(MoreMarkersThanRoomFillsWhatThereIs)
+  {
+    const MapScreenTuning tuning;
+    const std::vector<MapNodeRect> nodes = Culled({0, 1, 2});
+    MapMarker marks[3] = {};
+    for (std::uint32_t index = 0; index < 3; ++index)
+    {
+      marks[index].node = static_cast<std::uint16_t>(index);
+      marks[index].shipCount = 1;
+    }
+    MapMarkerRect placed[2] = {};
+    Assert::AreEqual(std::uint32_t{2}, BuildMapMarkerRects(marks, nodes, 1.0f, tuning, placed));
   }
 };
 

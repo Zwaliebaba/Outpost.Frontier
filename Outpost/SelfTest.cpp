@@ -2351,6 +2351,160 @@ void RunRouteFeedGate(Checklist& _checks)
   _checks.Record("and the authority agrees with it", authority.accepted == reachable.accepted);
 }
 
+/*
+ * The map's fleet markers, folded from the summary family (U3b, ADR-016 §6).
+ *
+ * The claim under test is the fold: a summary row is an *anchor* and the map
+ * draws *systems*, so this is the one place that knows which is which. What
+ * makes it worth a gate rather than a unit test is that it needs a real bake --
+ * the anchor-to-system table is the universe's, and a hand-made one would be
+ * asserting against a fixture instead of against the content.
+ */
+void RunMapMarkerGate(Checklist& _checks)
+{
+  Game::UniverseGenConfig recipe;
+  recipe.regionCount = 2;
+  recipe.constellationsPerRegion = 2;
+  recipe.systemCount = 12;
+
+  Game::UniverseDef universe;
+  if (!Game::GenerateUniverse(recipe, Game::SitesInfo{}, universe))
+  {
+    _checks.Record("the marker gate bakes a universe", false);
+    return;
+  }
+
+  const Game::AnchorId startAnchor = universe.StartAnchorId();
+  const Game::Anchor* start = universe.FindAnchor(startAnchor);
+  if (start == nullptr)
+  {
+    _checks.Record("the marker gate has a grid to start on", false);
+    return;
+  }
+
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  desc.universe = &universe;
+  desc.gridAnchor = startAnchor;
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  std::array<Neuron::MapMarker, Neuron::MAX_MAP_MARKERS> marks{};
+  _checks.Record("a client that has been told nothing marks nothing", view.BuildMapMarkers(marks) == 0);
+
+  /*
+   * Two anchors in the *same* system, so the fold has something to fold. Found
+   * rather than assumed: a bake gives a system a station and a gate, and which
+   * ids those are is the generator's business.
+   */
+  Game::AnchorId second = Game::INVALID_ID;
+  Game::AnchorId elsewhere = Game::INVALID_ID;
+  for (const Game::SolarSystem& system : universe.systems)
+  {
+    for (const Game::Anchor& anchor : system.anchors)
+    {
+      if (system.id == start->system && anchor.id != startAnchor && second == Game::INVALID_ID)
+      {
+        second = anchor.id;
+      }
+      if (system.id != start->system && elsewhere == Game::INVALID_ID)
+      {
+        elsewhere = anchor.id;
+      }
+    }
+  }
+  if (second == Game::INVALID_ID || elsewhere == Game::INVALID_ID)
+  {
+    _checks.Record("the marker gate's bake has two anchors in one system and one in another", false);
+    return;
+  }
+
+  const auto feed = [&](std::span<const Game::FleetSummary> _rows) {
+    std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> bytes{};
+    Neuron::ByteWriter writer{bytes};
+    return Game::BeginSummaryFrame(1, writer) &&
+           Game::BeginSummaryRecord(Game::SummaryKind::FleetSummaries, writer) &&
+           Game::WriteFleetSummaries(_rows, writer) && view.ApplySummary(writer.Written());
+  };
+
+  const Game::FleetSummary rows[] = {
+    {startAnchor, Game::FleetState::OnGrid, 3, Game::FLEET_ETA_NONE},
+    {second, Game::FleetState::Docked, 2, Game::FLEET_ETA_NONE},
+    {elsewhere, Game::FleetState::InTransit, 5, 90},
+  };
+  if (!feed(rows))
+  {
+    _checks.Record("the marker gate's summaries decode", false);
+    return;
+  }
+
+  const std::uint32_t count = view.BuildMapMarkers(marks);
+  _checks.Record("three rows over two systems make two marks", count == 2);
+
+  /*
+   * The fold itself: two anchors in one system are one mark, and the counts add.
+   * Standing and docked are both "there", which is what makes them one number.
+   */
+  const Neuron::MapMarker* home = nullptr;
+  const Neuron::MapMarker* away = nullptr;
+  Neuron::MapTopology topology;
+  (void)view.BuildMapTopology(topology);
+  for (std::uint32_t index = 0; index < count; ++index)
+  {
+    if (marks[index].node >= topology.nodes.size())
+    {
+      continue;
+    }
+    const std::uint16_t system = topology.nodes[marks[index].node].id;
+    if (system == static_cast<std::uint16_t>(start->system))
+    {
+      home = &marks[index];
+    }
+    else
+    {
+      away = &marks[index];
+    }
+  }
+  _checks.Record("both systems got a mark", home != nullptr && away != nullptr);
+  if (home == nullptr || away == nullptr)
+  {
+    return;
+  }
+
+  _checks.Record("standing and docked are one count, because both mean 'there'", home->shipCount == 5);
+  _checks.Record("and nothing is inbound to a system nothing is crossing to", home->incomingCount == 0);
+
+  /*
+   * And the crossing is counted apart, with the game's own ETA word. Adding it
+   * into `shipCount` would draw a fleet in a system it has not reached.
+   */
+  _checks.Record("a crossing is an arrival rather than a presence",
+                 away->incomingCount == 5 && away->shipCount == 0);
+  _checks.Record("and it carries the game's word for when it lands", away->etaLabel != nullptr);
+
+  /*
+   * `anchor` is what a VIEW would ask for, so a system the player is only
+   * *arriving* at supplies none: `MayView` gates on presence and the far end of
+   * a warp that has not landed is a request the authority is right to refuse.
+   */
+  _checks.Record("a system with ships in it offers a grid to watch",
+                 home->anchor != Neuron::INVALID_MAP_ANCHOR);
+  _checks.Record("and one that is only being arrived at offers none",
+                 away->anchor == Neuron::INVALID_MAP_ANCHOR);
+
+  // Ties break by the lower anchor id, for `FollowTarget`'s reason: the camera
+  // has to land the same way twice.
+  _checks.Record("two anchors in one system resolve to the lower id",
+                 home->anchor == static_cast<std::uint16_t>(std::min(startAnchor, second)));
+
+  /*
+   * And a span with no room refuses rather than writing past it. The list is
+   * capped at what the caller offered, which is the same contract every other
+   * builder on this seam has.
+   */
+  std::array<Neuron::MapMarker, 1> tight{};
+  _checks.Record("a span too small for the marks fills what it has", view.BuildMapMarkers(tight) == 1);
+}
+
 void RunRosterOwnershipGate(Checklist& _checks)
 {
   constexpr Game::ShipId MINE_A = 1;
@@ -3549,6 +3703,7 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   RunWingAssignmentGate(checks);
   RunInSpaceWingGate(checks);
   RunWingNameLayerGate(checks);
+  RunMapMarkerGate(checks);
   RunRosterOwnershipGate(checks);
   RunRouteFeedGate(checks);
 

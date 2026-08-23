@@ -1494,10 +1494,40 @@ void ClientApp::AdvanceAutoFollow()
   }
 
   const std::uint16_t here = m_connection.GridAnchor();
-  const std::uint16_t best =
-    FollowTarget(std::span<const LocationBlock>{m_locationBlocks, m_locationBlockCount}, here, m_followRefused);
+  const std::span<const LocationBlock> blocks{m_locationBlocks, m_locationBlockCount};
+  const std::uint16_t best = FollowTarget(blocks, here, m_followRefused);
   if (best == NO_FOLLOW_TARGET)
   {
+    /*
+     * ADR-018 D16's second presence edge: *"every fleet in transit -> the map
+     * is the view"*.
+     *
+     * `FollowTarget` answers "stay put" for two different situations, and only
+     * one of them is a reason to stay. The player having ships here is; having
+     * nothing here and nothing to go to, because everything they own is
+     * mid-crossing, is not -- it is watching an empty grid with no prospect of
+     * it filling. The map is where a fleet in transit is legible, so that is
+     * where they go.
+     *
+     * **Pushed rather than rebased, and only when the world is what they are
+     * looking at.** A player already in a hangar or in the settings has not
+     * asked to be moved, and shoving a surface underneath the one they opened
+     * would take away the back chip's meaning. And `Holds` keeps it to once:
+     * the condition stays true for the whole crossing, so a push per frame
+     * would be a stack of maps.
+     *
+     * D16's *first* edge -- presence lost under a **pinned** camera -> the map
+     * -- is not here, and it is not forgotten: camera pinning is U6's focus
+     * polish and does not exist, so there is no pinned state to test. Today
+     * every such case is the follow above, which is the behaviour the pin will
+     * later suppress.
+     */
+    if (EveryFleetIsCrossing(blocks, here) && SurfaceRecordsWorld(m_surfaces.Active()) &&
+        !m_surfaces.Holds(SurfaceId::Map))
+    {
+      NEURON_LOG_INFO("every fleet is crossing; nothing on grid %u to watch, showing the map", here);
+      OnSurfaceChanged(m_surfaces.Push(SurfaceId::Map));
+    }
     return;
   }
 
@@ -4528,6 +4558,28 @@ void ClientApp::UpdateMapSurface()
   m_mapCounts = BuildMapGraph(m_mapTopology, m_mapCamera, m_mapLayout.graph, m_mapLevel, m_mapShow, 8.0f * scale,
                               scale, m_mapTuning, m_mapNodeRects, m_mapLinkRects, m_mapGroupRects);
 
+  /*
+   * Where the player's ships are (U3b), asked at the rate the answer changes.
+   *
+   * The summary family arrives at about 1 Hz, so asking per frame would re-fold
+   * the same rows sixty times to get the same marks -- and this seam call walks
+   * every place the commander has ships. `MAP_MARKER_REFRESH_SECONDS` is a
+   * little under the summary cadence so a fresh summary is never more than a
+   * frame or two from the screen.
+   *
+   * The *rects* are per frame, because the camera moves and the marks do not.
+   */
+  const double nowSeconds = Clock::SecondsSinceStart();
+  if (m_worldView != nullptr &&
+      (m_mapMarkersAskedAt < 0.0 || nowSeconds - m_mapMarkersAskedAt >= MAP_MARKER_REFRESH_SECONDS))
+  {
+    m_mapMarkerCount = m_worldView->BuildMapMarkers(m_mapMarkers);
+    m_mapMarkersAskedAt = nowSeconds;
+  }
+  m_mapMarkerRectCount =
+    BuildMapMarkerRects({m_mapMarkers, m_mapMarkerCount}, {m_mapNodeRects.data(), m_mapCounts.nodes}, scale,
+                        m_mapTuning, m_mapMarkerRects);
+
   // The panels' scroll extents, from the data as it is now -- `UiScrollState`'s
   // clamp is a correction rather than a check, and this is what corrects it.
   m_mapLegendScroll.SetExtent(m_mapLegendCount,
@@ -4551,6 +4603,32 @@ void ClientApp::UpdateMapSurface()
    * selected at all, which is not true of the command row.
    */
   m_mapCanRoute = m_mapHasSelection && !m_selection.Empty();
+
+  /*
+   * And whether VIEW would reach anything: the selected system has to hold
+   * ships that are *standing* there.
+   *
+   * `MapMarker::anchor` is the game's answer to that -- a system the player is
+   * only arriving at carries `INVALID_MAP_ANCHOR`, because `MayView` gates on
+   * presence and the far end of a warp that has not landed is a request the
+   * authority is right to refuse. So this reads the marker rather than the
+   * count, and a system with three ships inbound and none there is correctly
+   * dark.
+   */
+  m_mapViewAnchor = INVALID_MAP_ANCHOR;
+  if (m_mapHasSelection)
+  {
+    for (std::uint32_t index = 0; index < m_mapMarkerCount; ++index)
+    {
+      if (m_mapMarkers[index].node < m_mapTopology.nodes.size() &&
+          m_mapTopology.nodes[m_mapMarkers[index].node].id == m_mapSelected)
+      {
+        m_mapViewAnchor = m_mapMarkers[index].anchor;
+        break;
+      }
+    }
+  }
+  m_mapCanView = m_mapViewAnchor != INVALID_MAP_ANCHOR && m_mapViewAnchor != m_connection.GridAnchor();
 
   // --- the press ----------------------------------------------------------
   if (!gesture.tapped)
@@ -4581,10 +4659,32 @@ void ClientApp::UpdateMapSurface()
     return;
   }
 
-  if (const MapActionHit action = HitMapAction(m_mapLayout, m_mapCanRoute, tapX, tapY);
+  if (const MapActionHit action = HitMapAction(m_mapLayout, m_mapCanRoute, m_mapCanView, tapX, tapY);
       action != MapActionHit::None)
   {
-    if (action == MapActionHit::SetDestination)
+    if (action == MapActionHit::View)
+    {
+      /*
+       * ADR-016 §7's third focus switch, and the map's own: *"fleet markers and
+       * systems-with-presence carry a VIEW action"*.
+       *
+       * The player is popped back to the tactical view rather than left on the
+       * map, which is the opposite of SET DESTINATION and deliberately so: a
+       * destination is something you set and then watch on this screen, and a
+       * view is a request to *go and look*. Leaving them on the map after
+       * pressing VIEW would be answering "show me that" with a map of it.
+       *
+       * A refused request leaves the feed where it was -- the authority's
+       * `ViewChanged` carries the reason and the existing path raises the
+       * toast -- so nothing here has to guess at whether it worked.
+       */
+      if (m_connection.RequestView(m_mapViewAnchor))
+      {
+        NEURON_LOG_INFO("map: asking to watch grid %u", m_mapViewAnchor);
+        OnSurfaceChanged(m_surfaces.Back());
+      }
+    }
+    else if (action == MapActionHit::SetDestination)
     {
       /*
        * `strategic-map.png` §3's ruling, spent: the map plans and the client
@@ -4985,12 +5085,72 @@ void ClientApp::BuildMapSurface()
   }
 
   /*
+   * The fleet markers (ADR-016 §6, §7, U3b): counts at places.
+   *
+   * Drawn after the graph and before the panel, so a badge sits over its own
+   * node and under the chrome -- the panel is opaque and a marker showing
+   * through it would be a count in the middle of a fact list.
+   *
+   * **Two numbers, two colours, and the distinction is the whole point.** Ships
+   * that are *there* draw in the own-fleet phosphor; ships *crossing to* the
+   * system draw in the caution amber with the game's ETA word beside them, the
+   * same pair the tactical chrome already uses for a promise the authority has
+   * not completed. Adding them into one count would put a fleet in a system it
+   * has not reached, on the one screen a player uses to decide where things
+   * are.
+   */
+  for (std::uint32_t index = 0; index < m_mapMarkerRectCount; ++index)
+  {
+    const MapMarkerRect& placed = m_mapMarkerRects[index];
+    const MapMarker& mark = m_mapMarkers[placed.marker];
+
+    UiRect badge = placed.badge;
+    if (mark.shipCount > 0)
+    {
+      std::snprintf(buffer, sizeof(buffer), "%u", mark.shipCount);
+      m_ui.AddQuad(badge, m_palette.chipBg);
+      m_ui.AddBorder(badge, line, m_palette.phosphor);
+      centred(badge, m_uiTuning.smallSizeIndex, m_palette.phosphorHot, buffer);
+      badge.y -= badge.height + line;
+    }
+
+    if (mark.incomingCount > 0)
+    {
+      // The arrow is the same one the route chip uses, and it means the same
+      // thing in both places: on its way rather than there.
+      std::snprintf(buffer, sizeof(buffer), "\xE2\x86\x92%u", mark.incomingCount);
+      m_ui.AddQuad(badge, m_palette.chipBg);
+      m_ui.AddBorder(badge, line, m_palette.caution);
+      centred(badge, m_uiTuning.smallSizeIndex, m_palette.caution, buffer);
+
+      if (mark.etaLabel != nullptr)
+      {
+        m_ui.AddText(badge.Right() + line * 2.0f, badge.y, m_uiTuning.smallSizeIndex, m_palette.phosphorDim,
+                     mark.etaLabel);
+      }
+    }
+  }
+
+  /*
    * The two actions, drawn either way and refused without a selection --
    * `station-screen.png` §2's "disabled with a reason rather than hidden", which
    * is also what stops the panel reshuffling under the player's finger the
    * moment they pick a system.
    */
   {
+    /*
+     * VIEW, above the other two (ADR-016 §7).
+     *
+     * Its own flag, because it asks a different question: SET DESTINATION needs
+     * a fleet and somewhere to send it, VIEW needs ships already standing where
+     * the player pressed. It is also dark on the grid already being watched --
+     * a button whose whole promise is "go and look" has nothing to offer when
+     * you are already looking.
+     */
+    m_ui.AddBorder(screen.view, line, m_mapCanView ? m_palette.border : m_palette.phosphorDead);
+    centred(screen.view, m_uiTuning.smallSizeIndex, m_mapCanView ? m_palette.phosphor : m_palette.phosphorDead,
+            "VIEW");
+
     // The same flag the hit test refuses on, and read rather than recomputed --
     // see `m_mapCanRoute`. A lit button that does nothing is worse than a dark
     // one that explains itself.

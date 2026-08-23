@@ -3326,6 +3326,142 @@ std::uint32_t ReplicatedWorldView::BuildRoutePlan(std::uint16_t _toSystem, std::
   return legs;
 }
 
+/*
+ * The player's ships, folded onto the systems that hold them (ADR-016 §6, U3b).
+ *
+ * `m_places` is a row per *anchor*; the map draws *systems*. Folding one into
+ * the other is the whole of this function, and it is on this side of the seam
+ * because "which system is this anchor in" is a fact about the universe -- a
+ * client that could answer it would need the anchor table, and a client with
+ * the anchor table has the universe.
+ *
+ * **Two counts rather than one, and it matters on the screen.** Ships standing
+ * on a grid and ships docked at a station are both *there*, so they share
+ * `shipCount`; ships crossing *to* a system have not arrived, so they are
+ * `incomingCount` and draw as an arrival. Adding them together would put a
+ * fleet in a system it has not reached, on the one screen a player uses to
+ * decide where things are.
+ *
+ * **`anchor` is a grid the view may point at, and a crossing supplies none.**
+ * `MayView` gates on presence, so asking to watch the far end of a warp that
+ * has not landed is a request the authority is right to refuse -- the same
+ * reason `AdvanceAutoFollow` follows on arrival rather than on departure. A
+ * system with only incoming ships therefore carries `INVALID_MAP_ANCHOR`, and
+ * VIEW is dark on it until they land.
+ */
+std::uint32_t ReplicatedWorldView::BuildMapMarkers(std::span<Neuron::MapMarker> _outMarkers) const
+{
+  m_markerEtas.clear();
+  if (m_desc.universe == nullptr || m_mapNodes.empty())
+  {
+    return 0;
+  }
+
+  /*
+   * Indexed by node rather than searched per row, which is the same trade
+   * `BuildMapGraph` makes: a commander can have ships in a couple of hundred
+   * places and the graph is 2,500 nodes, so a linear scan per row is a
+   * quarter of a million comparisons for a list nobody can read.
+   *
+   * `m_markerBySystem` is not a member because this runs at summary rate --
+   * about once a second -- and a 2,500-entry vector allocated then is cheaper
+   * to justify than one that lives for the session to save it.
+   */
+  std::vector<std::uint16_t> markerByNode(m_mapNodes.size(), 0xffffu);
+  std::uint32_t written = 0;
+  std::vector<std::uint16_t> soonest;
+
+  for (const FleetPlace& place : m_places)
+  {
+    if (place.shipCount == 0)
+    {
+      /*
+       * `shipCount` and never `docked.size()`, which `FleetPlace` states in as
+       * many words: the summaries are always written while a roster is dropped
+       * first when the frame runs out of room, so this is the count that
+       * survives a truncated frame and the list behind it is what may not. A
+       * marker sized from the list would shrink when the wire got busy.
+       */
+      continue;
+    }
+    const Game::Anchor* anchor = m_desc.universe->FindAnchor(place.anchor);
+    if (anchor == nullptr || anchor->system >= m_mapNodeBySystem.size())
+    {
+      continue; // An anchor the bake does not have. Nothing to mark it on.
+    }
+    const std::uint16_t node = m_mapNodeBySystem[anchor->system];
+    if (node == 0xffffu)
+    {
+      continue;
+    }
+
+    std::uint16_t slot = markerByNode[node];
+    if (slot == 0xffffu)
+    {
+      if (written >= _outMarkers.size())
+      {
+        /*
+         * Past the caller's span. Counted and logged rather than silent, for
+         * `BuildMapGraph`'s reason: a marker that quietly did not draw is a
+         * fleet the player cannot find, and a map that lies by omission about
+         * where their ships are is worse than one that says it ran out.
+         */
+        NEURON_LOG_WARNING("map markers: %zu places do not fit %zu marks", m_places.size(), _outMarkers.size());
+        break;
+      }
+      slot = static_cast<std::uint16_t>(written);
+      markerByNode[node] = slot;
+      soonest.push_back(Game::FLEET_ETA_NONE);
+      _outMarkers[slot] = Neuron::MapMarker{};
+      _outMarkers[slot].node = node;
+      ++written;
+    }
+
+    Neuron::MapMarker& mark = _outMarkers[slot];
+    if (place.state == Game::FleetState::InTransit)
+    {
+      mark.incomingCount = static_cast<std::uint16_t>(mark.incomingCount + place.shipCount);
+      if (place.etaSeconds < soonest[slot])
+      {
+        soonest[slot] = place.etaSeconds;
+      }
+      continue;
+    }
+
+    mark.shipCount = static_cast<std::uint16_t>(mark.shipCount + place.shipCount);
+
+    /*
+     * The grid a VIEW goes to, and ties break by the lower anchor id for
+     * `FollowTarget`'s reason: two anchors in one system holding ships is a
+     * real state, and the camera has to land the same way twice or the same
+     * situation plays differently on two machines.
+     */
+    if (mark.anchor == Neuron::INVALID_MAP_ANCHOR || place.anchor < mark.anchor)
+    {
+      mark.anchor = static_cast<std::uint16_t>(place.anchor);
+    }
+  }
+
+  /*
+   * The ETA words last, in one pass, because the vector they live in must not
+   * reallocate while the marks are pointing into it -- which is exactly what
+   * writing each one as it was found would have done.
+   */
+  m_markerEtas.resize(written);
+  for (std::uint32_t index = 0; index < written; ++index)
+  {
+    if (soonest[index] != Game::FLEET_ETA_NONE)
+    {
+      m_markerEtas[index] = EtaText(soonest[index]);
+    }
+  }
+  for (std::uint32_t index = 0; index < written; ++index)
+  {
+    _outMarkers[index].etaLabel = m_markerEtas[index].empty() ? nullptr : m_markerEtas[index].c_str();
+  }
+  return written;
+}
+
 Game::AnchorId ReplicatedWorldView::CurrentGrid() const noexcept
 {
   /*

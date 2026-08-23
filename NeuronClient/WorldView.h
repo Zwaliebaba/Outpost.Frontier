@@ -639,6 +639,30 @@ public:
   }
 
   /*
+   * Where the player's ships are, as marks on the map (ADR-016 §6, §7, U3b).
+   *
+   * Asked at the summary family's rate rather than per frame -- the answer
+   * changes at about 1 Hz because that is how often the summaries arrive, and
+   * a per-frame call would be re-folding the same rows sixty times to get the
+   * same marks. That makes it ADR-020 §6's *second* shape, the one
+   * `BuildMapLegend` already uses on this screen.
+   *
+   * **Counts at places, and the aggregation is the game's.** A summary row is
+   * an anchor, and the map draws systems; folding one into the other means
+   * knowing which system an anchor is in, which is a fact about the universe.
+   * A client doing it would need the anchor table, and then it would have the
+   * universe.
+   *
+   * Zero is the honest answer before the first summary lands, and it draws
+   * nothing rather than drawing a guess.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildMapMarkers(std::span<MapMarker> _outMarkers) const
+  {
+    (void)_outMarkers;
+    return 0;
+  }
+
+  /*
    * The orders that would fly a route, in order (ADR-016 §8, U4).
    *
    * `SolveMapRoute`'s sibling and deliberately a second call: that one answers

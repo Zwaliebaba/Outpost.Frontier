@@ -368,6 +368,76 @@ public:
     Assert::AreEqual<std::uint16_t>(NO_FOLLOW_TARGET, FollowTarget(blocks, 10));
   }
 
+  /*
+   * ADR-018 D16's second presence edge, and what it is really about:
+   * `FollowTarget` answers "stay put" for two situations that look identical
+   * from outside and are opposite to a player.
+   */
+  TEST_METHOD(EverythingCrossingIsNotTheSameAsAReasonToStay)
+  {
+    /*
+     * The whole distinction in one pair. Both calls to `FollowTarget` say
+     * `NO_FOLLOW_TARGET`; one is a player with ships where they are standing
+     * and one is a player watching an empty grid while everything they own is
+     * mid-warp. Only the second goes to the map.
+     */
+    const std::vector<LocationBlock> staying = {Block(10, 3, false), Block(20, 12, true)};
+    Assert::AreEqual<std::uint16_t>(NO_FOLLOW_TARGET, FollowTarget(staying, 10));
+    Assert::IsFalse(EveryFleetIsCrossing(staying, 10), L"ships are here, which is a reason to be here");
+
+    const std::vector<LocationBlock> crossing = {Block(20, 12, true)};
+    Assert::AreEqual<std::uint16_t>(NO_FOLLOW_TARGET, FollowTarget(crossing, 10));
+    Assert::IsTrue(EveryFleetIsCrossing(crossing, 10), L"nothing here and nothing to go to");
+  }
+
+  TEST_METHOD(AGridToGoToIsFollowsBusinessRatherThanTheMaps)
+  {
+    // One fleet crossing and one standing somewhere else: there *is* a grid
+    // worth watching, so this is a follow and not a fallback. Both answers have
+    // to agree about that or the client would push the map and then move the
+    // camera out from under it.
+    const std::vector<LocationBlock> blocks = {Block(20, 12, true), Block(30, 4, false)};
+    Assert::AreEqual<std::uint16_t>(30, FollowTarget(blocks, 10));
+    Assert::IsFalse(EveryFleetIsCrossing(blocks, 10));
+  }
+
+  TEST_METHOD(APlayerWithNothingIsNotCrossing)
+  {
+    /*
+     * No blocks is a client that has been told nothing yet -- the frames before
+     * the first summary lands -- and yanking the player to the map for it would
+     * be the HUD reacting to its own ignorance. A block with no ships in it is
+     * the same statement written down.
+     */
+    Assert::IsFalse(EveryFleetIsCrossing({}, 10));
+    const std::vector<LocationBlock> empty = {Block(20, 0, true)};
+    Assert::IsFalse(EveryFleetIsCrossing(empty, 10));
+  }
+
+  TEST_METHOD(WatchingTheGridAFleetIsArrivingAtIsAReasonToStay)
+  {
+    /*
+     * The case the here-guard exists for, and the one the obvious test misses.
+     *
+     * A player watching grid 20 while their fleet crosses *to* grid 20 is doing
+     * the most reasonable thing on this screen: waiting to see it land. Every
+     * block is a crossing, so a rule that only asked "is anything standing
+     * anywhere" would push them to the map at the exact moment they were
+     * watching the arrival they planned.
+     */
+    const std::vector<LocationBlock> blocks = {Block(20, 12, true)};
+    Assert::IsFalse(EveryFleetIsCrossing(blocks, 20), L"the crossing is coming here, and they are watching it");
+    Assert::IsTrue(EveryFleetIsCrossing(blocks, 10), L"the same crossing, watched from somewhere else");
+  }
+
+  TEST_METHOD(SeveralCrossingsAreStillJustCrossings)
+  {
+    // The ordinary shape of a multi-fleet move: everything is in the air at
+    // once, and there is nowhere to point a camera until something lands.
+    const std::vector<LocationBlock> blocks = {Block(20, 12, true), Block(30, 4, true), Block(40, 1, true)};
+    Assert::IsTrue(EveryFleetIsCrossing(blocks, 10));
+  }
+
   TEST_METHOD(TheBiggestFleetWinsAndTiesBreakByAnchor)
   {
     // Two grids holding the same count is a real state, and the camera has to

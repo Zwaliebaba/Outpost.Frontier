@@ -251,6 +251,79 @@ struct MapOverlayOption
   bool enabled = false;
 };
 
+/*
+ * Where the player's ships are, at the map's resolution (ADR-016 §6, §7, U3b).
+ *
+ * **A count at a place, and never a fleet.** The summary family this comes from
+ * has no fleet id and nothing to keep in step with a snapshot, because a fleet
+ * is emergent -- the player's ships sharing a location. So a marker is a
+ * *system* and two numbers, and the client could not track "the same fleet"
+ * across two frames even if it wanted to.
+ *
+ * **One marker per system rather than per anchor**, which is a resolution
+ * decision and not a simplification. This map draws systems; an anchor is
+ * finer than anything on it, and two markers a pixel apart on one node would be
+ * a distinction the player cannot act on. The system view is where anchors
+ * become separate things, and ADR-016 §7 has an open ruling there about
+ * exactly that.
+ */
+struct MapMarker
+{
+  /*
+   * Which node it sits on -- an **index** into `MapTopology::nodes`, following
+   * this file's one rule: ids go to the game; indices come back.
+   */
+  std::uint16_t node = 0;
+
+  /*
+   * Where a VIEW would point. Opaque, echoed, never read here.
+   *
+   * A *grid* rather than the system, because watching is a subscription to one
+   * grid and the game is what knows which of a system's anchors the player has
+   * ships on. `INVALID_MAP_ANCHOR` when there is nowhere to watch -- which is
+   * the ordinary state for a system the player is only *arriving* at.
+   */
+  std::uint16_t anchor = 0xffffu;
+
+  /// Ships in this system now: standing on a grid or docked at a station. The
+  /// two are one number here because both mean "already there".
+  std::uint16_t shipCount = 0;
+
+  /*
+   * Ships crossing *to* this system, counted separately and deliberately.
+   *
+   * Adding them to `shipCount` would draw a fleet in a system it has not
+   * reached, on the one screen a player uses to decide where things are. They
+   * are drawn as an arrival rather than as a presence, and `etaLabel` says
+   * when.
+   */
+  std::uint16_t incomingCount = 0;
+
+  /*
+   * The game's word for when the soonest crossing lands, or null.
+   *
+   * A word rather than a number, for `MapRouteSummary::eta`'s reason: the
+   * client would have to invent a format, and the format is the thing the two
+   * surfaces must agree on rather than the seconds.
+   */
+  const char* etaLabel = nullptr;
+};
+
+/// What `MapMarker::anchor` holds when the player has nothing to watch in a
+/// system -- one they are only arriving at. Zero is a legal anchor id.
+inline constexpr std::uint16_t INVALID_MAP_ANCHOR = 0xffffu;
+
+/*
+ * How many places a client will mark.
+ *
+ * The client's statement of what it is built to draw, the way `MAX_MAP_NODES`
+ * is -- and it is this size because a commander's summary can describe up to
+ * 256 places. Named here rather than included from the game: this header is the
+ * neutral seam, and reaching into the game's cap to size an engine array would
+ * be the leak ADR-018 D14 is about.
+ */
+inline constexpr std::uint32_t MAX_MAP_MARKERS = 256;
+
 /// How many overlays a client will ask for. The print draws five and this is
 /// that plus room, because a layer arriving is a row and nothing else.
 inline constexpr std::uint32_t MAX_MAP_OVERLAYS = 8;

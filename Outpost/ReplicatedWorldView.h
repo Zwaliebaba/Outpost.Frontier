@@ -252,6 +252,7 @@ public:
                                             Neuron::MapRouteSummary& _outSummary) const override;
   [[nodiscard]] std::uint32_t BuildRoutePlan(std::uint16_t _toSystem,
                                              std::span<Neuron::RouteLeg> _outLegs) const override;
+  [[nodiscard]] std::uint32_t BuildMapMarkers(std::span<Neuron::MapMarker> _outMarkers) const override;
 
   /// Which system this client's view is standing in, for the route's origin and
   /// for the top bar's region line. `INVALID_ID` before a world has arrived.
@@ -400,6 +401,12 @@ private:
   /// The selected system's facts, same arrangement: rebuilt per query, and the
   /// span handed out points into it until the next one.
   mutable std::vector<std::string> m_factValues;
+
+  /// The markers' ETA words, owned here because `MapMarker::etaLabel` is a
+  /// borrowed pointer and the screen reads it after this call returns. Rebuilt
+  /// whole each time, for `m_factValues`' reason: a marker list that reused a
+  /// string a system no longer has would label the wrong place.
+  mutable std::vector<std::string> m_markerEtas;
 
   /// Turns the parsed universe into the neutral graph. Called once, from the
   /// constructor, for the lifetime reason above.

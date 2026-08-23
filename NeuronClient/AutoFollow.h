@@ -69,4 +69,49 @@ inline constexpr std::uint16_t NO_FOLLOW_TARGET = 0xffffu;
   return best;
 }
 
+/*
+ * True when there is no grid worth watching, because everything is crossing
+ * (ADR-018 D16, A16).
+ *
+ * **This exists because `FollowTarget` answers two different questions with one
+ * value.** `NO_FOLLOW_TARGET` means "stay put", and staying put is right when
+ * the player has ships where they are standing -- and wrong when they have
+ * nothing here and nothing anywhere else to go to, which is what a fleet
+ * mid-warp leaves behind. D16 rules that second case: *"every fleet in transit
+ * -> the map is the view"*. The two look identical from the outside, so the
+ * distinction has to be asked for rather than inferred.
+ *
+ * The test for "crossing" is `etaSeconds`, not the state word. `stateLabel` is
+ * a string the game wrote and this library may not have an opinion about it;
+ * the ETA is the number `HudRoster.h` already documents as *"negative for a
+ * fleet that is simply somewhere"*, so it is the game's own signal, read the
+ * way `LocationBlock::inScene` is.
+ *
+ * **A player with nothing at all is not crossing.** No blocks means no ships --
+ * a fresh session before the first summary, or a commander who has lost
+ * everything -- and yanking them to the map for it would be the HUD reacting to
+ * a frame in which it simply knows nothing yet.
+ */
+[[nodiscard]] inline bool EveryFleetIsCrossing(std::span<const LocationBlock> _blocks, std::uint16_t _here) noexcept
+{
+  bool anyCrossing = false;
+  for (const LocationBlock& block : _blocks)
+  {
+    if (block.shipCount == 0)
+    {
+      continue; // Nothing there to be anywhere.
+    }
+    if (block.anchor == _here)
+    {
+      return false; // Something of theirs is here, which is a reason to stay.
+    }
+    if (block.etaSeconds < 0.0f)
+    {
+      return false; // A grid to go to, which is `FollowTarget`'s business.
+    }
+    anyCrossing = true;
+  }
+  return anyCrossing;
+}
+
 } // namespace Neuron

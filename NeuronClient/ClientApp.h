@@ -754,6 +754,37 @@ private:
    */
   bool m_mapCanRoute = false;
 
+  /*
+   * Whether VIEW would do anything: the selected system holds ships of the
+   * player's that are already standing there.
+   *
+   * A second flag beside `m_mapCanRoute` rather than one for both, because the
+   * two buttons ask different questions -- and routing a fleet to a system you
+   * have nothing in is the ordinary use of this screen, so a shared flag would
+   * have lit VIEW on every reachable system.
+   */
+  bool m_mapCanView = false;
+
+  /// The grid VIEW would ask for, from the selected system's marker.
+  std::uint16_t m_mapViewAnchor = INVALID_MAP_ANCHOR;
+
+  /*
+   * The fleet markers, and the rects this frame placed them in (U3b).
+   *
+   * The marks come from the game at the summary family's rate and the rects are
+   * a per-frame join against the projected graph -- two lists rather than one
+   * for that reason alone: re-asking the seam sixty times a second would be
+   * asking a question whose answer changes once.
+   */
+  MapMarker m_mapMarkers[MAX_MAP_MARKERS];
+  std::uint32_t m_mapMarkerCount = 0;
+  MapMarkerRect m_mapMarkerRects[MAX_MAP_MARKERS];
+  std::uint32_t m_mapMarkerRectCount = 0;
+
+  /// When the markers were last asked for. They arrive at ~1 Hz, so the screen
+  /// asks at that rate rather than per frame -- `MapScreen.h`'s second shape.
+  double m_mapMarkersAskedAt = -1.0;
+
   /// The rail's two pressable runs, laid out each frame.
   MapOverlayRowRect m_mapOverlayRows[MAX_MAP_OVERLAYS];
   std::uint32_t m_mapOverlayRowCount = 0;

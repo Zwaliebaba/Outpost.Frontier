@@ -354,7 +354,22 @@ MapScreenLayout ResolveMapScreen(std::uint32_t _viewportWidth, std::uint32_t _vi
                                   setHeight);
 
   const float bodyTop = layout.panelHead.Bottom() + _tuning.panelGap * scale;
-  layout.panelBody = Clamped(panelInnerX, bodyTop, panelInnerWidth, layout.setDestination.y - actionGap - bodyTop);
+  /*
+   * VIEW above the other two, and last in the stack so it is the first to be
+   * squeezed out at a small viewport.
+   *
+   * That order is the ruling `SplitMapRail` already made once on this screen:
+   * when there is not room for everything, the thing that gives way is the one
+   * whose absence costs the player least. A missing SET DESTINATION is a route
+   * they cannot fly; a missing VIEW is a grid they can still reach from the
+   * roster's own blocks, which are the primary focus switch (ADR-016 §7).
+   */
+  const float viewHeight = std::min(TargetHeightPixels(_tuning.viewHeight, scale),
+                                    std::max(0.0f, panelInnerHeight - setHeight - addHeight - actionGap * 2.0f));
+  layout.view = Clamped(panelInnerX, layout.setDestination.y - actionGap - viewHeight, panelInnerWidth, viewHeight);
+
+  const float actionsTop = viewHeight > 0.0f ? layout.view.y : layout.setDestination.y;
+  layout.panelBody = Clamped(panelInnerX, bodyTop, panelInnerWidth, actionsTop - actionGap - bodyTop);
 
   /*
    * The history rail: a heading with the spans on it, the track under it, and
@@ -870,11 +885,24 @@ MapTopBarHit HitMapTopBar(const MapScreenLayout& _layout, float _x, float _y) no
   return MapTopBarHit::None;
 }
 
-MapActionHit HitMapAction(const MapScreenLayout& _layout, bool _canRoute, float _x, float _y) noexcept
+MapActionHit HitMapAction(const MapScreenLayout& _layout, bool _canRoute, bool _canView, float _x,
+                          float _y) noexcept
 {
-  // Drawn either way and refused here: `station-screen.png` §2's "disabled with
-  // a reason rather than hidden", which is also what keeps the button in the
-  // place the player last saw it.
+  /*
+   * Drawn either way and refused here: `station-screen.png` §2's "disabled with
+   * a reason rather than hidden", which is also what keeps the button in the
+   * place the player last saw it.
+   *
+   * **Two gates rather than one**, because the two buttons ask different
+   * questions. Routing needs a fleet and a destination; viewing needs ships
+   * already standing where the player pressed. Sending a fleet somewhere they
+   * have nothing is the ordinary case, so one flag for both would have made
+   * VIEW live on every system a route could reach.
+   */
+  if (_canView && _layout.view.Contains(_x, _y))
+  {
+    return MapActionHit::View;
+  }
   if (!_canRoute)
   {
     return MapActionHit::None;
@@ -888,6 +916,43 @@ MapActionHit HitMapAction(const MapScreenLayout& _layout, bool _canRoute, float 
     return MapActionHit::AddWaypoint;
   }
   return MapActionHit::None;
+}
+
+std::uint32_t BuildMapMarkerRects(std::span<const MapMarker> _markers, std::span<const MapNodeRect> _nodes,
+                                  float _scale, const MapScreenTuning& _tuning,
+                                  std::span<MapMarkerRect> _outRects) noexcept
+{
+  const float width = _tuning.markerBadgeWidth * _scale;
+  const float height = _tuning.markerBadgeHeight * _scale;
+  const float gap = _tuning.markerBadgeGap * _scale;
+
+  std::uint32_t written = 0;
+  for (std::uint32_t index = 0; index < _markers.size() && written < _outRects.size(); ++index)
+  {
+    /*
+     * Binary search over the run `BuildMapGraph` left sorted by node index --
+     * the same join, and for the same reason, as the route line's endpoint
+     * lookup. A scan here would be 256 x 2,500 a frame.
+     */
+    const auto found = std::lower_bound(_nodes.begin(), _nodes.end(), _markers[index].node,
+                                        [](const MapNodeRect& _rect, std::uint32_t _value)
+                                        { return _rect.node < _value; });
+    if (found == _nodes.end() || found->node != _markers[index].node)
+    {
+      continue; // Culled. Not drawn, so nothing to place.
+    }
+
+    /*
+     * Above and right of the dot, which is the corner a label does not use --
+     * `MapNodeRect::label` sits below its dot, so a badge here cannot cover the
+     * one word that says which system this is.
+     */
+    MapMarkerRect& out = _outRects[written];
+    out.marker = index;
+    out.badge = UiRect{found->point.x + gap, found->point.y - height - gap, width, height};
+    ++written;
+  }
+  return written;
 }
 
 } // namespace Neuron

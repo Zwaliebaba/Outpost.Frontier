@@ -214,6 +214,15 @@ struct MapScreenTuning
    */
   float setDestinationHeight = 52.0f;
   float addWaypointHeight = 46.0f;
+
+  /*
+   * VIEW, which the print does not draw and ADR-016 §7 requires: *"fleet
+   * markers and systems-with-presence carry a VIEW action"*. It takes ADD
+   * WAYPOINT's height rather than SET DESTINATION's, because it is a navigation
+   * verb rather than the panel's primary -- and it sits *above* both, since
+   * the destructive-adjacent pair belongs at the foot where the print put them.
+   */
+  float viewHeight = 46.0f;
   float actionGap = 8.0f;
 
   /// The pinch hint, floated inside the graph's top-right corner.
@@ -247,6 +256,19 @@ struct MapScreenTuning
 
   /// Air between a node's dot and its label, and how tall a label's row is.
   float labelGap = 7.0f;
+
+  /*
+   * The fleet marker's badge, above and right of its node's dot.
+   *
+   * Not sized through `TargetHeightPixels`: it is a *readout* rather than a
+   * target. The thing a finger presses to reach this system is the node
+   * underneath it, which the 48 px floor already covers -- and a badge inflated
+   * to 48 px would be a label three times the size of the system it labels, on
+   * a screen that can hold 2,500 of them.
+   */
+  float markerBadgeWidth = 34.0f;
+  float markerBadgeHeight = 16.0f;
+  float markerBadgeGap = 3.0f;
   float labelHeight = 16.0f;
 
   /*
@@ -322,6 +344,21 @@ struct MapScreenTuning
  * 2026-08-22 amendment made touch primary and left the mouse a way to work
  * without a display in the room.
  */
+/*
+ * How often the screen re-asks for the fleet markers.
+ *
+ * A little under the summary family's ~1 Hz cadence, so a fresh summary is
+ * never more than a frame or two from the screen while the seam call -- which
+ * walks every place the commander has ships -- still runs about once a second
+ * instead of sixty times.
+ *
+ * A period rather than a change notification because the client has no signal
+ * for "the summaries moved": `ApplySummary` is the game's own business and a
+ * dirty flag crossing the seam for this would be a second way of saying
+ * something the rate already says.
+ */
+inline constexpr double MAP_MARKER_REFRESH_SECONDS = 0.5;
+
 inline constexpr float MAP_WHEEL_ZOOM_PER_NOTCH = 1.2f;
 
 /*
@@ -466,6 +503,10 @@ struct MapScreenLayout
   UiRect panelBody;
   UiRect setDestination;
   UiRect addWaypoint;
+
+  /// VIEW: switch the watched grid to this system (ADR-016 §7). Above the other
+  /// two, and drawn dark on a system the player has nothing in.
+  UiRect view;
 
   /// The viewport the camera projects into, the hint floated in its corner, and
   /// the count line under it.
@@ -747,7 +788,18 @@ enum class MapActionHit : std::uint8_t
 {
   None = 0,
   SetDestination,
-  AddWaypoint
+  AddWaypoint,
+
+  /*
+   * Watch this system's grid.
+   *
+   * Gated separately from the other two, because the question it asks is a
+   * different one: SET DESTINATION needs a fleet *and* somewhere to send it,
+   * and VIEW needs ships already standing in the system pressed. A player can
+   * easily have one and not the other -- routing a fleet to a system they have
+   * nothing in is the ordinary case.
+   */
+  View
 };
 
 /*
@@ -759,6 +811,43 @@ enum class MapActionHit : std::uint8_t
  * `station-screen.png` §2's *"disabled with a reason rather than hidden"*, and
  * the reason a player can read is why the button stays where it was.
  */
-[[nodiscard]] MapActionHit HitMapAction(const MapScreenLayout& _layout, bool _canRoute, float _x, float _y) noexcept;
+[[nodiscard]] MapActionHit HitMapAction(const MapScreenLayout& _layout, bool _canRoute, bool _canView, float _x,
+                                        float _y) noexcept;
+
+/*
+ * One fleet marker, placed against the node it belongs to.
+ *
+ * Separate from `MapNodeRect` rather than a field on it, and the reason is
+ * rate: the graph is projected every frame and the markers arrive at about
+ * 1 Hz, so a marker folded into the node run would be rebuilt sixty times a
+ * second to say what it said last frame. This is the join, done per frame
+ * because the camera moves, over a list that does not.
+ */
+struct MapMarkerRect
+{
+  /// Where the count badge goes, above and right of its node's dot.
+  UiRect badge;
+
+  /// Which marker this is -- an index into the caller's marker list.
+  std::uint32_t marker = 0;
+};
+
+/*
+ * Places each marker against its node, dropping the ones the cull removed.
+ *
+ * `_nodes` must be the run `BuildMapGraph` wrote, which is sorted by node index
+ * -- so this is a binary search per marker rather than a scan. At the corpus's
+ * cap a scan would be 256 x 2,500 comparisons a frame to draw at most 256
+ * badges, which is the same arithmetic the route line's endpoint lookup already
+ * refused.
+ *
+ * A marker whose node is off screen emits nothing: it is not drawn, so there is
+ * nothing to place. The count line under the graph is where "there are more
+ * than you can see" belongs, the way it already is for nodes.
+ */
+[[nodiscard]] std::uint32_t BuildMapMarkerRects(std::span<const MapMarker> _markers,
+                                                std::span<const MapNodeRect> _nodes, float _scale,
+                                                const MapScreenTuning& _tuning,
+                                                std::span<MapMarkerRect> _outRects) noexcept;
 
 } // namespace Neuron
