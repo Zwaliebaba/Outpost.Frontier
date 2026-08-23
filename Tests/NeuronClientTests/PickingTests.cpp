@@ -375,11 +375,24 @@ public:
   }
 };
 
-TEST_CLASS(SelectionGestureTests)
+/*
+ * What a tap does to the selection (I2, Plan-of-Record §1's rules 1 and 5).
+ *
+ * **This class used to be twice this size**, and the half that went was the
+ * drag: a press/move/release state machine that resolved to a click or a box.
+ * `Gesture.h` owns when a tap happened now, and box select lost its binding --
+ * once a drag is the camera there is nothing left for a rectangle to be drawn
+ * with. What survives here is the half that was always about the *set*: a tap
+ * lands, and what is under it becomes the selection.
+ *
+ * `PickBox` is still tested, above: rule 5 reserves two-finger drag for it, so
+ * the pick outlived the gesture that used to reach it.
+ */
+TEST_CLASS(SelectionTapTests)
 {
 public:
   /// A viewport, a camera and three ships at known screen positions, so a test
-  /// can drive the gesture in pixels the way the window does.
+  /// can tap in pixels the way the window reports them.
   struct Fixture
   {
     static constexpr std::uint32_t WIDTH = 1600;
@@ -401,179 +414,86 @@ public:
       }
     }
 
-    /// Pixel coordinates of an NDC point, the way the window reports a cursor.
+    /// Pixel coordinates of an NDC point, the way the window reports a contact.
     [[nodiscard]] static float PixelX(float _ndcX) noexcept { return (_ndcX + 1.0f) * 0.5f * static_cast<float>(WIDTH); }
     [[nodiscard]] static float PixelY(float _ndcY) noexcept { return (1.0f - _ndcY) * 0.5f * static_cast<float>(HEIGHT); }
 
-    void Release(Selection& _selection) const
+    void Tap(Selection& _selection, float _ndcX, float _ndcY, bool _additive = false) const
     {
-      _selection.EndDrag(targets, mapping, WIDTH, HEIGHT, camera.ScreenFloorMetres(Selection::PICK_FLOOR_PIXELS));
+      _selection.Tap(PixelX(_ndcX), PixelY(_ndcY), _additive, targets, mapping, WIDTH, HEIGHT,
+                     camera.ScreenFloorMetres(Selection::PICK_FLOOR_PIXELS));
     }
   };
 
-  TEST_METHOD(AClickSelectsTheShipUnderIt)
+  TEST_METHOD(ATapSelectsTheShipUnderIt)
   {
     const Fixture fixture;
     Selection selection;
 
-    selection.BeginDrag(Fixture::PixelX(0.0f), Fixture::PixelY(0.0f), false);
-    fixture.Release(selection);
-
+    fixture.Tap(selection, 0.0f, 0.0f);
     Assert::AreEqual<std::size_t>(1, selection.Count());
-    Assert::IsTrue(selection.Contains(2));
+    Assert::IsTrue(selection.Contains(2), L"the centre ship is the one under the tap");
   }
 
-  TEST_METHOD(AClickOnEmptySpaceClearsTheSelection)
+  TEST_METHOD(ATapOnEmptySpaceClearsTheSelection)
   {
-    const Fixture fixture;
-    Selection selection;
-    selection.Add(1);
-    selection.Add(3);
-
-    selection.BeginDrag(Fixture::PixelX(0.0f), Fixture::PixelY(0.9f), false);
-    fixture.Release(selection);
-
-    Assert::IsTrue(selection.Empty(), L"a plain click on nothing is how a player deselects");
-  }
-
-  TEST_METHOD(ASmallTwitchIsStillAClick)
-  {
+    /*
+     * The half of rule 1 that is easy to leave out. Tapping nothing is how a
+     * player deselects, and it has to work even when they meant to hit a ship
+     * -- which is the common case, since a miss and a deliberate clear are the
+     * same gesture.
+     */
     const Fixture fixture;
     Selection selection;
 
-    // Three pixels: inside the slop, so this must not become a box that
-    // selects nothing.
-    selection.BeginDrag(Fixture::PixelX(0.0f), Fixture::PixelY(0.0f), false);
-    selection.UpdateDrag(Fixture::PixelX(0.0f) + 3.0f, Fixture::PixelY(0.0f) + 2.0f);
-    Assert::IsFalse(selection.DragIsBox());
-    fixture.Release(selection);
+    fixture.Tap(selection, 0.0f, 0.0f);
+    Assert::IsFalse(selection.Empty());
 
-    Assert::AreEqual<std::size_t>(1, selection.Count());
-    Assert::IsTrue(selection.Contains(2));
+    fixture.Tap(selection, 0.0f, 0.9f);
+    Assert::IsTrue(selection.Empty(), L"a tap on empty space is how a selection is dropped");
   }
 
-  TEST_METHOD(ADeliberateDragIsABox)
+  TEST_METHOD(AnAdditiveTapTogglesRatherThanReplaces)
   {
+    /*
+     * The desk's shift accelerator. It stays because a desk player will reach
+     * for it, and the design may not *require* it -- rule 4's long-press on a
+     * roster row is the touch path for building a selection up.
+     */
     const Fixture fixture;
     Selection selection;
 
-    // From above-left of ship 1 to below-right of ship 2, leaving ship 3 out.
-    selection.BeginDrag(Fixture::PixelX(-0.8f), Fixture::PixelY(0.3f), false);
-    selection.UpdateDrag(Fixture::PixelX(0.2f), Fixture::PixelY(-0.3f));
-    Assert::IsTrue(selection.DragIsBox());
-    fixture.Release(selection);
+    fixture.Tap(selection, -0.5f, 0.0f);
+    fixture.Tap(selection, 0.5f, 0.0f, /*additive*/ true);
+    Assert::AreEqual<std::size_t>(2, selection.Count(), L"an additive tap adds rather than replacing");
+    Assert::IsTrue(selection.Contains(1) && selection.Contains(3));
 
-    Assert::AreEqual<std::size_t>(2, selection.Count());
+    fixture.Tap(selection, 0.5f, 0.0f, /*additive*/ true);
+    Assert::AreEqual<std::size_t>(1, selection.Count(), L"and the same tap again takes it back out");
     Assert::IsTrue(selection.Contains(1));
-    Assert::IsTrue(selection.Contains(2));
-    Assert::IsFalse(selection.Contains(3));
   }
 
-  TEST_METHOD(ShiftClickTogglesRatherThanReplaces)
+  TEST_METHOD(AnAdditiveTapOnEmptySpaceLeavesTheSelectionAlone)
   {
+    // "Adjust this selection" and "clear it" are opposites, so the modifier
+    // must not do the second by accident on a miss.
     const Fixture fixture;
     Selection selection;
 
-    selection.BeginDrag(Fixture::PixelX(-0.5f), Fixture::PixelY(0.0f), false);
-    fixture.Release(selection);
-    Assert::AreEqual<std::size_t>(1, selection.Count());
-
-    selection.BeginDrag(Fixture::PixelX(0.5f), Fixture::PixelY(0.0f), true);
-    fixture.Release(selection);
-    Assert::AreEqual<std::size_t>(2, selection.Count());
-    Assert::IsTrue(selection.Contains(1));
-    Assert::IsTrue(selection.Contains(3));
-
-    // The same shift-click again takes it back out.
-    selection.BeginDrag(Fixture::PixelX(0.5f), Fixture::PixelY(0.0f), true);
-    fixture.Release(selection);
+    fixture.Tap(selection, -0.5f, 0.0f);
+    fixture.Tap(selection, 0.0f, 0.9f, /*additive*/ true);
     Assert::AreEqual<std::size_t>(1, selection.Count());
     Assert::IsTrue(selection.Contains(1));
   }
 
-  TEST_METHOD(ShiftClickOnEmptySpaceLeavesTheSelectionAlone)
+  TEST_METHOD(AnAdditiveTapDoesNotDuplicateWhatIsAlreadySelected)
   {
     const Fixture fixture;
     Selection selection;
-    selection.Add(1);
 
-    selection.BeginDrag(Fixture::PixelX(0.0f), Fixture::PixelY(0.9f), true);
-    fixture.Release(selection);
-
-    Assert::AreEqual<std::size_t>(1, selection.Count(), L"shift means adjust, and clearing is the opposite of adjusting");
-    Assert::IsTrue(selection.Contains(1));
-  }
-
-  TEST_METHOD(APlainBoxReplacesAndAShiftBoxMerges)
-  {
-    const Fixture fixture;
-    Selection selection;
-    selection.Add(3);
-
-    // A plain box over ship 1 only: ship 3 goes.
-    selection.BeginDrag(Fixture::PixelX(-0.8f), Fixture::PixelY(0.3f), false);
-    selection.UpdateDrag(Fixture::PixelX(-0.3f), Fixture::PixelY(-0.3f));
-    fixture.Release(selection);
-    Assert::AreEqual<std::size_t>(1, selection.Count());
-    Assert::IsTrue(selection.Contains(1));
-
-    // A shift box over ship 3: ship 1 stays.
-    selection.BeginDrag(Fixture::PixelX(0.3f), Fixture::PixelY(0.3f), true);
-    selection.UpdateDrag(Fixture::PixelX(0.8f), Fixture::PixelY(-0.3f));
-    fixture.Release(selection);
-    Assert::AreEqual<std::size_t>(2, selection.Count());
-    Assert::IsTrue(selection.Contains(1));
-    Assert::IsTrue(selection.Contains(3));
-  }
-
-  TEST_METHOD(AShiftBoxDoesNotDuplicateWhatIsAlreadySelected)
-  {
-    const Fixture fixture;
-    Selection selection;
-    selection.Add(1);
-
-    selection.BeginDrag(Fixture::PixelX(-0.8f), Fixture::PixelY(0.3f), true);
-    selection.UpdateDrag(Fixture::PixelX(0.2f), Fixture::PixelY(-0.3f));
-    fixture.Release(selection);
-
-    Assert::AreEqual<std::size_t>(2, selection.Count(), L"ship 1 was already in and must not be counted twice");
-  }
-
-  TEST_METHOD(TheModifierIsSampledAtPressAndNotAtRelease)
-  {
-    // Letting go of shift mid-drag must not turn an adjust into a replace: the
-    // gesture the player started is the gesture they get.
-    const Fixture fixture;
-    Selection selection;
-    selection.Add(1);
-
-    selection.BeginDrag(Fixture::PixelX(0.5f), Fixture::PixelY(0.0f), true);
-    fixture.Release(selection);
-
-    Assert::AreEqual<std::size_t>(2, selection.Count());
-  }
-
-  TEST_METHOD(ACancelledDragChangesNothing)
-  {
-    const Fixture fixture;
-    Selection selection;
-    selection.Add(1);
-
-    selection.BeginDrag(Fixture::PixelX(0.0f), Fixture::PixelY(0.0f), false);
-    selection.CancelDrag();
-    Assert::IsFalse(selection.Dragging());
-
-    // A release after the cancel is a release with no drag, and does nothing.
-    fixture.Release(selection);
-    Assert::AreEqual<std::size_t>(1, selection.Count());
-    Assert::IsTrue(selection.Contains(1));
-  }
-
-  TEST_METHOD(DragIsBoxIsFalseWhileNotDragging)
-  {
-    Selection selection;
-    Assert::IsFalse(selection.DragIsBox());
-    Assert::IsFalse(selection.Dragging());
+    selection.Set(std::vector<EntityId>{2});
+    fixture.Tap(selection, 0.0f, 0.0f, /*additive*/ true);
+    Assert::IsTrue(selection.Empty(), L"toggling a selected ship takes it out rather than adding a second copy");
   }
 
   TEST_METHOD(RetainDropsShipsThatAreNoLongerThere)

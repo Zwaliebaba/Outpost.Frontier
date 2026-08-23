@@ -68,12 +68,13 @@ public:
   /*
    * How far the cursor must travel before the drag means a heading.
    *
-   * Larger than `Selection::CLICK_SLOP_PIXELS`, and for a different reason. The
-   * selection slop asks "did the mouse stay still"; this asks "is this arc long
-   * enough to be aiming at something". A four-pixel arc has an angle dominated
-   * by the last pixel the mouse happened to move, so honouring it would make a
-   * fleet arrive facing a direction the player did not choose -- worse than
-   * ignoring it, because they will see the result and think they chose it.
+   * The same twelve pixels as `GestureTuning::slopPixels`, reached from a
+   * different question and free to diverge from it. That one asks "did the
+   * contact stay still"; this asks "is this arc long enough to be aiming at
+   * something". A four-pixel arc has an angle dominated by the last pixel the
+   * pointer happened to move, so honouring it would make a fleet arrive facing
+   * a direction the player did not choose -- worse than ignoring it, because
+   * they will see the result and think they chose it.
    */
   static constexpr float FACING_SLOP_PIXELS = 12.0f;
 
@@ -108,7 +109,7 @@ public:
    * The mapping and viewport arrive here rather than being remembered from the
    * press, because the camera may have panned or orbited during the drag and
    * the answer has to be where the anchor is *now*. That is the same rule
-   * `Selection::EndDrag` follows and for the same reason.
+   * `Selection::Tap` follows and for the same reason.
    *
    * The facing is measured on the plane, not on the screen: a drag toward the
    * top of the window means "face away from the camera", and at a yaw of ninety

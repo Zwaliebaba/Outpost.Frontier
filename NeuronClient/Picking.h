@@ -51,9 +51,9 @@ namespace Neuron
  *
  * Here rather than file-local in each caller because ADR-006 §11's "same plane
  * point feeds the order puck -- one code path" is a claim about this arithmetic
- * specifically: box selection, point picking and the order puck all turn a
- * cursor into a plane point, and three copies of the flip is three chances for
- * one of them to be off by a sign.
+ * specifically: the tap pick, the reserved box pick and the order puck all turn
+ * a pointer position into a plane point, and three copies of the flip is three
+ * chances for one of them to be off by a sign.
  */
 [[nodiscard]] DirectX::XMFLOAT2 PixelsToNdc(float _x, float _y, std::uint32_t _viewportWidth,
                                             std::uint32_t _viewportHeight) noexcept;
@@ -114,8 +114,16 @@ namespace Neuron
 /*
  * Every target inside a screen-space rectangle, appended to `_outIds`.
  *
- * The rectangle is given in NDC because that is what the drag produces once the
- * viewport is divided out, and because NDC is where the test is cheap. Corners
+ * **Reserved rather than in use, since I2** (Plan-of-Record §1, rule 5). Box
+ * select had one gesture and lost it: once a drag is the camera there is
+ * nothing left for a rectangle to be drawn with, and the print corpus never
+ * drew one. Two-finger drag is set aside for it, and *this* is what a
+ * two-finger drag would call -- which is why the pick survives the gesture that
+ * used to reach it. "We never drew one" is not the same as "it is wrong", and
+ * deleting the arithmetic would make the difference invisible.
+ *
+ * The rectangle is given in NDC because that is where the test is cheap and
+ * because it is what a drag produces once the viewport is divided out. Corners
  * may be in any order -- a drag up-and-left is as valid as down-and-right.
  *
  * Centre-inside, not overlap: a box catches a ship whose *position* is in it.

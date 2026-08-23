@@ -282,7 +282,24 @@ struct CameraIntent
   bool resetView = false;
 };
 
-[[nodiscard]] CameraIntent MapCameraInput(const InputFrame& _input, const CameraTuning& _tuning, float _deltaSeconds) noexcept;
+/*
+ * `_dragPixelsX`/`_dragPixelsY` are the primary contact's movement this frame
+ * while it is *dragging*, and zero otherwise (I2, Plan-of-Record §1's rule 1:
+ * **tap selects, drag pans**).
+ *
+ * Two floats rather than a `GestureState`, and the reason is a cycle rather
+ * than taste: `Gesture.h` reads `InputFrame` from this header, so this header
+ * cannot read `GestureState` back. Numbers cross the boundary instead, which
+ * costs the caller one line and keeps the camera's intent decided in one place
+ * -- including for a test, which can pan without owning a recognizer.
+ *
+ * The sign is the middle-drag's, deliberately the same call: the plane follows
+ * the contact and the focus moves against it. A finger and a mouse that panned
+ * opposite ways would be the "the map fights me" feel on whichever one the
+ * developer was not using.
+ */
+[[nodiscard]] CameraIntent MapCameraInput(const InputFrame& _input, const CameraTuning& _tuning, float _deltaSeconds,
+                                          float _dragPixelsX, float _dragPixelsY) noexcept;
 
 /// Applies an intent in the order the player perceives it: orbit and zoom
 /// change what "right" and "up" mean, so panning last is the difference between

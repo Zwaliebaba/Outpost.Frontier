@@ -107,15 +107,15 @@ private:
   void UpdateCamera(float _deltaSeconds);
   /*
    * The HUD's own update: resolve the zones, lay the command row out, and let
-   * it take a click before the world sees one.
+   * it take the pointer before the world sees it.
    *
    * Before `UpdateSelection` in the frame, which is the whole point -- chrome
-   * gets first refusal on the pointer, so pressing FORMATION does not also
-   * start a box selection across the fleet underneath it.
+   * gets first refusal on the pointer, so a tap on FORMATION does not also
+   * select the fleet underneath it. Since I2 that first refusal covers the
+   * gesture too: `InputRouter::Gesture` reports nothing once the pointer is
+   * claimed, so a tap the row took never reaches the world at all.
    */
-  /// `_deltaSeconds` because the gesture recognizer measures a dwell in seconds
-  /// and may not read a clock, exactly as `UpdateCamera` takes one (I1).
-  void UpdateHud(float _deltaSeconds);
+  void UpdateHud();
 
   void UpdateSelection();
   void UpdateOrders();

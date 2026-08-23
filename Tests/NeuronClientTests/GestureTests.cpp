@@ -49,6 +49,27 @@ struct ContactFrame
 /// what is asserted is that it fires once, not which frame it lands on.
 constexpr float FRAME_SECONDS = 1.0f / 60.0f;
 
+/*
+ * A press and a lift at one point, with `_idleFrames` of nothing before it, and
+ * the run this tap belongs to.
+ *
+ * The idle frames are the point rather than padding: the gap between two taps
+ * is measured across frames that carry no contact at all, which is precisely
+ * where an interval aged only on the frames that reach the state machine would
+ * stop counting -- and the window would then depend on how fast the player
+ * lifted rather than on how long they waited.
+ */
+[[nodiscard]] std::uint32_t TapAt(GestureRecognizer& _gestures, const GestureTuning& _tuning, std::int32_t _x,
+                                  std::int32_t _y, int _idleFrames)
+{
+  for (int frame = 0; frame < _idleFrames; ++frame)
+  {
+    _gestures.Update(ContactFrame().frame, _tuning, FRAME_SECONDS);
+  }
+  _gestures.Update(ContactFrame().Contact(1, _x, _y, PointerPhase::Down).frame, _tuning, FRAME_SECONDS);
+  return _gestures.Update(ContactFrame().Contact(1, _x, _y, PointerPhase::Up).frame, _tuning, FRAME_SECONDS).tapCount;
+}
+
 } // namespace
 
 TEST_CLASS(GestureTests)
@@ -319,6 +340,81 @@ public:
     Assert::IsTrue(gestures.State().phase == GesturePhase::None, L"cancel drops the gesture");
     Assert::IsFalse(gestures.State().tapped, L"and reports no tap");
     Assert::IsFalse(gestures.State().longPressed, L"and no long press");
+  }
+
+  TEST_METHOD(TheTapEdgeFiresOnBothTapsOfADoubleSoNothingWaits)
+  {
+    /*
+     * The decision I2 turns on (Plan-of-Record §1, rule 2). The roster's rule
+     * is that a tap takes the wing and a double tap *also* frames it -- so a
+     * consumer acts on the first tap and adds on the second, and `tapped` has
+     * to fire on both for that to be possible.
+     *
+     * The alternative is holding every tap for the double-tap window to find
+     * out whether a second is coming, which is a third of a second of nothing
+     * on the gesture a player makes most -- and the same delay in front of an
+     * order surface once I3 reaches it.
+     */
+    GestureRecognizer gestures;
+    const GestureTuning tuning;
+
+    gestures.Update(ContactFrame().Contact(1, 200, 150, PointerPhase::Down).frame, tuning, FRAME_SECONDS);
+    const GestureState& first =
+        gestures.Update(ContactFrame().Contact(1, 200, 150, PointerPhase::Up).frame, tuning, FRAME_SECONDS);
+    Assert::IsTrue(first.tapped, L"the first tap fires the frame it lifts");
+    Assert::AreEqual<std::uint32_t>(1, first.tapCount, L"and says it is the first of its run");
+
+    gestures.Update(ContactFrame().Contact(1, 200, 150, PointerPhase::Down).frame, tuning, FRAME_SECONDS);
+    const GestureState& second =
+        gestures.Update(ContactFrame().Contact(1, 200, 150, PointerPhase::Up).frame, tuning, FRAME_SECONDS);
+    Assert::IsTrue(second.tapped, L"the second fires too, rather than replacing the first");
+    Assert::AreEqual<std::uint32_t>(2, second.tapCount, L"which is what tells a consumer to add the framing");
+  }
+
+  TEST_METHOD(TapsPairOnlyWhenTheyAreBothQuickAndNear)
+  {
+    /*
+     * Both conditions, because either alone is a coincidence: two taps a second
+     * apart on one roster row are two decisions, and two taps at opposite
+     * corners of the screen are not aimed at the same thing however fast they
+     * came.
+     *
+     * The distance uses the whole 48 px target floor rather than a fraction of
+     * it -- two taps are "the same place" exactly when they could be aiming at
+     * the same thing -- which is also what stops a tap on a *neighbouring* row
+     * reading as a double on the one above it.
+     */
+    GestureRecognizer gestures;
+    const GestureTuning tuning;
+
+    Assert::AreEqual<std::uint32_t>(1, TapAt(gestures, tuning, 100, 100, 0), L"the first tap is a single");
+    Assert::AreEqual<std::uint32_t>(2, TapAt(gestures, tuning, 100, 100, 1), L"a quick second tap nearby is a double");
+    Assert::AreEqual<std::uint32_t>(3, TapAt(gestures, tuning, 100, 100, 1), L"and a third keeps counting");
+
+    Assert::AreEqual<std::uint32_t>(1, TapAt(gestures, tuning, 400, 400, 1),
+                                    L"a tap out of reach of the last one starts a new run");
+
+    // Thirty idle frames at 60 Hz is half a second, comfortably past the
+    // 350 ms window -- and every one of them carries no contact at all.
+    Assert::AreEqual<std::uint32_t>(1, TapAt(gestures, tuning, 400, 400, 30),
+                                    L"and so does a tap that arrives after the window has closed");
+  }
+
+  TEST_METHOD(AGestureTakenAwayMidRunDoesNotPairWithTheNextTap)
+  {
+    /*
+     * A double tap straddling a cancel is two unrelated presses. The case that
+     * makes it matter is `OnSurfaceChanged`: a surface opens under the finger
+     * between the two taps, and the one that lands on the new screen must not
+     * arrive as the second half of a gesture the player made on the old one.
+     */
+    GestureRecognizer gestures;
+    const GestureTuning tuning;
+
+    Assert::AreEqual<std::uint32_t>(1, TapAt(gestures, tuning, 100, 100, 0));
+    gestures.Cancel();
+    Assert::AreEqual<std::uint32_t>(1, TapAt(gestures, tuning, 100, 100, 1),
+                                    L"the tap after a cancel starts a run rather than finishing one");
   }
 };
 

@@ -83,9 +83,15 @@ void GestureRecognizer::Cancel() noexcept
 {
   End();
   m_state.tapped = false;
+  m_state.tapCount = 0;
   m_state.longPressed = false;
   m_state.deltaX = 0.0f;
   m_state.deltaY = 0.0f;
+
+  // And the run is forgotten. A gesture that was taken away from the player
+  // mid-way is not a tap for the next one to pair with -- a double tap
+  // straddling a cancel is two unrelated presses.
+  m_tapRun = 0;
 }
 
 const GestureState& GestureRecognizer::Update(const InputFrame& _frame, const GestureTuning& _tuning, float _deltaSeconds) noexcept
@@ -97,9 +103,20 @@ const GestureState& GestureRecognizer::Update(const InputFrame& _frame, const Ge
    * drag one frame long.
    */
   m_state.tapped = false;
+  m_state.tapCount = 0;
   m_state.longPressed = false;
   m_state.deltaX = 0.0f;
   m_state.deltaY = 0.0f;
+
+  /*
+   * The gap since the last tap, aged before anything can return early.
+   *
+   * A double tap is two taps with *nothing* between them, and the frames
+   * between are exactly the ones where there is no contact to process -- so
+   * counting only on frames that reach the state machine would make the window
+   * depend on how fast the player lifted.
+   */
+  m_sinceTapSeconds += std::max(0.0f, _deltaSeconds);
 
   if (!_frame.windowFocused)
   {
@@ -239,7 +256,25 @@ const GestureState& GestureRecognizer::Update(const InputFrame& _frame, const Ge
        */
       if (!wandered)
       {
+        /*
+         * A double is this tap plus the last one, if the last one was recent
+         * and near. Both conditions, because either alone is a coincidence: two
+         * taps a second apart on one row are two decisions, and two taps at
+         * opposite corners of the screen are not aimed at the same thing
+         * however fast they came.
+         */
+        const float fromLastX = m_state.x - m_lastTapX;
+        const float fromLastY = m_state.y - m_lastTapY;
+        const bool pairs = m_tapRun > 0 && m_sinceTapSeconds <= _tuning.doubleTapSeconds &&
+                           std::sqrt(fromLastX * fromLastX + fromLastY * fromLastY) <= _tuning.doubleTapSlopPixels;
+
+        m_tapRun = pairs ? m_tapRun + 1u : 1u;
+        m_sinceTapSeconds = 0.0f;
+        m_lastTapX = m_state.x;
+        m_lastTapY = m_state.y;
+
         m_state.tapped = true;
+        m_state.tapCount = m_tapRun;
         m_state.tapX = m_state.x;
         m_state.tapY = m_state.y;
       }

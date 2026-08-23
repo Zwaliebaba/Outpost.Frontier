@@ -98,6 +98,28 @@ probe radius):
    the camera, the print corpus never drew one, and wings make a marquee largely redundant.
    Reserved rather than refused, because "we never drew it" is not the same as "it is wrong".
 
+> **Rules 1, 2, 4 and 5 built 2026-08-23.** A tap takes what is under it and a tap on nothing
+> clears; a drag that *began over the world* pans, with the same sign the middle-drag already
+> used so a finger and a mouse cannot disagree about which way the plane goes; a roster tap takes
+> the wing and **no longer moves the camera**, a second tap frames it, and a long-press on the row
+> adds it to the selection. `Selection` lost its press/move/release state machine entirely --
+> `Gesture.h` owns when a tap happened, so what is left is the set and one function.
+> **`PickBox` was kept**: rule 5 reserves two-finger drag for it, and deleting the arithmetic
+> would have made the difference between "dropped" and "refused" invisible.
+>
+> Two decisions the slice had to take. **Framing is the second tap of a double, and `tapped`
+> fires on both** — so the first tap acts immediately and the second *adds* the framing, rather
+> than every tap waiting out a double-tap window before doing anything. And the pan is gated on
+> where the contact went **down** rather than where it is now, which is the rule the box-select
+> drag already carried: a gesture may only begin over the world, and once begun it may leave
+> freely.
+>
+> **And what it did not convert, named rather than left to be discovered.** The command row, the
+> ability rack and the menu still read a raw left press through `ClaimPointerIn`, so on a touch
+> display they are dead until I3 reaches them. That is the scope this slice was given — rules 1
+> to 5 are about *selection* and the camera — but it means "I2 landed" must not be read as "the
+> client is touch-driven": the world responds to a finger and the chrome does not yet.
+
 **Keyboard bindings become an accelerator rather than the model.** They stay — the settings
 screen's keybind capture (D15.3) is unaffected and a desk player will want them — but nothing in
 the design may require a key, which is the rule D15.4's reversal has to carry or it will be
@@ -126,8 +148,11 @@ re-eroded.
   follows two**: the design spends two, but a palm occupying one of exactly two slots would lock
   out the finger that has meaning, and dropping contacts at the window is how that becomes an
   unreproducible "sometimes the second finger does nothing".
-- **I2 — Selection.** The five rules above, plus the in-space `AssignWing` lift (a validator
-  scope change and its parity row, not new machinery).
+- **I2 — Selection.** ~~The five rules above~~ **built 2026-08-23**, plus the in-space
+  `AssignWing` lift (a validator scope change and its parity row, not new machinery) — **still
+  owed**, and split out rather than rushed at the end of the same sitting: it is an authority
+  change and it touches both halves' views, which is a different kind of care from the client
+  work beside it.
 - **I3 — The order surfaces.** §1's modality toggle, the two-finger puck, and the wheel with its
   handedness, cascade and reason-carrying hub. Its accept is a visual checkpoint and a person
   with a touch display — the R1 category, and the first slice in this corpus that cannot be
@@ -279,11 +304,11 @@ fleet but has no camera.
     exists on the wire and on the session with nothing connecting it to `AddViewer`. It got
     cheaper and more load-bearing in the same slice.
 
-**Then the input model, which is its own phase:** ~~I1~~ **built 2026-08-23** → I2 → I3. I1 and
-I2 are device-free and can land before a touch device exists; I3 cannot be accepted without one.
-**I2 is next**: the five selection rules, the roster row that stops moving the camera
-(`ClientApp.cpp:855`'s unconditional `FocusOn` is the defect), and the in-space `AssignWing`
-lift.
+**Then the input model, which is its own phase:** ~~I1~~ → ~~I2's rules~~ **both built
+2026-08-23** → I2's `AssignWing` lift → I3. I1 and I2 are device-free and can land before a touch
+device exists; I3 cannot be accepted without one. **What is next is I2's remainder**: `AssignWing`
+is docked-scope (`Station.cpp`), so a player can only *form* a wing at a station — lifting it is a
+validator scope change and its `BounceParity` row rather than new machinery.
 
 **Then the screens, unchanged in content but re-based on the input model:** N3 (settings, which
 I3 needs for handedness and the Auto toggle), **U3d-c's counted chip**, U3b's remainder, U4's
@@ -343,6 +368,13 @@ named.
 ---
 
 ## Revision log
+
+- **2026-08-23 — I2's selection rules built; its `AssignWing` lift is not.** Rules 1, 2, 4 and 5
+  are in: tap selects, drag pans, the roster row stops moving the camera, a second tap frames, a
+  long-press adds, and box select lost its binding while keeping its pick. The lift is deliberately
+  **not** in the same commit — it changes what the authority accepts and touches the view both
+  halves validate against, and that is a different kind of care from the client work beside it.
+  It stays I2's, and it is the slice's remainder rather than a new item.
 
 - **2026-08-23 — I1 built; the input phase has started.** Contacts on `InputFrame`, `Gesture.h`
   over them, the mouse filling slot zero, and the router handing gestures out behind the pointer

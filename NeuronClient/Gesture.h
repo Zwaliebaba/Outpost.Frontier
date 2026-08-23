@@ -97,6 +97,27 @@ struct GestureTuning
   float slopPixels = 12.0f;
 
   /*
+   * How long after a tap a second one still counts as a double (I2).
+   *
+   * The dwell's own number, reused rather than invented. Two intervals in one
+   * gesture vocabulary is one more than a hand can learn, and this is the
+   * interval a player already has to have a feel for -- hold this long and you
+   * get a surface, tap twice inside it and you get the second meaning.
+   */
+  float doubleTapSeconds = 0.350f;
+
+  /*
+   * And how far apart the two may land.
+   *
+   * The 48 px target floor (ADR-020 §8), whole rather than a fraction of it:
+   * two taps are "the same place" exactly when they could be aiming at the same
+   * thing, and nothing this design draws is smaller than the floor. Using the
+   * floor is also what stops a second tap on a *neighbouring* control reading
+   * as a double on the first.
+   */
+  float doubleTapSlopPixels = 48.0f;
+
+  /*
    * How much the gap between two contacts must change before it is a pinch
    * rather than two fingers resting.
    *
@@ -141,6 +162,20 @@ struct GestureState
   bool tapped = false;
   float tapX = 0.0f;
   float tapY = 0.0f;
+
+  /*
+   * Which tap of a rapid run this one is: 1 for a single, 2 for a double, and
+   * upward for a player drumming on the screen.
+   *
+   * **`tapped` fires on every one of them**, and that is the point rather than
+   * a compromise. The roster's rule is that a tap takes the wing and a double
+   * tap also frames it -- so a consumer acts on the first tap and *adds* on the
+   * second, with no waiting to find out whether a second is coming. Holding the
+   * first tap for the double-tap interval before acting is what makes a screen
+   * feel slow, and here it would also mean an order surface that opened a third
+   * of a second after the finger lifted.
+   */
+  std::uint32_t tapCount = 0;
 
   /// The dwell completed this frame (an edge). `x`/`y` are where, and the phase
   /// is `Holding` from here until the contact lifts.
@@ -236,6 +271,14 @@ private:
   float m_lastX = 0.0f;
   float m_lastY = 0.0f;
   float m_dwellSeconds = 0.0f;
+
+  /// The last tap, for the next one to be measured against. `m_sinceTapSeconds`
+  /// counts up for ever once it passes the window, which costs nothing and
+  /// avoids a second flag saying whether it is running.
+  float m_sinceTapSeconds = 0.0f;
+  float m_lastTapX = 0.0f;
+  float m_lastTapY = 0.0f;
+  std::uint32_t m_tapRun = 0;
 
   /// The separation the pinch is measured against, captured when the second
   /// contact arrived rather than when the pinch was recognised: a scale

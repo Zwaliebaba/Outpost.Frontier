@@ -449,8 +449,17 @@ int ClientApp::Run()
     }
     {
       NEURON_SPAN("Game");
+      /*
+       * What the contacts meant, before anything reads it (I1, I2).
+       *
+       * Ahead of the camera because the camera is the first consumer: a drag
+       * pans, and `UpdateCamera` has to know whether this contact became one.
+       * The router is handed the same answer inside `UpdateHud`, which is where
+       * `Begin` latches the frame.
+       */
+      m_gestures.Update(m_input, m_gestureTuning, deltaSeconds);
       UpdateCamera(deltaSeconds);
-      UpdateHud(deltaSeconds);
+      UpdateHud();
       UpdateSelection();
       UpdateOrders();
       // After the camera and the selection, because it reports both.
@@ -635,7 +644,32 @@ void ClientApp::UpdateCamera(float _deltaSeconds)
     return;
   }
 
-  const CameraIntent intent = MapCameraInput(m_input, m_cameraTuning, _deltaSeconds);
+  /*
+   * **Drag pans** (I2, Plan-of-Record §1's rule 1), and only a drag that began
+   * over the world.
+   *
+   * The same rule the box-select drag carried before it: a gesture may only
+   * *begin* in the world zone, because the HUD is a border rather than an
+   * overlay and everything outside `world` has a panel on it. Once begun it may
+   * leave freely -- a pan that stopped when the finger crossed the roster would
+   * be worse than the bug it prevented.
+   *
+   * Tested against where the contact went **down** rather than where it is now,
+   * which is what makes "began in the world" a fact about the gesture rather
+   * than about this frame. And read from the recognizer rather than the router,
+   * because this runs before `Begin` latches the frame -- the claim cannot
+   * reach here, which is the same reason the surface is asked above.
+   *
+   * `m_uiLayout` is the previous frame's, resolved in `UpdateHud`. It changes
+   * only on a resize, and a drag that began before one is a drag whose zone
+   * test was made against the layout the player could see.
+   */
+  const GestureState& gesture = m_gestures.State();
+  const bool panning =
+      gesture.phase == GesturePhase::Dragging && m_uiLayout.world.Contains(gesture.originX, gesture.originY) && !m_menuOpen;
+
+  const CameraIntent intent = MapCameraInput(m_input, m_cameraTuning, _deltaSeconds, panning ? gesture.deltaX : 0.0f,
+                                             panning ? gesture.deltaY : 0.0f);
   ApplyCameraIntent(m_camera, intent);
 }
 
@@ -665,7 +699,7 @@ std::uint32_t ClientApp::KindSlot(std::uint16_t _kind) const noexcept
  * Nothing here reaches the server. A selection is a client-side fact until an
  * order names it (ADR-006 §11: no round trip).
  */
-void ClientApp::UpdateHud(float _deltaSeconds)
+void ClientApp::UpdateHud()
 {
   m_uiLayout = ResolveUiLayout(m_input.viewportWidth, m_input.viewportHeight, m_config.uiScale, m_uiTuning);
 
@@ -684,9 +718,11 @@ void ClientApp::UpdateHud(float _deltaSeconds)
    *
    * After `Begin`, which clears the router's copy: the recognizer is what
    * carries a gesture across frames, and handing the answer over here is what
-   * puts it behind the pointer claim like every other pointer question.
+   * puts it behind the pointer claim like every other pointer question. It was
+   * *updated* at the top of the frame, because the camera reads it too and runs
+   * before this.
    */
-  m_router.NoteGesture(m_gestures.Update(m_input, m_gestureTuning, _deltaSeconds));
+  m_router.NoteGesture(m_gestures.State());
 
   if (m_router.WindowDeactivated())
   {
@@ -888,7 +924,11 @@ void ClientApp::UpdateHud(float _deltaSeconds)
    * it.
    */
   /*
-   * A press on a roster row takes that wing and looks at it.
+   * A tap on a roster row takes that wing; a second tap looks at it.
+   *
+   * It used to be one gesture that did both, and separating them is
+   * Plan-of-Record §1's rule 2 -- see the note on the framing below for what
+   * that cost a player mid-order.
    *
    * The row already knew how: `RosterRow::groupId` has been documented since
    * S11 as "what a click on the row would hand back to the game, once rows are
@@ -904,14 +944,21 @@ void ClientApp::UpdateHud(float _deltaSeconds)
    * that is the one case here that does nothing: there is nothing to select and
    * nowhere to look.
    *
-   * Additive on the same modifier the box-select uses, because "Talon plus
-   * Reserve" is a composition a player builds the same way whichever surface
-   * they build it on.
+   * **Driven by the gesture rather than by the press, since I2.** A tap takes
+   * the wing, a second tap frames it and a long-press adds it -- three meanings
+   * on one row, which a raw button edge cannot tell apart. The point tested is
+   * where the gesture *is*: a tap reports where the finger lifted, and a
+   * long-press where it is still holding.
    */
-  if (const std::uint32_t row = HitRosterChip(m_uiLayout.roster, m_rosterRowCount, m_uiLayout.scale, m_rosterTuning,
-                                              cursorX, cursorY);
-      row < m_rosterRowCount && m_router.ClaimPointerIn(RosterChipRect(m_uiLayout.roster, m_uiLayout.scale,
-                                                                       m_rosterTuning, row)))
+  const GestureState& gesture = m_router.Gesture();
+  const bool rosterEdge = gesture.tapped || gesture.longPressed;
+  const float gestureX = gesture.tapped ? gesture.tapX : gesture.x;
+  const float gestureY = gesture.tapped ? gesture.tapY : gesture.y;
+
+  if (const std::uint32_t row = rosterEdge ? HitRosterChip(m_uiLayout.roster, m_rosterRowCount, m_uiLayout.scale,
+                                                           m_rosterTuning, gestureX, gestureY)
+                                           : m_rosterRowCount;
+      row < m_rosterRowCount && m_router.ClaimPointer())
   {
     const RosterRow& fleet = m_rosterRows[row];
 
@@ -923,7 +970,20 @@ void ClientApp::UpdateHud(float _deltaSeconds)
 
     if (members > 0)
     {
-      if (m_router.Down(InputAction::SelectAdd))
+      /*
+       * **Taking a wing, and adding to one, are two gestures now** (I2,
+       * Plan-of-Record §1's rules 2 and 4).
+       *
+       * A tap takes the wing. A **long-press** adds it to what is already
+       * selected -- the world's long-press is spent on the order surfaces, the
+       * roster's is not, and T3b's press-versus-hold reasoning already
+       * establishes the idiom where it collides with nothing. The shift
+       * accelerator still adds, because a desk player will reach for it and
+       * demoting keybindings is not dropping them; what changed is that the
+       * design no longer *requires* one (ADR-020's amendment).
+       */
+      const bool adding = gesture.longPressed || m_router.Down(InputAction::SelectAdd);
+      if (adding)
       {
         for (const EntityId id : m_groupMembers)
         {
@@ -936,11 +996,24 @@ void ClientApp::UpdateHud(float _deltaSeconds)
       }
 
       /*
-       * And frame what was just selected.
+       * **And framing is a second tap, not a side effect of the first**
+       * (rule 2).
+       *
+       * This used to frame unconditionally, and that was the defect the plan
+       * names: a player taking a fleet in order to command it had the plane
+       * move under the order they were about to give. Taking and looking are
+       * two intentions, so they are two gestures -- and because `tapped` fires
+       * on both taps of a double, the second one *adds* the framing rather than
+       * replacing what the first did. Nothing waits for a timeout to find out
+       * whether a second tap is coming.
+       *
+       * A long-press never frames: it is composing a selection, and moving the
+       * camera part-way through composing one is the same defect wearing a
+       * different gesture.
        *
        * The whole *selection* rather than the wing pressed, which is the same
-       * thing on a plain press and the honest answer on an additive one: a
-       * player who has just taken a second wing wants to see both.
+       * thing on a plain tap and the honest answer once more than one wing is
+       * in it.
        *
        * A snap rather than a glide, which is `ResetView`'s idiom -- the one
        * other thing in this client that puts the camera somewhere.
@@ -954,21 +1027,24 @@ void ClientApp::UpdateHud(float _deltaSeconds)
        * -- closing that means the camera taking a frame rect rather than a
        * fraction, which is a bigger change than this control earns.
        */
-      m_focusPoints.clear();
-      for (const SceneEntity& entity : m_scene.entities)
+      if (gesture.tapped && gesture.tapCount >= 2)
       {
-        if (m_selection.Contains(entity.id))
+        m_focusPoints.clear();
+        for (const SceneEntity& entity : m_scene.entities)
         {
-          m_focusPoints.push_back(entity.planeMetres);
+          if (m_selection.Contains(entity.id))
+          {
+            m_focusPoints.push_back(entity.planeMetres);
+          }
         }
-      }
 
-      const UiRect& world = m_uiLayout.world;
-      const float chromeWidth =
-          world.width > 0.0f ? 1.0f - world.width / std::max(1.0f, m_uiLayout.viewport.width) : 0.0f;
-      const float chromeHeight =
-          world.height > 0.0f ? 1.0f - world.height / std::max(1.0f, m_uiLayout.viewport.height) : 0.0f;
-      m_camera.FocusOn(m_focusPoints, std::max(chromeWidth, chromeHeight) + FLEET_FRAME_AIR);
+        const UiRect& world = m_uiLayout.world;
+        const float chromeWidth =
+            world.width > 0.0f ? 1.0f - world.width / std::max(1.0f, m_uiLayout.viewport.width) : 0.0f;
+        const float chromeHeight =
+            world.height > 0.0f ? 1.0f - world.height / std::max(1.0f, m_uiLayout.viewport.height) : 0.0f;
+        m_camera.FocusOn(m_focusPoints, std::max(chromeWidth, chromeHeight) + FLEET_FRAME_AIR);
+      }
     }
     return;
   }
@@ -1075,48 +1151,45 @@ void ClientApp::UpdateHud(float _deltaSeconds)
 
 void ClientApp::UpdateSelection()
 {
-  if (!m_input.windowFocused)
+  /*
+   * **Tap selects** (I2, Plan-of-Record §1's rule 1).
+   *
+   * This replaced a press/move/release drag that resolved to a click or a box.
+   * The gesture layer decides which a contact became -- a tap that stayed put,
+   * a drag that went to the camera, a long-press that will go to the order
+   * surfaces -- so what is left here is one question: did a tap happen in the
+   * world, and what is under it.
+   *
+   * Nothing to cancel on focus loss any more, which is the shape of the change:
+   * a gesture that outlives a frame lives in `GestureRecognizer`, and it drops
+   * its own on an unfocused frame.
+   */
+  const GestureState& gesture = m_router.Gesture();
+  if (!gesture.tapped)
   {
-    // A drag that was interrupted by alt-tab has no release coming, and
-    // finishing it on the next click would apply a box the player drew a
-    // minute ago across a camera move.
-    m_selection.CancelDrag();
     return;
   }
 
-  const auto cursorX = static_cast<float>(m_input.cursorX);
-  const auto cursorY = static_cast<float>(m_input.cursorY);
-
   /*
-   * A drag may only *begin* in the world zone.
+   * A tap only *lands* in the world zone.
    *
    * The HUD is a border rather than an overlay (`UiLayout`), so everything
-   * outside `world` has a panel on it -- and until now a press on the roster or
-   * the command row also started a box selection across the fleet underneath.
-   * Once begun a drag may leave the zone freely: the box is meant to extend to
-   * wherever the cursor goes, and a selection that cancelled when it touched
-   * the ability rack would be worse than the bug.
+   * outside `world` has a panel on it. The menu is the one thing that floats
+   * *over* the world zone, so it is excluded by name: without it a tap on
+   * RESUME would also clear the fleet underneath.
+   *
+   * The pointer claim covers the rest -- a tap a surface took never reaches
+   * here at all -- and this is the zone test the claim cannot make, because the
+   * world is what is left rather than a widget that could claim itself.
    */
-  if (m_router.Pressed(InputButton::Left))
+  if (!m_uiLayout.world.Contains(gesture.tapX, gesture.tapY) || m_menuOpen)
   {
-    // The menu's presses never reach the world: the open list floats over the
-    // world zone, so without this a press on RESUME would also start a box
-    // selection across the fleet underneath it.
-    if (m_uiLayout.world.Contains(cursorX, cursorY) && !m_menuOpen)
-    {
-      m_selection.BeginDrag(cursorX, cursorY, m_router.Down(InputAction::SelectAdd));
-    }
-  }
-  else if (m_selection.Dragging())
-  {
-    m_selection.UpdateDrag(cursorX, cursorY);
+    return;
   }
 
-  if (m_router.Released(InputButton::Left) && m_selection.Dragging())
-  {
-    m_selection.EndDrag(m_scene.entities, m_camera.PlaneMappingForNdc(), m_input.viewportWidth, m_input.viewportHeight,
-                        m_camera.ScreenFloorMetres(Selection::PICK_FLOOR_PIXELS));
-  }
+  m_selection.Tap(gesture.tapX, gesture.tapY, m_router.Down(InputAction::SelectAdd), m_scene.entities,
+                  m_camera.PlaneMappingForNdc(), m_input.viewportWidth, m_input.viewportHeight,
+                  m_camera.ScreenFloorMetres(Selection::PICK_FLOOR_PIXELS));
 }
 
 void ClientApp::UpdateOrders()
@@ -1408,7 +1481,10 @@ void ClientApp::OnSurfaceChanged(const SurfaceChange& _change)
    * anything yet; the hangar's composer is the first that will.
    */
   m_focus.ClearIfOn(_change.exited);
-  m_selection.CancelDrag();
+  // The gesture rather than a selection drag, since I2: the contact in flight
+  // belongs to the surface that is leaving, and a long-press whose dwell
+  // completed against the screen behind it is an order nobody gave.
+  m_gestures.Cancel();
   m_puck.Cancel();
 
   if (_change.entered == SurfaceId::Station)
@@ -2462,25 +2538,16 @@ void ClientApp::BuildTacticalHud(double _nowSeconds)
                   m_ui);
 
   /*
-   * The drag rectangle S8 deferred here.
+   * **The drag rectangle S8 deferred here is gone** (I2, Plan-of-Record §1's
+   * rule 5).
    *
-   * A screen-space quad and never a world mark: the box is axis-aligned in
-   * *pixels* and an arbitrary parallelogram on the plane, which is the same
-   * reason `PickBox` tests ships in screen space rather than mapping four
-   * corners onto the plane (ADR-006 §11). Drawn only once the gesture has left
-   * the click slop, so a click never flashes a box.
+   * It was a screen-space quad drawn while a left-drag was resolving to a box.
+   * Once drag is the camera there is no such gesture: box select lost its
+   * binding rather than its argument, and two-finger drag is reserved for it.
+   * `PickBox` survives in `Picking.h` for that day; what has no reason to
+   * survive is a rectangle nothing can draw, so the quad went with the gesture
+   * rather than being left behind as paint.
    */
-  if (m_selection.DragIsBox())
-  {
-    const UiRect box = UiRect::FromCorners(m_selection.DragStartX(), m_selection.DragStartY(), m_selection.DragCurrentX(),
-                                           m_selection.DragCurrentY());
-    // The wash is the ring colour at low alpha rather than a colour of its
-    // own: a box and the rings it is about to produce must obviously be the
-    // same gesture. The ring colour itself is `OverlayTuning`'s -- a
-    // world-space colour, outside the HUD palette's remit.
-    m_ui.AddQuad(box, WithAlpha(m_overlayTuning.ringColourRgba, 0x28));
-    m_ui.AddBorder(box, 1.0f, m_overlayTuning.ringColourRgba);
-  }
 
   // The roster's rows and the location blocks were asked for in `UpdateHud`,
   // because the column's geometry depends on how many there are and the column

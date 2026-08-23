@@ -491,6 +491,14 @@ loader refuses a material outside the five and this shading model reads albedo o
     box-select = ship pos inside the screen rect's plane parallelogram. No GPU picking, no
     server round-trip. (Same plane point feeds the order puck — one code path.)
 
+    > **Box-select has no gesture as of 2026-08-23 (I2).** ADR-020's amendment made drag the
+    > camera, which is the binding a marquee had, and [Plan-of-Record §1](../Plan-of-Record.md)
+    > rule 5 drops it with two-finger drag reserved for it. `PickBox` and `PlaneToNdc` stand
+    > exactly as described here: the arithmetic is what that reserved gesture would call, and
+    > deleting it would make the difference between "dropped" and "refused" invisible. What
+    > changed is a caller, not a model — so read what follows as the design for a pick that is
+    > currently unbound.
+
     **11a. There is no ray** (S8, and it is the ortho camera's dividend rather than a shortcut).
     The projection is orthographic and the world is a plane, so `PlaneMappingForNdc` is affine
     and three `float2`s carry all of it: a pixel becomes a plane point by

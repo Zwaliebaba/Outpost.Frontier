@@ -575,6 +575,34 @@ place is 200 chips, so the hangar's wing columns scroll.
 > shard. Box-select is dropped with two-finger drag reserved, because once drag is the camera it
 > has no home and the corpus never drew one.
 >
+> > **Built 2026-08-23 as I2 — the rules. Rule 3's lift is not.**
+> >
+> > A tap takes what is under it and a tap on nothing clears. A drag pans, with the sign the
+> > middle-drag already used, so a finger and a mouse cannot disagree about which way the plane
+> > goes. A roster tap takes the wing and **no longer frames it**, which closes the defect this
+> > paragraph names by line number; a second tap frames it, and a long-press on the row adds to
+> > the selection instead of replacing it. `Selection` lost its press/move/release state machine
+> > outright — `Gesture.h` owns when a tap happened — so what is left of it is the set and one
+> > function.
+> >
+> > **`PickBox` was kept.** This paragraph *reserves* two-finger drag for the marquee, and
+> > deleting the arithmetic that would serve it would have quietly turned "dropped" into
+> > "refused".
+> >
+> > Two decisions the slice had to take. **Framing is the second tap of a double, and the tap
+> > edge fires on both** — so the first tap acts at once and the second *adds* the framing.
+> > Holding every tap for a double-tap window first is a third of a second of nothing on the
+> > gesture a player makes most, and it would put the same delay in front of an order surface.
+> > And **the pan is gated on where the contact went down** rather than on where it is now: a
+> > gesture may only begin over the world, and once begun it may leave freely. That is the rule
+> > the box-select drag already carried, which is why it outlives its own removal.
+> >
+> > **What is still owed is rule 3's second half.** `AssignWing` is still docked-scope
+> > (`Station.cpp`), so wings are control groups a player can only *form* at a station. Lifting
+> > it is a validator scope change and a parity row rather than new machinery, and it is split
+> > out because it changes what the authority accepts — a different kind of care from the client
+> > work beside it.
+>
 > **The command wheel is therefore built, not superseded.** It is half the order model — under
 > §1's table, ATTACK and ABILITY have no other entry point — and `MAX_ORDER_KINDS = 8`
 > (`OrderIntent.h:383`) stops being circular the day it is real. The verb taxonomy the row and
