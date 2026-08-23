@@ -72,6 +72,9 @@
     <ClCompile Include="SettingsTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="CountedChipTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="OverlayTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

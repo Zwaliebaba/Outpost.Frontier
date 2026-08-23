@@ -59,6 +59,7 @@
     <ClCompile Include="SoundBank.cpp" />
     <ClCompile Include="SettingsScreen.cpp" />
     <ClCompile Include="ContrastAudit.cpp" />
+    <ClCompile Include="CountedChip.cpp" />
     <ClCompile Include="StationScreen.cpp" />
     <ClCompile Include="SurfaceStack.cpp" />
     <ClCompile Include="TextEditState.cpp" />
@@ -113,6 +114,7 @@
     <ClInclude Include="RosterSelection.h" />
     <ClInclude Include="SettingsScreen.h" />
     <ClInclude Include="ContrastAudit.h" />
+    <ClInclude Include="CountedChip.h" />
     <ClInclude Include="StationScreen.h" />
     <ClInclude Include="StationView.h" />
     <ClInclude Include="SoundBank.h" />

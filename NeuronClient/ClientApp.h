@@ -21,6 +21,7 @@
 #include "GhostLane.h"
 #include "GpuUploadRing.h"
 #include "ContrastAudit.h"
+#include "CountedChip.h"
 #include "HudPalette.h"
 #include "HudRoster.h"
 #include "InputMap.h"
@@ -632,6 +633,11 @@ private:
    * that the layout and the hit tests both read, and one resolved layout that
    * the presses and the draw both read.
    */
+  /// The counted chip's sizes (U3d-c). Its own table beside the others, because
+  /// the chip is the icon ladder's rung rather than a piece of one screen -- the
+  /// density ladder is its second caller when it lands.
+  CountedChipTuning m_countedChipTuning;
+
   SettingsScreenTuning m_settingsTuning;
   SettingsScreenLayout m_settingsLayout;
 

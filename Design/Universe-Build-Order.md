@@ -10,8 +10,10 @@ state of this phase, not a claim about what happens next.
 half, U5's pure half, U3c and U3d-a/U3d-b built** (U3c 2026-08-21; U3d-a and U3d-b 2026-08-22).
 **U3d — interest and delta — was added 2026-08-22**: ADR-018 A14 scheduled it for "after U3c"
 and no build order had absorbed it, so it is specified below. **Its first two sub-slices are
-built and R19 is closed**; what is left of it is U3d-c's counted chip, which is screen work and
-sits behind the input model with the rest. What is left after it is **screen work**:
+built and R19 is closed**; ~~what is left of it is U3d-c's counted chip, which is screen work and
+sits behind the input model with the rest~~ **and U3d-c landed 2026-08-23, so U3d is built** —
+the counted chip's *visual checkpoint* is what is left of it, and that is an R1 item rather than
+a slice. What is left after it is **screen work**:
 U3b's client half, U4's route feeder and icons, U5's map itself and U6 need a GPU and a person —
 ~~with no exceptions left~~ **and, as of 2026-08-22, behind the input model the plan of record
 establishes**, since a screen built against the mouse adaptation would be retrofitted for touch
@@ -319,6 +321,23 @@ is its own reason rather than a reused one, because the refusal is a sentence th
 reads and `NotAtStation` would name a different problem with a different action.
 
 **Still owed by U3b:** A15's RTT-parameterised acceptance and A16's presence edges.
+
+> **Both examined 2026-08-23, and neither is buildable here — for different reasons, which is
+> why they should stop being one line.**
+>
+> **A16's presence edges have no destination.** Both rules route to the map — *"presence lost
+> under a pinned camera → the map"*, *"every fleet in transit → the map"* — and `SurfaceId::Map`
+> is an enumerator nothing pushes and nothing draws. The map screen is U5's and U6's. So A16 is
+> blocked on a surface rather than on effort, and building the edge detection now would produce
+> two code paths whose only exit is a screen that does not exist.
+>
+> **A15 is an acceptance procedure, not a feature**, and it is half-answerable. The *settle* is
+> built and named: `ClientApp::VIEW_SETTLE_SECONDS` is 200 ms, which is ADR-002's
+> interpolation-buffer refill made a designed pause rather than a pretended instant. What is not
+> built is the **injected-delay shim** — `Transport.h` has no latency hook of any kind — and
+> even with one the accept is a *timed observation of a real client*, so it needs a GPU and a
+> person like the rest of the R1 queue. The target is therefore stated rather than measured:
+> **RTT + 200 ms**, which is the form A15 asks for, replacing W0's flat "under half a second".
 
 **The location blocks landed 2026-08-21**, and they landed as a *generalisation* rather than as
 a new panel. T2 built `DockedBlock` for the hangar's roster; U3b's second and third cases were
@@ -876,6 +895,33 @@ are told **how many** they are not being shown.
 tick with a missing part is applied but **not acked**; a keyframe replaces rather than merges;
 `leftInterest` retires a hull and no ghost survives. Visual checkpoint: the counted chip reads a
 real `culledCount` on a grid over budget.
+
+> **The counted chip landed 2026-08-23, and the rung it was to render through did not exist.**
+>
+> Both this slice and [ADR-022 §5d](ADR/ADR-022-interest-and-delta.md) say `culledCount`
+> *"renders through the icon ladder's **existing** counted-chip rung"*. It does not exist: the
+> density ladder (`tactical-icon-system.png` §6) is not built, so there was no rung to reuse and
+> `NeuronClient/CountedChip.h` is it, built here and waiting for its second caller.
+>
+> **And it could not have been that rung anyway**, which is the finding rather than the
+> inconvenience. A density merge knows where its group is and draws *"an extent outline plus a
+> count"*; a **culled** entity is one the server did not send, so the client holds a number and
+> nothing else — no position, no extent, not even a bearing. Drawing it on the plane would
+> invent exactly the *"position the client cannot justify"* that the print forbids in the same
+> sentence. So the chip is a **screen-space statement about the feed**, sited with the readouts
+> that are about the connection rather than about the world.
+>
+> Zero draws nothing. §5d's rule is that a player is never told a grid is empty when it is not;
+> it does not ask for a chip reading "none hidden" on every fully-sent frame. And the player
+> never has to wonder whose hulls are behind it: §5a guarantees owned and selected ships are
+> never culled, so the answer is always *somebody else's*.
+>
+> `RenderScene::culledCount` is the seam, filled in `BuildScene` from the newest frame's header
+> rather than from the interpolated sample — halfway between "9 hidden" and "11 hidden" is a
+> number the authority never stated.
+>
+> **What is still owed is the visual checkpoint**, which needs a grid over budget on a real
+> client and therefore a GPU and a person. It joins the R1 queue rather than being counted here.
 
 ---
 

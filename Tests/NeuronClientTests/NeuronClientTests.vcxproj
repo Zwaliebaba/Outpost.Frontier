@@ -108,6 +108,7 @@
     <ClCompile Include="DeltaTests.cpp" />
     <ClCompile Include="PickingTests.cpp" />
     <ClCompile Include="SettingsTests.cpp" />
+    <ClCompile Include="CountedChipTests.cpp" />
     <ClCompile Include="PuckTests.cpp" />
     <ClCompile Include="CommandTests.cpp" />
     <ClCompile Include="LaneTests.cpp" />

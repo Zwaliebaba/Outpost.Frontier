@@ -22,6 +22,12 @@ void RenderScene::Clear() noexcept
   instances.clear();
   classRanges.clear();
   entities.clear();
+
+  // And the count with them. It is a statement about the frame being built, so
+  // a scene that was cleared and not refilled must not keep the last frame's
+  // answer -- which would leave a chip on screen claiming ships are hidden on a
+  // grid nobody is watching any more.
+  culledCount = 0;
 }
 
 void RenderScene::SortByClass(std::uint32_t _classCount)

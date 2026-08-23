@@ -2597,6 +2597,34 @@ void ClientApp::BuildTacticalHud(double _nowSeconds)
    * rather than being left behind as paint.
    */
 
+  /*
+   * **How many ships on this grid are not being shown** (ADR-022 §5d, U3d-c).
+   *
+   * The last step of U3d: `culledCount` has reached the client since U3d-b and
+   * stopped at `ReplicatedView::CulledCount()` with nothing drawing it.
+   *
+   * A screen-space chip in the world zone's bottom-left rather than a mark on
+   * the plane, because a culled entity has no position -- see `CountedChip.h`.
+   * Zero draws nothing: the rule is that a player is never told a grid is empty
+   * when it is not, and it does not ask for a chip that says "none hidden".
+   *
+   * Caution amber, this palette's word for a temporary condition, which is what
+   * a truncated tick is: the same grid under a lighter budget sends everything.
+   */
+  if (m_scene.culledCount > 0)
+  {
+    char chipText[COUNTED_CHIP_TEXT_BYTES] = {};
+    const char* said = CountedChipText(m_scene.culledCount, chipText, sizeof chipText);
+    if (said[0] != '\0')
+    {
+      const UiRect chip = CountedChipRect(layout.world, TextCellCount(said), cell, layout.scale, m_countedChipTuning);
+      m_ui.AddQuad(chip, m_palette.chipBg);
+      m_ui.AddBorder(chip, 1.0f * layout.scale, m_palette.border);
+      m_ui.AddText(chip.x + m_countedChipTuning.paddingX * layout.scale,
+                   chip.y + (chip.height - bodyPx) * 0.5f, m_uiTuning.bodySizeIndex, m_palette.caution, said);
+    }
+  }
+
   // The roster's rows and the location blocks were asked for in `UpdateHud`,
   // because the column's geometry depends on how many there are and the column
   // carries a live control now. The rows are the game's answer, not a grouping

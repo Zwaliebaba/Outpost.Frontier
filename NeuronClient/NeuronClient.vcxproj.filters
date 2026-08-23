@@ -284,6 +284,12 @@
     <ClCompile Include="ContrastAudit.cpp">
       <Filter>Hud</Filter>
     </ClCompile>
+    <ClInclude Include="CountedChip.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClCompile Include="CountedChip.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
     <ClInclude Include="RosterSelection.h">
       <Filter>Input</Filter>
     </ClInclude>

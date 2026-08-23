@@ -314,8 +314,9 @@ question is whether to procure a touch display or to take N3 and the screen slic
 
 **Then the screens, unchanged in content but re-based on the input model:** ~~N3 (settings, which
 I3 needs for handedness and the Auto toggle)~~ **built 2026-08-23 — handedness is settable, so
-I3's wheel has its prerequisite**, **U3d-c's counted chip**, U3b's remainder, U4's client half,
-U5 **including N7**, U6, E5.
+I3's wheel has its prerequisite**, ~~**U3d-c's counted chip**~~ **built 2026-08-23, which closes
+U3d**, ~~U3b's remainder~~ **examined and blocked — A16 needs the map surface, A15 needs a
+transport shim and a stopwatch on a real client**, U4's client half, U5 **including N7**, U6, E5.
 
 **What moved and why:** every screen slice now sits behind the input model rather than beside it.
 Building a screen against the mouse adaptation and re-fitting it for touch afterwards is the
@@ -371,6 +372,30 @@ named.
 ---
 
 ## Revision log
+
+- **2026-08-23 — U3 closed as far as it closes, and the last two items are blocked on different
+  things.** U3d-c's counted chip is built, which finishes U3d: `culledCount` had reached
+  `ReplicatedView::CulledCount()` at U3d-b and stopped there.
+
+  **The rung it was to render through did not exist.** ADR-022 §5d and the build order both say
+  it renders through *"the icon ladder's existing counted-chip rung"*, and the density ladder
+  (`tactical-icon-system.png` §6) is unbuilt — so `CountedChip.h` is that rung, built here.
+  **And it could not have been that rung anyway:** a density merge knows where its group is and
+  draws an extent; a culled entity is one the server did not send, so the client holds a number
+  and nothing else. Putting it on the plane would invent the *"position the client cannot
+  justify"* the same print sentence forbids, so the chip is a screen-space statement about the
+  feed. Zero says nothing, and §5a's guarantee means it is never the player's own fleet.
+
+  **U3b's remainder was one line and should have been two.** A16's presence edges route to the
+  map on both rules, and `SurfaceId::Map` is an enumerator nothing pushes or draws — blocked on
+  U5/U6's surface, not on effort. A15 is an *acceptance procedure*: its settle half is built and
+  named (`VIEW_SETTLE_SECONDS`, 200 ms), its shim half does not exist (`Transport.h` has no
+  latency hook), and its accept is a timed observation of a real client either way. What could
+  be finalised was the **target**, now stated as **RTT + 200 ms** in the form A15 asks for
+  rather than W0's flat "under half a second".
+
+  So what is left of U3 is one R1 visual checkpoint and two items waiting on a screen and a
+  stopwatch — which puts the whole phase in the same queue as I3 and N6's measuring half.
 
 - **2026-08-23 — N3 built, and the contrast rule it enforces turned out to be unsatisfiable as
   written.** The settings screen has its layout, its five sections, the two the print marks

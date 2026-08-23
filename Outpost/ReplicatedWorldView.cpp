@@ -347,6 +347,21 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
   _outScene.Clear();
   _outScene.instances.reserve(m_sampled.size());
   _outScene.entities.reserve(m_sampled.size());
+
+  /*
+   * And how many this grid holds that were not sent (ADR-022 §5d, U3d-c).
+   *
+   * From the newest frame's header rather than from the sample: the sample is
+   * interpolated between two ticks and a count is not a quantity to blend --
+   * halfway between "9 hidden" and "11 hidden" is a number the authority never
+   * stated. `ReplicatedView::CulledCount` reports the latest, which is the same
+   * choice `statusBits` makes one field over and for the same reason.
+   *
+   * This is the last step of U3d: the count has reached the client since
+   * U3d-b and stopped there, which the build order recorded as the whole of
+   * what U3d-c had left.
+   */
+  _outScene.culledCount = m_view.CulledCount();
   m_validationIds.clear();
   m_validationMarks.clear();
   m_stationEntityId = Game::INVALID_SHIP_ID;
