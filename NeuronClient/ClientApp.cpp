@@ -891,28 +891,61 @@ void ClientApp::UpdateHud()
     return;
   }
 
-  if (!m_router.Pressed(InputButton::Left))
-  {
-    return;
-  }
-
-  const float cursorX = m_router.CursorX();
-  const float cursorY = m_router.CursorY();
+  /*
+   * --- and now the gesture, which is where the tactical chrome converts (R30)
+   *
+   * This was `if (!m_router.Pressed(InputButton::Left)) return;`, and the line
+   * was the whole of what R30 records: I2 put the *world* on the gesture seam --
+   * tap selects, drag pans -- and left the chrome reading a mouse's button edge,
+   * so on a touch display a player could take a fleet and then not command it.
+   *
+   * **It also made the roster's own conversion unreachable, which is the defect
+   * this found rather than the one it was scheduled to fix.** I2 rewrote the
+   * roster below to read `tapped` and `longPressed` -- and a tap fires when a
+   * contact *lifts* while a left press edge fires when it goes *down*, so the
+   * two are never true in the same frame. Every roster rule I2 built was
+   * correct, tested, and standing behind a gate that could not open: a tap could
+   * not take a wing, a second tap could not frame one, and a long-press could
+   * not add. Two right answers to two different questions, wired in series.
+   *
+   * What replaces it is not a second gate but the absence of one: each control
+   * below asks `ClaimTapIn` for its own rect, and the roster asks for the two
+   * edges it wants. Nothing is filtered out before it is asked for.
+   */
+  const GestureState& gesture = m_router.Gesture();
+  const float cursorX = gesture.tapX;
+  const float cursorY = gesture.tapY;
 
   /*
-   * The menu takes the press before everything under it: while the list is open
-   * every left press belongs to it -- an item acts, anywhere else closes --
-   * because a press that both closed the menu and box-selected the fleet under
-   * it would be two answers to one gesture.
+   * The menu takes the tap before everything under it: while the list is open
+   * every tap belongs to it -- an item acts, anywhere else closes -- because a
+   * tap that both closed the menu and selected the fleet under it would be two
+   * answers to one gesture.
    *
    * It claims the pointer rather than setting a flag the world remembers to
    * check, which is the same guarantee `m_uiConsumedPress` gave and the general
    * form of it (ADR-020 §2).
+   *
+   * **A drag over an open menu now closes nothing**, where a press used to close
+   * it on the way past. That is the right way round and costs nothing: the pan
+   * is already refused while the list is up (`UpdateCamera`'s `!m_menuOpen`), so
+   * a drag with a menu open was a gesture that closed a list and moved nothing.
    */
   if (m_menuOpen)
   {
+    if (!gesture.tapped)
+    {
+      /*
+       * The list is up, so nothing under it acts -- and the return has to be
+       * here rather than folded into the condition above. Everything below is
+       * tap-gated except the roster, which also answers a **long-press**: a hold
+       * that landed on the world behind an open menu would otherwise add a wing
+       * to the selection through a list the player was still reading.
+       */
+      return;
+    }
     (void)m_router.ClaimPointer();
-    m_menuOpen = false; // Whatever was pressed, the list has had its answer.
+    m_menuOpen = false; // Whatever was tapped, the list has had its answer.
     if (m_menuItemRects[MENU_SETTINGS].Contains(cursorX, cursorY))
     {
       // Live since N3. It was drawn dead and honest about it -- the list stayed
@@ -927,7 +960,7 @@ void ClientApp::UpdateHud()
     }
     return; // RESUME, the chip, or anywhere else: closed, and nothing more.
   }
-  if (m_router.ClaimPointerIn(m_menuButtonRect))
+  if (m_router.ClaimTapIn(m_menuButtonRect))
   {
     m_menuOpen = true;
     return;
@@ -946,7 +979,7 @@ void ClientApp::UpdateHud()
    * The map's own way back is the shared `< TACTICAL` chip, so the pair is one
    * mechanism (`SurfaceStack`) reached from two places rather than two.
    */
-  if (m_router.ClaimPointerIn(m_locationChipRect))
+  if (m_router.ClaimTapIn(m_locationChipRect))
   {
     OnSurfaceChanged(m_surfaces.Push(SurfaceId::Map));
     return;
@@ -983,13 +1016,14 @@ void ClientApp::UpdateHud()
    * that is the one case here that does nothing: there is nothing to select and
    * nowhere to look.
    *
-   * **Driven by the gesture rather than by the press, since I2.** A tap takes
-   * the wing, a second tap frames it and a long-press adds it -- three meanings
-   * on one row, which a raw button edge cannot tell apart. The point tested is
-   * where the gesture *is*: a tap reports where the finger lifted, and a
-   * long-press where it is still holding.
+   * **Driven by the gesture rather than by the press, since I2 -- and reachable
+   * since R30.** A tap takes the wing, a second tap frames it and a long-press
+   * adds it -- three meanings on one row, which a raw button edge cannot tell
+   * apart. The point tested is where the gesture *is*: a tap reports where the
+   * finger lifted, and a long-press where it is still holding. Until the
+   * left-press gate above came out, none of the three could fire at all: see the
+   * note where that gate used to be.
    */
-  const GestureState& gesture = m_router.Gesture();
   const bool rosterEdge = gesture.tapped || gesture.longPressed;
   const float gestureX = gesture.tapped ? gesture.tapX : gesture.x;
   const float gestureY = gesture.tapped ? gesture.tapY : gesture.y;
@@ -1088,10 +1122,28 @@ void ClientApp::UpdateHud()
     return;
   }
 
+  /*
+   * From here down, a tap is the only thing that acts (R30).
+   *
+   * The gate is here rather than at the top because the roster above wants two
+   * edges and this half wants one -- and it has to exist somewhere, because
+   * `cursorX`/`cursorY` are the *last* tap's coordinates on a frame with no tap
+   * in it. `GestureState` says so outright: the tap point is "meaningless while
+   * `phase` is `None`, and neither is cleared". A hit test run against a stale
+   * point is harmless while the claim beneath it refuses -- but the command row
+   * ends in a bare `ClaimPointer`, which would have fired the last button the
+   * player touched on every frame afterwards. One gate rather than four guards,
+   * and no site below has to remember which kind it is.
+   */
+  if (!gesture.tapped)
+  {
+    return;
+  }
+
   if (const LocationBlockLayout* block =
           HitLocationBlockButton(std::span<const LocationBlockLayout>{m_locationLayouts, m_locationLayoutCount},
                                  cursorX, cursorY);
-      block != nullptr && m_router.ClaimPointerIn(block->button))
+      block != nullptr && m_router.ClaimTapIn(block->button))
   {
     m_stationAnchor = block->anchor;
     OnSurfaceChanged(m_surfaces.Push(SurfaceId::Station));
@@ -1116,7 +1168,7 @@ void ClientApp::UpdateHud()
    */
   for (std::size_t index = 0; index < m_toastActionCount; ++index)
   {
-    if (m_toastActionRects[index].width <= 0.0f || !m_router.ClaimPointerIn(m_toastActionRects[index]))
+    if (m_toastActionRects[index].width <= 0.0f || !m_router.ClaimTapIn(m_toastActionRects[index]))
     {
       continue;
     }
@@ -1871,8 +1923,8 @@ void ClientApp::UpdateStationSurface()
     m_stationScroll.ScrollByWheel(notches);
   }
 
-  // The way back, before anything else can take the press.
-  if (m_router.ClaimPointerIn(m_backChipRect))
+  // The way back, before anything else can take the gesture.
+  if (m_router.ClaimTapIn(m_backChipRect))
   {
     OnSurfaceChanged(m_surfaces.Back());
     return;
@@ -4367,8 +4419,8 @@ void ClientApp::UpdateSettingsSurface()
   // The rail is laid out before the scroll is sized, because a press on it must
   // be answerable on the frame the body is still catching up on.
 
-  // The way back, before anything else can take the press.
-  if (m_router.ClaimPointerIn(m_settingsLayout.back))
+  // The way back, before anything else can take the gesture.
+  if (m_router.ClaimTapIn(m_settingsLayout.back))
   {
     OnSurfaceChanged(m_surfaces.Back());
     return;
@@ -4393,13 +4445,29 @@ void ClientApp::UpdateSettingsSurface()
     (void)m_router.ClaimWheel();
   }
 
-  if (!m_router.Pressed(InputButton::Left))
+  /*
+   * And the rest of the screen on the gesture seam (R30).
+   *
+   * N3 built this surface after I2 and against the mouse, which is the drift the
+   * risk row warns about rather than a defect of the slice: the chrome converts
+   * when something asks it to, and nothing had. Something has now -- **this is
+   * the screen that sets handedness**, which is I3's own hard prerequisite, so a
+   * client whose settings a finger could not reach would be one where the wheel
+   * could never be told which thumb it belongs to.
+   *
+   * The tap point rather than the cursor, so a slider set by a finger lands
+   * where the finger lifted. Slider *dragging* is still not built -- it was not
+   * built on the press either, so this is parity and not a regression -- and it
+   * is the obvious next thing this screen wants from the seam.
+   */
+  const GestureState& gesture = m_router.Gesture();
+  if (!gesture.tapped)
   {
     return;
   }
 
-  const float cursorX = m_router.CursorX();
-  const float cursorY = m_router.CursorY();
+  const float cursorX = gesture.tapX;
+  const float cursorY = gesture.tapY;
 
   if (const SettingsNavRow* row = HitSettingsNav({m_settingsNav, m_settingsNavCount}, cursorX, cursorY);
       row != nullptr && m_router.ClaimPointer())
@@ -4498,7 +4566,7 @@ void ClientApp::UpdateMapSurface()
 
   // The way off, before anything else can take the press -- on this screen the
   // shared back chip is the top bar's `< TACTICAL`.
-  if (m_router.ClaimPointerIn(m_mapLayout.back))
+  if (m_router.ClaimTapIn(m_mapLayout.back))
   {
     OnSurfaceChanged(m_surfaces.Back());
     return;

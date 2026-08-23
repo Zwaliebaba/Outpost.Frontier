@@ -194,8 +194,51 @@ public:
    * The common case in one call, because writing it out at each site is how a
    * stage ends up testing the rect and forgetting the claim -- a button that
    * works and also box-selects the fleet behind it.
+   *
+   * **This is the mouse-only door, and after R30's conversion nothing in this
+   * client uses it.** It is kept rather than deleted for the reason `PickBox`
+   * was: a left press is still a real thing a desk produces, and removing the
+   * only way to ask about one would turn "the chrome answers a finger" into "the
+   * chrome refuses a mouse". The order puck's right-button sequence is the case
+   * that would want it back (I3).
    */
   bool ClaimPointerIn(const UiRect& _rect) noexcept;
+
+  /*
+   * Takes the pointer if this frame's **tap** lifted inside `_rect` (R30).
+   *
+   * `ClaimPointerIn`'s replacement everywhere a control is actuated, and the
+   * difference is the whole of R30: a press edge is a mouse's word for "the
+   * button went down", and a finger has no button. A tap is what both a finger
+   * and a mouse produce through the same seam -- `Window` fills contact zero
+   * from the left button, so a click *is* a tap and no site below needs to know
+   * which one it got.
+   *
+   * **The lift point, not the cursor.** `GestureState::tapX/tapY` are where the
+   * contact came up, which for a mouse is where the cursor is and for a finger
+   * is the last place the player saw it. Testing the cursor instead would work
+   * on a desk and put a finger's answer up to a slop's distance away from where
+   * it was aimed.
+   *
+   * Three consequences worth stating, because all three are behaviour changes
+   * rather than refactors. A control now acts on **release** rather than on
+   * press, so a player who presses a button and slides off it before lifting is
+   * no longer committed -- which is the touch idiom and is strictly the kinder
+   * of the two. A **drag that begins on a control does nothing at all**, where a
+   * press used to fire immediately: that is the same rule the camera pan already
+   * carries (a gesture may only begin where it is allowed to), pointing at the
+   * chrome instead of at the world.
+   *
+   * And a **hold past the dwell is not a tap**, so a slow press on a button that
+   * has no long-press meaning actuates nothing. That is the recogniser's
+   * vocabulary rather than this method's opinion -- `Pressing` becomes `Holding`
+   * at 350 ms and never becomes a tap -- and it is deliberate: the roster row
+   * and the hangar's wing headers both give a hold its own meaning, so a hold
+   * that also actuated the control under it would make those two ambiguous. The
+   * station surface has behaved this way since T3's remainder; this is the rest
+   * of the chrome joining it rather than a new rule.
+   */
+  bool ClaimTapIn(const UiRect& _rect) noexcept;
 
   // --- the wheel channel --------------------------------------------------
 

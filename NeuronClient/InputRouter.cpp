@@ -62,6 +62,19 @@ bool InputRouter::ClaimPointerIn(const UiRect& _rect) noexcept
   return ClaimPointer();
 }
 
+bool InputRouter::ClaimTapIn(const UiRect& _rect) noexcept
+{
+  // Through `Gesture()` rather than off the member, so a stage that has already
+  // claimed the pointer sees no tap here either -- the same sentence the button
+  // edges carry, and the reason a claim is the mechanism rather than a flag.
+  const GestureState& gesture = Gesture();
+  if (!gesture.tapped || !_rect.Contains(gesture.tapX, gesture.tapY))
+  {
+    return false;
+  }
+  return ClaimPointer();
+}
+
 bool InputRouter::ClaimWheel() noexcept
 {
   if (m_wheelClaimed)

@@ -212,8 +212,10 @@ moves between the trees without a rename pass. Three things it changed in these 
   assignment and creation landed 2026-08-22 — they never needed the settings layer, which is what
   had been holding all three (ADR-017 §6's note) — and the layer itself landed the same day as
   **N2**, so a wing's *name* now has somewhere client-side to live (ADR-017 §6, the rule §6a.4
-  cites). What is left of that room is the rename **control**, and assigning to wing 0 to
-  disband, which wants the print's stray column first. **And the room stopped being a room on
+  cites). ~~What is left of that room is the rename **control**, and assigning to wing 0 to
+  disband, which wants the print's stray column first.~~ **Both built 2026-08-23** with T3's
+  remainder, which also moved the station surface onto the gesture seam — this block was one
+  slice behind and is corrected here. **And the room stopped being a room on
   2026-08-23**: I2 lifted `AssignWing` out of docked scope (ADR-017 §6's amendment), so a wing
   can be formed wherever the ships are — the authority accepts it and both halves agree, but
   nothing in the client can compose one in space yet, which is I3's.

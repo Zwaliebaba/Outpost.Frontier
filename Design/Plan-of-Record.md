@@ -1,7 +1,8 @@
 # Plan of Record
 
 **Status:** standing document, **revised in place** · opened 2026-08-22 · current as of
-2026-08-23 (U3d-a, U3d-b, N2, N5, N4, N6's sizing half, I1, I2, N3, U3d-c and U5a built). **This is the only document that says what is built next.** The three build orders
+2026-08-23 (U3d-a, U3d-b, N2, N5, N4, N6's sizing half, I1, I2, N3, U3d-c, U5a, U6a, **07b's
+device-free half and R30's conversion** built). **This is the only document that says what is built next.** The three build orders
 say what a slice *contains* and record what happened when it landed; this one says which slice,
 and when. Where it and an ADR disagree the ADR wins on *what*, which is the rule the build
 orders already run under.
@@ -276,7 +277,7 @@ fleet but has no camera.
 
 **Now, in order:**
 
-1. ~~**U3d — interest & delta**~~ — **built: U3d-a and U3d-b 2026-08-22, U3d-c 2026-08-23.** R19 is closed, the shared-grid gate (ADR-018 D3) is lifted, and A11's remainder landed with the `ShipId`/`EntityRecord::id` widening. ~~What is left is **U3d-c's counted chip** — `culledCount` reaches `ReplicatedView::CulledCount()` and nothing draws it yet~~ — **the counted chip landed 2026-08-23, and the rung it was to render through did not exist**: the density ladder is unbuilt, so `CountedChip.h` is that rung, and it could not have been that rung anyway because a culled entity has no position (ADR-022 §5d's note). What is left of U3d is the **visual checkpoint** — a real count on a grid over budget — which is an R1 item rather than a slice. The client's ack, keyframe and delta-apply paths, which this plan listed under U3d-c, landed with U3d-b because the wire cannot be tested without a reader.
+1. ~~**U3d — interest & delta**~~ — **built: U3d-a and U3d-b 2026-08-22, U3d-c 2026-08-23.** R19 is closed, the shared-grid gate (ADR-018 D3) is lifted, and A11's remainder landed with the `ShipId`/`EntityRecord::id` widening. ~~What is left is **U3d-c's counted chip** — `culledCount` reaches `ReplicatedView::CulledCount()` and nothing draws it yet~~ — **the counted chip landed 2026-08-23, and the rung it was to render through did not exist**: the density ladder is unbuilt, so `CountedChip.h` is that rung, and it could not have been that rung anyway because a culled entity has no position (ADR-022 §5d's note). **The ladder itself was built later the same day at 07b** (`IconDensity.h`), and the two stayed separate for exactly the reason U3d-c gave: one counts what the server did not send and has no position at all, the other counts what the client has and chose to draw as one. What is left of U3d is the **visual checkpoint** — a real count on a grid over budget — which is an R1 item rather than a slice. The client's ack, keyframe and delta-apply paths, which this plan listed under U3d-c, landed with U3d-b because the wire cannot be tested without a reader.
 
     Two decisions the slice had to take rather than find, both recorded with it: **tier 1 reads as "inside the camera's extent"** rather than ADR-022 §4's literal "a visible relationship *and* inside the extent", because the first conjunct has no producer until the combat phase; and **`ViewFocus` had to be invented** — §4's query needs a focus, an extent and a selection, and §5a's guarantee cannot be kept for a selection nobody told the server about, which amends ADR-016 §7's "the server has no business holding this".
 2. ~~**N2 — the user layer.**~~ **Built 2026-08-22.** `Settings.json` is written — atomically,
@@ -369,8 +370,12 @@ warp issued from the surface) and the four focus-polish items remain**, E5.
 > **Two of the four owed items are reported rather than built.** The halt cannot go into
 > ADR-018 D19's event record — that record is server-side, a route lives in one client's memory
 > by ADR-016 §8's own *"no server work"*, and the halt worth logging is **the one the client is
-> not there for**. Amended at ADR-016 §9a.1. The STATIC icon is blocked twice: the icon system
-> is unbuilt *and* the client does not know an entity's hull class at all.
+> not there for**. Amended at ADR-016 §9a.1. ~~The STATIC icon is blocked twice: the icon system
+> is unbuilt *and* the client does not know an entity's hull class at all.~~ **Both halves were
+> answered by 07b on 2026-08-23**: the icon system is built to its device-free edge, and
+> `SceneEntity` now carries a hull's icon slot, its standing and its silhouette — so the client
+> knows what class an entity is for the first time. What the STATIC icon still waits on is the
+> *atlas*, which is §7's art plus a GPU.
 >
 > **Three drawn-text defects found in passing**, and a guard so the class cannot recur: a marker
 > glyph had double-encoded into the source and had been drawing as three Latin-1 boxes since it
@@ -479,12 +484,48 @@ named.
 
 ## Revision log
 
+- **2026-08-23 — 07b and R30: the icon system's device-free half, and the tactical chrome onto
+  the gesture seam.** Two items that had been waiting on each other without saying so — the
+  icon sheet needed the client to know an entity's hull class, and the chrome needed a gesture
+  the roster was already reading. Three things came out of them that belong in a plan rather
+  than in a slice note.
+
+  **The chrome conversion found a defect worse than the one it was scheduled to fix.** I2
+  rewrote the roster to read `tapped` and `longPressed` and left it standing behind
+  `if (!m_router.Pressed(InputButton::Left)) return;` — and a press edge is the frame a contact
+  goes *down* while a tap is the frame it comes *up*. Never the same frame. So every roster rule
+  I2 built was correct, was tested, and could not fire: a tap could not take a wing, a second tap
+  could not frame one, a long-press could not add. **Two right answers wired in series**, and
+  neither half was wrong on its own — which is why no test caught it and why the one that catches
+  it now drives the recogniser over the frames `Window` actually produces rather than asserting
+  about either half alone. The general form is worth carrying: **a slice that converts a consumer
+  and leaves its gate is a slice that has built dead code**, and the corpus has one more of these
+  waiting wherever a surface was written before I1.
+
+  **The engine may own a vocabulary; it may not own the game's taxonomy.** The icon sheet is
+  per-class and eleven of the eleven classes are the game's, so `IconSlot` is an *index* and the
+  glyph table is data the composition root supplies — the mesh table's own shape, and ADR-018
+  D14's *"the game says which class, the engine owns what a class looks like"* one surface
+  further along than U5a needed it. What the engine does name is the four **families**, which is
+  the line `LampRig` already drew: a visual kind shared across hulls is vocabulary, and eleven
+  hull names would be `GameLogic` spelled inside `NeuronClient`.
+
+  **And a print can be stale in a second way.** U5a found `strategic-map.png` predated the touch
+  reversal; this one predates `HullClass::Gate`, which ADR-016 §10 appended a fortnight after §7
+  closed the taxonomy at eleven. So the plate has no row for a class the tree ships, and the row
+  is written here from §2's own description and **flagged inferred**, in ADR-027's manner. That
+  is now twice in three screen slices that a decision moved under a plate and nothing re-read the
+  plate. It is worth a standing habit rather than a third finding.
+
 - **2026-08-23 — T3's remainder: the rename control, the disband, and the defect the second
   found.** The control was owed one thing and the layer under it had already landed, so what it
   actually needed was two input channels — `InputAction::Confirm` and `TextEditKey` — and the
   station surface moved onto the gesture seam to make room for a second gesture on a header.
   That closes half of R30, and the way it closed is the part to remember: **the chrome converts
   when something asks it to, one surface at a time**, rather than in a sweep nobody scheduled.
+  *(The other half converted the same day with 07b — and the sweep, when it finally came, was
+  four `ClaimPointerIn` sites and two gates. What it cost was not the conversion but finding
+  what the gates had been hiding; see the entry at the head of this log.)*
 
   **Two findings, and neither was in the slice's list.** Giving the strays a roster row meant
   asking who owns a ship — and `BuildRoster` had never asked, so a hostile fleet flying *their*
