@@ -1874,6 +1874,10 @@ ClientConfig MakeClientConfig(const Outpost::AppConfig& _config)
   client.vsync = _config.client.renderer.vsync;
   client.frameCap = _config.client.renderer.frameCap;
   client.msaaSamples = _config.client.renderer.msaa; // S14: the 4x offscreen target.
+  // Zero travels through unchanged: the client is the tier that knows what its
+  // own passes cost, so "decide for yourself" is a thing this layer forwards
+  // rather than resolves (ADR-018 A20).
+  client.uploadBytesPerFrame = _config.client.renderer.uploadBytesPerFrame;
   client.serverHost = _config.client.connectHost;
   client.serverPort = _config.client.connectPort;
 

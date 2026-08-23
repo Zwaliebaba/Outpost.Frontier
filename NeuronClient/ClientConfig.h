@@ -58,6 +58,22 @@ struct ClientConfig
   /// unsupported count falls back to 1 at swapchain creation with a log line.
   std::uint32_t msaaSamples = 4;
 
+  /*
+   * The upload ring's per-frame segment, in bytes (ADR-018 A20).
+   *
+   * **Zero means the budget this client derives for itself** -- `UploadBudget.h`
+   * sized from what the renderer is built to draw, which is the answer a
+   * deployment should almost always want. The same sentence `ServerConfig`'s
+   * tick budget carries, and for the same reason: a config written before this
+   * existed says zero, and gets the right number.
+   *
+   * A non-zero value below `MIN_UPLOAD_BYTES_PER_FRAME` is raised to it and
+   * logged. That floor is what the tactical view alone costs; below it the
+   * client cannot draw a full grid at all, which is a broken game rather than a
+   * retuned one.
+   */
+  std::uint32_t uploadBytesPerFrame = 0;
+
   /// Whether the Tier-1 diagnostics strip starts visible (`debug-hud.png`).
   /// Off by default and toggled at runtime by F1 -- the setting is where the
   /// toggle *lives*, the key is merely a shortcut to it.

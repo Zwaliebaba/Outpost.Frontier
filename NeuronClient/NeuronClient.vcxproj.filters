@@ -284,6 +284,9 @@
     <ClInclude Include="UiDrawList.h">
       <Filter>Hud</Filter>
     </ClInclude>
+    <ClInclude Include="UploadBudget.h">
+      <Filter>Gpu</Filter>
+    </ClInclude>
     <ClInclude Include="UiLayout.h">
       <Filter>Hud</Filter>
     </ClInclude>

@@ -142,7 +142,7 @@ void ReadRenderer(const JsonValue& _parent, RendererSettings& _settings, ConfigD
   {
     return;
   }
-  WarnUnknownKeys(renderer, {"vsync", "msaa", "frameCap", "hullScale"}, "client.renderer", _diagnostics);
+  WarnUnknownKeys(renderer, {"vsync", "msaa", "frameCap", "hullScale", "uploadBytesPerFrame"}, "client.renderer", _diagnostics);
   ReadBool(renderer, "vsync", _settings.vsync, "client.renderer", _diagnostics);
   ReadUInt(renderer, "msaa", _settings.msaa, 1, 8, "client.renderer", _diagnostics);
   ReadUInt(renderer, "frameCap", _settings.frameCap, 0, 1000, "client.renderer", _diagnostics);
@@ -150,6 +150,12 @@ void ReadRenderer(const JsonValue& _parent, RendererSettings& _settings, ConfigD
   // which is a way to lose an evening. The ceiling is where a formation begins
   // to overlap itself.
   ReadDouble(renderer, "hullScale", _settings.hullScale, 0.25, 2.5, "client.renderer", _diagnostics);
+  // Zero is the sentinel for "the client's own budget", so the range admits it
+  // and the ceiling is a sanity bound rather than a tuning limit: 64 MiB is far
+  // past any frame this renderer can compose and far short of a typo that
+  // reserves a gigabyte of upload heap.
+  ReadUInt(renderer, "uploadBytesPerFrame", _settings.uploadBytesPerFrame, 0, 64u * 1024u * 1024u, "client.renderer",
+           _diagnostics);
 }
 
 void ReadAudio(const JsonValue& _parent, AudioSettings& _settings, ConfigDiagnostics& _diagnostics)
@@ -690,6 +696,7 @@ void WriteClient(Neuron::JsonWriter& _writer, const ClientSettings& _client, con
   AddIfChanged(renderer, "msaa", _client.renderer.msaa, _shipped.renderer.msaa);
   AddIfChanged(renderer, "frameCap", _client.renderer.frameCap, _shipped.renderer.frameCap);
   AddIfChanged(renderer, "hullScale", _client.renderer.hullScale, _shipped.renderer.hullScale);
+  AddIfChanged(renderer, "uploadBytesPerFrame", _client.renderer.uploadBytesPerFrame, _shipped.renderer.uploadBytesPerFrame);
 
   std::vector<ChangedKey> audio;
   AddIfChanged(audio, "enabled", _client.audio.enabled, _shipped.audio.enabled);

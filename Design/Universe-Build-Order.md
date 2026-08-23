@@ -1027,10 +1027,18 @@ the gate stands on its grid, a fleet at it is let through, a fleet across the gr
 `NotAtGate`, and the crossing lands in the system on the far side.
 
 ### U5 — Strategic map v1 *(depends only on U1 — runs in parallel with U2–U4)*
-**Gate (ADR-018): D7 is delivered — [ADR-020](ADR/ADR-020-ui-architecture.md) — and A20's
-instruments still owe their run** (spike 3, the S5 frame check), with the upload ring and
-fixed GPU budgets re-sized from the corpus caps (1,024 entities / 2,500 nodes) so this slice
-measures the map, not the MVP's constants. The screen is built as an **engine surface fed neutral
+**Gate (ADR-018): D7 is delivered — [ADR-020](ADR/ADR-020-ui-architecture.md); the upload ring
+is re-sized; A20's instruments still owe their run.** ~~the upload ring and fixed GPU budgets
+re-sized from the corpus caps (1,024 entities / 2,500 nodes)~~ **Done 2026-08-23** —
+`NeuronClient/UploadBudget.h` derives the per-frame segment from the ceilings the renderer is
+built for, and **this slice is why it could not wait**: the 256 KiB constant it replaced was
+sized for the tactical view, the map's instances alone are four times that, and a short ring
+makes a pass drop its stream *entirely* — so U5's own acceptance ("the full 2,500 render inside
+the frame budget with the `Ui` span proving it") would have been measured against a blank screen.
+`MAX_MAP_NODES` and its label allowance are the client's statement of what it is built to draw;
+a map that outgrows them is a config change rather than a rebuild. **Still owed: spike 3 and the
+S5 frame check**, both of which need a GPU and a person, so this slice measures the map rather
+than the MVP's constants only once somebody has run them. The screen is built as an **engine surface fed neutral
 data** (ADR-018 D14): the baked topology crosses the seam once at boot as a neutral graph,
 search and route-solve are GameLogic pure functions.
 The screen from `strategic-map.png`, deliberately the subset whose content exists: region /

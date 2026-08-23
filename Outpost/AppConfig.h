@@ -70,6 +70,25 @@ struct RendererSettings
    * lanes and pucks are screen-space, and neither reads this.
    */
   double hullScale = 1.0;
+
+  /*
+   * The upload ring's per-frame segment, in bytes (ADR-018 A20).
+   *
+   * **Zero means the budget the client derives for itself**, which is the
+   * answer a deployment should almost always want: `NeuronClient`'s
+   * `UploadBudget.h` sizes it from what the renderer is built to draw, so it
+   * moves when a stream grows a field rather than when somebody remembers.
+   * The same sentence `server.tickBudgetBytes` carries, and for the same
+   * reason -- a config written before this existed says zero and gets the
+   * right number.
+   *
+   * The floor is the client's to enforce and not this layer's: a number here
+   * is checked for range and nothing else, because `AppConfig` may not name a
+   * NeuronClient constant (Dependency-Map, "Outpost.exe -- composition root").
+   * A non-zero value too small to draw a full grid is raised at creation, with
+   * a log line saying so.
+   */
+  std::uint32_t uploadBytesPerFrame = 0;
 };
 
 struct CameraSettings

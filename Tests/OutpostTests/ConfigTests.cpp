@@ -499,6 +499,7 @@ public:
     config.client.renderer.msaa = 8;
     config.client.renderer.frameCap = 144;
     config.client.renderer.hullScale = 1.75;
+    config.client.renderer.uploadBytesPerFrame = 2u * 1024u * 1024u;
     config.client.audio.enabled = false;
     config.client.audio.voiceCap3D = 64;
     config.client.audio.voiceCap2D = 32;
@@ -524,6 +525,7 @@ public:
     Assert::AreEqual<std::uint32_t>(8, reloaded.client.renderer.msaa);
     Assert::AreEqual<std::uint32_t>(144, reloaded.client.renderer.frameCap);
     Assert::AreEqual(1.75, reloaded.client.renderer.hullScale, 1e-9);
+    Assert::AreEqual<std::uint32_t>(2u * 1024u * 1024u, reloaded.client.renderer.uploadBytesPerFrame);
     Assert::IsFalse(reloaded.client.audio.enabled);
     Assert::AreEqual<std::uint32_t>(64, reloaded.client.audio.voiceCap3D);
     Assert::AreEqual<std::uint32_t>(32, reloaded.client.audio.voiceCap2D);
@@ -547,8 +549,9 @@ public:
      * caught exactly that while the slice was being built, on `music`, whose
      * fixture value was the default.
      */
-    for (const char* key : {"width", "height", "mode", "vsync", "msaa", "frameCap", "hullScale", "enabled", "voiceCap3D",
-                            "voiceCap2D", "master", "world", "music", "alerts", "ambience", "scale", "palette", "font", "strip"})
+    for (const char* key : {"width", "height", "mode", "vsync", "msaa", "frameCap", "hullScale", "uploadBytesPerFrame",
+                            "enabled", "voiceCap3D", "voiceCap2D", "master", "world", "music", "alerts", "ambience", "scale",
+                            "palette", "font", "strip"})
     {
       Assert::IsTrue(text.find(key) != std::string::npos,
                      KeyMessage(key, L"is a key the user layer reads and the writer never emits").c_str());

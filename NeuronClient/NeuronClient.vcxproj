@@ -118,6 +118,7 @@
     <ClInclude Include="WavClip.h" />
     <ClInclude Include="ToastStack.h" />
     <ClInclude Include="UiDrawList.h" />
+    <ClInclude Include="UploadBudget.h" />
     <ClInclude Include="CommandRow.h" />
     <ClInclude Include="GhostLane.h" />
     <ClInclude Include="HudPalette.h" />

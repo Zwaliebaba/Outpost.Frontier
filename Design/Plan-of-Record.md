@@ -1,7 +1,7 @@
 # Plan of Record
 
 **Status:** standing document, **revised in place** · opened 2026-08-22 · current as of
-2026-08-22 (U3d-a, U3d-b, N2, N5 and N4 built). **This is the only document that says what is built next.** The three build orders
+2026-08-23 (U3d-a, U3d-b, N2, N5, N4 and N6's sizing half built). **This is the only document that says what is built next.** The three build orders
 say what a slice *contains* and record what happened when it landed; this one says which slice,
 and when. Where it and an ADR disagree the ADR wins on *what*, which is the rule the build
 orders already run under.
@@ -135,7 +135,7 @@ is a decision rather than a surprise.
 | **I1–I3** | **The input model** | §1 above | large |
 | ~~**N4**~~ | ~~**D18, arrival contention**~~ — **built 2026-08-22** | ~~Baked, parsed, hashed, never read — fell between U1 and U3a~~ | small |
 | ~~**N5**~~ | ~~**The viewer hold**~~ — **built 2026-08-22** | ~~`AddViewer`/`RemoveViewer` have no caller for a player's view; the "until U3b" deferral expired~~ | small |
-| **N6** | **A20 — spike 3 + the S5 frame check** | Stated as "Before U5", no slice, no owner | small |
+| **N6** | **A20 — spike 3 + the S5 frame check** · ~~**and the upload-ring sizing**~~ **built 2026-08-23** | ~~Stated as "Before U5", no slice, no owner~~ **The measuring half still is**, and it needs a GPU | small |
 | **N7** | **The map's RESOURCES overlay** | Drawn 2026-08-22 (ADR-024 §3d); U5's scope was written 2026-08-19 | medium |
 
 **N1 — Interest & delta.** The largest and the one that unblocks the most. It carries
@@ -249,8 +249,13 @@ fleet but has no camera.
     written at **shutdown** rather than at the keystroke, which is the right trade for call signs
     and the first thing N3 has to revisit.
 3. ~~**The item-taxonomy ADR.**~~ **Done 2026-08-22** — [ADR-027](ADR/ADR-027-item-taxonomy.md).
-4. ~~**N5**~~ and ~~**N4**~~ **built 2026-08-22**; **N6** remains — the last of the three small
-    slices, and the one that needs a GPU and a person. N6 before U5 as A20 requires. **N5 moved ahead of N4 on 2026-08-22, and U3d is
+4. ~~**N5**~~ and ~~**N4**~~ **built 2026-08-22**, and **N6 split on 2026-08-23**. A20 asks for two
+    things and only one of them needs hardware. ~~**Its sizing half is built**~~: the upload ring is
+    derived from what the renderer is built to draw and made config, which is the half that
+    actually unblocks U5 — the 256 KiB constant it replaced covered the tactical view and left the
+    map out, and a short ring drops a whole pass rather than part of one, so U5 would have opened
+    on a blank screen. **What is left of N6 is the measuring half** — spike 3 and the S5 frame
+    check — which cannot land on CI. N6 before U5 as A20 requires. **N5 moved ahead of N4 on 2026-08-22, and U3d is
     why.** This document listed the
     three as interchangeable and justified N5 as "small, and it grows teeth the moment N1 lands".
     N1 has landed — and U3d-b built the very thing N5 was missing: `ViewFocus` carries a `gridId`
@@ -319,6 +324,18 @@ named.
 ---
 
 ## Revision log
+
+- **2026-08-23 — N6's sizing half built, and N6 turned out to be two slices.** A20 asks for a
+  measurement *and* a sizing rule; only the measurement needs a GPU, and the sizing is the half
+  U5 is actually blocked on. `NeuronClient/UploadBudget.h` derives the per-frame segment from the
+  ceilings the renderer is built for times the strides its input layouts declare — 1,345 KiB
+  against the 256 KiB constant it replaced — with `client.renderer.uploadBytesPerFrame` as the
+  override and zero meaning "derive". The old constant was not a bad guess: it is within a few
+  KiB of the derived *floor*, because it was sized for the tactical view and the map had not been
+  drawn yet. **One number was got wrong on the way**, and it is the reason the slice has a test
+  rather than only arithmetic: the per-hull mark ceiling was counted by reading the producers and
+  missed one that lives in a different function, a thousand marks a frame. It is measured now,
+  and exact rather than generous, which is only safe because the test is what keeps it so.
 
 - **2026-08-22 — N4 built, and the three small slices are two.** D18's offset is a slot on a ring
   of `arrivalSpreadRadiusCm`, bearing from the crossing's own `TransferId` through

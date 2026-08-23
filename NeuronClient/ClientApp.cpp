@@ -2,6 +2,8 @@
 
 #include "ClientApp.h"
 
+#include "UploadBudget.h"
+
 #include "Clock.h"
 #include "Log.h"
 #include "Telemetry.h"
@@ -31,10 +33,38 @@ using namespace DirectX;
 /// heap that has to be rebound mid-frame.
 constexpr std::uint32_t SHADER_VISIBLE_DESCRIPTORS = 16;
 
-/// 256 KiB per frame in flight. The parked fleet uses under a kilobyte of it;
-/// the number is sized for the corpus's 1,024 instances plus the overlay and
-/// text streams that join them, so the first busy frame does not discover a cap.
-constexpr std::uint32_t UPLOAD_BYTES_PER_FRAME = 256 * 1024;
+/*
+ * What this frame's upload segment is, given what the config asked for
+ * (ADR-018 A20).
+ *
+ * The 256 KiB constant this replaces said it was "sized for the corpus's 1,024
+ * instances plus the overlay and text streams that join them" -- and for the
+ * *tactical* view that was true, which is why nothing ever caught it. It is
+ * roughly `MIN_UPLOAD_BYTES_PER_FRAME` below, and the streams it left out are
+ * the strategic map's: at the corpus's full size those alone are four times the
+ * whole segment, and every pass drops its stream **entirely** when the ring is
+ * short, so U5 would have opened on a blank screen.
+ *
+ * Raising rather than refusing a too-small configured value, which is the one
+ * place this file departs from ADR-012's no-clamping posture. The config layer
+ * is where a bad number is an error, and it cannot be one there: `AppConfig`
+ * may not name a NeuronClient constant (Dependency-Map). So the floor is
+ * enforced where it is known, and said out loud rather than applied quietly.
+ */
+[[nodiscard]] std::uint32_t ResolveUploadBytesPerFrame(std::uint32_t _configured) noexcept
+{
+  if (_configured == 0)
+  {
+    return UPLOAD_BYTES_PER_FRAME;
+  }
+  if (_configured < MIN_UPLOAD_BYTES_PER_FRAME)
+  {
+    NEURON_LOG_WARNING("upload ring: %u B is below the %u B a full grid costs; using the floor", _configured,
+                       MIN_UPLOAD_BYTES_PER_FRAME);
+    return MIN_UPLOAD_BYTES_PER_FRAME;
+  }
+  return _configured;
+}
 
 /// The HUD's sizes before the UI scale multiplier (ADR-006 §9). The second is
 /// the chrome band the prints are set in -- 15, not 16. The trailing micro
@@ -331,7 +361,8 @@ bool ClientApp::CreateContent()
   // bounding box the loader has just measured, so this cannot be told a hull
   // size the renderer is not drawing (ADR-006 §6a).
   ok = ok && m_lamps.Create(m_device, m_meshes, m_config.meshLampRigs);
-  ok = ok && m_uploadRing.Create(m_device.Device(), UPLOAD_BYTES_PER_FRAME, GpuSwapChain::BUFFER_COUNT);
+  ok = ok && m_uploadRing.Create(m_device.Device(), ResolveUploadBytesPerFrame(m_config.uploadBytesPerFrame),
+                                GpuSwapChain::BUFFER_COUNT);
 
   if (ok)
   {
