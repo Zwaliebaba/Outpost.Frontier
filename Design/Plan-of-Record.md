@@ -319,9 +319,10 @@ U3d**, ~~U3b's remainder~~ **built 2026-08-23 — fleet markers, VIEW-on-presenc
 transit edge; what is left is A16's pinned-camera edge behind U6, and A15's timed run**,
 ~~U4's client half~~ **built 2026-08-23**, ~~U5 **including N7**~~ **U5a built 2026-08-23; U5b
 (ADD WAYPOINT and search, both buildable; the visual checkpoint and the frame-budget
-measurement, which are not) and N7's site layer remain**, U6 **— unblocked 2026-08-23, its four
-owner rulings answered at
-[ADR-016 §9b](ADR/ADR-016-procedural-universe-and-warp.md)**, E5.
+measurement, which are not) and N7's site layer remain**, ~~U6~~ **U6a built 2026-08-23 — the
+seam and the device-free half, with all four owner rulings answered the same day at
+[ADR-016 §9b](ADR/ADR-016-procedural-universe-and-warp.md); U6b (the draw, the plate check and
+warp issued from the surface) and the four focus-polish items remain**, E5.
 
 > **U5a, 2026-08-23 — the strategic map's seam and device-free half.**
 >
@@ -401,6 +402,27 @@ owner rulings answered at
 > injection exists, and its hook is a call site rather than a configuration key — a key is a way
 > for a shipped client to be slow because somebody left a number in a file. Only the timed run
 > is still owed.
+
+> **U6a, 2026-08-23 — the system view's seam and device-free half.**
+>
+> `SystemView.h`, `SystemScreen.h/.cpp`, one new seam call, and `ReplicatedWorldView` filling it
+> from the bake. Eighteen tests and a gate over a real bake; twenty-two mutations, all caught.
+>
+> **All four of the owner rulings landed on the game's side of the seam**, which is the result
+> worth keeping: the client is handed a ring index and a slot, so §9b.1's capacity, §9b.2's site
+> ring and §9b.4's far-side name are computed where an anchor is known to be an anchor, and the
+> engine never learns that the outer ring is mining fields. A screen that had computed them
+> would have had to know what a site *is*.
+>
+> **Two findings.** A ring is fanned by everything on it, anchors and scenery together — the
+> first draft counted only the anchors and put every moon exactly under a planet, which says
+> that what a ring's capacity rations is *angular room* rather than pressable things. And
+> **ADR-020's 48 px floor does not scale while the rings do**: at 0.5 a full ring's neighbours
+> are 29.8 px apart against a 48 px target, so *nearest, never first* is load-bearing on this
+> screen rather than defensive — and the test that proves it now asserts the crowding first, so
+> it cannot quietly stop testing the tie-break.
+>
+> Device-free again, which is the fifth screen slice in a row.
 
 **What moved and why:** every screen slice now sits behind the input model rather than beside it.
 Building a screen against the mouse adaptation and re-fitting it for touch afterwards is the

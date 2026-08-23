@@ -37,7 +37,9 @@ upstream from 2026-08-22** — its artefacts left `ScreenPrints/`, and the manif
 as correct rather than as a loss, because the calls that mattered were lifted into ADR-016 §9
 the day it was drawn and are normative there. ~~Four of its questions still wait on an owner
 ruling;~~ **all four were ruled on 2026-08-23 ([ADR-016 §9b](ADR/ADR-016-procedural-universe-and-warp.md)),
-so U6 has no design gate left either**; none of them is an artefact, so U6 has nothing missing in front of it. The separate inventory of surfaces that had no print **at all** — kept
+so U6 has no design gate left either**; none of them is an artefact, so U6 had nothing missing
+in front of it — and **U6a built its seam and its layout the same day**, which sharpens what the
+plate is still for: it is what U6b's *draw* is checked against, not something U6 was waiting on. The separate inventory of surfaces that had no print **at all** — kept
 so that "not blocking anything" never quietly becomes "forgotten" — was six rows on 2026-08-21
 and is **one** now: character and skills, still correctly blocked on a data model. The five that
 closed are listed below with their plates, because a worked-off row is the evidence that the
@@ -189,13 +191,14 @@ moves between the trees without a rename pass. Three things it changed in these 
   half second.
 
   **Superseded 2026-08-23, and the pattern in how is worth more than the correction.** U5a,
-  U4's client half, U3b's client half and A15's shim all landed device-free within one day of
-  that sentence calling them GPU work. What is left of the universe phase is **U5b** (ADD
+  U4's client half, U3b's client half, A15's shim and **U6a** all landed device-free within one
+  day of that sentence calling them GPU work. What is left of the universe phase is **U5b** (ADD
   WAYPOINT and search, both buildable; the visual checkpoint and frame budget, which are not)
-  and **U6**, whose four owner rulings were answered the same day. A16's second presence edge is
-  built and its first waits on U6's camera pinning; A15's shim is
+  and **U6b** — the draw, the plate check, and warp issued from the surface; U6's four owner
+  rulings were answered the same day they were asked and its seam and layout are built. A16's
+  second presence edge is built and its first waits on U6's camera pinning; A15's shim is
   `NeuronCore/DelayedTransport.h/.cpp` and only its timed run is still owed. **The corpus has now
-  mis-predicted the device-free share of a screen slice four times running**, which is a fact
+  mis-predicted the device-free share of a screen slice five times running**, which is a fact
   about the estimate rather than about any one slice.
 - [Station-Build-Order.md](Station-Build-Order.md) — the docking phase: T1–T3 slices
   delivering ADR-017 (roster + transfer bus in the sim, the wire and tactical surfaces,
@@ -779,8 +782,8 @@ authored onto `accent`, whose colour it already was.
 **Corrected 2026-08-22 — that sentence was true of the build orders and not of the corpus, which
 is exactly the gap it claimed there was none of.** ~~U3b's client half, U4's route feeder and
 icons, U5's map itself and U6 need a GPU and a person~~ **— corrected again 2026-08-23: all but
-U6 and the icons landed device-free, and the icons turned out to need a replicated field rather
-than a screen (ADR-016 §10)** — which is the same wall S5 and R1 have been
+the icons landed device-free, U6 included once it was split, and the icons turned out to need a
+replicated field rather than a screen (ADR-016 §10)** — which is the same wall S5 and R1 have been
 standing at since S8 — **and four more screens have a plate here and no slice anywhere**: 07e
 (session surfaces, blocked on the account service ADR-023 declines to design), 07g §3 (the
 command wheel), 07h (settings) and 07f+ (the map's site layer). **One item that is not screen

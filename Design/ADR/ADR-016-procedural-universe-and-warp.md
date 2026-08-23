@@ -369,6 +369,16 @@ closes, not here.
   and whether a gate shows the far side's name.~~ **Answered 2026-08-23 — see §9b below.**
   They are tracked with the deliverable in
   [Universe-Build-Order.md](../Universe-Build-Order.md).
+
+  **Built 2026-08-23 as U6a, the device-free half**, and all four rulings landed on the *game's*
+  side of the seam: `WorldView::BuildSystemView` hands over a ring index and a slot per anchor,
+  so the capacity rule, the site ring and the gate's far-side line are computed where an anchor
+  is known to be an anchor, and the engine draws ring N at a radius without learning what is on
+  it. Two things the build settled that this section had not: the anchors and the scenery
+  **share one slot space per ring** (a ring is fanned by everything on it, because what a
+  capacity rations is angular room and a moon takes as much as a planet); and the star is drawn
+  from the layout's own centre rather than carried as data, which is how *"the player never
+  clicks something and is told no"* becomes structural rather than a branch.
   Contents: the sun, orbit rings at **presentation scale** (real orbital distances are not
   linearly renderable — "layout is legibility" applies inside a system too), anchor icons
   (planets, stations, gates), fleet markers, in-warp fleets sliding along route lines. This

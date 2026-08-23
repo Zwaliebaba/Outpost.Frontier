@@ -2505,6 +2505,285 @@ void RunMapMarkerGate(Checklist& _checks)
   _checks.Record("a span too small for the marks fills what it has", view.BuildMapMarkers(tight) == 1);
 }
 
+/*
+ * The system view against a real bake (U6a, ADR-016 §9b).
+ *
+ * The four owner rulings, checked over every system a bake produces rather than
+ * over a fixture -- which is the whole reason this gate exists next to the
+ * device-free suite. `SystemScreenTests.cpp` proves the *screen* places a ring
+ * index correctly and cannot prove anything about how the index was chosen,
+ * because an engine suite may not link GameLogic. Choosing it is §9b.1 and
+ * §9b.2, and this is where they are true or not.
+ *
+ * Baked **with the economy's sites**, because a bake without them has no site
+ * ring and would pass §9b.2 by having nothing to put on it.
+ */
+void RunSystemViewGate(Checklist& _checks, const Game::EconomyDef& _economy)
+{
+  Game::UniverseGenConfig recipe;
+  recipe.regionCount = 2;
+  recipe.constellationsPerRegion = 2;
+  recipe.systemCount = 12;
+
+  Game::UniverseDef universe;
+  if (!Game::GenerateUniverse(recipe, _economy.sites, universe))
+  {
+    _checks.Record("the system view gate bakes a universe", false);
+    return;
+  }
+
+  const Game::AnchorId startAnchor = universe.StartAnchorId();
+  const Game::Anchor* start = universe.FindAnchor(startAnchor);
+  if (start == nullptr)
+  {
+    _checks.Record("the system view gate has a grid to start on", false);
+    return;
+  }
+
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  desc.universe = &universe;
+  desc.gridAnchor = startAnchor;
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  Neuron::SystemViewData system;
+  _checks.Record("a system the bake does not have is refused rather than drawn empty",
+                 !view.BuildSystemView(0xffffu, system));
+
+  /*
+   * Every system in the bake, because §9b.1's capacity is a claim about *all* of
+   * them: the measurement that produced the ruling says 70.6 % of the committed
+   * universe exceeds eight anchors, so a gate that checked one system would be
+   * checking the case the ruling was not written for.
+   */
+  std::uint32_t systemsChecked = 0;
+  std::uint32_t overCapacity = 0;
+  std::uint32_t siteRingBreaks = 0;
+  std::uint32_t slotClashes = 0;
+  std::uint32_t ringCountBreaks = 0;
+  std::uint32_t gatesWithoutFarSide = 0;
+  std::uint32_t detailsOnNonGates = 0;
+  std::uint32_t unlabelled = 0;
+  std::uint32_t multiRing = 0;
+
+  for (const Game::SolarSystem& baked : universe.systems)
+  {
+    if (!view.BuildSystemView(static_cast<std::uint16_t>(baked.id), system))
+    {
+      _checks.Record("every system in the bake builds a view", false);
+      return;
+    }
+    ++systemsChecked;
+
+    std::uint32_t population[Neuron::MAX_SYSTEM_RINGS] = {};
+    bool taken[Neuron::MAX_SYSTEM_RINGS][Neuron::MAX_SYSTEM_ANCHORS] = {};
+    std::uint16_t highestRing = 0;
+    std::uint16_t outermostNonSite = 0;
+    std::uint16_t innermostSite = 0xffffu;
+    bool anySite = false;
+
+    const auto occupy = [&](std::uint16_t _ring, std::uint16_t _slot) {
+      if (_ring >= Neuron::MAX_SYSTEM_RINGS || _slot >= Neuron::MAX_SYSTEM_ANCHORS)
+      {
+        ++slotClashes;
+        return;
+      }
+      if (taken[_ring][_slot])
+      {
+        ++slotClashes;
+      }
+      taken[_ring][_slot] = true;
+      ++population[_ring];
+      highestRing = std::max(highestRing, _ring);
+    };
+
+    for (const Neuron::SystemAnchor& anchor : system.anchors)
+    {
+      occupy(anchor.ring, anchor.slot);
+
+      const Game::Anchor* baked1 = universe.FindAnchor(anchor.id);
+      if (baked1 == nullptr)
+      {
+        ++unlabelled;
+        continue;
+      }
+      if (baked1->kind == Game::AnchorKind::Site)
+      {
+        anySite = true;
+        innermostSite = std::min(innermostSite, anchor.ring);
+      }
+      else
+      {
+        outermostNonSite = std::max(outermostNonSite, anchor.ring);
+      }
+
+      // §9b.4: a gate names the far side, and nothing else says anything.
+      if (baked1->kind == Game::AnchorKind::Gate)
+      {
+        if (anchor.detail == nullptr)
+        {
+          ++gatesWithoutFarSide;
+        }
+      }
+      else if (anchor.detail != nullptr)
+      {
+        ++detailsOnNonGates;
+      }
+
+      if (anchor.label == nullptr || anchor.label[0] == '\0')
+      {
+        ++unlabelled;
+      }
+    }
+    for (const Neuron::SystemBackdrop& body : system.backdrop)
+    {
+      occupy(body.ring, body.slot);
+    }
+
+    for (std::uint16_t ring = 0; ring < Neuron::MAX_SYSTEM_RINGS; ++ring)
+    {
+      if (population[ring] > 8)
+      {
+        ++overCapacity;
+      }
+    }
+    if (anySite && innermostSite <= outermostNonSite)
+    {
+      ++siteRingBreaks;
+    }
+    if (system.ringCount != highestRing + 1u)
+    {
+      ++ringCountBreaks;
+    }
+    if (system.ringCount > 1)
+    {
+      ++multiRing;
+    }
+  }
+
+  _checks.Record("every system in the bake builds a view", systemsChecked == universe.systems.size());
+  _checks.Record("no ring holds more than eight (ADR-016 \xC2\xA7" "9b.1)", overCapacity == 0);
+  _checks.Record("sites sit outside everything else (ADR-016 \xC2\xA7" "9b.2)", siteRingBreaks == 0);
+  _checks.Record("no two things claim one slot on one ring", slotClashes == 0);
+  _checks.Record("the ring count is the rings there are", ringCountBreaks == 0);
+  _checks.Record("every place the player may click has a word for it", unlabelled == 0);
+  _checks.Record("every gate names its far side (ADR-016 \xC2\xA7" "9b.4)", gatesWithoutFarSide == 0);
+  _checks.Record("and nothing that is not a gate has a second line", detailsOnNonGates == 0);
+
+  /*
+   * The overflow is exercised rather than merely permitted. A rule that never
+   * fires on the content it was written for is a rule nobody has tested, and
+   * §9b.2 guarantees at least a second ring on any bake that has fields.
+   */
+  _checks.Record("the bake actually produces systems with more than one ring", multiRing > 0);
+
+  /*
+   * §9b.3: one marker, two numbers. Docked and standing are counted apart
+   * because at *this* resolution the difference decides the verb; the strategic
+   * map merges them, which is the same fact where it does not.
+   */
+  Game::AnchorId second = Game::INVALID_ID;
+  for (const Game::Anchor& anchor : universe.FindSystem(start->system)->anchors)
+  {
+    if (anchor.id != startAnchor && second == Game::INVALID_ID)
+    {
+      second = anchor.id;
+    }
+  }
+  if (second == Game::INVALID_ID)
+  {
+    _checks.Record("the system view gate's start system has two anchors", false);
+    return;
+  }
+
+  const auto feed = [&](std::span<const Game::FleetSummary> _rows) {
+    std::array<std::uint8_t, Neuron::MAX_DATAGRAM_BYTES> bytes{};
+    Neuron::ByteWriter writer{bytes};
+    return Game::BeginSummaryFrame(1, writer) &&
+           Game::BeginSummaryRecord(Game::SummaryKind::FleetSummaries, writer) &&
+           Game::WriteFleetSummaries(_rows, writer) && view.ApplySummary(writer.Written());
+  };
+
+  const Game::FleetSummary rows[] = {
+    {startAnchor, Game::FleetState::OnGrid, 3, Game::FLEET_ETA_NONE},
+    {startAnchor, Game::FleetState::Docked, 2, Game::FLEET_ETA_NONE},
+    {second, Game::FleetState::InTransit, 5, 90},
+  };
+  if (!feed(rows))
+  {
+    _checks.Record("the system view gate's summaries decode", false);
+    return;
+  }
+
+  if (!view.BuildSystemView(static_cast<std::uint16_t>(start->system), system))
+  {
+    _checks.Record("the start system builds a view", false);
+    return;
+  }
+
+  const Neuron::SystemAnchor* home = nullptr;
+  const Neuron::SystemAnchor* crossing = nullptr;
+  for (const Neuron::SystemAnchor& anchor : system.anchors)
+  {
+    if (anchor.id == startAnchor)
+    {
+      home = &anchor;
+    }
+    if (anchor.id == second)
+    {
+      crossing = &anchor;
+    }
+  }
+  _checks.Record("the two anchors the summaries named are both on a ring", home != nullptr && crossing != nullptr);
+  if (home == nullptr || crossing == nullptr)
+  {
+    return;
+  }
+
+  _checks.Record("standing and docked are two numbers on one marker (ADR-016 \xC2\xA7" "9b.3)",
+                 home->shipCount == 3 && home->dockedCount == 2);
+  _checks.Record("and a marker with the player's ships takes the own colour",
+                 home->tint == Neuron::StandingColour::Own);
+
+  /*
+   * A crossing is not a third number. The strategic map draws arrivals because
+   * at that resolution "on its way here" is the question; §9b.3 declined a third
+   * count on the reticle, and what a player is looking for is one screen up and
+   * already drawn.
+   */
+  _checks.Record("a crossing is not counted on the anchor it is crossing to",
+                 crossing->shipCount == 0 && crossing->dockedCount == 0);
+  _checks.Record("and an anchor with nothing on it stays neutral",
+                 crossing->tint == Neuron::StandingColour::Neutral);
+
+  /*
+   * And the lifetime the seam promises: the spans are good until the next call,
+   * which means a second call must actually rebuild rather than hand back the
+   * first system again.
+   */
+  const Game::SystemId other = universe.systems.front().id == start->system ? universe.systems.back().id
+                                                                            : universe.systems.front().id;
+  Neuron::SystemViewData elsewhere;
+  if (!view.BuildSystemView(static_cast<std::uint16_t>(other), elsewhere))
+  {
+    _checks.Record("a second system builds a view", false);
+    return;
+  }
+  _checks.Record("a second call rebuilds rather than returning the first system",
+                 elsewhere.label != nullptr && system.label != nullptr &&
+                   std::strcmp(elsewhere.label, universe.FindSystem(other)->name.c_str()) == 0);
+
+  bool countsCleared = true;
+  for (const Neuron::SystemAnchor& anchor : elsewhere.anchors)
+  {
+    if (anchor.shipCount != 0 || anchor.dockedCount != 0)
+    {
+      countsCleared = false;
+    }
+  }
+  _checks.Record("and it does not carry the first system's counts across", countsCleared);
+}
+
 void RunRosterOwnershipGate(Checklist& _checks)
 {
   constexpr Game::ShipId MINE_A = 1;
@@ -3704,6 +3983,7 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   RunInSpaceWingGate(checks);
   RunWingNameLayerGate(checks);
   RunMapMarkerGate(checks);
+  RunSystemViewGate(checks, _economy);
   RunRosterOwnershipGate(checks);
   RunRouteFeedGate(checks);
 

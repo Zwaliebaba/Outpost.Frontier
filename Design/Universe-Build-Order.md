@@ -7,7 +7,7 @@ across all three phases and the work that belongs to none of them. The paragraph
 state of this phase, not a claim about what happens next.
 
 **Status:** Session output 2026-08-19 · **U1, U2, U3a, U3b's sim and wire halves, U4's sim
-half, U5's pure half and U5a, U3c and U3d-a/U3d-b built** (U3c 2026-08-21; U3d-a and U3d-b 2026-08-22).
+half, U5's pure half and U5a, U6a, U3c and U3d-a/U3d-b built** (U3c 2026-08-21; U3d-a and U3d-b 2026-08-22).
 **U3d — interest and delta — was added 2026-08-22**: ADR-018 A14 scheduled it for "after U3c"
 and no build order had absorbed it, so it is specified below. **Its first two sub-slices are
 built and R19 is closed**; ~~what is left of it is U3d-c's counted chip, which is screen work and
@@ -18,7 +18,10 @@ a slice. What is left after it is **screen work**:
 2026-08-23** — the strategic map's seam, camera, cull, layout and hit tests, all device-free and
 verified over the real 2,500-system bake, with the surface drawn and navigable. What is left of
 U5 is **U5b**: the visual checkpoint against the print and the frame-budget measurement, which
-need a GPU. U3b's client half, U4's route feeder and icons, and U6 need a GPU and a person —
+need a GPU. **U6a landed the same day** — the system view's seam, its ring layout and its hit
+tests, device-free and verified against a real bake — so what is left of U6 is **U6b**: the
+draw, the plate check, and a warp issued from the surface. U3b's client half, U4's route feeder
+and icons, and U6b need a GPU and a person —
 ~~with no exceptions left~~ **and, as of 2026-08-22, behind the input model the plan of record
 establishes**, since a screen built against the mouse adaptation would be retrofitted for touch
 afterwards. **U5 also grew a fifth overlay it does not yet mention** — the RESOURCES site layer,
@@ -1386,6 +1389,60 @@ transit view completing auto-follow (the map as the between-surface, fleet highl
 ghost and honest ETA; a toast click jumps focus across systems; cycling visits every owned
 fleet; the whole loop — plan on the map, watch the crossing, command at both ends — runs in
 one sitting.
+
+**Built 2026-08-23 as U6a — the seam and the device-free half.** `NeuronClient/SystemView.h` is
+the neutral family (an anchor, a backdrop body, and one system's spans);
+`NeuronClient/SystemScreen.h/.cpp` is the screen — zones, ring radii, placement and hit tests;
+`WorldView::BuildSystemView` is the one new seam call and `Outpost/ReplicatedWorldView` fills it
+from the bake. Eighteen device-free tests (153 checks) and a self-test gate over a real bake
+(17 more). Every claim mutation-tested: **twenty-two mutations, all twenty-two caught** — eleven
+against the screen and eleven against the ring assignment, one per ruling and one per rule the
+comments claim.
+
+**The four rulings all live on the game's side of the seam, and that is the design.**
+§9b.1's capacity and §9b.2's site ring are decisions about *which anchors go where*, and both
+need to know what an anchor is — so the composition root computes a ring index and a slot, and
+the client draws ring N at a radius without ever learning that the outer one is mining fields.
+§9b.4 arrives the same way: a gate's second line is a string the game wrote, so the engine does
+not learn that gates exist or that a far side is a system. Only §9b.3 is visible on the seam at
+all, as two counts rather than one, and even there the engine is told two numbers rather than
+what docked means.
+
+**Two lists rather than one with a `clickable` flag**, because *"the player never clicks
+something and is told no"* is then a property of the data: a list you cannot hit-test cannot be
+hit-tested by mistake. The star is not in either list — the screen draws it at the centre of the
+disc, so it is not a thing that can be pressed and refused.
+
+**The two lists share one slot space per ring, which was a bug before it was a rule.** The first
+draft fanned a ring by counting its anchors, and a backdrop body then landed exactly on top of
+the anchor holding its slot — drawn, invisible, and unclickable for a reason a player could not
+see. Counting everything on the ring fixes it and says something truer: what §9b.1's capacity
+rations is **angular room**, and a ring crowded by moons is as unreadable as one crowded by
+planets. So scenery consumes capacity too.
+
+**A finding worth keeping: ADR-020's 48 px floor does not scale and the rings do.** A ring at
+§9b.1's capacity sits 59.7 px apart at 1x, which the floored target just clears; at 0.75 it is
+44.8 and at 0.5 it is 29.8 — so **below about 0.8, every neighbouring pair on a full inner ring
+is inside one finger**. `HitSystemAnchor`'s *nearest, never first* is therefore load-bearing
+rather than defensive, and the test that proves it asserts the crowding first, so it cannot
+quietly stop testing the tie-break.
+
+**What the bake says, measured rather than assumed.** Over the committed 2,500 systems the
+ring assignment produces two or three rings and never one (every system has fields, so §9b.2
+guarantees a second); the busiest ring holds eight; scenery tops out at **two** bodies per
+system, which is why `MAX_SYSTEM_BACKDROP` is stated as headroom for the moons `CelestialKind`
+authors and the MVP does not bake, rather than fitted to a measurement. All seventeen gate
+checks were run against the full committed bake out of band and pass; the shipped gate bakes
+twelve systems, which still crosses capacity (six of the twelve need three rings) and keeps the
+self test's runtime where it was.
+
+**What U6a deliberately did not build.** The draw and the visual checkpoint against the plate —
+U6b, and the half that needs a GPU and a person. `ClientApp` does not open the surface yet, so
+there is no TACTICAL ⇄ SYSTEM handoff and no warp issued from here; the two verbs are laid out
+and hit-tested but nothing calls them. The four focus-polish items (clickable warp toasts,
+fleet cycling, camera pinning, the transit view) are untouched, and A16's first presence edge
+still waits on the camera pinning among them.
+
 
 ---
 

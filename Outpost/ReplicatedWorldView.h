@@ -253,6 +253,7 @@ public:
   [[nodiscard]] std::uint32_t BuildRoutePlan(std::uint16_t _toSystem,
                                              std::span<Neuron::RouteLeg> _outLegs) const override;
   [[nodiscard]] std::uint32_t BuildMapMarkers(std::span<Neuron::MapMarker> _outMarkers) const override;
+  [[nodiscard]] bool BuildSystemView(std::uint16_t _systemId, Neuron::SystemViewData& _outSystem) const override;
 
   /// Which system this client's view is standing in, for the route's origin and
   /// for the top bar's region line. `INVALID_ID` before a world has arrived.
@@ -408,9 +409,45 @@ private:
   /// string a system no longer has would label the wrong place.
   mutable std::vector<std::string> m_markerEtas;
 
+  /*
+   * One system's rings, rebuilt per `BuildSystemView` (U6).
+   *
+   * `m_mapNodes`' arrangement rather than `m_factValues`', and the difference
+   * is the lifetime: the graph is the whole bake and is built once, while this
+   * is one system out of 2,500 -- so it is rebuilt on each call and the seam
+   * says in as many words that the spans die at the next one.
+   *
+   * `m_systemWords` is the backing store for every `const char*` this hands out
+   * that the bake does not already own: a site's archetype-and-grade line, a
+   * gate's `-> KIL-7`, and the system's own security badge. **Sized to its
+   * final length before anything points into it**, which is the invariant
+   * `m_mapBadges` states one member up -- a `push_back` that reallocated after
+   * the anchors were filled would leave every borrowed label dangling.
+   */
+  mutable std::vector<Neuron::SystemAnchor> m_systemAnchors;
+  mutable std::vector<Neuron::SystemBackdrop> m_systemBackdrop;
+  mutable std::vector<std::string> m_systemWords;
+
   /// Turns the parsed universe into the neutral graph. Called once, from the
   /// constructor, for the lifetime reason above.
   void BuildMapGraph();
+
+  /*
+   * How many anchors share one ring before the next one starts
+   * (ADR-016 §9b.1).
+   *
+   * *"A ring holds about eight and the next anchor starts a ring further out"*,
+   * and it is a constant here rather than a tuning value on the screen because
+   * it is a **placement** decision: the client receives a ring index and cannot
+   * know how the number was arrived at, which is the whole reason §9b.1 and
+   * §9b.2 live on this side of the seam.
+   *
+   * Counted over everything a ring draws, scenery included, because what the
+   * capacity rations is angular room -- a ring crowded by moons is as
+   * unreadable as one crowded by planets, and a capacity that only counted the
+   * pressable things would guarantee nothing about the picture.
+   */
+  static constexpr std::uint32_t SYSTEM_RING_CAPACITY = 8;
 
   /// This grid's station, or `INVALID_ID` before one has been drawn. One
   /// function because the validation view, the submit and the command row's

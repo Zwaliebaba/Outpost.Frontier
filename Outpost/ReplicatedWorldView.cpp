@@ -2,6 +2,7 @@
 
 #include "ReplicatedWorldView.h"
 
+#include "EconomyDef.h"
 #include "Eta.h"
 #include "Formation.h"
 #include "FleetSummary.h"
@@ -3460,6 +3461,338 @@ std::uint32_t ReplicatedWorldView::BuildMapMarkers(std::span<Neuron::MapMarker> 
     _outMarkers[index].etaLabel = m_markerEtas[index].empty() ? nullptr : m_markerEtas[index].c_str();
   }
   return written;
+}
+
+/*
+ * The inside of one system, as places on rings (ADR-016 §9b, U6).
+ *
+ * The composition root doing the one thing ADR-014 §6 keeps it for: **the four
+ * owner rulings live in this function and nowhere else.** §9b.1's capacity,
+ * §9b.2's site ring, §9b.3's split count and §9b.4's far-side name are all
+ * decisions that need to know what an anchor *is*, so they are made here and
+ * cross the seam as a ring index, two numbers and two strings. The engine draws
+ * them without ever learning that the outer ring is mining fields.
+ *
+ * **Rebuilt whole on each call, and the spans die at the next one.** That is
+ * the seam's own promise and it is a deliberate difference from
+ * `BuildMapTopology`, which is built once and lives for the session: the graph
+ * is the whole bake, and this is one system out of 2,500.
+ */
+bool ReplicatedWorldView::BuildSystemView(std::uint16_t _systemId, Neuron::SystemViewData& _outSystem) const
+{
+  _outSystem = Neuron::SystemViewData{};
+  m_systemAnchors.clear();
+  m_systemBackdrop.clear();
+  m_systemWords.clear();
+  if (m_desc.universe == nullptr)
+  {
+    return false;
+  }
+  const Game::SolarSystem* system = m_desc.universe->FindSystem(static_cast<Game::SystemId>(_systemId));
+  if (system == nullptr)
+  {
+    // A system this bake does not have. False rather than an empty disc with a
+    // name on it, so the screen can tell "nothing there" from "not a system".
+    return false;
+  }
+
+  /*
+   * Which anchors go on the inner rings and which take the outer one, in bake
+   * order within each -- §9b.1's *"order is bake order, so a system's layout is
+   * the same in two sessions"* and §9b.2's site ring, decided in one pass
+   * because the measurement says they were never two questions.
+   */
+  std::vector<std::uint16_t> inner;
+  std::vector<std::uint16_t> sites;
+  for (std::uint16_t index = 0; index < system->anchors.size(); ++index)
+  {
+    if (system->anchors[index].kind == Game::AnchorKind::Site)
+    {
+      sites.push_back(index);
+    }
+    else
+    {
+      inner.push_back(index);
+    }
+  }
+
+  /*
+   * Scenery: a celestial no anchor stands on.
+   *
+   * A planet with a warp destination is an anchor and is drawn as a target; one
+   * without is a body you pass, which is `SystemView.h`'s two-list split coming
+   * from the bake rather than from a flag. The star is not in this list at all
+   * -- the screen draws it at the centre of the disc, because a star on a ring
+   * would be a star you could be told you cannot go to.
+   */
+  std::vector<const Game::Celestial*> bodies;
+  for (const Game::Celestial& celestial : system->celestials)
+  {
+    if (celestial.kind == Game::CelestialKind::Star)
+    {
+      continue;
+    }
+    bool anchored = false;
+    for (const Game::Anchor& anchor : system->anchors)
+    {
+      if (anchor.kind == Game::AnchorKind::Planet && anchor.owner == celestial.id)
+      {
+        anchored = true;
+        break;
+      }
+    }
+    if (!anchored)
+    {
+      bodies.push_back(&celestial);
+    }
+  }
+
+  /*
+   * The caps, applied before anything is placed and reported when they bite.
+   *
+   * The committed bake's worst case is 15 anchors and two bodies against caps
+   * of 32 and 32, so this is a **content tripwire** rather than a live path --
+   * and it is logged for `BuildMapGraph`'s reason: a place that quietly did not
+   * draw is a place a player cannot warp to, and a system view that lies by
+   * omission about where they may go is worse than one that says it ran out.
+   */
+  const std::size_t innerRoom = Neuron::MAX_SYSTEM_ANCHORS;
+  if (inner.size() > innerRoom)
+  {
+    inner.resize(innerRoom);
+  }
+  const std::size_t siteRoom = innerRoom - inner.size();
+  if (sites.size() > siteRoom)
+  {
+    sites.resize(siteRoom);
+  }
+  if (inner.size() + sites.size() < system->anchors.size())
+  {
+    NEURON_LOG_WARNING("system view: system %u has %zu anchors, %u fit", static_cast<unsigned>(_systemId),
+                       system->anchors.size(), static_cast<unsigned>(Neuron::MAX_SYSTEM_ANCHORS));
+  }
+  if (bodies.size() > Neuron::MAX_SYSTEM_BACKDROP)
+  {
+    bodies.resize(Neuron::MAX_SYSTEM_BACKDROP);
+  }
+
+  /*
+   * The rings.
+   *
+   * The inner rings hold the anchors and the scenery *together*, because what
+   * §9b.1's capacity rations is angular room on a ring and a moon takes as much
+   * of it as a planet does. Slots run from zero on each ring and the two lists
+   * share them, which is what lets the screen fan a ring by counting what is on
+   * it (`SystemView.h`).
+   *
+   * Sites start on the ring after the last inner one, so a system whose inner
+   * ring is full does not push a field in among the planets -- and an epoch
+   * that moves *which* fields are there disturbs nothing else on the screen,
+   * which is §9b.2's third reason.
+   */
+  const std::size_t innerCount = inner.size() + bodies.size();
+  const std::uint16_t innerRings =
+    static_cast<std::uint16_t>((innerCount + SYSTEM_RING_CAPACITY - 1) / SYSTEM_RING_CAPACITY);
+  const std::uint16_t siteRings =
+    static_cast<std::uint16_t>((sites.size() + SYSTEM_RING_CAPACITY - 1) / SYSTEM_RING_CAPACITY);
+
+  /*
+   * The words this hands out that the bake does not already own, sized to their
+   * final length **before** anything points into them.
+   *
+   * `m_mapBadges`' invariant one call along, and the same hazard: a `push_back`
+   * that reallocated after the anchors were filled would leave every borrowed
+   * label pointing at freed storage. Written as two passes rather than raced.
+   */
+  constexpr std::uint16_t NO_WORD = 0xffffu;
+  std::vector<std::uint16_t> labelWord(inner.size() + sites.size(), NO_WORD);
+  std::vector<std::uint16_t> detailWord(inner.size() + sites.size(), NO_WORD);
+
+  m_systemAnchors.reserve(inner.size() + sites.size());
+  const auto emit = [&](std::uint16_t _anchorIndex, std::uint16_t _ring, std::uint16_t _slot) {
+    const Game::Anchor& anchor = system->anchors[_anchorIndex];
+    Neuron::SystemAnchor out;
+    out.id = static_cast<std::uint16_t>(anchor.id);
+    out.ring = _ring;
+    out.slot = _slot;
+
+    const std::size_t at = m_systemAnchors.size();
+    switch (anchor.kind)
+    {
+    case Game::AnchorKind::Station:
+    {
+      const Game::Station* station = m_desc.universe->FindStation(system->id, anchor.owner);
+      out.label = station != nullptr ? station->name.c_str() : nullptr;
+      break;
+    }
+    case Game::AnchorKind::Planet:
+    {
+      for (const Game::Celestial& celestial : system->celestials)
+      {
+        if (celestial.id == anchor.owner)
+        {
+          out.label = celestial.name.c_str();
+          break;
+        }
+      }
+      break;
+    }
+    case Game::AnchorKind::Gate:
+    {
+      for (const Game::Gate& gate : system->gates)
+      {
+        if (gate.id != anchor.owner)
+        {
+          continue;
+        }
+        out.label = gate.name.c_str();
+
+        /*
+         * §9b.4, and the whole of it: *"a gate names the far side"*. It costs
+         * nothing because the bake is already here -- the far system is an
+         * index lookup, not a message -- and four gates a player cannot tell
+         * apart are four anchors they must guess between on the one screen
+         * where they are choosing.
+         *
+         * The arrow is spelled as bytes rather than typed, which is this
+         * corpus's rule for every non-ASCII literal: the sources carry no
+         * byte-order mark, so a typed character would be read in the
+         * compiler's code page and become the wrong glyph.
+         */
+        const Game::SolarSystem* farSide = m_desc.universe->FindSystem(gate.toSystem);
+        if (farSide != nullptr)
+        {
+          detailWord[at] = static_cast<std::uint16_t>(m_systemWords.size());
+          m_systemWords.push_back(std::string{"\xE2\x86\x92 "} + farSide->name);
+        }
+        break;
+      }
+      break;
+    }
+    case Game::AnchorKind::Site:
+    {
+      /*
+       * A field has no name in the bake -- it is an archetype and a grade, and
+       * both are on the label rather than split across two lines, because two
+       * fields in one system are told apart by the grade and a second line
+       * would spend §9b.4's row on something that is not a destination.
+       */
+      char buffer[64] = {};
+      std::snprintf(buffer, sizeof buffer, "%s G%u", Game::SiteArchetypeName(anchor.site.archetype),
+                    static_cast<unsigned>(anchor.site.grade));
+      labelWord[at] = static_cast<std::uint16_t>(m_systemWords.size());
+      m_systemWords.push_back(buffer);
+      break;
+    }
+    }
+    m_systemAnchors.push_back(out);
+  };
+
+  for (std::size_t index = 0; index < inner.size(); ++index)
+  {
+    emit(inner[index], static_cast<std::uint16_t>(index / SYSTEM_RING_CAPACITY),
+         static_cast<std::uint16_t>(index % SYSTEM_RING_CAPACITY));
+  }
+  for (std::size_t index = 0; index < sites.size(); ++index)
+  {
+    emit(sites[index], static_cast<std::uint16_t>(innerRings + index / SYSTEM_RING_CAPACITY),
+         static_cast<std::uint16_t>(index % SYSTEM_RING_CAPACITY));
+  }
+
+  /*
+   * The scenery takes the slots after the anchors on the inner rings, so the
+   * two lists never claim the same one.
+   */
+  m_systemBackdrop.reserve(bodies.size());
+  for (std::size_t index = 0; index < bodies.size(); ++index)
+  {
+    const std::size_t slot = inner.size() + index;
+    Neuron::SystemBackdrop out;
+    out.ring = static_cast<std::uint16_t>(slot / SYSTEM_RING_CAPACITY);
+    out.slot = static_cast<std::uint16_t>(slot % SYSTEM_RING_CAPACITY);
+
+    /*
+     * A moon against a gas giant, as a ratio of the drawn dot rather than as a
+     * radius -- a radius would be a distance, and this surface has none
+     * (ADR-016 §9). The bake's radii span orders of magnitude, so the ratio is
+     * taken from a log rather than linearly: a linear map would draw every
+     * body but the largest as the same dot.
+     */
+    const double radius = static_cast<double>(std::max<std::int64_t>(bodies[index]->radiusMetres, 1));
+    const double reference = 1.0e7; // ~a large gas giant, as the bake writes them.
+    const double ratio = std::log10(radius) / std::log10(reference);
+    out.scale = static_cast<std::uint8_t>(std::clamp(ratio * 255.0, 48.0, 255.0));
+    m_systemBackdrop.push_back(out);
+  }
+
+  /*
+   * §9b.3's split count, and the seam's whole reason for two numbers.
+   *
+   * `shipCount` rather than `docked.size()` for `BuildMapMarkers`' reason: the
+   * summaries survive a truncated frame and the roster behind them may not, so
+   * a count taken from the list would shrink when the wire got busy.
+   *
+   * **A crossing is not counted here.** The strategic map draws arrivals
+   * because at *that* resolution "on its way to this system" is what a player
+   * is asking; here they are looking at one system's rings, and §9b.3 declined
+   * a third number on the reticle in as many words. What they are looking for
+   * is one screen up and already drawn.
+   */
+  for (const FleetPlace& place : m_places)
+  {
+    if (place.shipCount == 0 || place.state == Game::FleetState::InTransit)
+    {
+      continue;
+    }
+    for (Neuron::SystemAnchor& anchor : m_systemAnchors)
+    {
+      if (anchor.id != place.anchor)
+      {
+        continue;
+      }
+      if (place.state == Game::FleetState::Docked)
+      {
+        anchor.dockedCount = static_cast<std::uint16_t>(anchor.dockedCount + place.shipCount);
+      }
+      else
+      {
+        anchor.shipCount = static_cast<std::uint16_t>(anchor.shipCount + place.shipCount);
+      }
+
+      /*
+       * Own where the player has something and neutral everywhere else, which
+       * is the only standing this client has been told about: nothing on the
+       * wire carries a relationship to a *place* yet, and a colour invented
+       * from the security band would be the map's tint said twice.
+       */
+      anchor.tint = Neuron::StandingColour::Own;
+      break;
+    }
+  }
+
+  // And the badge, which is the last word so the vector is done growing.
+  const std::uint16_t badgeWord = static_cast<std::uint16_t>(m_systemWords.size());
+  m_systemWords.push_back(SecurityBadge(system->security));
+
+  for (std::size_t index = 0; index < m_systemAnchors.size(); ++index)
+  {
+    if (labelWord[index] != NO_WORD)
+    {
+      m_systemAnchors[index].label = m_systemWords[labelWord[index]].c_str();
+    }
+    if (detailWord[index] != NO_WORD)
+    {
+      m_systemAnchors[index].detail = m_systemWords[detailWord[index]].c_str();
+    }
+  }
+
+  _outSystem.label = system->name.c_str();
+  _outSystem.badge = m_systemWords[badgeWord].c_str();
+  _outSystem.tint = SecurityTint(system->security);
+  _outSystem.anchors = m_systemAnchors;
+  _outSystem.backdrop = m_systemBackdrop;
+  _outSystem.ringCount = static_cast<std::uint16_t>(innerRings + siteRings);
+  return true;
 }
 
 Game::AnchorId ReplicatedWorldView::CurrentGrid() const noexcept

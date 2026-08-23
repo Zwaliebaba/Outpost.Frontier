@@ -299,6 +299,15 @@
     <ClCompile Include="MapScreen.cpp">
       <Filter>Hud</Filter>
     </ClCompile>
+    <ClInclude Include="SystemView.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClInclude Include="SystemScreen.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClCompile Include="SystemScreen.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
     <ClInclude Include="RoutePlan.h">
       <Filter>Hud</Filter>
     </ClInclude>

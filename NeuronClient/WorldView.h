@@ -8,6 +8,7 @@
 #include "RoutePlan.h"
 #include "StationIntent.h"
 #include "StationView.h"
+#include "SystemView.h"
 #include "RenderWorld.h"
 
 #include <cstdint>
@@ -520,16 +521,21 @@ public:
   [[nodiscard]] virtual std::uint32_t ShipsPerStationCommand() const { return 0; }
 
   /*
-   * --- the strategic map (ADR-018 D14, ADR-016 §9, ADR-020 §6) --------------
+   * --- the universe surfaces (ADR-018 D14, ADR-016 §9, ADR-020 §6) ----------
    *
-   * Five calls in three shapes, which is §6's screen-data contract spent the
-   * way the station surface already spends it: two **asked-once** builders (the
-   * graph and the overlay list), one at **summary rate** (the legend), and two
-   * **pure query functions** (a system's facts and a route). A screen wanting a
-   * fourth *shape* is that section's tripwire; a fifth method of an existing
-   * shape is not.
+   * **Eight calls in three shapes**, which is §6's screen-data contract spent
+   * the way the station surface already spends it: two **asked-once** builders
+   * (the graph and the overlay list), three at **summary rate** (the legend,
+   * the fleet markers, and one system's rings), and three **pure query
+   * functions** (a system's facts, a route, and the orders that fly it).
    *
-   * All five carry defaults, so a view with no universe -- `NullWorldView`, a
+   * It was five when U5 wrote this, and the growth is the point rather than a
+   * drift: §6's tripwire is a *fourth shape*, and three slices of screen work
+   * have added methods without ever needing one. A ninth call of an existing
+   * shape is not the thing to argue about; a call that is asked per frame, or
+   * that hands back storage on a lifetime none of these three has, is.
+   *
+   * All eight carry defaults, so a view with no universe -- `NullWorldView`, a
    * test's stub -- inherits an honest nothing. The screen opens on that and
    * draws its chrome around an empty viewport, which is `MapTopology::Empty`'s
    * promise.
@@ -660,6 +666,42 @@ public:
   {
     (void)_outMarkers;
     return 0;
+  }
+
+  /*
+   * The inside of one system, as places on rings (ADR-016 §9, §9b, U6).
+   *
+   * `BuildMapTopology`'s shape rather than a per-frame call: it hands over
+   * spans and the game owns what they point at. **Unlike the topology, the
+   * storage is only good until the next call** -- the graph is the whole bake
+   * and is built once, and this is one system out of 2,500, so keeping every
+   * one alive for the session would be keeping the bake twice. A caller that
+   * wants two systems at once wants two copies, and it should make them.
+   *
+   * Asked when the screen opens and when a summary lands, which is ADR-020
+   * §6's second shape -- the same one `BuildMapMarkers` takes, and for the same
+   * reason: the rings are a fact about the bake and do not move, and the two
+   * counts on them move at the summary family's ~1 Hz.
+   *
+   * **The ring assignment is the game's, and that is the whole of §9b.1 and
+   * §9b.2.** Which anchors share a ring, what a ring holds before the next one
+   * starts, and that mining fields take an outermost ring of their own are all
+   * decisions that need to know what an anchor *is*. The engine receives a ring
+   * index and a slot, draws them, and never learns that the outer ring is
+   * fields -- which is the leak test that `MapNode::badge` passes one screen up.
+   *
+   * `_systemId` is the opaque `MapNode::id` the client echoed back, exactly as
+   * `BuildMapFacts` takes it.
+   *
+   * False from a view with no universe, or for a system this game does not
+   * have. Not a failure: the surface opens on an empty disc, which is the same
+   * honest nothing `MapTopology::Empty` promises one level up.
+   */
+  [[nodiscard]] virtual bool BuildSystemView(std::uint16_t _systemId, SystemViewData& _outSystem) const
+  {
+    (void)_systemId;
+    (void)_outSystem;
+    return false;
   }
 
   /*

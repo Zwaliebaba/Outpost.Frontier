@@ -63,6 +63,7 @@
     <ClCompile Include="MapScreen.cpp" />
     <ClCompile Include="RoutePlan.cpp" />
     <ClCompile Include="StationScreen.cpp" />
+    <ClCompile Include="SystemScreen.cpp" />
     <ClCompile Include="SurfaceStack.cpp" />
     <ClCompile Include="TextEditState.cpp" />
     <ClCompile Include="ToastStack.cpp" />
@@ -122,6 +123,8 @@
     <ClInclude Include="RoutePlan.h" />
     <ClInclude Include="StationScreen.h" />
     <ClInclude Include="StationView.h" />
+    <ClInclude Include="SystemScreen.h" />
+    <ClInclude Include="SystemView.h" />
     <ClInclude Include="SoundBank.h" />
     <ClInclude Include="SurfaceStack.h" />
     <ClInclude Include="TextEditState.h" />
