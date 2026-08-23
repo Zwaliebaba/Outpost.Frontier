@@ -32,6 +32,13 @@ H0/H1), interleaved into the universe phase after U2.
 been holding it and for the two rulings the build made.
 **And left the hangar on 2026-08-23 (I2)** — the docked scope is lifted and a wing can be
 formed in space; see the amendment in §6, which also strikes it from the not-covered list.
+**Amended 2026-08-23 by §6b (owner ruling, the fleet design review): membership is in-space
+membership.** A wing's members are its ships on grids and on the bus; a roster holds members
+of nothing. The wing forms at the **undock**, a dock writes **memory** rather than
+membership, and a wing whose last member leaves space ends — its row with it. §3's
+2026-08-22 dock-groups note and §6's docked-wing clauses are superseded where marked;
+delivery is **T4** ([Station-Build-Order.md](../Station-Build-Order.md)), scheduled by
+[Plan-of-Record.md](../Plan-of-Record.md).
 **Built so far (2026-08-19, T1's sim half):** §1's roster, §2's `Dock` order and its
 footprint-derived radius, §3's `Undock` and §6's `AssignWing` as shared-validated station
 commands, §5's protection window and its player-command break, and §9's transfer bus with
@@ -180,6 +187,15 @@ from a new door).
 Because a fleet is emergent, this section is also the whole answer to "create new
 combinations of ships": the undock selection *is* the composition. Nothing else ships.
 
+> **Superseded, 2026-08-23 — by §6b, which moves the regrouping to the other edge of the
+> threshold.** A dock now writes *memory* rather than membership and mints nothing; the
+> undock composes the wing, which is what §3's first sentence said all along. The note
+> stands below as the record of what was believed and why it was reasonable — the defect it
+> fixed was real, and its motive (a routine round trip must not spend a call sign) survives
+> as §6b's restore rule. What did not survive is the fix's address: minting at the dock put
+> a fresh call sign on every partial errand, which is the exact cost the note's own
+> exception was written to avoid.
+>
 > **Note, 2026-08-22 — a Dock now decides what wing its ships are in, and this is the
 > amendment §3's own sentence was missing.**
 > §3 says the undock selection *is* the composition and that "nothing else ships". That is
@@ -189,8 +205,9 @@ combinations of ships": the undock selection *is* the composition. Nothing else 
 > read on the HUD as the two wings they came from. The player who reported it was right, and
 > the ADR had described their expectation in as many words two sections earlier.
 >
-> **The rule: the ships one Dock names become one wing, unless that Dock names a whole wing
-> and nothing else.** Docking part of a wing, or parts of several, forms a group; docking all
+> ~~**The rule: the ships one Dock names become one wing, unless that Dock names a whole wing
+> and nothing else.**~~ *(Struck 2026-08-23 — §6b: a dock forms nothing.)* Docking part of a
+> wing, or parts of several, forms a group; docking all
 > of TALON leaves TALON alone. The exception is not tidiness — without it a refuel round trip
 > renames the fleet that took it, and a commander is out of call signs in eight docks.
 >
@@ -308,8 +325,11 @@ than as it going somewhere.
 A **full-screen surface** in the TACTICAL ⇄ MAP family — TACTICAL ⇄ STATION — reached from
 the station context and from the roster's DOCKED blocks. **Its print is a named
 deliverable designed and agreed before its slice builds** (the D1 pattern; P1 in the build
-order). Required contents: the docked roster grouped by wing (class icons, counts, the
-roster vocabulary), multi-selection, the formation dropdown, UNDOCK, wing assignment, and
+order). Required contents: the docked roster grouped by ~~wing~~ **hull class — §6b,
+2026-08-23: docked ships are in no wing, so the pool groups by the one thing a docked row
+still is** (class icons, counts, the
+roster vocabulary), multi-selection, the formation dropdown, UNDOCK, wing assignment
+*(since §6b: the undock's own wing chip rather than a second verb)*, and
 visible stubs for the station's future (repair pricing, refit, market) exactly as the
 strategic map stubs its unbuilt overlays. Fleet composition is a real screen's worth of
 work; a 260-px roster column was rejected as its home.
@@ -356,10 +376,11 @@ tab is a service that has misread this decision.
 > it, but `BuildRoster` draws no row for wing 0, so the control would make ships vanish off the
 > HUD. It arrives with the print's stray column, not before.
 
-**Wings while docked are emergent, like fleets.** `AssignWing` writes a ship's `WingId` —
-any value 1..255; a wing *exists* iff a ship carries its id, "new wing" is picking an
-unused number, disbanding is reassigning the last member. No wing table, nothing new to
-desync. Wing **names** stay what they are today — content injected by the composition
+~~**Wings while docked are emergent, like fleets.**~~ **Wings are emergent, and since §6b a
+docked ship is in none** *(2026-08-23)*. `AssignWing` writes a ship's `WingId` —
+any value 1..255; a wing *exists* iff a ship **in space** carries its id, "new wing" is
+picking an unclaimed number, disbanding is reassigning the last member. No wing table,
+nothing new to desync. Wing **names** stay what they are today — content injected by the composition
 root — with renames and names-for-new-wings living in the **user settings layer**
 (ADR-012): presentation, client-side, never on the wire. The server knows wings as numbers
 and nothing else. ~~`AssignWing` is docked-scope only for now (`NotDocked` otherwise): the
@@ -524,6 +545,127 @@ list the moment somebody renamed a ship. The id is the one key both machines sha
 sorting by it matches `Formation.h` already assigning stations by ascending `ShipId` — the
 list a player reads and the formation it flies in are ordered by the same number.
 
+### 6b. The wing lifecycle *(owner ruling, 2026-08-23 — membership is in-space membership)*
+
+Recorded from the fleet design review of 2026-08-23. This section supersedes **§3's
+2026-08-22 dock-groups note** and **§6's docked-wing clauses**, both left standing above and
+struck where they state the old rule, so the record of what was believed survives beside
+what replaced it.
+
+**The owner's model, six clauses:** a docked ship belongs to no fleet; undocking a selection
+makes it one, automatically; a docked ship can be sent out into a fleet already flying; a
+ship that docks leaves its fleet; a fleet whose ships have all docked is over, and its slot
+comes back; a fleet whose ships have all died is over the same way. The review compared
+those clauses with the tree and found the tree answering nearly every one the other way:
+wings attached at *dock* (a partial dock minted a fresh number — §3's note), persisted
+*through* docking (the whole-wing exception kept the number occupied), and were never
+visibly freed (`BuildRoster` drew every named wing forever, at zero). Three defects fell out
+of that arrangement, each confirmed in code before this ruling reversed it: **a lone errand
+minted a one-ship wing** and spent a call sign on it; **a parked wing and a dead one drew
+the same zero row**; and **a number freed by destruction could resurrect its old call sign**
+on an unrelated dock group, because the server reuses numbers and the client binds names to
+them forever.
+
+**The ruling in one sentence: a wing's members are its ships in space** — on a grid, or
+mid-crossing on the bus — **and a roster holds members of nothing.** Everything below is
+that sentence applied to one edge of the station threshold or the other.
+
+**6b.1 — Docked ships are in no wing.** The hangar shows **one pool, grouped by hull
+class**, with §6a.4's sort unchanged inside it — class descending, then ship id, which was
+never about wings; it is what a composing player scans for. The roster row keeps its `wing`
+byte and the byte changes meaning rather than shape: it is **memory** — the number the ship
+last flew under — written by the dock, read by exactly one rule (6b.2's restore), and
+grouped by nothing. Durable state is untouched: the byte's meaning moved and its bytes did
+not, so a reloaded hangar remembers exactly what it remembered.
+
+**6b.2 — The undock composes the wing — §3's own sentence, true of the number at last.**
+`Undock` reads the wing byte `StationCommand` has carried since T2 and the verb has ignored
+since it was written. **Zero — the field's default — means "the registry decides"; a number
+means "this wing"**, which is the owner's third clause in one press: pick the docked ships,
+set the chip to a flying wing's call sign, UNDOCK. The registry decides with one function,
+at filing, asked once for the record and before the first row leaves — the dock note's own
+discipline, run at the other edge:
+
+- **Back where they came from**, when the selection is uniform memory of one number and is
+  *every* row of this station's memory of it: the ships fly out as that wing — rejoining it
+  if it still flies, restoring it if it does not. A whole wing docked and undocked whole is
+  the same wing with the same call sign, which keeps the §3 note's motive — the round trip
+  spends nothing — without keeping the wing alive while it is parked.
+- **The lowest unclaimed number otherwise.** A number is **claimed** while any ship in
+  space carries it *or any roster row remembers it* — which is exactly the three-place walk
+  `UnusedWingFor` already does; what this ruling splits off is a second, narrower count
+  (members: space only) for everything that is about liveness. Memory blocking the mint is
+  what ends the resurrection defect: a number cannot be handed to strangers while any
+  hangar still remembers whose it was.
+- **Strays on exhaustion** — all 255 numbers claimed — and the composition flies as wing
+  zero rather than not flying: undocking is never refused, §4's rule one register up.
+
+No verdict changes and no byte moves. Both parameters have ridden the command since T2, the
+validator refuses nothing new (any wing byte is legal, which is what emergent means), the
+check order is untouched and the parity matrix with it.
+
+**6b.3 — Docking leaves the wing** — definitionally rather than operationally: membership
+is in-space, so the docked subset is out the moment its rows are filed, and the flying
+remainder *is* the wing — number, name and row unchanged. That is the owner's fourth clause
+generalised from one ship to any subset, and it deletes `WingForDockedGroup` whole: a dock
+writes memory and nothing else.
+
+**6b.4 — A wing ends when its last member leaves space** — docked or destroyed, the same
+sentence: the owner's fifth and sixth clauses. Its roster row goes with it: `BuildRoster`
+draws rows for wings with members on the watched grid, and **the permanent zero row is
+struck**. A parked fleet is the DOCKED block's to report and a fleet elsewhere is its
+location block's — the emergent layer doing the job it was built for. What the zero row was
+for — *"which wing did I just lose"* — is one-shot news, and one-shot news is the toast
+family's; that toast lands with the combat phase, because until it exists nothing can die,
+and every emptying until then is a docking the DOCKED block already narrates.
+
+**6b.5 — Numbers and names free when the last claim does.** A number with no member and no
+memory is back in the pool. Names stay what §6 made them — client-side presentation, bound
+to numbers — and the **name cap moves from names-ever-minted to rows-now-drawn**, which
+retires `EnsureWingName`'s refusal spiral: under the old cap the seventeenth wing a session
+named — the ninth composed, after the starting fleet's eight — lost its roster presence
+silently, the exact failure that function exists to prevent. A binding outliving its wing may reappear when the number is minted again;
+§6a.4 already ruled a name is presentation rather than identity and is allowed to do that,
+and 6b.2's claim rule makes it rarer than it was.
+
+**6b.6 — `AssignWing` returns to one scope: space.** A docked ship has no wing to be
+assigned to, so the verb refuses the roster and keeps the grid — the fence has now moved
+twice and for the same reason both times: the wing is the control group, and the control
+group lives where control happens. The hangar's ASSIGN pair retires, and **the wing chip
+moves to the undock composer as UNDOCK's second parameter**, beside the formation it
+already has. The chip cycles "the registry decides" and the flying wings this client can
+name — and it keeps T3's ruling that a chip cycles even when its button is dead, because
+reading which wings exist is worth doing with nothing selected. **The rename control
+follows the chip**: one field, one home, the same `TextEditState` machinery T3 built, so
+naming a wing and making one are the same gesture in the same place. In-space assignment
+is untouched and remains I3's surface.
+
+**Deliberately absent, so nobody mistakes it for covered:**
+
+- **No rally.** Undocking into a flying wing labels the ships; it does not move them — they
+  park on §4's ring like any launch, and joining the wing's formation is an order the
+  player gives. A system-issued rendezvous is named here as future work if play demands it.
+- **No slot refusals.** More live wings on one grid than the roster has rows is possible
+  and truncates the *panel*, never the fleet — the ships stay selectable in the world. The
+  old chip rule ("new wings stop being offered at the row cap") retires with the chip that
+  enforced it.
+- **No change to the emergent fleet.** `FleetSummary`, the location blocks and the map's
+  markers group by *place* and keep doing so; this ruling is about the wing — the thing the
+  roster groups by. D-P5's doctrine layer above both is unaffected in substance: a deploy
+  still composes at one station and still lands as roster rows — rows that now only ever
+  show squadrons that are flying.
+
+**Print deltas owed, per the manifest's rules:** P1 where the hangar regroups by class and
+the composer gains the wing chip and loses the ASSIGN pair — a **major** bump, because
+"wings as columns" was one of that print's own design calls and this section is the ADR
+note the manifest requires beside a reversal; 07a where the roster stops drawing zero rows
+— sized by the manifest at capture, major if its empty-row state is read as a call rather
+than a state. Both are captured with T4b, and the plates and this section must not disagree
+for longer than that slice.
+
+**Delivery: T4** ([Station-Build-Order.md](../Station-Build-Order.md)) — T4a the registry
+half, T4b the client half — scheduled by [Plan-of-Record.md](../Plan-of-Record.md).
+
 ### 7. Presence and the view
 
 ADR-016 §7's rule — the view may point at any grid where the player has ships — is amended
@@ -640,6 +782,8 @@ dense order with no RNG draw; parking is as replayable as steering.
   transfer bus), T2 (wire + tactical surfaces, milestone **H0** — the headless dock/undock
   loop), T3 (the hangar screen, milestone **H1** — dock, recombine, undock, watch it park).
   The universe phase pauses after U2 and resumes at U3a, inheriting the transfer bus.
+  **§6b adds T4** (2026-08-23): T4a the registry half of the wing lifecycle, T4b the client
+  half, milestone **H2** — the round-trip loop under the new rules.
 - **Schema bumps, enumerated once**: `OrderKind{+Warp reserved, +Dock}`;
   `OrderReason{9–13}`; `EntityRecord.statusBits`; `StationCommand`; `StationRoster` — one
   cluster in T2, riding the fail-closed hash.

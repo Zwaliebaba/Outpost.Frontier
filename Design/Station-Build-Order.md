@@ -67,7 +67,15 @@ truth in `GameLogicTests`, wire in `NeuronCoreTests`/`NeuronServerTests`, screen
 
 Milestones: **H0** — *the headless loop* (dock, roster, undock, park — over the real
 loopback) · **H1** — *the hangar loop* (dock a fleet, recombine wings, undock a new
-combination, watch it park itself clear of the old one — on screen).
+combination, watch it park itself clear of the old one — on screen) · **H2** — *the
+lifecycle loop* (the six clauses of ADR-017 §6b walked in one sitting — added 2026-08-23).
+
+**Amended 2026-08-23 — §6b adds T4.** The fleet design review reversed the wing lifecycle
+([ADR-017 §6b](ADR/ADR-017-station-docking.md)): membership is in-space membership, the
+wing forms at the undock, a dock writes memory, and a wing with nothing in space draws no
+row. T4 below is its delivery — T4a the registry half, T4b the client half — and it
+supersedes, in the tree, the dock-groups rule T3b's Built line records landing: that record
+stands as history, and T4a is what removes the code it describes.
 
 ---
 
@@ -664,6 +672,86 @@ rename a wing and see it survive a client restart (user layer — **its layer is
 2026-08-22, the round trip is gated in two suites, and the rename *control* landed 2026-08-23;
 what this clause still needs is a person to press it**); undock at an unviewed
 station from the roster block and jump to it with VIEW.
+
+### T4 — The wing lifecycle 🏁 H2 *(added 2026-08-23; delivers ADR-017 §6b)*
+
+**The design it delivers is [ADR-017 §6b](ADR/ADR-017-station-docking.md)** — membership is
+in-space membership — and the slice splits along the seam this phase always has: **T4a** is
+registry truth, device-free; **T4b** is the seam and the two screens that read it. Where
+this spec and §6b disagree, §6b wins on *what*. The wire is untouched by design:
+`StationCommand` has carried both `formation` and `wing` since T2, `Undock` starts reading
+the second, and zero in it — the field's default — means "the registry decides". No verdict
+changes, no check-order change, no schema-text bump.
+
+**T4a — the registry half.** The work, enumerated:
+
+1. **Two counts where there was one.** `WingPopulation`'s three-place walk (grids, rosters,
+   bus) keeps serving `UnusedWingFor` and is renamed for what it now answers — a number is
+   **claimed** — and a second, narrower count answers **members**: grids and bus only,
+   because a roster holds members of nothing. Liveness questions (is this wing flying, may
+   it be restored) ask members; minting asks claims.
+2. **A dock forms nothing.** `WingForDockedGroup` and the `formed` logic at the Dock apply
+   point are deleted; a dock writes `row.wing = member.wing` — memory, §6b.1 — and nothing
+   else.
+3. **The undock decides.** At filing, once per command, before the first row leaves (the
+   dock note's own discipline at the other edge): `command.wing != 0` → that number;
+   otherwise **restore** when the selection is uniform memory of one number and is every
+   row of this station's memory of it (rejoin if it flies, restore if it does not), else
+   the **lowest unclaimed** number, else — all 255 claimed — wing zero. The decided number
+   is written into every `TransferMember.wing`.
+4. **`AssignWing` refuses the roster.** The verb validates against `onGrid` only — a docked
+   ship named in one is `UnknownShip`, the reason the verb already keys — and the apply
+   path drops its roster branch. I2's grid scope is unchanged.
+5. **Events.** The undock's decision emits `WingAssigned` beside `Undocked` when it minted
+   or restored, so the record says a wing began without a client having to infer it.
+
+**T4a accept** (`GameLogicTests`, the house idioms): a partial dock leaves the flying
+remainder's wing untouched and writes memory on the docked rows; a whole wing docked and
+undocked exactly restores its number; a pit-stop subset docked and undocked exactly rejoins
+the flying number; a hand-mixed selection mints the lowest unclaimed; a remembered number
+is skipped by the mint (the resurrection defect's pin); `wing = N` joins a flying N; two
+same-tick undocks mint different numbers (the second sees the first's members on the bus);
+double-run bit-identity over a scenario mixing all of the above; parked memory survives the
+durable round trip (`DurableStateTests` — same bytes, new meaning, no format change); the
+validation-parity matrix unchanged, asserted.
+
+**T4b — the client half.** The work, enumerated:
+
+1. **The intent carries two parameters.** `StationIntent` grows a second parameter slot and
+   `EncodeStationCommand` fills formation *and* wing for an undock — a seam change, not a
+   wire one; the bytes were always there.
+2. **One action, two chips.** `BuildStationActions` returns UNDOCK alone; the ASSIGN pair
+   retires; `StationAction` grows a second option list, and the screen binds the existing
+   `assignWing` chip rect to the undock's wing parameter. The chip still cycles when the
+   button is dead (T3's ruling, kept on purpose).
+3. **The chip's values.** "The registry decides" (sends zero) plus the flying wings this
+   client can name — `StationActionOptions` rewritten; the next-new and wing-zero values
+   retire with the verb that needed them.
+4. **The hangar groups by hull class.** `BuildStationRoster` columns are classes, §6a.4's
+   sort inside; wing memory is drawn by nothing.
+5. **The roster draws live wings.** `BuildRoster` emits a row per wing with members on the
+   watched grid — the permanent zero row is struck; the strays row is unchanged. The name
+   cap counts rows drawn rather than names minted, and `m_playerWingNames`' pointer-stability
+   reserve widens to the id space so the cap's retirement cannot move names on screen.
+6. **The rename control moves to the chip** — same `TextEditState`, one home; the hangar's
+   class headers are not renameable. Client-side `FreeWingId` retires with the chip value
+   that read it.
+7. **Print deltas:** P1 (class columns; the composer's second chip; no ASSIGN pair) — a
+   **major** bump, since "wings as columns" was a §2 call of that print and §6b is the ADR
+   note the manifest requires beside a reversal — and 07a (no zero rows), sized at capture.
+   Plates re-captured in the same commit, per the manifest.
+
+**T4b accept:** `NeuronClientTests` over the chip pair, the class grouping and the two-slot
+intent encode; `RunWingLifecycleGate` in `selfTest` over real loopback — dock a whole wing,
+see one class-grouped pool and no row for it, undock it exactly and see the same call sign
+return; undock a hand-mixed selection and see exactly one new row; `AssignWing` naming a
+docked ship bounces `UnknownShip` end to end. **Accept 🏁 H2**, the owner's six clauses in
+one sitting on screen: dock everything and the HUD shows blocks and no wing rows; undock a
+mixed selection and one fleet appears under one call sign; dock one of its ships and the
+row's count drops while the hangar shows the ship in the pool; undock it back into the wing
+via the chip; dock the whole wing and its row leaves the panel; undock it whole and TALON
+is TALON; nothing anywhere draws a zero row. Visual checkpoint against the re-captured P1
+and 07a — R1's category, a person looking at a screen.
 
 ---
 

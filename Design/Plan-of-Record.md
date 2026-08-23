@@ -32,6 +32,11 @@ the owner's, or a correction to a document that already disagreed with the tree.
    closing three more (ADR-012 §3).
 8. **Stance is selection-only; Abilities keep a placement** — the input model's last guess
    replaced by a decision (ADR-020's amendment).
+9. **The wing lifecycle is reversed: membership is in-space membership** — owner ruling from
+   the 2026-08-23 fleet design review, recorded as
+   [ADR-017 §6b](ADR/ADR-017-station-docking.md): the wing forms at the **undock**, a dock
+   writes **memory**, and a wing with nothing in space ends, its row with it. Delivery is
+   **T4** ([Station-Build-Order.md](Station-Build-Order.md)), sequenced below.
 
 ---
 
@@ -325,6 +330,14 @@ seam and the device-free half, with all four owner rulings answered the same day
 [ADR-016 §9b](ADR/ADR-016-procedural-universe-and-warp.md); U6b (the draw, the plate check and
 warp issued from the surface) and the four focus-polish items remain**, E5.
 
+**T4 joins that queue ahead of E5** *(decision 9, 2026-08-23)*: **T4a** is registry truth,
+device-free, and can land any time; **T4b** reshapes the hangar P1 draws and the roster 07a
+draws, so it lands **before further screens are built against a grouping the ruling has
+already struck** — the same clause that put every screen behind the input model, one
+decision along. Its print deltas (P1 — a major bump, a §2 call reversed; 07a — sized at
+capture) travel inside T4b rather than as separate deliverables, and its visual checkpoint
+joins the R1 backlog like every other.
+
 > **U5a, 2026-08-23 — the strategic map's seam and device-free half.**
 >
 > The largest screen in the corpus, built as ADR-018 D14 says a screen should be: `MapView.h`
@@ -483,6 +496,38 @@ named.
 ---
 
 ## Revision log
+
+- **2026-08-23 — the fleet design review: the wing lifecycle reversed.** The owner stated
+  the fleet model in six clauses — docked ships belong to no fleet; an undock composes one
+  automatically; a docked ship can be sent out into a fleet already flying; a docking ship
+  leaves its fleet; a fleet fully docked or fully destroyed is over, its slot freed — and
+  the review found the tree answering nearly every clause the other way, because the corpus
+  has **two** concepts where the owner's model has one: the emergent *fleet* (ships sharing
+  a location — `FleetSummary`, the map's markers, the location blocks) and the persistent
+  *wing* (a numbered label that attached at **dock**, survived docking, and was never
+  visibly freed). Three defects were confirmed in code before the reversal was ruled: a
+  lone errand minted a one-ship wing and spent a call sign; a parked wing and a dead one
+  drew the same permanent zero row; and a number freed by loss could resurrect its old call
+  sign on an unrelated dock group.
+
+  **The ruling is [ADR-017 §6b](ADR/ADR-017-station-docking.md)** — membership is in-space
+  membership — and it is decision 9 above. What it keeps is deliberate: the round trip
+  still spends nothing (a group undocking exactly what it docked gets its number and call
+  sign back — the old dock-groups note's motive, kept without keeping the wing alive while
+  parked), names stay client-side presentation, the emergent-fleet layer and D-P5's
+  doctrine layer are untouched, and the wire moves not one byte — `Undock` starts reading
+  the wing field it has carried since T2. What it deletes is the 2026-08-22 dock-groups
+  rule, the hangar's ASSIGN pair (the wing chip becomes UNDOCK's second parameter), the
+  permanent zero row, and `EnsureWingName`'s refusal spiral (the cap counts rows drawn, not
+  names minted). Delivery is **T4** — T4a registry, T4b client, milestone **H2** — specified
+  in [Station-Build-Order.md](Station-Build-Order.md) and sequenced ahead of E5 above.
+
+  **One drafted call is flagged for the owner rather than settled by them:** on an undock
+  left to the registry, a selection that is exactly one number's parked memory goes *back*
+  to that number — a pit-stop subset rejoins its wing rather than minting a fresh one. The
+  owner's second clause read literally ("always a free slot") would mint; the draft chose
+  rejoin as the round-trip motive generalised. It is one clause in §6b.2 to delete if play
+  or the owner disagrees.
 
 - **2026-08-23 — 07b and R30: the icon system's device-free half, and the tactical chrome onto
   the gesture seam.** Two items that had been waiting on each other without saying so — the
