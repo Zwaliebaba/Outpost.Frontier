@@ -403,6 +403,13 @@ RTT — which needs a person and a running game, and is an R1 item rather than a
 > **Both examined 2026-08-23, and neither is buildable here — for different reasons, which is
 > why they should stop being one line.**
 >
+> **Superseded the same day: both were built.** A16 landed with U3b's client half and A15's
+> shim with A15 itself, which is worth noting rather than quietly deleting — the note below
+> concluded *"neither is buildable here"* about two things that were buildable within hours.
+> What it got right is the split: they were one line and are two problems. What it got wrong is
+> the same misjudgement the last three slices made, that a screen-adjacent item needs a GPU and
+> a person. It is kept for the reasoning; read its conclusions as retired.
+>
 > ~~**A16's presence edges have no destination.**~~ **Unblocked 2026-08-23 by U5a.** Both rules
 > route to the map — *"presence lost under a pinned camera → the map"*, *"every fleet in
 > transit → the map"* — and `SurfaceId::Map` was an enumerator nothing pushed and nothing drew.
@@ -410,14 +417,16 @@ RTT — which needs a person and a running game, and is an R1 item rather than a
 > it, and the shared `◀ TACTICAL` chip pops it. So A16 is back to being blocked on *effort* --
 > and on the half of U3b that owns the view-switch path -- rather than on a surface. What it
 > still needs before it can be accepted is a fleet marker to lose presence *of*, which is U3b's
-> client half and not U5's.
+> client half and not U5's. ~~*(Retired: U3b's client half built the marker and the rule the
+> same day.)*~~ **A16's second edge is built; its first waits on U6's camera pinning.**
 >
 > **A15 is an acceptance procedure, not a feature**, and it is half-answerable. The *settle* is
 > built and named: `ClientApp::VIEW_SETTLE_SECONDS` is 200 ms, which is ADR-002's
 > interpolation-buffer refill made a designed pause rather than a pretended instant. What is not
-> built is the **injected-delay shim** — `Transport.h` has no latency hook of any kind — and
+> ~~built is the **injected-delay shim** — `Transport.h` has no latency hook of any kind~~
+> **(retired: `NeuronCore/DelayedTransport.h/.cpp` is that hook, built 2026-08-23)** — and
 > even with one the accept is a *timed observation of a real client*, so it needs a GPU and a
-> person like the rest of the R1 queue. The target is therefore stated rather than measured:
+> person like the rest of the R1 queue. **That half stands.** The target is therefore stated rather than measured:
 > **RTT + 200 ms**, which is the form A15 asks for, replacing W0's flat "under half a second".
 
 **The location blocks landed 2026-08-21**, and they landed as a *generalisation* rather than as
@@ -1330,14 +1339,25 @@ because a map quietly missing a gate is a map a player plans a route around.
 
 **What U5a deliberately did not build, named rather than left to be discovered.** The search
 box is drawn dead: `TextEditState` exists and is wired to no surface, and a box that took focus
-and then swallowed keys would be worse than one that visibly cannot. SET DESTINATION and ADD
-WAYPOINT are drawn and refused — the map plans and the client feeds the queue one jump at a
+and then swallowed keys would be worse than one that visibly cannot. ~~SET DESTINATION and ADD
+WAYPOINT are drawn and refused~~ — the map plans and the client feeds the queue one jump at a
 time (§3, ADR-016 §9a.1), and that feeder is U4's; sending the first hop as a bare warp would be
-a different promise from the one the button makes. Fleet markers and VIEW-on-presence need
-U3b's client half. Label de-confliction — the print's four-candidate placement — is a budget
+a different promise from the one the button makes. ~~Fleet markers and VIEW-on-presence need
+U3b's client half.~~
+
+**Three of those four have since landed, and the list was one entry short.** SET DESTINATION
+went with U4's client half and the markers and VIEW with U3b's, both on 2026-08-23. **ADD
+WAYPOINT was not named and should have been**: a waypoint's legs are planned from the previous
+waypoint rather than from the fleet, so serving it means handing the game a list of systems to
+string together — a change to both `SolveMapRoute` and `BuildRoutePlan`, neither of which takes
+an origin. It is U5b's, not U4's. And **search stopped being blocked the day T3 landed**: the
+wing-rename control built the text-entry surface whose absence is the reason above, so what
+search needs now is a field on this screen rather than a mechanism anywhere. Label de-confliction — the print's four-candidate placement — is a budget
 spent in visible-node order instead, because de-confliction needs a glyph metric and a look.
 
-**Still owed: U5b, and it is the two accepts that need a GPU** — the visual checkpoint against
+**Still owed: U5b — two accepts that need a GPU, and two features that do not.** The features
+are **ADD WAYPOINT** and **search**, both described above and both buildable now. The accepts
+are the visual checkpoint against
 the print at region level over the real bake, and the frame-budget measurement with the `Ui`
 span proving it.
 

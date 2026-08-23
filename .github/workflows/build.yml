@@ -398,6 +398,51 @@ jobs:
           }
           Write-Host "$scanned files: every narrow literal is ASCII"
 
+      # ADR-013 §3 and the Dependency Map both say they are *the file-name
+      # registry*, and CI has always enforced the rule they exist for --
+      # uniqueness -- without ever checking the registry itself. The 2026-08-23
+      # audit found ADR-013 twelve entries short and the Dependency Map
+      # twenty-six, with the uniqueness guard green throughout. That is the
+      # shape of the miss: the guard enforced the rule, the registry was the
+      # record, and only the rule was mechanical.
+      #
+      # A registry that drifts silently is one a reader cannot trust to be
+      # complete -- and this corpus reads them as complete, which is how
+      # "Built (IconSystem)" survived in the print manifest long enough for
+      # three slices to re-derive from code that no icon system exists.
+      - name: Check every header is in both registries
+        if: matrix.configuration == 'Debug'
+        shell: pwsh
+        run: |
+          # pch.h is per-project by design (ADR-013 §1) and d3dx12.h is
+          # vendored and exempt by name (AGENTS.md R4).
+          $exempt = @('pch.h', 'd3dx12.h')
+          $adr = Get-Content 'Design/ADR/ADR-013-source-layout.md' -Raw
+          $map = Get-Content 'Design/Dependency-Map.md' -Raw
+
+          $projects = @(Get-ChildItem -Directory | Where-Object { Test-Path "$($_.Name)/$($_.Name).vcxproj" } | ForEach-Object { $_.Name })
+          $bad = @()
+          $checked = 0
+          foreach ($dir in $projects)
+          {
+            Get-ChildItem -Path "$dir/*" -Filter *.h -File | ForEach-Object {
+              if ($exempt -contains $_.Name) { return }
+              $checked++
+              # Backticked, which is how both documents name a file -- a bare
+              # match would be satisfied by the name appearing in prose.
+              $needle = '`' + $_.Name + '`'
+              if (-not $adr.Contains($needle)) { $bad += "$dir/$($_.Name): not in ADR-013 §3's registry" }
+              if (-not $map.Contains($needle)) { $bad += "$dir/$($_.Name): not in Design/Dependency-Map.md" }
+            }
+          }
+
+          if ($bad.Count -gt 0)
+          {
+            $bad | ForEach-Object { Write-Host "::error::$_" }
+            throw 'a header is missing from a registry that claims to list every file (ADR-013 §3)'
+          }
+          Write-Host "$checked headers: each one is in both registries"
+
       # ADR-005 §5: same-binary replay determinism is bought by construction,
       # and every one of these is a way to spend it by accident. The replay
       # suite would catch most of them eventually; this says which line did it.

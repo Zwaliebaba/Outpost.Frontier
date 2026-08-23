@@ -315,11 +315,13 @@ question is whether to procure a touch display or to take N3 and the screen slic
 **Then the screens, unchanged in content but re-based on the input model:** ~~N3 (settings, which
 I3 needs for handedness and the Auto toggle)~~ **built 2026-08-23 — handedness is settable, so
 I3's wheel has its prerequisite**, ~~**U3d-c's counted chip**~~ **built 2026-08-23, which closes
-U3d**, ~~U3b's remainder~~ **examined and blocked — ~~A16 needs the map surface~~ **A16 is
-unblocked as of U5a: the map is a screen now, and what it still needs is U3b's own client half
-to have a fleet marker to lose presence of** — A15 needs a transport shim and a stopwatch on a
-real client**, U4's client half, ~~U5 **including N7**~~ **U5a built 2026-08-23; U5b (the visual
-checkpoint and the frame-budget measurement) and N7's site layer remain**, U6, E5.
+U3d**, ~~U3b's remainder~~ **built 2026-08-23 — fleet markers, VIEW-on-presence and A16's
+transit edge; what is left is A16's pinned-camera edge behind U6, and A15's timed run**,
+~~U4's client half~~ **built 2026-08-23**, ~~U5 **including N7**~~ **U5a built 2026-08-23; U5b
+(ADD WAYPOINT and search, both buildable; the visual checkpoint and the frame-budget
+measurement, which are not) and N7's site layer remain**, U6 **— unblocked 2026-08-23, its four
+owner rulings answered at
+[ADR-016 §9b](ADR/ADR-016-procedural-universe-and-warp.md)**, E5.
 
 > **U5a, 2026-08-23 — the strategic map's seam and device-free half.**
 >
@@ -349,6 +351,56 @@ checkpoint and the frame-budget measurement) and N7's site layer remain**, U6, E
 > the client feeds, and sending the first hop as a bare warp would be a different promise from
 > the one the button makes), fleet markers and VIEW-on-presence (U3b's client half), and label
 > de-confliction (a look decision that belongs with the visual checkpoint).
+
+> **U4's client half, 2026-08-23 — the route feeder.**
+>
+> A fleet crosses a route the player drew. `RoutePlan` hands the authority one leg at a time and
+> advances on `OrderProgress::finished` — a flag that already existed so a ghost could retire,
+> and *"the ghost may retire"* and *"the fleet has arrived"* are one fact read twice.
+>
+> **The warp pre-check worked for the first time**, and the fix was one function asked twice
+> rather than two that agree: `reachableAnchors` and `jumpAnchor` were the two `ValidationView`
+> fields nothing on the client filled, so a client running the right code over an empty view
+> refused everything — indistinguishable from a client with no validation at all. That is a
+> second half to BounceParity worth naming: **the same inputs, not only the same code**
+> (ADR-014 §3).
+>
+> **Two of the four owed items are reported rather than built.** The halt cannot go into
+> ADR-018 D19's event record — that record is server-side, a route lives in one client's memory
+> by ADR-016 §8's own *"no server work"*, and the halt worth logging is **the one the client is
+> not there for**. Amended at ADR-016 §9a.1. The STATIC icon is blocked twice: the icon system
+> is unbuilt *and* the client does not know an entity's hull class at all.
+>
+> **Three drawn-text defects found in passing**, and a guard so the class cannot recur: a marker
+> glyph had double-encoded into the source and had been drawing as three Latin-1 boxes since it
+> was written. R31 records it; the CI step found one more that a regex would have missed.
+
+> **U3b's client half, 2026-08-23 — fleet markers, VIEW, and the presence edge.**
+>
+> Markers are **counts at places** and the fold is the game's: a summary row is an anchor and
+> the map draws systems. Two counts rather than one — ships that are *there* and ships
+> *crossing to* it — because one total would put a fleet in a system it has not reached.
+>
+> **A16's second presence edge was a gap inside a function that already existed**, which is why
+> nobody had seen it. `FollowTarget` answers `NO_FOLLOW_TARGET` for two situations that look
+> identical from outside and are opposite to a player: ships where you stand, and nothing here
+> and nothing to go to. Its own edge case came from a **mutation test rather than reasoning** —
+> removing the here-guard passed every test written, because the case it protects is a player
+> watching the grid a fleet is *arriving at*.
+>
+> Most of this slice was already built, which is the third time in a row.
+
+> **A15, 2026-08-23 — the latency shim, and the budget as a function.**
+>
+> **The old acceptance was not conservative, it was conditional.** *"Under half a second"* is
+> true at loopback RTT and an unstated assumption about the network everywhere else, because a
+> switch is a request, an answer and the settle. `ViewSwitchBudgetSeconds(roundTripMs)`
+> separates the target from the guess.
+>
+> `DelayedTransport` is a **decorator**, so the shipping transport never learns latency
+> injection exists, and its hook is a call site rather than a configuration key — a key is a way
+> for a shipped client to be slow because somebody left a number in a file. Only the timed run
+> is still owed.
 
 **What moved and why:** every screen slice now sits behind the input model rather than beside it.
 Building a screen against the mouse adaptation and re-fitting it for touch afterwards is the
@@ -480,13 +532,22 @@ named.
   justify"* the same print sentence forbids, so the chip is a screen-space statement about the
   feed. Zero says nothing, and §5a's guarantee means it is never the player's own fleet.
 
-  **U3b's remainder was one line and should have been two.** A16's presence edges route to the
+  **U3b's remainder was one line and should have been two.** ~~A16's presence edges route to the
   map on both rules, and `SurfaceId::Map` is an enumerator nothing pushes or draws — blocked on
   U5/U6's surface, not on effort. A15 is an *acceptance procedure*: its settle half is built and
   named (`VIEW_SETTLE_SECONDS`, 200 ms), its shim half does not exist (`Transport.h` has no
-  latency hook), and its accept is a timed observation of a real client either way. What could
+  latency hook), and its accept is a timed observation of a real client either way.~~ What could
   be finalised was the **target**, now stated as **RTT + 200 ms** in the form A15 asks for
   rather than W0's flat "under half a second".
+
+  > **Both struck sentences were false within hours of being written (2026-08-23).** The map
+  > became a screen at U5a, A16's second edge landed with U3b's client half, and A15's shim is
+  > `NeuronCore/DelayedTransport.h/.cpp`. The *split* this paragraph argued for was right and
+  > is kept: they are two problems, and they now have two different remainders — A16 waits on
+  > U6's camera pinning for its first edge, A15 on a person with a stopwatch. What the
+  > paragraph got wrong is what U5a, U4's client half and U3b's client half all got wrong in
+  > turn: that a screen-adjacent item needs a GPU and a person before anything of it can be
+  > built.
 
   So what is left of U3 is one R1 visual checkpoint and two items waiting on a screen and a
   stopwatch — which puts the whole phase in the same queue as I3 and N6's measuring half.

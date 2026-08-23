@@ -36,8 +36,11 @@ formed in space; see the amendment in §6, which also strikes it from the not-co
 footprint-derived radius, §3's `Undock` and §6's `AssignWing` as shared-validated station
 commands, §5's protection window and its player-command break, and §9's transfer bus with
 its `(applyTick, transferId)` order, and §4's parking ring with its deterministic berth
-scan. **Not yet built:** §6's hangar screen, which is T3's, and the wire half of §8, which is
-T2's.
+scan. ~~**Not yet built:** §6's hangar screen, which is T3's, and the wire half of §8, which is
+T2's.~~ **Both built:** §8's wire half with T2 (2026-08-19), and §6's hangar screen across
+T3a/T3b (2026-08-22) and T3's remainder (2026-08-23) — which closed the last of it, the wing
+rename control and assigning to wing 0 to disband. What is left of §6 is a visual checkpoint,
+not code.
 
 ## Context
 
