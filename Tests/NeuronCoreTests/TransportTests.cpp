@@ -297,16 +297,39 @@ public:
     const bool connected = PumpUntil(server, client, [&] { return client.State(toServer) == ConnectionState::Connected; });
     Assert::IsTrue(connected, L"the handshake never completed");
 
+    /*
+     * Waited for rather than scanned once, and the difference from the send
+     * test above is real rather than stylistic.
+     *
+     * That one pumps until a payload *reaches the server*, and a payload
+     * arriving is itself proof the server finished accepting -- which is what
+     * its "the server accepted the connection during the handshake" comment is
+     * relying on. This test has no such proof: it waits only for the *client*
+     * to report `Connected`, and a QUIC client reaches that state when it has
+     * the server's handshake, which can be before the server's own `Poll` has
+     * surfaced the accepted connection. Scanning at that instant is a race, and
+     * a loaded runner loses it -- `the server did not register the peer`, on a
+     * connection that was about to be registered.
+     *
+     * `PumpUntil` polls both ends, so waiting here is the same wait the rest of
+     * the file does; nothing is skipped and no assertion is weakened. The
+     * timeout still fails the test if the peer genuinely never registers.
+     */
     ConnectionId toClient = INVALID_CONNECTION;
-    for (ConnectionId candidate = 1; candidate < 8; ++candidate)
-    {
-      if (server.State(candidate) == ConnectionState::Connected)
-      {
-        toClient = candidate;
-        break;
-      }
-    }
-    Assert::IsTrue(toClient != INVALID_CONNECTION, L"the server did not register the peer");
+    const bool registered = PumpUntil(server, client,
+                                      [&]
+                                      {
+                                        for (ConnectionId candidate = 1; candidate < 8; ++candidate)
+                                        {
+                                          if (server.State(candidate) == ConnectionState::Connected)
+                                          {
+                                            toClient = candidate;
+                                            return true;
+                                          }
+                                        }
+                                        return false;
+                                      });
+    Assert::IsTrue(registered && toClient != INVALID_CONNECTION, L"the server did not register the peer");
 
     server.Close(toClient, DisconnectReason::ShuttingDown);
 
