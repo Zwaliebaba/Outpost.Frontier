@@ -351,6 +351,26 @@ struct Notice
 
   const char* title = nullptr;
   const char* body = nullptr;
+
+  /*
+   * The one thing a notice can offer besides being read (ADR-020 D15.5,
+   * `alerts-and-toasts.png` §2).
+   *
+   * `Toast`'s pair, arriving from the side that knows what it means: the label
+   * is the game's word -- JUMP TO, VIEW -- and the key is the game's own number,
+   * handed back untouched when the chip is pressed. The engine draws one and
+   * echoes the other, and learns neither.
+   *
+   * **This is what makes an arrival actionable rather than merely announced.** A
+   * fleet landing in another system is the case D15.5 was written for: the
+   * player is told, and the thing they want next -- go and look -- is one press
+   * away instead of a hunt through the map.
+   *
+   * Null label means no chip, which is every notice written before this existed
+   * and is not a lesser kind of notice.
+   */
+  const char* actionLabel = nullptr;
+  std::uint32_t actionKey = 0;
 };
 
 /// How many a client will drain in one frame. A game with more to say than this

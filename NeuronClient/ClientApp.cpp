@@ -88,6 +88,13 @@ constexpr const char* MENU_CHIP_LABEL = "\xE2\x96\xA5 MENU";
 constexpr const char* BACK_CHIP_LABEL = "\xE2\x97\x80 TACTICAL";
 
 /*
+ * The camera pin's chip (U6, ADR-018 D16). U+1F4CC would be the obvious glyph
+ * and is not in the atlas's bake table, so the word carries it -- which is the
+ * corpus's habit anyway: every chip on this bar is a word.
+ */
+constexpr const char* PIN_CHIP_LABEL = "PIN";
+
+/*
  * Air left around a fleet when a roster press frames it, on top of whatever the
  * HUD is already covering.
  *
@@ -770,10 +777,21 @@ void ClientApp::UpdateHud()
      * raising it is I3's job, where the whole chrome converts at once. Widening
      * this target sideways is free and is what is done instead.
      */
+    /*
+     * Two targets, from the same numbers the draw pens out below (U6).
+     *
+     * `◈ NAME` plus a cell of air is the system's half; the chevron and the
+     * region word are the map's. Split rather than added to, because the bar
+     * has no room for a third control and the print already drew the hierarchy
+     * -- a breadcrumb whose segments both went to the same screen was the
+     * navigation control being used as a single button.
+     */
     const std::size_t systemCells = TextCellCount(m_connection.WorldName());
     const std::size_t regionCells = TextCellCount(m_connection.WorldDetail());
-    const float breadcrumbWidth = static_cast<float>(systemCells + regionCells + 6u) * cell;
-    m_locationChipRect = UiRect{pad, m_uiLayout.topBar.y, breadcrumbWidth, m_uiLayout.topBar.height};
+    const float systemWidth = static_cast<float>(systemCells + 3u) * cell;
+    const float regionWidth = static_cast<float>(regionCells + 3u) * cell;
+    m_systemChipRect = UiRect{pad, m_uiLayout.topBar.y, systemWidth, m_uiLayout.topBar.height};
+    m_regionChipRect = UiRect{pad + systemWidth, m_uiLayout.topBar.y, regionWidth, m_uiLayout.topBar.height};
   }
 
   // The diagnostics toggle, before anything can consume the frame's edges. A
@@ -782,6 +800,34 @@ void ClientApp::UpdateHud()
   if (m_router.Pressed(InputAction::ToggleDiagnostics))
   {
     m_diagnosticsVisible = !m_diagnosticsVisible;
+  }
+
+  /*
+   * The camera pin (U6's focus polish, ADR-018 D16).
+   *
+   * A level edge like the strip's toggle, and for the same reason: this is a
+   * *state* the player sets, not a gesture. It is honoured on every surface
+   * because what it suppresses -- auto-follow -- runs on every surface: a player
+   * who pinned the camera and then opened a hangar has not stopped meaning it.
+   */
+  if (m_router.Pressed(InputAction::PinCamera))
+  {
+    m_cameraPinned = !m_cameraPinned;
+    NEURON_LOG_INFO("camera %s grid %u", m_cameraPinned ? "pinned to" : "released from", m_connection.GridAnchor());
+  }
+
+  /*
+   * The fleet stepper (U6's focus polish).
+   *
+   * **On the world surface only**, which is the difference between it and the
+   * pin above. What it does is take a fleet and put the camera on it, and both
+   * of those are invisible behind a full-screen surface -- a Tab pressed in a
+   * hangar would silently change what is selected on a plane the player cannot
+   * see, and they would find out about it the next time they gave an order.
+   */
+  if (m_router.Pressed(InputAction::CycleFleet) && SurfaceRecordsWorld(m_surfaces.Active()))
+  {
+    CycleFleet();
   }
 
   // The induced stall, beside the strip's toggle because it is the instrument
@@ -847,6 +893,24 @@ void ClientApp::UpdateHud()
     m_menuButtonRect = UiRect{m_uiLayout.topBar.Right() - pad - chipWidth, m_uiLayout.topBar.y + pad * 0.5f, chipWidth,
                               m_uiLayout.topBar.height - pad};
 
+    /*
+     * The pin, immediately left of MENU (U6's focus polish).
+     *
+     * **A chip as well as a key**, because touch is the primary input since
+     * ADR-020's 2026-08-22 amendment: a control reachable only from a keyboard
+     * is a control a tablet does not have, and D16's rule would then be
+     * unreachable on the device this corpus is designed for. The key is the
+     * accelerator over it, which is the arrangement every other key on this
+     * client now has.
+     *
+     * Beside MENU rather than in the left cluster because the left cluster is
+     * the breadcrumb's, and that strip has just been split into two targets --
+     * a third neighbour there would be three navigation-looking controls in a
+     * row, one of which does not navigate.
+     */
+    const float pinWidth = static_cast<float>(TextCellCount(PIN_CHIP_LABEL)) * cell + 2.0f * cell;
+    m_pinChipRect = UiRect{m_menuButtonRect.x - cell - pinWidth, m_menuButtonRect.y, pinWidth, m_menuButtonRect.height};
+
     const float itemWidth = m_commandTuning.buttonWidth * scale;
     const float itemHeight = 34.0f * scale;
     float itemY = m_uiLayout.topBar.Bottom() + pad * 0.5f;
@@ -871,6 +935,13 @@ void ClientApp::UpdateHud()
    * is not showing, so a press reaching the command row would be a button
    * nobody could see being pressed.
    */
+  // The cross-surface layer first: a toast is drawn over whichever surface is up,
+  // so its chip has to be pressable there too.
+  if (UpdateToastActions())
+  {
+    return;
+  }
+
   if (!SurfaceRecordsWorld(m_surfaces.Active()))
   {
     // Which full-screen surface is up. Each handles what it drew, for the reason
@@ -883,6 +954,10 @@ void ClientApp::UpdateHud()
     else if (m_surfaces.Active() == SurfaceId::Map)
     {
       UpdateMapSurface();
+    }
+    else if (m_surfaces.Active() == SurfaceId::System)
+    {
+      UpdateSystemSurface();
     }
     else
     {
@@ -966,6 +1041,14 @@ void ClientApp::UpdateHud()
     return;
   }
 
+  // The pin's chip, the pointer's way to what P does.
+  if (m_router.ClaimTapIn(m_pinChipRect))
+  {
+    m_cameraPinned = !m_cameraPinned;
+    NEURON_LOG_INFO("camera %s grid %u", m_cameraPinned ? "pinned to" : "released from", m_connection.GridAnchor());
+    return;
+  }
+
   /*
    * The way up to the strategic map (U5, ADR-016 §9's TACTICAL <-> MAP handoff).
    *
@@ -978,8 +1061,39 @@ void ClientApp::UpdateHud()
    *
    * The map's own way back is the shared `< TACTICAL` chip, so the pair is one
    * mechanism (`SurfaceStack`) reached from two places rather than two.
+   *
+   * **And the way *down*, which is U6's door (ADR-016 §9's TACTICAL <-> SYSTEM
+   * handoff).** The breadcrumb names two places and now goes to both: the
+   * system word opens the inside of the system, the chevron and the region open
+   * the map above it. That is what the print drew -- a hierarchy -- and the
+   * reason it needs no control of its own: a second chip beside MENU would be a
+   * third answer to a question this strip has already answered twice.
+   *
+   * The system half is tested first because it is the left one and the two
+   * rects abut; order is stated rather than left to geometry, as the toast
+   * chips above are.
    */
-  if (m_router.ClaimTapIn(m_locationChipRect))
+  if (m_router.ClaimTapIn(m_systemChipRect))
+  {
+    /*
+     * Nothing happens before a world has arrived, and that is the honest
+     * answer rather than a fallback to the map.
+     *
+     * A client with no universe has no system to open; pushing the map instead
+     * would make the two halves of the breadcrumb do the same thing exactly
+     * when the player is least able to tell them apart. The word is already
+     * drawn as `NO SESSION` in that state, so the dead press agrees with what
+     * is on screen.
+     */
+    std::uint16_t system = 0;
+    if (m_worldView != nullptr && m_worldView->WatchedSystem(system))
+    {
+      m_systemId = system;
+      OnSurfaceChanged(m_surfaces.Push(SurfaceId::System));
+    }
+    return;
+  }
+  if (m_router.ClaimTapIn(m_regionChipRect))
   {
     OnSurfaceChanged(m_surfaces.Push(SurfaceId::Map));
     return;
@@ -1102,21 +1216,7 @@ void ClientApp::UpdateHud()
        */
       if (gesture.tapped && gesture.tapCount >= 2)
       {
-        m_focusPoints.clear();
-        for (const SceneEntity& entity : m_scene.entities)
-        {
-          if (m_selection.Contains(entity.id))
-          {
-            m_focusPoints.push_back(entity.planeMetres);
-          }
-        }
-
-        const UiRect& world = m_uiLayout.world;
-        const float chromeWidth =
-            world.width > 0.0f ? 1.0f - world.width / std::max(1.0f, m_uiLayout.viewport.width) : 0.0f;
-        const float chromeHeight =
-            world.height > 0.0f ? 1.0f - world.height / std::max(1.0f, m_uiLayout.viewport.height) : 0.0f;
-        m_camera.FocusOn(m_focusPoints, std::max(chromeWidth, chromeHeight) + FLEET_FRAME_AIR);
+        FrameSelection();
       }
     }
     return;
@@ -1151,34 +1251,13 @@ void ClientApp::UpdateHud()
   }
 
   /*
-   * A toast's action chip, before the command row.
-   *
-   * Before, because a critical is centre-top and the stack is bottom-right --
-   * neither overlaps the row -- but the ordering is stated rather than left to
-   * geometry: a chip the player is reaching for must win against anything that
-   * happens to be behind it, and "whichever rect the loop reached first" is not
-   * a rule anybody can rely on. The claim goes through the router, so the press
-   * is spent once and in a stated order (ADR-020 2).
-   *
-   * The stack marks the row acted and hands back the key; **this file does not
-   * know what the key means** and does not try to. Today nothing consumes it
-   * beyond the log line -- the actions the sheet names (JUMP TO, VIEW) need
-   * surfaces that do not exist yet -- so the honest thing is to complete the
-   * mechanism and say so, rather than invent a destination for the number.
+   * The toast chips used to be tested here and are now tested above the surface
+   * branch (`UpdateToastActions`), because the stack is drawn above *every*
+   * surface and a control that is visible on the map and pressable only on the
+   * tactical view is a control that stops working exactly where it is needed --
+   * D16 puts the player on the map for the whole crossing, and the arrival chip
+   * lands while they are there.
    */
-  for (std::size_t index = 0; index < m_toastActionCount; ++index)
-  {
-    if (m_toastActionRects[index].width <= 0.0f || !m_router.ClaimTapIn(m_toastActionRects[index]))
-    {
-      continue;
-    }
-    std::uint32_t actionKey = 0;
-    if (m_toasts.Act(index, actionKey, Clock::SecondsSinceStart()))
-    {
-      NEURON_LOG_INFO("toast action %u taken", actionKey);
-    }
-    return;
-  }
 
   const CommandButton* pressed =
       HitCommandRow(std::span<const CommandButton>{m_commandButtons, m_commandButtonCount}, cursorX, cursorY);
@@ -1278,6 +1357,48 @@ void ClientApp::UpdateSelection()
     return;
   }
 
+  /*
+   * **A place is not a fleet member**, so the question is asked before the
+   * selection changes rather than corrected after it (ADR-017 §2).
+   *
+   * A station answered ship verbs until this existed: `CommandRow` enables on
+   * `available && hasSelection` and never asks *what* is selected, so a
+   * structure in the set lit MOVE, ATTACK and DOCK -- a fleet of one that could
+   * not take any of them, and a DOCK asking the station to dock at itself.
+   * Greying the row against a structure would have been the engine deciding
+   * that structures are different, which it may not know; the game says so
+   * here, and the client acts on one bit.
+   *
+   * So a tap on a place **goes there** instead. That is the same navigation the
+   * ELSEWHERE column's button makes, from the other door: the station on the
+   * grid in front of you is the one place a player should not have to find in a
+   * list.
+   *
+   * The pick is the one `Selection::Tap` is about to make -- same plane point,
+   * same floor, same list, on the same frame -- so what is asked about is what
+   * would have been taken. Twice rather than threaded through `Tap`, which owns
+   * picking-and-applying as one act and is tested as one, and which a caller
+   * handing it a pre-resolved hit could no longer promise.
+   *
+   * **The selection is left exactly as it was**, which is what a structure not
+   * being a member means for the shift accelerator too: adding one to a fleet
+   * would build a set no verb could act on. And the tap is spent through the
+   * router, as every actuated control spends one (ADR-020 §2), so the frame's
+   * remaining stages see the press was taken.
+   */
+  const XMFLOAT2 tapMetres =
+      NdcToPlane(m_camera.PlaneMappingForNdc(),
+                 PixelsToNdc(gesture.tapX, gesture.tapY, m_input.viewportWidth, m_input.viewportHeight));
+  const EntityId tapped =
+      PickPoint(m_scene.entities, tapMetres, m_camera.ScreenFloorMetres(Selection::PICK_FLOOR_PIXELS));
+  if (std::uint16_t anchor = 0; tapped != INVALID_ENTITY_ID && m_worldView->PlaceForEntity(tapped, anchor))
+  {
+    (void)m_router.ClaimPointer();
+    m_stationAnchor = anchor;
+    OnSurfaceChanged(m_surfaces.Push(SurfaceId::Station));
+    return;
+  }
+
   m_selection.Tap(gesture.tapX, gesture.tapY, m_router.Down(InputAction::SelectAdd), m_scene.entities,
                   m_camera.PlaneMappingForNdc(), m_input.viewportWidth, m_input.viewportHeight,
                   m_camera.ScreenFloorMetres(Selection::PICK_FLOOR_PIXELS));
@@ -1334,8 +1455,26 @@ void ClientApp::UpdateOrders()
   for (std::uint32_t index = 0; index < noticeCount; ++index)
   {
     const Notice& notice = notices[index];
-    (void)m_toasts.Raise(ToastPriority::Routine, notice.code, notice.title != nullptr ? notice.title : "",
-                         notice.body != nullptr ? notice.body : "", nowSeconds);
+    /*
+     * With its chip when the game offered one (U6, ADR-020 D15.5).
+     *
+     * Two calls rather than a null label through one, because `RaiseWithAction`
+     * promises the label outlives the row and `Raise` promises nothing -- and a
+     * single entry point taking a null would make that promise conditional on an
+     * argument nobody looks at.
+     */
+    if (notice.actionLabel != nullptr)
+    {
+      (void)m_toasts.RaiseWithAction(ToastPriority::Routine, notice.code,
+                                     notice.title != nullptr ? notice.title : "",
+                                     notice.body != nullptr ? notice.body : "", notice.actionLabel, notice.actionKey,
+                                     nowSeconds);
+    }
+    else
+    {
+      (void)m_toasts.Raise(ToastPriority::Routine, notice.code, notice.title != nullptr ? notice.title : "",
+                           notice.body != nullptr ? notice.body : "", nowSeconds);
+    }
   }
 
   // What the newest snapshot says is still running. This is what promotes a
@@ -1517,6 +1656,159 @@ bool ClientApp::BeginContextAction(const PuckSample& _sample, double _nowSeconds
 }
 
 /*
+ * The camera onto whatever is selected (I2's rule 2, U6).
+ *
+ * Lifted out of the roster's double-tap when the Tab stepper needed the same
+ * act: two expressions of "frame this fleet" would eventually disagree about
+ * the margin, and the margin is the interesting part.
+ *
+ * A snap rather than a glide, which is `ResetView`'s idiom -- the one other
+ * thing in this client that puts the camera somewhere.
+ *
+ * **The margin is the client's to supply because the chrome is.** The camera
+ * fits to its viewport and cannot see that a roster column and a command row
+ * are standing on part of it, so the fraction below is the larger of the two
+ * dimensions the HUD eats, plus air. A known limit this does not close: the
+ * fleet ends up centred on the *viewport* rather than on the world zone, so it
+ * sits a little toward the roster -- closing that means the camera taking a
+ * frame rect rather than a fraction, which is a bigger change than this control
+ * earns.
+ */
+void ClientApp::FrameSelection()
+{
+  m_focusPoints.clear();
+  for (const SceneEntity& entity : m_scene.entities)
+  {
+    if (m_selection.Contains(entity.id))
+    {
+      m_focusPoints.push_back(entity.planeMetres);
+    }
+  }
+  if (m_focusPoints.empty())
+  {
+    return; // Nothing on this grid to look at, which is not a camera move.
+  }
+
+  const UiRect& world = m_uiLayout.world;
+  const float chromeWidth =
+      world.width > 0.0f ? 1.0f - world.width / std::max(1.0f, m_uiLayout.viewport.width) : 0.0f;
+  const float chromeHeight =
+      world.height > 0.0f ? 1.0f - world.height / std::max(1.0f, m_uiLayout.viewport.height) : 0.0f;
+  m_camera.FocusOn(m_focusPoints, std::max(chromeWidth, chromeHeight) + FLEET_FRAME_AIR);
+}
+
+/*
+ * The next fleet, on a key (U6's focus polish).
+ *
+ * **One ordering over the two lists the HUD already draws**: the wings standing
+ * on this grid, in the roster's own row order, then the places elsewhere the
+ * location blocks name, in theirs. That ordering is not invented here -- it is
+ * what is on screen, top to bottom -- so a player who has read the panel knows
+ * where the key will take them next.
+ *
+ * **A wing is taken and framed; a place is asked for.** Both are exactly what
+ * pressing the row or the block's button already does, which is the whole
+ * discipline of an accelerator: it must not be able to do anything the screen
+ * cannot, or it becomes the only way to reach something and a touch client
+ * loses it.
+ *
+ * The stepper remembers the fleet it visited by identity and looks for the one
+ * *after* it in the list as it stands now. A wing that docked between two
+ * presses is simply not found, and the cycle restarts at the top rather than
+ * skipping whatever inherited its slot.
+ */
+void ClientApp::CycleFleet()
+{
+  /*
+   * The two lists, flattened into one walk. Keys rather than pointers, because
+   * the second half of the walk needs an anchor and the first a group id, and
+   * the top bit is what tells them apart -- a group id and an anchor are both
+   * small numbers and would otherwise collide.
+   */
+  m_fleetCycleKeys.clear();
+  for (std::uint32_t index = 0; index < m_rosterRowCount; ++index)
+  {
+    if (m_rosterRows[index].shipCount > 0)
+    {
+      m_fleetCycleKeys.push_back(m_rosterRows[index].groupId);
+    }
+  }
+  for (std::uint32_t index = 0; index < m_locationBlockCount; ++index)
+  {
+    /*
+     * Blocks already on screen as hulls are skipped, which is
+     * `BuildLocationBlockColumn`'s own rule: the grid being watched is
+     * represented by its wings above, and listing it again would make one fleet
+     * two stops on the cycle.
+     */
+    if (!m_locationBlocks[index].inScene && m_locationBlocks[index].shipCount > 0)
+    {
+      m_fleetCycleKeys.push_back(FLEET_CYCLE_PLACE_BIT | m_locationBlocks[index].anchor);
+    }
+  }
+  if (m_fleetCycleKeys.empty())
+  {
+    return;
+  }
+
+  const std::uint32_t key = NextFleetInCycle(m_fleetCycleKeys, m_fleetCycled);
+  if (key == NO_FLEET_CYCLED)
+  {
+    return;
+  }
+  m_fleetCycled = key;
+
+  if ((key & FLEET_CYCLE_PLACE_BIT) != 0u)
+  {
+    /*
+     * Somewhere else: the block's button, without the press.
+     *
+     * A refused request leaves the feed where it was and the authority's reason
+     * raises the toast, so nothing here has to guess whether it worked -- the
+     * same sentence the map's VIEW carries, because it is the same request.
+     */
+    const auto grid = static_cast<std::uint16_t>(key & ~FLEET_CYCLE_PLACE_BIT);
+    if (m_connection.RequestView(grid))
+    {
+      NEURON_LOG_INFO("cycle: asking to watch grid %u", grid);
+    }
+    return;
+  }
+
+  /*
+   * A wing on this grid: its row's act, without the tap.
+   *
+   * Sized from the game's own count of this wing in this frame, exactly as the
+   * row press sizes it, so the seam call cannot truncate and no cap has to be
+   * invented for a keyboard path that a pointer path does without one.
+   */
+  const RosterRow* row = nullptr;
+  for (std::uint32_t index = 0; index < m_rosterRowCount; ++index)
+  {
+    if (m_rosterRows[index].groupId == key)
+    {
+      row = &m_rosterRows[index];
+      break;
+    }
+  }
+  if (row == nullptr)
+  {
+    return;
+  }
+
+  m_groupMembers.assign(row->shipCount, 0);
+  const std::uint32_t members = m_worldView->BuildGroupMembers(row->groupId, m_groupMembers);
+  m_groupMembers.resize(members);
+  if (members == 0)
+  {
+    return; // A wing the game no longer has members for; the next press moves on.
+  }
+
+  m_selection.Set(m_groupMembers);
+  FrameSelection();
+}
+
+/*
  * Where the fleet went, and whether to go with it.
  *
  * **The trigger is arrival, not departure, and that is forced rather than
@@ -1548,6 +1840,37 @@ void ClientApp::AdvanceAutoFollow()
   const std::uint16_t here = m_connection.GridAnchor();
   const std::span<const LocationBlock> blocks{m_locationBlocks, m_locationBlockCount};
   const std::uint16_t best = FollowTarget(blocks, here, m_followRefused);
+
+  /*
+   * D16's **first** presence edge, which had no pinned state to test until now:
+   * *"presence lost under a pinned camera -> the view falls to the map"*.
+   *
+   * The pin says "I meant to be here", so the feed does not move -- but the two
+   * halves of that sentence are different promises. Not moving is what the
+   * player asked for; sitting on a grid that no longer holds anything of theirs
+   * is not something they asked for at all, and a pin that simply froze would
+   * leave them watching an empty plane with no prospect of it filling. The map
+   * is where a fleet that is elsewhere is legible, which is the same reason the
+   * second edge goes there.
+   *
+   * `best != NO_FOLLOW_TARGET` is exactly "nothing of mine is here and there is
+   * somewhere it went" -- `FollowTarget`'s own here-guard is what makes that
+   * reading safe, and it is the condition the follow below would have acted on.
+   * The other way to lose presence, everything mid-crossing, falls through to
+   * the second edge and reaches the same screen by the path it already had.
+   */
+  if (m_cameraPinned)
+  {
+    if (best != NO_FOLLOW_TARGET && SurfaceRecordsWorld(m_surfaces.Active()) && !m_surfaces.Holds(SurfaceId::Map))
+    {
+      NEURON_LOG_INFO("camera pinned and nothing of ours on grid %u; showing the map", here);
+      OnSurfaceChanged(m_surfaces.Push(SurfaceId::Map));
+      m_mapIsTransitView = true;
+      m_mapTransitFramed = false;
+    }
+    return;
+  }
+
   if (best == NO_FOLLOW_TARGET)
   {
     /*
@@ -1579,6 +1902,21 @@ void ClientApp::AdvanceAutoFollow()
     {
       NEURON_LOG_INFO("every fleet is crossing; nothing on grid %u to watch, showing the map", here);
       OnSurfaceChanged(m_surfaces.Push(SurfaceId::Map));
+
+      /*
+       * And it is the **transit view** rather than the map the player asked for
+       * (U6's focus polish, D16).
+       *
+       * The distinction earns its flag twice. It lets `UpdateMapSurface` frame
+       * the crossing and light it up without hijacking a map somebody opened
+       * themselves; and it lets the arrival hand the player back, below, which
+       * is the half of *"the transit view completes auto-follow"* that a
+       * highlight alone would not deliver -- otherwise the fleet lands, the feed
+       * follows it, and the player is left looking at a map of where they now
+       * already are.
+       */
+      m_mapIsTransitView = true;
+      m_mapTransitFramed = false;
     }
     return;
   }
@@ -1587,6 +1925,20 @@ void ClientApp::AdvanceAutoFollow()
   {
     m_followRequested = best;
     NEURON_LOG_INFO("auto-follow: nothing of ours on grid %u, asking for %u", here, best);
+
+    /*
+     * The crossing is over, so the between-surface goes with it.
+     *
+     * Popped here rather than on `ViewChanged`, because what is finished is the
+     * *reason the map was pushed* -- there is somewhere to follow to again --
+     * and that is known at the ask. A map the player opened themselves is
+     * untouched: the flag is what separates the two, and it is the whole reason
+     * the flag exists.
+     */
+    if (m_mapIsTransitView && m_surfaces.Active() == SurfaceId::Map)
+    {
+      OnSurfaceChanged(m_surfaces.Back());
+    }
   }
 }
 
@@ -1690,6 +2042,15 @@ void ClientApp::OnSurfaceChanged(const SurfaceChange& _change)
       }
       m_mapExtent = MapExtentOf(m_mapTopology);
 
+      /*
+       * And what the graph *measures*, once, beside it: the mean constellation
+       * and region sizes the pinch levels and the top bar are stated in. Asked
+       * here rather than per frame for `MapTopology`'s own reason -- the bake
+       * does not change, so a walk over 2,500 nodes every frame would be
+       * re-answering a question whose answer is fixed for the session.
+       */
+      m_mapMetrics = MeasureMapGraph(m_mapTopology);
+
       // The first overlay with content behind it, so the screen opens showing
       // something rather than showing the first stub in the print's order.
       for (std::uint32_t index = 0; index < m_mapOverlayCount; ++index)
@@ -1714,6 +2075,44 @@ void ClientApp::OnSurfaceChanged(const SurfaceChange& _change)
      */
     m_mapNeedsFit = true;
     m_mapPinchApplied = 1.0f;
+  }
+
+  if (_change.exited == SurfaceId::Map)
+  {
+    /*
+     * A map that is left stops being the transit view, however it was left.
+     *
+     * Cleared on the *exit* rather than on the arrival that usually causes it,
+     * because a player who presses `◀ TACTICAL` mid-crossing has said they are
+     * done with it -- and a flag that survived that would make the next map they
+     * opened, for their own reasons, frame and highlight a fleet they had just
+     * walked away from.
+     */
+    m_mapIsTransitView = false;
+    m_mapTransitFramed = false;
+  }
+
+  if (_change.entered == SurfaceId::System)
+  {
+    /*
+     * The rings are asked for on entry rather than held, and the selection goes
+     * with the visit.
+     *
+     * **Held would be wrong here in a way it is not for the map.**
+     * `MapTopology`'s spans are promised for the session; `SystemViewData`'s are
+     * promised only until the next `BuildSystemView` (`WorldView.h`), because
+     * one system out of 2,500 is rebuilt per ask rather than kept. So the screen
+     * re-asks on every entry, and `m_systemAskedAt` is cleared to say the
+     * summary-rate refresh below owes its first ask.
+     *
+     * The **selection** clears because it is a selection *of a place*, and the
+     * place a player was looking at in another system is not a place in this
+     * one -- the panel would open describing an anchor that is not on the disc.
+     */
+    m_systemAskedAt = -1.0;
+    m_systemHasData = false;
+    m_systemHasSelection = false;
+    m_systemHasVerbs = false;
   }
 
   if (_change.entered == SurfaceId::Station)
@@ -1748,6 +2147,77 @@ void ClientApp::OnSurfaceChanged(const SurfaceChange& _change)
  * fall through to, and a press that reached the tactical command row would be
  * a button nobody could see being pressed.
  */
+/*
+ * A toast's action chip, on whichever surface is up (`alerts-and-toasts.png` §2,
+ * ADR-020 D15.5, U6).
+ *
+ * **Above the surface branch, because the stack is drawn above the branch.**
+ * `BuildHud` puts the toasts outside the per-surface draw deliberately -- they
+ * are a cross-surface layer -- and the press had stayed inside it, so a chip
+ * visible on the map could only be pressed on the tactical view. That is the
+ * one place it matters least: D16 sends a player to the map for the length of a
+ * crossing, and the arrival chip appears while they are sitting there.
+ *
+ * Ordering is stated rather than left to geometry: a chip the player is
+ * reaching for wins against anything behind it, and the claim goes through the
+ * router so the press is spent once (ADR-020 §2).
+ *
+ * The stack marks the row acted and hands back the key; **this file does not
+ * know what the key means** and still does not.
+ *
+ * **What it does with it is spend it on a view request.** That is not this file
+ * learning what a jump is: every key the game has ever attached names a *grid*,
+ * because the actions it offers are places to go, and `RequestView` is what "go
+ * there" is on this client. The engine draws a word it cannot read, echoes a
+ * number it cannot interpret, and asks the authority to point the camera --
+ * which either takes it or answers with a reason, on the path every refused view
+ * already travels.
+ *
+ * Returns true when it took the press, so the caller stops.
+ */
+bool ClientApp::UpdateToastActions()
+{
+  for (std::size_t index = 0; index < m_toastActionCount; ++index)
+  {
+    if (m_toastActionRects[index].width <= 0.0f || !m_router.ClaimTapIn(m_toastActionRects[index]))
+    {
+      continue;
+    }
+
+    std::uint32_t actionKey = 0;
+    if (!m_toasts.Act(index, actionKey, Clock::SecondsSinceStart()))
+    {
+      return true; // A row with no action: the press was still spent on it.
+    }
+
+    const auto grid = static_cast<std::uint16_t>(actionKey);
+    if (grid != m_connection.GridAnchor() && m_connection.RequestView(grid))
+    {
+      /*
+       * And back to the world, so the chip finishes what it promised.
+       *
+       * Answering "show me that" while leaving a map or a hangar in front of it
+       * would be answering it with a map -- VIEW's reasoning one screen up
+       * (U5a), and it applies to every surface the chip can be pressed from.
+       * `Back` rather than a pop to the root: the stack is one deep in every
+       * path that reaches here, and a chip is not a reason to forget where the
+       * player came from if it ever is not.
+       */
+      if (!SurfaceRecordsWorld(m_surfaces.Active()))
+      {
+        OnSurfaceChanged(m_surfaces.Back());
+      }
+      NEURON_LOG_INFO("toast action: asking to watch grid %u", grid);
+    }
+    else
+    {
+      NEURON_LOG_INFO("toast action %u taken; nothing to switch to", actionKey);
+    }
+    return true;
+  }
+  return false;
+}
+
 void ClientApp::UpdateStationSurface()
 {
   const float scale = m_uiLayout.scale;
@@ -2958,6 +3428,10 @@ void ClientApp::BuildHud()
   {
     BuildMapSurface();
   }
+  else if (m_surfaces.Active() == SurfaceId::System)
+  {
+    BuildSystemSurface();
+  }
   else
   {
     BuildStationSurface();
@@ -3240,14 +3714,21 @@ void ClientApp::BuildTacticalHud(double _nowSeconds)
   m_ui.AddQuad(UiRect{0.0f, layout.topBar.Bottom() - 1.0f, layout.topBar.width, 1.0f}, m_palette.borderStrong);
 
   /*
-   * The breadcrumb's frame, which is what makes it look pressable (U5).
+   * The breadcrumb's frames, which are what make it look pressable (U5, U6).
    *
    * The print draws the chevron and nothing else, and a chevron alone is a
-   * separator on every other screen in the corpus -- so the target gets the same
-   * faint outline MENU has, and the two controls on this bar look like the same
+   * separator on every other screen in the corpus -- so the targets get the same
+   * faint outline MENU has, and the controls on this bar look like the same
    * kind of thing because they now are.
+   *
+   * **Two frames rather than one, because there are two targets.** A single
+   * outline around a strip that goes to two different screens would be the one
+   * thing the split must not do: leave the player guessing which half of a
+   * button they are pressing. The seam between them is where the chevron sits,
+   * which is exactly where the print already drew a divider.
    */
-  m_ui.AddBorder(m_locationChipRect, 1.0f, AtHalfAlpha(m_palette.border));
+  m_ui.AddBorder(m_systemChipRect, 1.0f, AtHalfAlpha(m_palette.border));
+  m_ui.AddBorder(m_regionChipRect, 1.0f, AtHalfAlpha(m_palette.border));
 
   const bool joined = m_connection.State() == ClientLinkState::Joined;
   const float textY = layout.topBar.y + (layout.topBar.height - bodyPx) * 0.5f;
@@ -3331,7 +3812,20 @@ void ClientApp::BuildTacticalHud(double _nowSeconds)
                  m_uiTuning.bodySizeIndex, m_menuOpen ? m_palette.phosphorHot : m_palette.phosphor, MENU_CHIP_LABEL);
   }
 
-  float right = m_menuButtonRect.x - cell;
+  /*
+   * The pin, left of MENU, lit when it is holding (U6, D1's sibling rule from
+   * `station-screen.png` §2: a control says what state it is in rather than
+   * disappearing when it is off).
+   */
+  {
+    const std::uint32_t pinColour = m_cameraPinned ? m_palette.caution : m_palette.phosphorDim;
+    m_ui.AddBorder(m_pinChipRect, 1.0f * layout.scale, m_cameraPinned ? m_palette.caution : m_palette.border);
+    const float pinTextWidth = static_cast<float>(TextCellCount(PIN_CHIP_LABEL)) * cell;
+    m_ui.AddText(m_pinChipRect.x + (m_pinChipRect.width - pinTextWidth) * 0.5f, textY, m_uiTuning.bodySizeIndex,
+                 pinColour, PIN_CHIP_LABEL);
+  }
+
+  float right = m_pinChipRect.x - cell;
   // Right-to-left, so a separator claims its own cell and a cell of air on
   // each side before the next item pens further left.
   const auto rightSeparator = [&] {
@@ -4613,9 +5107,19 @@ void ClientApp::UpdateMapSurface()
    * with different zoom behaviour, which is what a separate wheel path would
    * eventually produce.
    */
-  if (overGraph && m_router.WheelAvailable())
+  /*
+   * Claimed by **position**, which is `ClaimWheelIn`'s own rule: *"a wheel has
+   * no press to land, and hovering is the whole gesture"*.
+   *
+   * This asked `overGraph` -- the *gesture's* position -- and a gesture has a
+   * position only while something is touching the screen. So on a desk, with no
+   * button held, `gesture.x` was zero, the graph never contained it, and the
+   * wheel did nothing at all: the map could be zoomed by a pinch and not by a
+   * mouse. The pinch levels this slice re-derived are unreachable on a desktop
+   * without it, which is how it was found.
+   */
   {
-    const float steps = m_router.WheelSteps();
+    const float steps = m_router.ClaimWheelIn(m_mapLayout.graph);
     if (steps != 0.0f)
     {
       m_mapCamera = PinchMapCamera(m_mapCamera, std::pow(MAP_WHEEL_ZOOM_PER_NOTCH, steps), m_router.CursorX(),
@@ -4623,9 +5127,18 @@ void ClientApp::UpdateMapSurface()
     }
   }
 
-  m_mapLevel = MapLevelOf(m_mapCamera, m_mapExtent, m_mapLayout.graph, m_mapTuning);
+  m_mapLevel = MapLevelOf(m_mapCamera, m_mapExtent, m_mapLayout.graph, m_mapMetrics, m_mapTuning);
   m_mapCounts = BuildMapGraph(m_mapTopology, m_mapCamera, m_mapLayout.graph, m_mapLevel, m_mapShow, 8.0f * scale,
                               scale, m_mapTuning, m_mapNodeRects, m_mapLinkRects, m_mapGroupRects);
+  m_mapRegionMarkCount = BuildMapRegionMarks(m_mapTopology, m_mapCamera, m_mapLayout.graph, m_mapLevel, m_mapMetrics,
+                                             8.0f * scale, scale, m_mapTuning, m_mapRegionMarks);
+
+  /*
+   * And which region the bar names -- the universe until one region fills most
+   * of the view, which is `strategic-map.png`'s `<region> [BAND]` read as the
+   * sentence it is: the region on the bar is the one you are looking *at*.
+   */
+  m_mapTitleRegion = MapTitleRegion(m_mapTopology, m_mapCamera, m_mapLayout.graph, m_mapMetrics, m_mapTuning);
 
   /*
    * Where the player's ships are (U3b), asked at the rate the answer changes.
@@ -4645,9 +5158,77 @@ void ClientApp::UpdateMapSurface()
     m_mapMarkerCount = m_worldView->BuildMapMarkers(m_mapMarkers);
     m_mapMarkersAskedAt = nowSeconds;
   }
-  m_mapMarkerRectCount =
-    BuildMapMarkerRects({m_mapMarkers, m_mapMarkerCount}, {m_mapNodeRects.data(), m_mapCounts.nodes}, scale,
-                        m_mapTuning, m_mapMarkerRects);
+  m_mapMarkerRectCount = BuildMapMarkerRects({m_mapMarkers, m_mapMarkerCount}, m_mapTopology,
+                                             {m_mapNodeRects.data(), m_mapCounts.nodes},
+                                             {m_mapGroupRects.data(), m_mapCounts.groups}, scale, m_mapTuning,
+                                             m_mapMarkerRects);
+
+  /*
+   * The transit view frames the crossing (U6's focus polish, D16).
+   *
+   * The player did not ask for this screen -- auto-follow put them here because
+   * everything they own is between systems -- so opening on the fit would hand
+   * them 2,500 dots and a fleet somewhere in it. The camera goes to where the
+   * soonest arrival lands, at the level the print calls SYSTEM, and the panel
+   * names it.
+   *
+   * **Once, on the first frame that has markers**, not every frame: the
+   * `BuildMapMarkers` ask is at ~1 Hz and re-centring on each of them would take
+   * the map away from a player who had panned it. They were brought here
+   * without asking; being unable to move afterwards would be the second half of
+   * the same discourtesy.
+   *
+   * The soonest by ETA is chosen where there are several, which is the same
+   * "what happens next" the alerts rail sorts by -- and ties fall to the lower
+   * node so two fleets landing together frame the same way twice.
+   */
+  if (m_mapIsTransitView && !m_mapTransitFramed && m_mapMarkerCount > 0 && !m_mapTopology.nodes.empty())
+  {
+    const MapMarker* soonest = nullptr;
+    for (std::uint32_t index = 0; index < m_mapMarkerCount; ++index)
+    {
+      if (m_mapMarkers[index].incomingCount == 0)
+      {
+        continue;
+      }
+      if (soonest == nullptr || m_mapMarkers[index].node < soonest->node)
+      {
+        soonest = &m_mapMarkers[index];
+      }
+    }
+
+    if (soonest != nullptr && soonest->node < m_mapTopology.nodes.size())
+    {
+      const MapNode& node = m_mapTopology.nodes[soonest->node];
+      m_mapTransitFramed = true;
+      m_mapNeedsFit = false;
+
+      /*
+       * The zoom is stated in the level's own currency rather than in pixels
+       * per unit: `MapScaleForLevel` is `MapLevelOf` solved for
+       * `pixelsPerUnit`, so the camera it returns is exactly the one that reads
+       * back as SYSTEM -- on any bake, at any window size. A second derivation
+       * here could disagree with the readout, and a screen that contradicts the
+       * thing that put the player there is worse than one that never moved.
+       */
+      m_mapCamera.centreX = node.x;
+      m_mapCamera.centreY = node.y;
+      m_mapCamera.pixelsPerUnit =
+        MapScaleForLevel(MapPinchLevel::System, m_mapExtent, m_mapLayout.graph, m_mapMetrics, m_mapTuning);
+      m_mapPinchApplied = 1.0f;
+
+      m_mapSelected = node.id;
+      m_mapHasSelection = true;
+      m_mapFactScroll.Reset();
+      m_mapRouteScroll.Reset();
+      if (m_worldView != nullptr)
+      {
+        m_mapFactCount = m_worldView->BuildMapFacts(m_mapSelected, m_mapFacts);
+        m_mapHopCount = m_worldView->SolveMapRoute(m_mapSelected, m_mapHops, m_mapRouteSummary);
+      }
+      NEURON_LOG_INFO("transit view: framing system %u, %u arriving", node.id, soonest->incomingCount);
+    }
+  }
 
   // The panels' scroll extents, from the data as it is now -- `UiScrollState`'s
   // clamp is a correction rather than a check, and this is what corrects it.
@@ -4789,6 +5370,34 @@ void ClientApp::UpdateMapSurface()
 
   if (m_mapLayout.graph.Contains(tapX, tapY))
   {
+    /*
+     * At REGION the tap lands on a **chip**, not on a system, and it means
+     * *take me there* rather than *select this*.
+     *
+     * Ten systems inside two pixels is ten 48 px targets stacked on one point,
+     * and `HitMapNode` would resolve between them on sub-pixel proximity -- a
+     * coin toss dressed as a choice, on a screen whose whole job at this level
+     * is to say where to look next. So the press zooms the camera onto the
+     * cluster at the level where its systems are separate things, and the
+     * player picks one there. `MapScaleForLevel` supplies the scale, so the
+     * hint box agrees with where the press put them.
+     */
+    if (m_mapLevel == MapPinchLevel::Region)
+    {
+      if (const MapGroupDisc* disc =
+              HitMapGroup({m_mapGroupRects.data(), m_mapCounts.groups}, tapX, tapY, scale, m_mapTuning);
+          disc != nullptr && disc->group < m_mapTopology.groups.size())
+      {
+        const MapGroup& group = m_mapTopology.groups[disc->group];
+        m_mapCamera.centreX = group.x;
+        m_mapCamera.centreY = group.y;
+        m_mapCamera.pixelsPerUnit =
+          MapScaleForLevel(MapPinchLevel::Constellation, m_mapExtent, m_mapLayout.graph, m_mapMetrics, m_mapTuning);
+        m_mapPinchApplied = 1.0f;
+      }
+      return;
+    }
+
     if (const MapNodeRect* node =
             HitMapNode({m_mapNodeRects.data(), m_mapCounts.nodes}, tapX, tapY, scale, m_mapTuning);
         node != nullptr)
@@ -4867,21 +5476,36 @@ void ClientApp::BuildMapSurface()
    * word for where the player is looking, its band badge, and the two counts the
    * print draws. Every one of them comes from the topology.
    */
-  if (!m_mapTopology.regions.empty())
+  if (!m_mapTopology.nodes.empty())
   {
-    const MapRegion& region = m_mapTopology.regions.front();
-    const char* name = region.label != nullptr ? region.label : "";
+    /*
+     * **The place you are looking at, and only the level beside it.**
+     *
+     * This line used to read `<first region in the bake> REGION · 250
+     * CONSTELLATIONS · 2500 SYSTEMS`, which is three things wrong at once: the
+     * region was whichever one the bake happened to write first and never
+     * changed as the camera crossed fifty of them; the counts were the whole
+     * universe's, on a bar that names one place; and the two together read as a
+     * claim that the named region held 2,500 systems. The counts live in the
+     * graph footer, which is where the print puts them and where they already
+     * were.
+     *
+     * So: the universe's own name at the fit, and the region's the moment one
+     * fills the view (`MapTitleRegion`). Both words are the game's.
+     */
+    const bool named = m_mapTitleRegion < m_mapTopology.regions.size();
+    const MapRegion* region = named ? &m_mapTopology.regions[m_mapTitleRegion] : nullptr;
+    const char* universe = m_mapTopology.name != nullptr ? m_mapTopology.name : "";
+    const char* name = region != nullptr && region->label != nullptr ? region->label : universe;
     leftIn(screen.title, m_uiTuning.bodySizeIndex, m_palette.phosphorHot, name);
 
     const float titlePen = screen.title.x + pad + static_cast<float>(TextCellCount(name)) * cell + cell * 2.0f;
-    std::snprintf(buffer, sizeof(buffer), "%s - %zu CONSTELLATIONS - %zu SYSTEMS", MapPinchLevelName(m_mapLevel),
-                  m_mapTopology.groups.size(), m_mapTopology.nodes.size());
     m_ui.AddText(titlePen, screen.title.y + (screen.title.height - smallPx) * 0.5f, m_uiTuning.smallSizeIndex,
-                 m_palette.phosphorBody, buffer);
+                 m_palette.phosphorBody, MapPinchLevelName(m_mapLevel));
 
-    if (region.badge != nullptr)
+    if (region != nullptr && region->badge != nullptr)
     {
-      rightIn(screen.title, m_uiTuning.smallSizeIndex, StandingColourOf(m_palette, region.tint), region.badge);
+      rightIn(screen.title, m_uiTuning.smallSizeIndex, StandingColourOf(m_palette, region->tint), region->badge);
     }
   }
   else
@@ -4918,28 +5542,96 @@ void ClientApp::BuildMapSurface()
   for (std::uint32_t index = 0; index < m_mapCounts.groups; ++index)
   {
     const MapGroupDisc& disc = m_mapGroupRects[index];
+    const MapGroup& group = m_mapTopology.groups[disc.group];
 
-    /*
-     * A hull as a ring of segments, because there is no circle primitive and
-     * there should not be: `UiDrawList` is quads and text, and a filled disc
-     * would be a third shape bought for one screen. Sixteen sides reads as a
-     * circle at any radius this map draws, and costs sixteen quads.
-     */
-    constexpr std::uint32_t HULL_SIDES = 16;
-    constexpr float TWO_PI = 6.2831853f;
-    for (std::uint32_t side = 0; side < HULL_SIDES; ++side)
+    if (disc.chipped)
     {
-      const float a0 = TWO_PI * static_cast<float>(side) / static_cast<float>(HULL_SIDES);
-      const float a1 = TWO_PI * static_cast<float>(side + 1u) / static_cast<float>(HULL_SIDES);
-      m_ui.AddSegment(disc.centre.x + std::cos(a0) * disc.radiusPixels,
-                      disc.centre.y + std::sin(a0) * disc.radiusPixels,
-                      disc.centre.x + std::cos(a1) * disc.radiusPixels,
-                      disc.centre.y + std::sin(a1) * disc.radiusPixels, line, AtHalfAlpha(m_palette.phosphorLabel));
+      /*
+       * The counted chip, at REGION: the pip in the group's own tint, and the
+       * membership under it.
+       *
+       * `strategic-map.png` §2's *count and brightness* with both halves said
+       * out loud -- the pip's size carries the count at a glance and the number
+       * carries it exactly, because a size alone is a comparison and not a
+       * fact. The tint is the *game's* (`MapGroup::tint`), resolved through the
+       * palette here, so the chip answers the colour-vision setting like every
+       * other coloured thing on this screen.
+       *
+       * No hull ring: a 10 px outline around a 12 px cluster is a shape the
+       * player reads as a system rather than as a constellation, which is the
+       * confusion the ladder exists to remove.
+       */
+      m_ui.AddQuad(disc.chip, StandingColourOf(m_palette, group.tint));
+
+      /*
+       * The membership as a **numeral only where the name is**, and as the
+       * pip's own size everywhere else.
+       *
+       * Both halves of §2's *count and brightness* reach the player either way;
+       * what the numeral adds is exactness, and 250 of them at the universe fit
+       * is 250 three-pixel-apart digits nobody can read -- the same soup the
+       * names were, in a smaller font. So it rides the label's gate: where
+       * there is room for the constellation's word there is room for its count,
+       * and where there is not, the size carries it alone.
+       */
+      if (disc.labelled)
+      {
+        std::snprintf(buffer, sizeof(buffer), "%u", disc.nodeCount);
+        const float countWidth = static_cast<float>(TextCellCount(buffer)) * cell;
+        m_ui.AddText(disc.centre.x - countWidth * 0.5f, disc.chip.Bottom() + 2.0f * scale, m_uiTuning.smallSizeIndex,
+                     m_palette.phosphorDim, buffer);
+      }
     }
-    if (disc.label.width > 0.0f && m_mapTopology.groups[disc.group].label != nullptr)
+    else
     {
-      m_ui.AddText(disc.label.x, disc.label.y, m_uiTuning.smallSizeIndex, m_palette.phosphorDim,
-                   m_mapTopology.groups[disc.group].label);
+      /*
+       * A hull as a ring of segments, because there is no circle primitive and
+       * there should not be: `UiDrawList` is quads and text, and a filled disc
+       * would be a third shape bought for one screen. Sixteen sides reads as a
+       * circle at any radius this map draws, and costs sixteen quads.
+       */
+      constexpr std::uint32_t HULL_SIDES = 16;
+      constexpr float TWO_PI = 6.2831853f;
+      for (std::uint32_t side = 0; side < HULL_SIDES; ++side)
+      {
+        const float a0 = TWO_PI * static_cast<float>(side) / static_cast<float>(HULL_SIDES);
+        const float a1 = TWO_PI * static_cast<float>(side + 1u) / static_cast<float>(HULL_SIDES);
+        m_ui.AddSegment(disc.centre.x + std::cos(a0) * disc.radiusPixels,
+                        disc.centre.y + std::sin(a0) * disc.radiusPixels,
+                        disc.centre.x + std::cos(a1) * disc.radiusPixels,
+                        disc.centre.y + std::sin(a1) * disc.radiusPixels, line, AtHalfAlpha(m_palette.phosphorLabel));
+      }
+    }
+
+    // The name only where the builder decided it fits and could afford it --
+    // `labelled` rather than a non-empty rect, so the two cannot drift.
+    if (disc.labelled && group.label != nullptr)
+    {
+      m_ui.AddText(disc.label.x, disc.label.y, m_uiTuning.smallSizeIndex, m_palette.phosphorDim, group.label);
+    }
+  }
+
+  /*
+   * The region marks, over the chips and under the nodes.
+   *
+   * `MapRegion` has documented itself as *"the coarsest pinch level, and the one
+   * the print badges"* since the seam was written, and nothing drew it: the
+   * type crossed, was stored, and was read only for the top bar's first entry.
+   * At REGION this is what a player navigates by -- fifty names and fifty band
+   * badges over fifty clusters.
+   */
+  for (std::uint32_t index = 0; index < m_mapRegionMarkCount; ++index)
+  {
+    const MapRegionMark& mark = m_mapRegionMarks[index];
+    const MapRegion& region = m_mapTopology.regions[mark.region];
+    if (mark.label.width > 0.0f && region.label != nullptr)
+    {
+      m_ui.AddText(mark.label.x, mark.label.y, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, region.label);
+    }
+    if (mark.badge.width > 0.0f && region.badge != nullptr)
+    {
+      m_ui.AddText(mark.badge.x, mark.badge.y, m_uiTuning.smallSizeIndex, StandingColourOf(m_palette, region.tint),
+                   region.badge);
     }
   }
 
@@ -4983,22 +5675,45 @@ void ClientApp::BuildMapSurface()
      * A linear scan per hop is 64 x 2,500 at the corpus's cap -- a hundred and
      * sixty thousand comparisons in a frame, to draw at most 63 lines.
      */
-    const auto find = [this](std::uint32_t _node) -> const MapNodeRect* {
+    const auto find = [this](std::uint32_t _node, MapPoint& _outPoint) {
       const auto begin = m_mapNodeRects.begin();
       const auto end = begin + m_mapCounts.nodes;
       const auto found = std::lower_bound(begin, end, _node, [](const MapNodeRect& _rect, std::uint32_t _value) {
         return _rect.node < _value;
       });
-      return found != end && found->node == _node ? &*found : nullptr;
+      if (found != end && found->node == _node)
+      {
+        _outPoint = found->point;
+        return true;
+      }
+
+      /*
+       * No rect, which happens two ways: the system is culled off the viewport,
+       * or the level built no node rects at all -- REGION merges them into
+       * chips. Both used to drop the leg, so a plan crossing the universe drew
+       * nothing at the one zoom that can show the whole crossing.
+       *
+       * Projected directly instead, through the **same** function with the same
+       * camera that placed the rects. That is what makes it safe: the rect's
+       * own `point` is this call, so the fallback cannot disagree with the map
+       * under it -- which is the hazard the endpoints were looked up to avoid.
+       */
+      if (_node >= m_mapTopology.nodes.size())
+      {
+        return false;
+      }
+      const MapNode& node = m_mapTopology.nodes[_node];
+      _outPoint = MapProject(m_mapCamera, m_mapLayout.graph, node.x, node.y);
+      return true;
     };
 
     for (std::uint32_t index = 0; index + 1u < m_mapHopCount; ++index)
     {
-      const MapNodeRect* from = find(m_mapHops[index].node);
-      const MapNodeRect* to = find(m_mapHops[index + 1u].node);
-      if (from != nullptr && to != nullptr)
+      MapPoint from;
+      MapPoint to;
+      if (find(m_mapHops[index].node, from) && find(m_mapHops[index + 1u].node, to))
       {
-        m_ui.AddSegment(from->point.x, from->point.y, to->point.x, to->point.y, line * 2.0f, m_palette.caution);
+        m_ui.AddSegment(from.x, from.y, to.x, to.y, line * 2.0f, m_palette.caution);
       }
     }
   }
@@ -5012,8 +5727,15 @@ void ClientApp::BuildMapSurface()
                 screen.hint.height * 0.5f},
          m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, "PINCH IN > CONSTELLATION > SYSTEM");
 
-  std::snprintf(buffer, sizeof(buffer), "%u SYSTEMS - %u GATE LINKS - COMPLETE DEFINITION", m_mapCounts.nodes,
-                m_mapCounts.links);
+  /*
+   * The **definition**, not the cull, which is what the line says of itself:
+   * `2500 SYSTEMS · 3000 GATE LINKS · COMPLETE DEFINITION`. It read the
+   * frame's counts, so it fell to `0 SYSTEMS` the moment REGION stopped
+   * building node rects -- and had been quietly reporting the viewport rather
+   * than the universe before that, changing as the player panned.
+   */
+  std::snprintf(buffer, sizeof(buffer), "%zu SYSTEMS - %zu GATE LINKS - COMPLETE DEFINITION",
+                m_mapTopology.nodes.size(), m_mapTopology.links.size());
   leftIn(screen.graphFooter, m_uiTuning.smallSizeIndex, m_palette.phosphorGhost, buffer);
 
   // --- the rail -----------------------------------------------------------
@@ -5168,6 +5890,7 @@ void ClientApp::BuildMapSurface()
    * has not reached, on the one screen a player uses to decide where things
    * are.
    */
+  const double nowSecondsForPulse = Clock::SecondsSinceStart();
   for (std::uint32_t index = 0; index < m_mapMarkerRectCount; ++index)
   {
     const MapMarkerRect& placed = m_mapMarkerRects[index];
@@ -5185,6 +5908,53 @@ void ClientApp::BuildMapSurface()
 
     if (mark.incomingCount > 0)
     {
+      /*
+       * On the transit view, the arrival is *highlighted* rather than merely
+       * counted (U6's focus polish, D16).
+       *
+       * The player did not open this screen -- auto-follow put them on it to
+       * watch one thing happen -- and a badge that looked like every other
+       * badge would make them hunt for it on the map they were brought to. So
+       * the node wears a ring, pulsing on the alerts chip's own 1.8 s phase
+       * taken from the frame clock: no timer, nothing to reset, and two clients
+       * watching one crossing pulse in step.
+       *
+       * **Only on the transit view.** A map somebody opened themselves draws
+       * arrivals as the amber count, which is what that map is for; ringing
+       * every incoming fleet there would make the ordinary case shout.
+       */
+      if (m_mapIsTransitView)
+      {
+        const auto begin = m_mapNodeRects.begin();
+        const auto end = begin + m_mapCounts.nodes;
+        const auto node = std::lower_bound(begin, end, static_cast<std::uint32_t>(mark.node),
+                                           [](const MapNodeRect& _rect, std::uint32_t _value) {
+                                             return _rect.node < _value;
+                                           });
+        if (node != end && node->node == mark.node)
+        {
+          constexpr double ARRIVAL_PULSE_SECONDS = 1.8;
+          constexpr std::uint32_t RING_SIDES = 20;
+          constexpr float TWO_PI = 6.2831853f;
+          const auto phase = static_cast<float>(nowSecondsForPulse / ARRIVAL_PULSE_SECONDS);
+          const float swing = 0.5f + 0.5f * std::sin(phase * TWO_PI);
+          const auto full = static_cast<float>(m_palette.caution >> 24);
+          const auto half = static_cast<float>(AtHalfAlpha(m_palette.caution) >> 24);
+          const std::uint32_t pulsed =
+              WithAlpha(m_palette.caution, static_cast<std::uint8_t>(half + (full - half) * swing));
+
+          const float radius = node->dot.width * 2.0f + 6.0f * scale;
+          for (std::uint32_t side = 0; side < RING_SIDES; ++side)
+          {
+            const float a0 = TWO_PI * static_cast<float>(side) / static_cast<float>(RING_SIDES);
+            const float a1 = TWO_PI * static_cast<float>(side + 1u) / static_cast<float>(RING_SIDES);
+            m_ui.AddSegment(node->point.x + std::cos(a0) * radius, node->point.y + std::sin(a0) * radius,
+                            node->point.x + std::cos(a1) * radius, node->point.y + std::sin(a1) * radius, line,
+                            pulsed);
+          }
+        }
+      }
+
       // The arrow is the same one the route chip uses, and it means the same
       // thing in both places: on its way rather than there.
       std::snprintf(buffer, sizeof(buffer), "\xE2\x86\x92%u", mark.incomingCount);
@@ -5273,6 +6043,544 @@ void ClientApp::BuildMapSurface()
   m_ui.AddQuad(UiRect{screen.historyTrack.Right() - line * 2.0f, screen.historyTrack.y, line * 2.0f,
                       screen.historyTrack.height},
                m_palette.phosphorGhost);
+}
+
+/*
+ * --- the system view (U6, D1, ADR-016 §9, §9b) ----------------------------
+ *
+ * One level below the map and a much smaller frame than it: no camera, no
+ * projection, no cull. `SystemScreen.h`'s header says why -- a system's anchors
+ * always fit, so they are *laid out* rather than viewed through something, and
+ * a screen that needed scrolling would have become a second map.
+ *
+ * What it keeps from the map is the shape the ADR asks for: the seam is asked at
+ * the rate its answer changes, the placement is per frame, and the press is
+ * tested against the rects this function resolved (ADR-020 §5.1, §6).
+ */
+void ClientApp::UpdateSystemSurface()
+{
+  const float scale = m_uiLayout.scale;
+  m_systemLayout = ResolveSystemScreen(m_input.viewportWidth, m_input.viewportHeight, scale, m_systemTuning);
+
+  /*
+   * The rings, at the summary family's rate.
+   *
+   * The bake does not move; the two counts on the reticles do, at ~1 Hz, so
+   * this is `MAP_MARKER_REFRESH_SECONDS`' arrangement rather than a per-frame
+   * ask -- and a per-frame ask would rebuild fifteen anchors' labels sixty
+   * times to get the same words.
+   *
+   * **Re-asking replaces the spans**, which is the seam's own rule and the
+   * reason nothing here holds one of its `const char*`s between frames.
+   */
+  const double nowSeconds = Clock::SecondsSinceStart();
+  if (m_worldView != nullptr &&
+      (m_systemAskedAt < 0.0 || nowSeconds - m_systemAskedAt >= MAP_MARKER_REFRESH_SECONDS))
+  {
+    m_systemHasData = m_worldView->BuildSystemView(m_systemId, m_system);
+    m_systemAskedAt = nowSeconds;
+  }
+
+  m_systemPlaced = SystemPlacement{};
+  if (m_systemHasData)
+  {
+    m_systemPlaced =
+      PlaceSystemView(m_system, m_systemLayout, scale, m_systemTuning, m_systemAnchorRects, m_systemBackdropRects);
+  }
+
+  /*
+   * The selection survives a refresh only if the place does.
+   *
+   * `m_systemSelected` is an id precisely so this check can exist: a summary
+   * that lands between two frames rebuilds the anchor list, and an index would
+   * have silently re-pointed the panel at whatever now sits in that slot. A
+   * site whose epoch rolled is what makes this real rather than defensive --
+   * §9b.2's outer ring is the one part of this screen that moves.
+   */
+  if (m_systemHasSelection)
+  {
+    bool stillThere = false;
+    for (std::uint32_t index = 0; index < m_systemPlaced.anchors; ++index)
+    {
+      if (m_system.anchors[m_systemAnchorRects[index].anchor].id == m_systemSelected)
+      {
+        stillThere = true;
+        break;
+      }
+    }
+    m_systemHasSelection = stillThere;
+  }
+
+  /*
+   * The two verbs, per frame, because the selection they judge is behind this
+   * screen and can have changed since the anchor was picked.
+   *
+   * One validate call rather than a cached answer, which is what the command row
+   * does with `OrderKinds` and for the same reason: a button whose greying is a
+   * frame stale is a button that lies for a frame.
+   */
+  m_systemVerbs = SystemAnchorVerbs{};
+  m_systemHasVerbs = false;
+  if (m_worldView != nullptr)
+  {
+    /*
+     * Asked with `INVALID_SYSTEM_ANCHOR` when nothing is picked, rather than
+     * skipped.
+     *
+     * The panel draws both verbs at all times (`station-screen.png` §2), and
+     * their *words* are the game's -- so a frame with no selection still has to
+     * ask, or this side would have to spell them and would thereby have learned
+     * what a warp is. The game answers the names with both dead, which is the
+     * true state of a screen where no place has been chosen.
+     */
+    const std::uint16_t asking = m_systemHasSelection ? m_systemSelected : INVALID_SYSTEM_ANCHOR;
+    m_systemHasVerbs = m_worldView->AnchorVerbs(asking, m_selection.Ids(), m_systemVerbs) && m_systemHasSelection;
+  }
+  const bool canWarp = m_systemHasVerbs && m_systemVerbs.warp.available;
+  const bool canDock = m_systemHasVerbs && m_systemVerbs.dock.available;
+
+  // The way off, before anything else can take the press -- the shared back
+  // chip, which is this corpus's one way back and pops to whatever pushed.
+  if (m_router.ClaimTapIn(m_systemLayout.backChip))
+  {
+    OnSurfaceChanged(m_surfaces.Back());
+    return;
+  }
+
+  const GestureState& gesture = m_router.Gesture();
+  if (!gesture.tapped)
+  {
+    return;
+  }
+  const float tapX = gesture.tapX;
+  const float tapY = gesture.tapY;
+  (void)m_router.ClaimPointer();
+
+  /*
+   * The verbs before the disc, because the panel sits over nothing and a press
+   * on it is unambiguous -- and because a verb must not fall through and clear
+   * the very anchor it was pressed for.
+   */
+  if (const SystemActionHit action = HitSystemAction(m_systemLayout, canWarp, canDock, tapX, tapY);
+      action != SystemActionHit::None)
+  {
+    const SystemVerb& verb = action == SystemActionHit::WarpHere ? m_systemVerbs.warp : m_systemVerbs.dock;
+    CommitAnchorOrder(verb.kind, m_systemSelected, nowSeconds);
+
+    /*
+     * The player stays on this screen, which is SET DESTINATION's answer rather
+     * than VIEW's (U5a).
+     *
+     * A warp is something you *issue and watch*: the ring it left from and the
+     * ring it is going to are both on this disc, and the count on the far
+     * reticle is what says it arrived. Throwing the player back to the tactical
+     * plane on the press would take away the one screen that shows the trip.
+     */
+    return;
+  }
+
+  if (const SystemAnchorRect* hit =
+        HitSystemAnchor({m_systemAnchorRects, m_systemPlaced.anchors}, tapX, tapY, scale, m_systemTuning);
+      hit != nullptr)
+  {
+    m_systemSelected = m_system.anchors[hit->anchor].id;
+    m_systemHasSelection = true;
+    return;
+  }
+
+  /*
+   * A tap on the disc's air clears, which is the tactical surface's rule for the
+   * same gesture and the map's for its void. A tap on the chrome does not: the
+   * panel is where the selection is *read*, and clearing it by touching the
+   * thing that displays it would be the screen deleting its own subject.
+   */
+  if (m_systemLayout.disc.Contains(tapX, tapY))
+  {
+    m_systemHasSelection = false;
+  }
+}
+
+/*
+ * An order at a named place (ADR-016 §9's *"the existing grammar ... the whole
+ * S9 pipeline, reused"*).
+ *
+ * `CommitOrder` with an id where the puck's metres would be. Everything after
+ * the intent is deliberately identical -- preview, ghost, pre-check, bounce,
+ * encode, send -- because that is what makes a warp issued from this screen and
+ * a Move issued on the plane fail the same way. The fleet is on the grid behind
+ * this surface, so the bounce has a real origin to fly back to; and a warp's
+ * preview answers `onThisGrid = false`, which is what turns its ghost into the
+ * chrome's warp chip rather than a footprint drawn on a grid it is leaving.
+ */
+void ClientApp::CommitAnchorOrder(std::uint16_t _kind, std::uint16_t _anchor, double _nowSeconds)
+{
+  if (m_worldView == nullptr || m_selection.Empty())
+  {
+    return; // The verbs are greyed for this, and this is the other half of it.
+  }
+
+  const std::uint32_t orderSeq = m_nextOrderSeq++;
+  OrderIntent intent;
+  intent.kind = _kind;
+  intent.anchor = _anchor;
+  intent.orderSeq = orderSeq;
+  intent.entityIds = m_selection.Ids().data();
+  intent.entityCount = static_cast<std::uint32_t>(m_selection.Ids().size());
+
+  m_worldView->SolvePreview(intent, m_orderPreview);
+
+  DirectX::XMFLOAT2 origin{0.0f, 0.0f};
+  (void)SelectionCentre(m_scene.entities, m_selection.Ids(), origin);
+
+  if (!m_ghosts.Add(intent, m_orderPreview, origin, _nowSeconds))
+  {
+    NEURON_LOG_WARNING("too many orders in flight; order %u was not sent", orderSeq);
+    return;
+  }
+
+  const OrderVerdict local = m_worldView->PreCheck(intent);
+  if (!local.accepted)
+  {
+    // The same bounce the plane's orders take, in the same words. The verb was
+    // greyed on this same verdict a frame ago, so reaching here means the world
+    // changed under the press -- which is exactly the case parity is for.
+    m_ghosts.Refuse(orderSeq, local.reasonCode, true, _nowSeconds);
+    const char* reason = m_worldView->ReasonText(local.reasonCode);
+    (void)m_toasts.Raise(ToastPriority::Urgent, local.reasonCode, "ORDER REJECTED", reason, _nowSeconds);
+    m_audio.PlayCue(ORDER_REJECTED_SOUND_ID);
+    NEURON_LOG_INFO("order %u refused locally: %s", orderSeq, reason);
+    return;
+  }
+
+  std::array<std::uint8_t, MAX_DATAGRAM_BYTES> payload{};
+  ByteWriter writer{payload};
+  if (!m_worldView->EncodeOrder(intent, writer) || !writer.Ok() || !m_connection.SendOrder(writer.Written()))
+  {
+    // It never left, so there was never a promise -- forgotten rather than
+    // bounced, which is `CommitOrder`'s distinction and means the same here.
+    m_ghosts.Forget(orderSeq);
+    NEURON_LOG_WARNING("order %u could not be sent", orderSeq);
+    return;
+  }
+
+  NEURON_LOG_INFO("order %u sent from the system view: kind %u at anchor %u", orderSeq, _kind, _anchor);
+}
+
+/*
+ * The system view's draw (U6, D1, ADR-016 §9).
+ *
+ * Reads `m_systemLayout` and what `UpdateSystemSurface` placed, and resolves
+ * nothing of its own -- ADR-020 §5.1, and on this screen it is the rule that
+ * makes *nearest, never first* mean anything: the reticle the hit test measured
+ * against has to be the reticle the player aimed at.
+ *
+ * **Three things the print decides and this draw obeys.** Anchors get a reticle
+ * and a word and backdrop gets neither, so the player never presses something
+ * and is told no. The rings are drawn as rings, evenly spaced, with **no scale
+ * bar and no metre anywhere** -- a ruler over a non-linear layout is a lie with
+ * authority. And the star is drawn from the layout's own centre rather than
+ * from data, which is what makes "the star is not a target" structural.
+ */
+void ClientApp::BuildSystemSurface()
+{
+  const SystemScreenLayout& screen = m_systemLayout;
+  const float scale = m_uiLayout.scale;
+  const float cell = 8.0f * scale;
+  const float pad = m_uiTuning.padding * scale;
+  const float line = 1.0f * scale;
+  const float smallPx = BASE_FONT_SIZES_PIXELS[m_uiTuning.smallSizeIndex] * scale;
+
+  char buffer[160] = {};
+
+  const auto centred = [&](const UiRect& _rect, std::uint8_t _size, std::uint32_t _colour, const char* _text) {
+    const float width = static_cast<float>(TextCellCount(_text)) * cell;
+    const float height = BASE_FONT_SIZES_PIXELS[_size] * scale;
+    m_ui.AddText(_rect.x + (_rect.width - width) * 0.5f, _rect.y + (_rect.height - height) * 0.5f, _size, _colour,
+                 _text);
+  };
+  const auto leftIn = [&](const UiRect& _rect, std::uint8_t _size, std::uint32_t _colour, const char* _text) {
+    const float height = BASE_FONT_SIZES_PIXELS[_size] * scale;
+    m_ui.AddText(_rect.x + pad, _rect.y + (_rect.height - height) * 0.5f, _size, _colour, _text);
+  };
+  const auto rightIn = [&](const UiRect& _rect, std::uint8_t _size, std::uint32_t _colour, const char* _text) {
+    const float width = static_cast<float>(TextCellCount(_text)) * cell;
+    const float height = BASE_FONT_SIZES_PIXELS[_size] * scale;
+    m_ui.AddText(_rect.Right() - pad - width, _rect.y + (_rect.height - height) * 0.5f, _size, _colour, _text);
+  };
+
+  /*
+   * A ring of segments, because `UiDrawList` is quads and text and there is no
+   * circle primitive -- the map's constellation hulls made the same call. The
+   * side count rises with the radius so the outer ring does not read as a
+   * polygon while the inner one reads as a circle.
+   */
+  const auto circle = [&](float _centreX, float _centreY, float _radius, float _thickness, std::uint32_t _colour) {
+    constexpr float TWO_PI = 6.2831853f;
+    const auto sides = static_cast<std::uint32_t>(std::clamp(_radius * 0.45f, 16.0f, 72.0f));
+    for (std::uint32_t side = 0; side < sides; ++side)
+    {
+      const float a0 = TWO_PI * static_cast<float>(side) / static_cast<float>(sides);
+      const float a1 = TWO_PI * static_cast<float>(side + 1u) / static_cast<float>(sides);
+      m_ui.AddSegment(_centreX + std::cos(a0) * _radius, _centreY + std::sin(a0) * _radius,
+                      _centreX + std::cos(a1) * _radius, _centreY + std::sin(a1) * _radius, _thickness, _colour);
+    }
+  };
+
+  // The ground, opaque: there is no world behind a full-screen surface.
+  m_ui.AddQuad(screen.viewport, WithAlpha(m_palette.panel, 0xFF));
+
+  // --- the top bar --------------------------------------------------------
+  m_ui.AddBorder(screen.backChip, line, m_palette.border);
+  centred(screen.backChip, m_uiTuning.bodySizeIndex, m_palette.phosphor, BACK_CHIP_LABEL);
+
+  if (m_systemHasData)
+  {
+    leftIn(screen.title, m_uiTuning.headSizeIndex, m_palette.phosphorHot,
+           m_system.label != nullptr ? m_system.label : "");
+    if (m_system.badge != nullptr)
+    {
+      centred(screen.badge, m_uiTuning.smallSizeIndex, StandingColourOf(m_palette, m_system.tint), m_system.badge);
+    }
+  }
+  else
+  {
+    /*
+     * A system the bake does not have, or a client with no universe. Named
+     * rather than drawn as an empty disc with a title on it, which is the
+     * distinction `BuildSystemView`'s false return exists to preserve.
+     */
+    leftIn(screen.title, m_uiTuning.bodySizeIndex, AtHalfAlpha(m_palette.neutral), "NO SYSTEM");
+  }
+  m_ui.AddQuad(UiRect{0.0f, screen.topBar.Bottom() - line, screen.viewport.width, line}, m_palette.rule);
+
+  // --- the disc -----------------------------------------------------------
+  //
+  // Rings under bodies under reticles under words, which is the order they
+  // occlude in: an orbit line over a reticle would read as a ring *through* a
+  // place rather than one it sits on.
+  const std::uint16_t ringCount = std::max<std::uint16_t>(m_system.ringCount, 1);
+  if (m_systemHasData)
+  {
+    for (std::uint16_t ring = 0; ring < ringCount; ++ring)
+    {
+      circle(screen.centreX, screen.centreY, SystemRingRadius(ring, ringCount, screen, scale, m_systemTuning), line,
+             AtHalfAlpha(m_palette.phosphorGhost));
+    }
+  }
+
+  /*
+   * The star, from the layout's centre and not from the data.
+   *
+   * `SystemView.h` leaves it out of both lists on purpose: a star on a ring
+   * would be a star a player could press and be told no.
+   *
+   * **Filled from rings rather than from a quad**, which the visual checkpoint
+   * asked for: `UiDrawList` has no disc, and the first draft's single quad drew
+   * an orange *square* at the centre of a screen made of circles -- the one mark
+   * on it that did not read as a body. Concentric rings a pixel apart cost a few
+   * dozen segments once per frame and read as a sun, with a wider halo outside
+   * them for the corona.
+   */
+  {
+    const float radius = m_systemTuning.starRadius * scale * 0.5f;
+    for (float r = radius; r > 0.0f; r -= line)
+    {
+      circle(screen.centreX, screen.centreY, r, line * 1.5f, m_palette.caution);
+    }
+    circle(screen.centreX, screen.centreY, radius * 1.6f, line, AtHalfAlpha(m_palette.caution));
+  }
+
+  /*
+   * Backdrop: dim, unlabelled, inert. The whole of *"everything else is
+   * backdrop"*, and it is one loop with no branch because the list it draws
+   * cannot be hit-tested.
+   *
+   * Filled from rings like the star, and for the reason the visual checkpoint
+   * gave for the star: a square among circles is the one mark on this screen
+   * that does not read as a body, and a moon that reads as a UI element is a
+   * moon a player will try to press.
+   */
+  for (std::uint32_t index = 0; index < m_systemPlaced.backdrop; ++index)
+  {
+    const SystemBackdropRect& body = m_systemBackdropRects[index];
+    for (float r = body.radius * 0.5f; r > 0.0f; r -= line)
+    {
+      circle(body.x, body.y, r, line * 1.5f, AtHalfAlpha(m_palette.phosphorGhost));
+    }
+  }
+
+  for (std::uint32_t index = 0; index < m_systemPlaced.anchors; ++index)
+  {
+    const SystemAnchorRect& placed = m_systemAnchorRects[index];
+    const SystemAnchor& anchor = m_system.anchors[placed.anchor];
+    const bool selected = m_systemHasSelection && anchor.id == m_systemSelected;
+
+    /*
+     * The reticle: a box and a ring, in the standing's colour through the
+     * palette rather than as a packed value off the seam -- `MapNode::tint`'s
+     * rule one screen up, and the same reason. Selected takes the hot phosphor
+     * and a second ring, which is the map's selected-node treatment said again
+     * so the two screens agree about what "picked" looks like.
+     */
+    const std::uint32_t tint = selected ? m_palette.phosphorHot : StandingColourOf(m_palette, anchor.tint);
+    m_ui.AddBorder(placed.reticle, line, tint);
+    circle(placed.x, placed.y, placed.reticle.width * 0.5f, line, tint);
+    if (selected)
+    {
+      circle(placed.x, placed.y, placed.reticle.width, line, m_palette.phosphorHot);
+    }
+
+    if (anchor.label != nullptr)
+    {
+      centred(placed.label, m_uiTuning.smallSizeIndex, selected ? m_palette.phosphorHot : m_palette.phosphorBody,
+              anchor.label);
+    }
+
+    // §9b.4's second line, and the client never learns that a gate has a far
+    // side -- it draws whatever second word the game wrote, or nothing.
+    if (anchor.detail != nullptr)
+    {
+      centred(placed.detail, m_uiTuning.smallSizeIndex, m_palette.phosphorDim, anchor.detail);
+    }
+
+    /*
+     * §9b.3's split count: one badge, two numbers.
+     *
+     * `4 | 2` rather than a total, because at this resolution the difference is
+     * actionable -- docked and on-grid take different verbs (ADR-017) -- and it
+     * is one badge rather than two marks because it is one place.
+     */
+    if (placed.countBadge.width > 0.0f && (anchor.shipCount > 0 || anchor.dockedCount > 0))
+    {
+      if (anchor.dockedCount > 0 && anchor.shipCount > 0)
+      {
+        std::snprintf(buffer, sizeof(buffer), "%u|%u", anchor.shipCount, anchor.dockedCount);
+      }
+      else if (anchor.dockedCount > 0)
+      {
+        // The dock glyph rather than a bare number, so a badge reading `2`
+        // cannot mean two different things on two different reticles.
+        std::snprintf(buffer, sizeof(buffer), "\xE2\x8C\x82%u", anchor.dockedCount);
+      }
+      else
+      {
+        std::snprintf(buffer, sizeof(buffer), "%u", anchor.shipCount);
+      }
+      m_ui.AddQuad(placed.countBadge, m_palette.chipBg);
+      m_ui.AddBorder(placed.countBadge, line, m_palette.phosphor);
+      centred(placed.countBadge, m_uiTuning.smallSizeIndex, m_palette.phosphorHot, buffer);
+    }
+  }
+
+  // The count line under the disc: this screen's version of the map's graph
+  // footer, and the only place a number about the *layout* is allowed to appear.
+  if (m_systemHasData)
+  {
+    std::snprintf(buffer, sizeof(buffer), "%u ANCHORS - %u RINGS", m_systemPlaced.anchors,
+                  static_cast<std::uint32_t>(ringCount));
+    leftIn(screen.footer, m_uiTuning.smallSizeIndex, m_palette.phosphorGhost, buffer);
+  }
+
+  // --- the panel ----------------------------------------------------------
+  m_ui.AddQuad(screen.panel, WithAlpha(m_palette.panel, 0xFF));
+  m_ui.AddQuad(UiRect{screen.panel.x, screen.panel.y, line, screen.panel.height}, m_palette.rule);
+  m_ui.AddText(screen.panelHead.x + pad, screen.panelHead.y, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel,
+               "SELECTED");
+
+  const SystemAnchor* selected = nullptr;
+  if (m_systemHasSelection)
+  {
+    for (const SystemAnchor& anchor : m_system.anchors)
+    {
+      if (anchor.id == m_systemSelected)
+      {
+        selected = &anchor;
+        break;
+      }
+    }
+  }
+
+  if (selected != nullptr)
+  {
+    m_ui.AddText(screen.panelHead.x + pad, screen.panelHead.y + smallPx * 1.6f, m_uiTuning.headSizeIndex,
+                 m_palette.phosphorHot, selected->label != nullptr ? selected->label : "");
+    if (selected->detail != nullptr)
+    {
+      m_ui.AddText(screen.panelHead.x + pad, screen.panelHead.Bottom() - smallPx, m_uiTuning.smallSizeIndex,
+                   m_palette.phosphorDim, selected->detail);
+    }
+
+    /*
+     * The body's rows, and there is deliberately no distance among them
+     * (ADR-016 §9). What a trip costs reaches the player as the ETA the ghost
+     * prints, on the chip the chrome already draws for a warp -- said once,
+     * where the promise is, rather than twice.
+     */
+    float rowY = screen.panelBody.y;
+    const auto row = [&](const char* _label, const char* _value) {
+      if (rowY + smallPx > screen.panelBody.Bottom())
+      {
+        return;
+      }
+      const UiRect rect{screen.panelBody.x + pad, rowY, screen.panelBody.width - pad * 2.0f, smallPx * 1.8f};
+      leftIn(rect, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, _label);
+      rightIn(rect, m_uiTuning.smallSizeIndex, m_palette.phosphorBody, _value);
+      rowY += smallPx * 1.8f;
+    };
+
+    std::snprintf(buffer, sizeof(buffer), "%u", selected->shipCount);
+    row("ON GRID", buffer);
+    std::snprintf(buffer, sizeof(buffer), "%u", selected->dockedCount);
+    row("DOCKED", buffer);
+  }
+  else
+  {
+    m_ui.AddText(screen.panelHead.x + pad, screen.panelHead.y + smallPx * 1.6f, m_uiTuning.bodySizeIndex,
+                 AtHalfAlpha(m_palette.neutral), "TAP A PLACE");
+  }
+
+  /*
+   * The two verbs, drawn either way and greyed with the game's reason --
+   * `station-screen.png` §2's *"disabled with a reason rather than hidden"*,
+   * which here also stops the panel reshuffling under a finger when a selection
+   * changes what is legal.
+   *
+   * **The word and the reason are both the game's**, through `SystemVerb::name`
+   * and `ReasonText`. This file draws a rect, a string and one of two colours,
+   * and does not learn what a warp is (ADR-014 §2b).
+   */
+  {
+    const auto verb = [&](const UiRect& _rect, const SystemVerb& _verb) {
+      const bool live = m_systemHasVerbs && _verb.available;
+      m_ui.AddBorder(_rect, line, live ? m_palette.phosphor : m_palette.phosphorDead);
+      centred(_rect, m_uiTuning.bodySizeIndex, live ? m_palette.phosphor : m_palette.phosphorDead,
+              _verb.name != nullptr ? _verb.name : "");
+
+      // Why not, under the word, in the authority's own vocabulary -- the same
+      // string the bounce toast would have carried (ADR-014 §3).
+      if (!live && m_systemHasVerbs && m_worldView != nullptr && _verb.reasonCode != 0)
+      {
+        const char* why = m_worldView->ReasonText(_verb.reasonCode);
+        if (why != nullptr)
+        {
+          const float width = static_cast<float>(TextCellCount(why)) * cell;
+          m_ui.AddText(_rect.x + (_rect.width - width) * 0.5f, _rect.Bottom() - smallPx, m_uiTuning.smallSizeIndex,
+                       m_palette.phosphorDead, why);
+        }
+      }
+    };
+
+    /*
+     * Drawn even with nothing picked, and still with the game's words: the
+     * seam answers `INVALID_SYSTEM_ANCHOR` with the two names and both verbs
+     * dead, so the slots are never empty rects and this file never spells one.
+     * A panel whose buttons appeared only once a place was picked would move
+     * the controls under the player at the moment they are learning where they
+     * are.
+     */
+    verb(screen.warpHere, m_systemVerbs.warp);
+    verb(screen.dockHere, m_systemVerbs.dock);
+  }
 }
 
 /*

@@ -163,6 +163,31 @@ missions). The dock radius comfortably contains the station's warp-in standoff, 
 invariant (§8), so warp-arrive → dock chains without a crawl — the gate-radius trick, run
 at stations.
 
+> **Amended 2026-08-23 — a left tap on the structure *opens* it, and a structure is not a
+> fleet member.** The paragraph above is about the right-drag verb and stands unchanged; what
+> it never said is what the *other* gesture does to a station, and the answer it had was the
+> default one: a tap selected the structure like a ship. That put a hull in the selection that
+> every verb on the row was wrong for — `CommandRow` enables on `available && hasSelection`
+> and never asks what is selected, so a station lit MOVE, ATTACK and a DOCK that would have
+> asked the station to dock at itself.
+>
+> So the game answers one new question on the seam, `WorldView::PlaceForEntity`, and the client
+> acts on the one bit: an entity the game names a **place** is not selectable, and a tap on it
+> pushes `SurfaceId::Station` at that anchor. One fact with two consequences rather than two
+> settings — and the engine may not derive it from `IconFamily::Static`, because "a structure
+> is a place" is a sentence about this game. `ContextActionFor` keeps its own question and its
+> selection parameter: whether Vesta-3 is somewhere you can walk into does not depend on what
+> is highlighted, while DOCK does.
+>
+> **It also cost §6a a borrowed rule.** `BuildStationTabs` opened with *"a place holding
+> nothing of yours is not a place"*, taken from the ELSEWHERE column — which lists where your
+> ships are, and for which it is exactly right. That column was the only door onto the station
+> surface, so the two questions had one answer by construction. This door separates them: the
+> hangar opened with **no tab row at all** whenever the commander’s ships were all in space.
+> The services a station offers are the station’s, so the gate is now "an anchor this view can
+> describe" — one you have ships in, or the one on the grid being watched. An empty hangar is
+> a hangar with nothing in it, not a station with nothing on it.
+
 ### 3. Undock — the selection is the fleet
 
 Undocking is not an order on world ships — there are none to name — so it is the first

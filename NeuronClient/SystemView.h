@@ -184,4 +184,61 @@ struct SystemViewData
   std::uint16_t ringCount = 0;
 };
 
+/*
+ * One of the two verbs at the panel's foot (ADR-016 §9, U6).
+ *
+ * `OrderKindOption`'s shape at a different resolution, and deliberately the
+ * same one: a word the game wrote, an opaque kind the client echoes back, and
+ * an availability carrying the reason the authority would have bounced it with.
+ * The engine draws the word, greys on the bool and prints the reason through
+ * `ReasonText`, exactly as the command row does -- which is what makes a verb
+ * greyed on this screen and the same verb greyed on that row say the same thing
+ * in the same words (ADR-014 §3).
+ *
+ * **`name` is the game's and it is not "WARP".** The screen has two verb rects
+ * because the print drew two; what they are called is a sentence about this
+ * game, and a client that spelled them would be a client whose second game
+ * could not rename them.
+ */
+struct SystemVerb
+{
+  /// The game's word for it, drawn and never parsed. Null means this game has
+  /// no such verb, which draws as a rect with nothing in it rather than as a
+  /// gap the other verb slides into.
+  const char* name = nullptr;
+
+  /// The order kind to send. Opaque, echoed, never read here.
+  std::uint16_t kind = 0;
+
+  /// Whether it would be taken *right now*, and why not.
+  bool available = false;
+  std::uint16_t reasonCode = 0;
+};
+
+/*
+ * The two verbs, for one anchor and one selection.
+ *
+ * A second call rather than fields on `SystemAnchor`, because the two questions
+ * change at different rates: the rings are a fact about the bake and are asked
+ * when the screen opens, while whether this fleet may warp there changes with
+ * every tap on the plane behind. Folding them together would mean rebuilding
+ * 15 anchors' worth of labels to find out that a button greyed.
+ */
+struct SystemAnchorVerbs
+{
+  SystemVerb warp;
+  SystemVerb dock;
+};
+
+/*
+ * "No place is picked", for asking what the verbs are *called* when there is
+ * nothing to ask about.
+ *
+ * `INVALID_MAP_ANCHOR`'s twin one screen down, and it exists for the panel's
+ * sake: both verbs are drawn at all times, their words belong to the game, and
+ * a screen with no selection still has to be told them -- so the absence is
+ * spelled rather than expressed by not asking.
+ */
+inline constexpr std::uint16_t INVALID_SYSTEM_ANCHOR = 0xffffu;
+
 } // namespace Neuron

@@ -114,4 +114,60 @@ inline constexpr std::uint16_t NO_FOLLOW_TARGET = 0xffffu;
   return anyCrossing;
 }
 
+/*
+ * --- the fleet stepper (U6's focus polish) --------------------------------
+ *
+ * *"Where does the player's attention go next"*, which is this header's subject
+ * asked deliberately rather than automatically: everything above answers it
+ * when the world moves the camera, and this answers it when the player asks for
+ * the next fleet.
+ *
+ * A free function for the reason stated at the top of this file -- the decision
+ * is the whole of the feature and the surrounding call is a selection and a
+ * camera, neither of which can be asserted against inside `ClientApp`.
+ */
+
+/// No fleet has been stepped to. Distinct from every key, because a key carries
+/// a wing id or an anchor and neither can be all-ones and mean something.
+inline constexpr std::uint32_t NO_FLEET_CYCLED = 0xffff'ffffu;
+
+/*
+ * The fleet after this one, in the order the screen draws them.
+ *
+ * **Identity in, identity out, and the list is rebuilt every press.** The
+ * roster and the location blocks come from the game each frame, so an *index*
+ * held between presses would step through a list that renumbered underneath it
+ * -- a wing that docked mid-cycle would make the key skip whichever fleet took
+ * its slot, silently and only sometimes. Looking the previous fleet up by key
+ * makes that case explicit and harmless.
+ *
+ * Three behaviours, all of them the same rule read at its edges:
+ *   - a key that is still in the list steps to the one after it, wrapping;
+ *   - a key that is **gone** restarts at the top, because "the one after a
+ *     fleet that no longer exists" has no honest answer and the first is the
+ *     one the player can see;
+ *   - an empty list answers `NO_FLEET_CYCLED`, which is a player with no fleets
+ *     rather than an error.
+ */
+[[nodiscard]] inline std::uint32_t NextFleetInCycle(std::span<const std::uint32_t> _keys,
+                                                    std::uint32_t _current) noexcept
+{
+  if (_keys.empty())
+  {
+    return NO_FLEET_CYCLED;
+  }
+
+  if (_current != NO_FLEET_CYCLED)
+  {
+    for (std::size_t index = 0; index < _keys.size(); ++index)
+    {
+      if (_keys[index] == _current)
+      {
+        return _keys[(index + 1u) % _keys.size()];
+      }
+    }
+  }
+  return _keys.front();
+}
+
 } // namespace Neuron

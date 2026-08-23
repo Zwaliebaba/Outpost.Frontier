@@ -97,6 +97,21 @@ namespace Neuron
     return false;
 
   /*
+   * The two U6 keys are suppressed while a field has focus, and neither is a
+   * close call.
+   *
+   * **Tab is the one that would have been a bug.** It is a printable-adjacent
+   * key on every keyboard and the near-universal convention for "next field",
+   * so a player renaming a wing and reaching for it would have had the camera
+   * jump to another fleet mid-edit. And **P is a letter**: it goes into the
+   * name, which is the whole of `ActionSurvivesTextEditing`'s rule -- a key that
+   * types cannot also command.
+   */
+  case InputAction::CycleFleet:
+  case InputAction::PinCamera:
+    return false;
+
+  /*
    * `Confirm` is the field's own key and reaches nothing behind it.
    *
    * Suppressed rather than routed, which is the opposite answer from `Back` and
@@ -116,7 +131,7 @@ namespace Neuron
 /// safe direction but a silent one. This is the noisy version: adding an action
 /// fails the build here until somebody has decided what it does while a player
 /// is typing.
-static_assert(INPUT_ACTION_COUNT == 17,
+static_assert(INPUT_ACTION_COUNT == 19,
               "ActionSurvivesTextEditing must answer for every InputAction -- add the new one to its switch");
 
 class InputRouter

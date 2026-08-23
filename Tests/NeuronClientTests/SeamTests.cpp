@@ -657,6 +657,46 @@ public:
     Assert::IsFalse(view.EncodeStationCommand(StationIntent{}, writer));
 
     Assert::AreEqual<std::uint32_t>(0, view.ShipsPerStationCommand(), L"zero means none, never means unlimited");
+
+    /*
+     * And nothing on the grid is a *place*, which is the clause that keeps the
+     * tactical surface honest rather than the station one.
+     *
+     * A yes here has two consequences on a real client -- the entity stops
+     * being selectable, and a tap on it opens a surface -- so a view that
+     * guessed would make a hull unselectable and send the player into a hangar
+     * with no tabs in it. Silence is the only safe answer for a game that has
+     * not said, and it is what every client before this one relied on.
+     */
+    std::uint16_t anchor = 0xffffu;
+    Assert::IsFalse(view.PlaceForEntity(1, anchor), L"nothing is somewhere you go");
+    Assert::AreEqual<std::uint16_t>(0xffffu, anchor, L"and a refusal writes nothing");
+
+    /*
+     * And U6's two, which a game with no universe must be able to decline
+     * without the screens above them breaking.
+     *
+     * `WatchedSystem` false is a client with nowhere to drill into: the
+     * breadcrumb's system half does nothing, which is what a client with no
+     * world should do rather than opening an empty disc.
+     *
+     * `AnchorVerbs` false is a game with **no such verbs at all** -- not a game
+     * whose verbs are unavailable, which is the same struct with `available`
+     * clear. The system view draws two empty rects for it and offers nothing,
+     * and it must not be able to invent the words itself: an engine that
+     * defaulted them to WARP and DOCK would be an engine that had learned this
+     * game's vocabulary through its own fallback.
+     */
+    std::uint16_t system = 0xffffu;
+    Assert::IsFalse(view.WatchedSystem(system), L"a view with no world is standing nowhere");
+    Assert::AreEqual<std::uint16_t>(0xffffu, system, L"and a refusal writes nothing");
+
+    SystemAnchorVerbs verbs;
+    Assert::IsFalse(view.AnchorVerbs(4, {}, verbs), L"a game with no verbs offers none");
+    Assert::IsNull(verbs.warp.name, L"and the engine may not name one for it");
+    Assert::IsNull(verbs.dock.name);
+    Assert::IsFalse(verbs.warp.available);
+    Assert::IsFalse(verbs.dock.available);
   }
 
   TEST_METHOD(ItRecordsTheSizeButClaimsNoTick)

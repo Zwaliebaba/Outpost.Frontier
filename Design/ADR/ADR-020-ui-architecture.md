@@ -517,7 +517,21 @@ and it is the one part of D15.4 the reversal keeps, because it was always a touc
 `sourceKey`, plus an action label supplied by the game as `RosterRow::name` and `ReasonText`
 already are. The engine carries the pair, draws the label, and hands it back unread when the
 action is pressed — `alerts-and-toasts.png`'s `JUMP TO` works without `NeuronClient` learning
-what a jump is. **The palette becomes re-resolvable state**: the settings screen re-runs the
+what a jump is.
+
+> **Given a consumer 2026-08-23 (U6b), and the mechanism was right.** The stack had carried the
+> pair since it was built and nothing raised one — the actions the sheet names needed surfaces
+> that did not exist. `Notice` now carries the same pair across the seam, the game raises
+> `FLEET ARRIVED` with `JUMP TO` and the grid the fleet landed on, and the engine spends the key
+> on a view request without ever reading it: every key the game attaches names a **place**, and
+> asking the authority to point the camera at one is what "go there" is on this client.
+>
+> **One defect surfaced by using it.** The chip was *drawn* above every surface — the stack sits
+> outside `BuildHud`'s per-surface branch, deliberately, because toasts are a cross-surface layer
+> — and *pressed* only on the tactical one, so the control was inert exactly where it is most
+> needed: ADR-018 D16 sends the player to the map for the length of a crossing, and the arrival
+> chip appears while they are sitting there. The press now happens above the branch too, which is
+> §5.1's rule read at a layer nobody had applied it to. **The palette becomes re-resolvable state**: the settings screen re-runs the
 resolve on change rather than only at boot (`ClientApp.cpp:82`), and "a packed colour literal
 in `BuildHud` is a defect" (`HudPalette.h`) is what makes a swap total rather than partial.
 

@@ -91,7 +91,32 @@ this ADR agrees with it.
 Bake-time validation is part of the bake, not a hope: gate graph connected, gate pairs
 symmetric, ids and names unique, every station orbiting a planet, 1–2 stations per system,
 security in range, cluster separation (the map's requirement made measurable), starter
-systems valid, every anchor's warp-in point inside its grid bound. A `GameLogicTests` suite
+systems valid, every anchor's warp-in point inside its grid bound.
+
+> **Amendment 2026-08-23 — separation is not legibility, and R15 fired on the difference.**
+> *"Cluster separation"* was taken to mean the Voronoi property — a system nearer its own
+> constellation's centre than any other's — and that property held perfectly while the map drew
+> the universe as seven horizontal bands. Five constellations sat on a three-column lattice
+> inside a **square** region cell, so a region's content was half again as wide as it was tall
+> and the gap between two regions came out *smaller* than the pitch between two constellations
+> inside one. The eye groups by gaps, and the biggest gaps ran the wrong way.
+>
+> Two properties join the bake's validation, and they are stated over the **baked positions**
+> rather than over the layout's constants, because the constants were all satisfied:
+>
+> 1. **A region's content is isotropic.** A square cell whose content is a wide, short
+>    rectangle is this defect at its source, and it is visible one region at a time.
+> 2. **Regions stand further apart than their own constellations do, on both axes.** This is
+>    what makes a lattice of regions read as a lattice of clusters rather than as bands, and it
+>    is the property nothing measured.
+>
+> A third — the whole universe's bounding box within 2:1 — is about the map's fit rather than
+> about the bake, and lives with them because it is the same measurement.
+>
+> The layout that satisfies them is a **quincunx** (centre plus four corners) rather than a
+> row-major lattice, with counts it has no checked arrangement for **refused** rather than
+> approximated. That is the generator's business and not this ADR's; what is normative here is
+> that the two properties above are invariants of any layout the bake ever uses. A `GameLogicTests` suite
 holds all of it against the committed file. Scale costs are measured, not guessed: ~2,500
 systems ≈ 3–5 MB of JSON parsed at boot by both halves; U1's acceptance records the number, *(and the estimate was low twice over: U1 measured **14.2 MB**, and E1b's site anchors took the committed file to **18.93 MB** — still inside the threshold, which is why the fallback is still reserved rather than spent)*,
 and per-region files are the reserved fallback if it disappoints.
@@ -158,6 +183,31 @@ Three phases, all in ticks, because the tick is the only clock:
   the floor. The replicated `etaSeconds` that already exists on order records now also
   reports warp, so the HUD's number is the authority's own.
 
+> **Amended 2026-08-23 (U6b): the distance term was retuned ×10, from a playtest.**
+>
+> `warpSpeedMetresPerSec` was set so that 1.5e9 m/s crossed an astronomical unit in about a
+> hundred seconds — *"the order the strategic map's 'a few minutes across a system' implies"*.
+> A few minutes turns out to be the wrong order for what it is actually spent on: an ordinary
+> hop between two anchors of one system read **2:01** on the roster block, which is two minutes
+> of a fleet the player cannot command and a screen with nothing happening on it. The table's
+> warp column is ten times faster; the same hop now lands near twenty seconds.
+>
+> **The two fixed costs are untouched, and they are what keeps distance meaningful.** `Spool`
+> still charges a per-class alignment, so a capital still takes longer to get moving than an
+> interceptor, and the base still charges every crossing whether or not it goes anywhere. What
+> was retuned is the *distance* term alone — the part that was pricing a system's width in
+> minutes.
+>
+> **The gate jump is deliberately not retuned.** Its whole design is that it is flat and priced
+> against the route planner's own print (below), so it is a separate number with a separate
+> reason rather than "warp" retuned by another name. It stays at twenty seconds, which now makes
+> a *jump* the slower of the two — correctly: crossing to another system should not be cheaper
+> than crossing one.
+>
+> The class table's own comment already said the envelope suite asserts the **shape** — capitals
+> spool slower and warp slower — rather than the values, *"so retuning is not rewriting tests"*.
+> This is the first time anything took it up on that, and the suite passed unchanged.
+
 **Gate jumps** additionally require every member within a jump radius of the gate structure
 on the gate's own grid — warp-in lands inside that radius, so the common case chains
 seamlessly, and the gate keeps a physical presence that later gameplay (camping, interdiction)
@@ -194,7 +244,24 @@ mine), a **grid-switch notice** (server → client: your view now streams grid X
 anchor — the `Welcome` fields, generalised to mid-session), and **fleet summaries** — a
 low-rate (~1 Hz) record per fleet the player owns: where (anchor or transit), how many ships,
 what state, `etaSeconds`. Summaries are what the roster and the maps read for everything the
-player is *not* watching. ADR-004's budgets are unchanged and per-grid: the viewed grid's
+player is *not* watching.
+
+> **Amended 2026-08-23 (U6b): a crossing's row also carries its wing.**
+>
+> A summary row is keyed on `(anchor, state)`, and for two of the three states the anchor is
+> where the ships *are* — so the place answers "where is it" and the row needs nothing else. A
+> crossing's anchor is where it is **going**, and the ELSEWHERE block drew that destination
+> wearing the fleet's status: `VESTA-3 / IN WARP 0:21`, a station apparently in warp. It is at
+> its worst exactly when it matters, because the wing's own roster row has gone at the same
+> moment — the roster draws wings with members on the watched grid, and a wing mid-warp has
+> members on no grid at all. The call sign vanished from the HUD precisely when it was the only
+> thing identifying the block.
+>
+> So the row carries a `WingId`, and **crossings group on it while the other two states do
+> not**: two wings warping to one anchor are two rows, because a row carries one name and a
+> mixed crossing has two; a station's docked ships stay one row, because there the place *is*
+> the answer and per-wing rows would turn one hangar into four entries in a list of places.
+> Seven bytes a row becomes eight and the schema text says so. ADR-004's budgets are unchanged and per-grid: the viewed grid's
 snapshot obeys the same datagram cap as today, and summaries are a few dozen bytes per fleet.
 The snapshot's grid identity is also the smear guard: a late datagram from the previous view
 names the wrong grid and is dropped, never blended.
@@ -321,6 +388,39 @@ closes, not here.
   > the `Confirm` action, the caret and the charset filter — so what search now needs is a
   > field on this screen rather than a mechanism anywhere.
   >
+  > **Amendment 2026-08-23 — the density ladder is normative at REGION, and the level is a
+  > number of pixels.** R15 fired on this screen (see the Risk Register), and two of its four
+  > defects are rulings rather than bugs:
+  >
+  > - **REGION draws no individual systems.** The print's own sentence for that level is
+  >   *"region zoom: count + brightness only"*, and the first implementation read it as a rule
+  >   about labels while going on drawing all 2,500 pips — which over the committed bake is ten
+  >   systems inside two pixels, 250 times over. A constellation at REGION is **one counted
+  >   chip**: the icon system's own last rung (§6's density ladder, `IconDensity.h`) applied to
+  >   the map. Its membership is the engine's tally; its **colour is the game's**, for
+  >   `MapLegendRow::count`'s reason — deciding what a constellation's colour means is a
+  >   question about whichever overlay is selected, and an engine that took the majority of its
+  >   members' tints would have answered it. `MapRegion` is drawn at this level and only this
+  >   level, which is the role this section already gave it.
+  > - **A word is drawn only where it fits the thing it names.** Group labels were emitted for
+  >   every non-null label, outside the label budget, which put the whole constellation
+  >   vocabulary on top of itself at the fit; region names are 112 pixels of text over 47 pixels
+  >   of region. Both now need room *and* a slot in the one budget. This is deliberately **not**
+  >   the print's four-candidate de-confliction, which stays U5b's: it is the half of the problem
+  >   that is about size rather than about placement, and it is the half that was missing.
+  >
+  > And the pinch level is **derived from what is legible, not from a fraction of the graph**.
+  > Thresholds stated as fractions of total extent are statements about the bake: 40 % of a
+  > 2,500-system universe is twenty regions, which the screen reported as CONSTELLATION, and the
+  > zoom ceiling derived the same way put SYSTEM out of reach entirely. The level is read off the
+  > mean constellation's **projected diameter** — measured from the topology once at boot — so a
+  > shard whose universe is a thousand times wider sits at the same numbers for the right reason.
+  >
+  > The top bar follows from the same principle: it names **the place you are looking at** — the
+  > universe at the fit, the region once one fills the view — and the counts live in the graph
+  > footer, where the print puts them and where they describe the *definition* rather than the
+  > frame's cull.
+
   > **One thing in this list turned out to be stated slightly wrong, and it is worth correcting
   > here rather than in a build order.** *"The security overlay (its content exists from the
   > bake)"* is true of the content, and the first draft took it to mean the *colour* could be
@@ -384,6 +484,38 @@ closes, not here.
   (planets, stations, gates), fleet markers, in-warp fleets sliding along route lines. This
   is where "warp to that planet" is clicked, through the existing grammar: pending ghost,
   ETA label, bounce on refusal — the whole S9 pipeline, reused.
+
+  > **Built 2026-08-23 as U6b — the draw, the door, and a warp issued from it.**
+  >
+  > **The door is the breadcrumb split in two.** `tactical-hud.png` draws `◈ VESTA-3 ▸
+  > FRONTIER 0.4`, and U5 made the whole strip one target because there was only one screen
+  > above it to reach. A breadcrumb is a hierarchy: the **system** word now opens the inside of
+  > the system and the chevron and region keep opening the map, which is the TACTICAL ⇄ SYSTEM
+  > handoff with no new control on the one bar that has room for none. It needed one seam call —
+  > `WorldView::WatchedSystem` — because the client had the system's *name* and `BuildSystemView`
+  > takes an **id**.
+  >
+  > **The two verbs are the game's, words and all** (`WorldView::AnchorVerbs`). It answers a
+  > name, an opaque kind, an availability and the reason a refusal would carry — `OrderKindOption`
+  > at a different resolution — and the availability comes from `ValidateOrder` rather than from
+  > checks written on the screen. That is visible on the built screen: DOCK HERE greys against a
+  > planet reading *"no such station here"*, which is the authority's own word arriving at a
+  > button instead of at a toast.
+  >
+  > **What the visual checkpoint corrected, and it could not have been anything else.** The
+  > rings were spaced evenly *from* `firstRingRadius` *outward*, which is defensible arithmetic
+  > and put the committed bake's ordinary system — six anchors inside, its two fields outside —
+  > on a 78 px ring inside a 400 px disc: `Vesta-3 Anchorage` drawn through `Halgren`, two gates'
+  > far-side lines through each other, and four fifths of the disc empty. Every test passed,
+  > because the rings *were* ordered and the slots *were* distinct and *"these two words occupy
+  > the same pixels"* is not expressible in that arithmetic. The rings now divide the disc with
+  > `firstRingRadius` as a floor. **This is what R1's category is for**, and the first time in
+  > this phase that a person looking at a screen found something the suites could not.
+  >
+  > Two smaller ones from the same look: the star was a quad — an orange **square** at the centre
+  > of a screen made of circles — and so was a backdrop body. Both are filled from rings now, so
+  > that "the star is not a target" is not undermined by it being the one mark that reads as
+  > chrome.
 - **Tactical HUD** — roster location blocks with IN WARP / off-grid states and ETAs; a ~1 s
   departure/arrival treatment (no new render pass — the Ui/overlay vocabulary suffices);
   warp ghosts and refusal toasts through the existing surfaces.

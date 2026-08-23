@@ -106,15 +106,48 @@ enum class InputAction : std::uint8_t
    * `IsStorableCodepoint` refuses along with every other C0 control, so the key
    * cannot arrive as text and as an edge at once.
    */
-  Confirm
+  Confirm,
+
+  /*
+   * Tab: step the camera and the selection through the fleets this commander
+   * owns (U6's focus polish, ADR-016 §7).
+   *
+   * **An accelerator over things that are already pressable**, which is the
+   * post-reversal rule for every key on this list: the roster's rows take a
+   * wing and its location blocks go and look, and this visits the same places
+   * in the same order without a hand leaving the keyboard. Nothing is reachable
+   * only through it, which is what keeps a touch client whole.
+   *
+   * It steps rather than toggles, so it has no state of its own to get out of
+   * step with the roster -- `ClientApp` remembers the last fleet it visited by
+   * *identity* and finds the next one after it, because the list is rebuilt
+   * from the game every frame and an index into it would drift.
+   */
+  CycleFleet,
+
+  /*
+   * P: hold the camera where it is (ADR-018 D16).
+   *
+   * Auto-follow moves the feed when nothing of the player's is left on the grid
+   * they are watching, which is right by default and wrong for a player
+   * deliberately watching a place -- a station they are about to receive at, a
+   * gate a hostile is coming through. The pin says "I meant to be here".
+   *
+   * **It suppresses the follow rather than the view**, and D16 names what
+   * happens instead: presence lost under a pinned camera falls to the map. A
+   * pin that simply froze the feed would leave the player watching an empty
+   * grid with no prospect of it filling, which is the state the map exists to
+   * be legible for.
+   */
+  PinCamera
 };
 
-inline constexpr std::uint32_t INPUT_ACTION_COUNT = 17;
+inline constexpr std::uint32_t INPUT_ACTION_COUNT = 19;
 
 /// `InputFrame`'s action arrays are sized by the count above, so an action
 /// added without touching it writes past their end rather than failing to
 /// build. This is that build failure.
-static_assert(static_cast<std::uint32_t>(InputAction::Confirm) + 1u == INPUT_ACTION_COUNT,
+static_assert(static_cast<std::uint32_t>(InputAction::PinCamera) + 1u == INPUT_ACTION_COUNT,
               "INPUT_ACTION_COUNT must count every InputAction");
 
 /*

@@ -19,8 +19,10 @@ a slice. What is left after it is **screen work**:
 verified over the real 2,500-system bake, with the surface drawn and navigable. What is left of
 U5 is **U5b**: the visual checkpoint against the print and the frame-budget measurement, which
 need a GPU. **U6a landed the same day** — the system view's seam, its ring layout and its hit
-tests, device-free and verified against a real bake — so what is left of U6 is **U6b**: the
-draw, the plate check, and a warp issued from the surface. U3b's client half, U4's route feeder
+tests, device-free and verified against a real bake — ~~so what is left of U6 is **U6b**: the
+draw, the plate check, and a warp issued from the surface~~ **and U6b landed the same day too,
+with the four focus-polish items: U6 is built and 🏁 W2 is met.** What is left of it is the
+plate check, which is owed upstream where the plate is, and the transit view's own run. U3b's client half, U4's route feeder
 and icons, and U6b need a GPU and a person —
 ~~with no exceptions left~~ **and, as of 2026-08-22, behind the input model the plan of record
 establishes**, since a screen built against the mouse adaptation would be retrofitted for touch
@@ -128,6 +130,43 @@ overflow squaring universe-plane deltas — 1.2e16² does not fit — which made
 offset (D18) has only the anchor fields reserved for it — the rule itself is U3a's.~~ **The rule
 was not U3a's, because U3a's own note then said it owed nothing** — see U3a below. The fields
 this slice reserved were read for the first time on 2026-08-22 by **N4**.
+
+**Re-baked 2026-08-23, because R15 fired on the layout this slice chose.** The constellation
+pass laid a region's five constellations on a hard-coded **three-column** lattice inside a
+**square** region cell — three pitches wide, two tall — so a region's content came out ~164e15 m
+across and ~94e15 m tall in a 220e15 m cell. The horizontal gap between two regions was
+therefore ~56e15 m, *smaller* than the 70e15 m pitch between two constellations inside one:
+regions merged sideways into continuous bands and separated vertically, and the strategic map
+drew fifty regions as seven full-width strips. Every invariant in this suite stayed green
+through it, which is the part worth remembering — the separations held, the Voronoi property
+held, and nothing measured the **shape**.
+
+The layout is now a **quincunx**: the centre and the four corners of a square of reach
+40e15 m, with the jitter cut to 6e15 m, so a region's content is 116e15 m square inside its
+220e15 m cell and the inter-region gap is 104e15 m on **both** axes. The region lattice is
+centred on doubled coordinates as well (`column * 2 - (columns - 1)` times the half-pitch),
+because `(column - (columns - 1) / 2)` is integer division and put the whole grid half a pitch
+off origin, and the row count is derived from the region count rather than reused from the
+column count — 50 regions on 8 columns is 7 rows, and centring 7 as though there were 8 is the
+same error in y. Counts other than five per region take an explicit slot table and anything
+past five is **refused** rather than approximated, because the next arrangement's separation
+has not been proved. `REGION_PITCH_METRES` did not move, so `SHIFT_UNIVERSE = 30` is as safe as
+it was; the universe's bounding box in fact shrank slightly.
+
+**Three invariants joined the suite** (`RegionsReadAsClustersRatherThanStrips`), and they are
+stated over the *baked positions* rather than over the generator's constants, which is the
+whole point — the strips satisfied every constant the bake declared. (a) A region's content is
+isotropic within 5:3. (b) The smallest gap that separates two regions on an axis exceeds the
+widest a single region's constellations stand apart on that axis: **104e15 against 91e15**,
+both axes. (c) The whole universe's bounding box is within 2:1 — **1655e15 x 1434e15**. Two
+`static_assert`s carry the same properties at compile time, squared in units of 1e15 m because
+a squared universe-plane metre does not fit in an int64.
+
+`GameData/Universe/Frontier.json` was re-baked from the unchanged recipe and committed:
+**50 regions, 250 constellations, 2,500 systems, 3,000 gate links, 24,841 anchors, 18.93 MB**,
+parse **165 ms in Release**, `universeHash` **82c271059df96081** (was `ad9555dd776008a6`). The
+hash changing is correct and expected — the file is generated and ADR-004 refuses a mismatch —
+and every count is what it was, including the 3,000 links `MAX_MAP_LINKS` is sized to exactly.
 
 ### U2 — Anchors and the world registry
 **Gate (ADR-018): both cleared — A1 is delivered
@@ -1380,6 +1419,87 @@ to get there and both are recorded in the file: the hulls accumulate in one pass
 rather than one pass per constellation (600,000 comparisons a frame, at the cap), and the route
 line finds its endpoints by binary search over a run the builder already leaves sorted.
 
+**U5's visual checkpoint was run on 2026-08-23, and R15 is what it found.** The map opened on
+the 2,500-system bake as **seven full-width horizontal strips** of overlapping dots under ~250
+constellation names on top of one another, titled `Nymros Reach REGION · 250 CONSTELLATIONS ·
+2500 SYSTEMS`. Four defects, none of them the projection — `MapProject`, `FitMapCamera` and
+`PinchMapCamera` were and are correct.
+
+*The bake was one of them and is written up under U1.* The other three are this screen's.
+
+**The client had no density ladder at REGION.** It suppressed *system labels* there and went on
+drawing all 2,500 six-pixel pips — ten of them inside two pixels, 250 times over, which is a
+grey wash rather than a graph — and emitted a hull label for every group whose label was
+non-null, **outside** the `maxLabels` budget the node labels spend from. `MapRegion` was never
+drawn at all: the type crossed the seam, was stored, and was read only for the top bar's first
+entry, while its own comment called it *"the coarsest pinch level, and the one the print
+badges"*. So the ladder the icon system already has (`IconDensity.h`'s merge, `CountedChip.h`'s
+rung) now applies to the map: at REGION a constellation is **one counted chip** — a pip whose
+size carries its membership and whose tint the *game* supplies (`MapGroup::tint`, added
+additively, because deciding what a constellation's colour means is a question about its
+overlay) — the individual dots begin at CONSTELLATION, group names need a disc big enough to
+hold one **and** a slot in the shared budget, and the regions are drawn with their band badges.
+A tap at REGION now lands on the chip and means *select-and-zoom*: ten 48 px targets stacked on
+one point resolved between themselves on sub-pixel proximity, which is a coin toss dressed as a
+choice.
+
+**The pinch thresholds were fractions of the graph's own extent**, and the fractions came from
+the print's 48-system era — its footer says `48 SYSTEMS · 61 GATE LINKS`, i.e. a graph that
+*was* one region. Forty per cent of the committed bake is about twenty regions, reported as
+CONSTELLATION. The level is now read off **what is legible**: the mean constellation's
+projected diameter, measured from the topology once at boot (`MeasureMapGraph`), against two
+numbers that are pixels — under `regionLevelDiameter` a constellation is a smudge (REGION),
+past the viewport's shorter side there is no cluster left to see (SYSTEM), between them
+CONSTELLATION. `maxZoomFactor` had the same defect and it was worse: 24× the fit of a
+2,500-system bake still holds a third of one region, so **SYSTEM could not be reached at all**.
+It is 120 now, derived from the same currency. `MapScaleForLevel` is that rule solved for
+`pixelsPerUnit`, so a camera that jumps to a level reads back as that level rather than
+contradicting the thing that put the player there.
+
+**And the top bar named the wrong place.** It composed the first region in the bake — right
+only by accident, never changing as the camera crossed fifty of them — with whole-universe
+counts, on a bar the print gives to `<region> [BAND]`. It reads the universe's own name at the
+fit and the region under the camera once one fills the view (`MapTitleRegion`); the counts went
+back to the graph footer, which now reports the **definition** rather than the frame's cull —
+it had been quietly reporting the viewport all along, and fell to `0 SYSTEMS` the moment REGION
+stopped building node rects.
+
+**One more defect fell out of trying to reproduce it: the mouse wheel never zoomed the map.**
+The zoom was gated on the *gesture's* position, and a gesture has a position only while
+something is touching the screen — so with no button held `gesture.x` was zero, the graph never
+contained it, and the wheel did nothing. It goes through `ClaimWheelIn` now, which is the API
+written for exactly this and whose own comment says why: *"a wheel has no press to land, and
+hovering is the whole gesture."* That is R30's family — a surface that answers only one of the
+two devices — found because the pinch levels this slice re-derived are unreachable on a desktop
+without it.
+
+**What was mechanically checkable, and unchecked, is the lesson.** All 1,281 tests were green
+while the screen drew strips. The clustering half of the checkpoint was already mechanical (no
+two constellation discs overlap at the fit) and it *passed* — because the bake's Voronoi
+property was never what broke. So `Outpost/SelfTest.cpp` gained **`RunStrategicMapGate`**,
+which parses the **committed** `Frontier.json` and runs the real seam and the real builders at
+the print's own 1440×900: the fit reads REGION and draws no node rects; every constellation is
+a chip carrying its membership; no name is placed where it could not be read; no two regions
+overlap; and — the R15 property after the projection, which is the step the strips survived —
+*the smallest gap between two regions exceeds the widest empty lane inside one, on both axes*.
+It measures **13.2 × 11.7 px of lane against 47.2 × 47.5 px of gap** over the committed file.
+Pinching in reads CONSTELLATION with dots, hulls and no region marks; pinching further reads
+SYSTEM with no hulls, and the zoom ceiling reaches it.
+
+**The three levels were then screenshotted and eyeballed against the print**: fifty distinct
+clusters on an eight-column lattice with clear gaps on both axes and a band badge under each;
+one region as five disjoint hulls with their names and `ROOT-N` systems; one constellation as
+named systems and no hull. The footer reads `2500 SYSTEMS - 3000 GATE LINKS - COMPLETE
+DEFINITION` at every level.
+
+**Still owed by U5b, and unchanged by this**: ADD WAYPOINT, search, per-label de-confliction
+(the print's four candidate positions — the group-label gate above is a *size* test and
+deliberately not that), and the GPU half of the frame budget. One blemish is worth naming
+rather than leaving to be rediscovered: `cullMargin` admits nodes up to 96 px outside the graph
+zone so a half-on-screen dot still draws, and `UiDrawList` has no scissor — so a node label
+near the top edge draws over the top bar. That is a clip, not a de-confliction, and it belongs
+with U5b's label work.
+
 ### U6 — System view and focus polish
 **Prerequisite: the system-view print (D1) — drawn 2026-08-21.** The source is in the corpus and
 its design calls are in ADR-016 §9; what stands between it and "agreed" is the plate export and
@@ -1446,6 +1566,65 @@ there is no TACTICAL ⇄ SYSTEM handoff and no warp issued from here; the two ve
 and hit-tested but nothing calls them. The four focus-polish items (clickable warp toasts,
 fleet cycling, camera pinning, the transit view) are untouched, and A16's first presence edge
 still waits on the camera pinning among them.
+
+**Built 2026-08-23 as U6b -- the draw, the door, the warp, and the focus polish. 🏁 W2 is
+met.** The whole loop ran on screen in one sitting: take a wing, open the system from the
+breadcrumb, tap a place, WARP HERE, watch the block, and the fleet lands with a toast that
+offers to take you there.
+
+**The door is the breadcrumb split in two, and it needed one seam call.** The system word opens
+the system and the chevron keeps opening the map -- the hierarchy the print already drew, used
+as one, rather than a new control on the one bar with room for none. `WorldView::WatchedSystem`
+exists because the client had the system's *word* and `BuildSystemView` takes an **id**;
+`MapOriginSystem` was already computing exactly that for the route's origin, so it was a rename
+for a second caller rather than a second answer.
+
+**The two verbs are the game's** (`AnchorVerbs`): the word, the kind, the availability and the
+reason, all out of `ValidateOrder`. Two findings came from asserting the *reason* rather than
+only the refusal. Warping to the anchor you are **standing on** greys `UnknownAnchor` --
+`ReachableAnchors` excludes your own grid -- so two reticles in one system answer differently for
+one selection, which is what proves the screen is asking about the place rather than about the
+fleet. And DOCK HERE against a planet reads *"no such station here"*: the authority's own word,
+arriving at a button instead of at a toast.
+
+**The visual checkpoint found what the suites could not, which is the first time this phase.**
+The rings ran evenly from `firstRingRadius` outward, which put the bake's ordinary system -- six
+anchors inside, its two fields outside -- on a 78 px ring inside a 400 px disc, with `Vesta-3
+Anchorage` drawn through `Halgren` and two gates' far-side lines through each other while four
+fifths of the disc stood empty. **Thirty-eight tests passed through all of it**, because the
+rings *were* ordered and the slots *were* distinct and *"these two words occupy the same pixels"*
+is not a statement arithmetic makes. The rings now divide the disc with `firstRingRadius` as a
+floor. Two smaller ones from the same look: the star and the backdrop bodies were quads --
+**squares on a screen made of circles** -- and are filled from rings now.
+
+**One test had to be re-based rather than deleted, and that is the guard working.** U6a's
+*nearest, never first* test asserts its **premise** first -- that two anchors really are inside
+one target -- so the ring fix failed it with *"the fixture's neighbours do not overlap, so this
+proves nothing"* instead of quietly passing. The tie-break is still load-bearing; what crowds a
+ring is now the *game* filling one past its own capacity, which the client is handed and may not
+assume away (`SystemView.h`), so the fixture is a ring of thirty and the premise is still
+asserted.
+
+**The focus polish, all four.** *Clickable warp toasts*: `Notice` gains ADR-020 D15.5's action
+pair, the game raises `FLEET ARRIVED` with `JUMP TO` and the grid it landed on, and the chip asks
+the authority to point the camera there. Two things came out of building it -- an arrival is **a
+crossing that ended**, not a count that rose (an undock raises a station's count too, and already
+has its own row), and the chip had to be hoisted **above** the surface branch, because toasts are
+drawn over every surface and were pressable only on the tactical one, which is the one place it
+matters least: D16 sends the player to the map for the whole crossing. *Fleet cycling*: Tab steps
+the wings on this grid and then the places elsewhere, taking-and-framing a wing and asking for a
+place -- both exactly what pressing the row or the block already does, so the key reaches nothing
+the screen cannot. *Camera pinning*: a PIN chip beside MENU with the key as its accelerator, which
+closes **D16's first presence edge** -- presence lost under a pin falls to the map, and the
+condition it reads is the very follow it suppresses. *The transit view*: the map D16's second edge
+pushes is now marked as the between-surface, frames the soonest arrival at the SYSTEM level and
+rings it on the alerts chip's own pulse -- and, the half a highlight alone would not deliver,
+**hands the player back**, because the arrival pops it.
+
+**Still owed by U6:** the transit view is the one item not driven on screen -- it needs every
+fleet the player owns mid-crossing at once, which no scripted run sets up -- and the plate check
+against D1 remains owed **upstream**, where the plate is. What was checked here is ADR-016
+§9/§9b's normative calls, which is what this corpus actually holds.
 
 
 ---

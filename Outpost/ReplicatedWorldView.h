@@ -209,6 +209,7 @@ public:
                                           std::span<Neuron::RosterRow> _outRows) const override;
   [[nodiscard]] bool ContextActionFor(Neuron::EntityId _entityId, std::span<const Neuron::EntityId> _selectedIds,
                                       Neuron::ContextAction& _outAction) const override;
+  [[nodiscard]] bool PlaceForEntity(Neuron::EntityId _entityId, std::uint16_t& _outAnchor) const override;
   [[nodiscard]] bool ApplySummary(std::span<const std::uint8_t> _payload) override;
   [[nodiscard]] std::uint32_t BuildLocationBlocks(std::span<Neuron::LocationBlock> _outBlocks) const override;
   [[nodiscard]] bool BuildFieldReadout(Neuron::FieldReadout& _outReadout) const override;
@@ -254,6 +255,9 @@ public:
                                              std::span<Neuron::RouteLeg> _outLegs) const override;
   [[nodiscard]] std::uint32_t BuildMapMarkers(std::span<Neuron::MapMarker> _outMarkers) const override;
   [[nodiscard]] bool BuildSystemView(std::uint16_t _systemId, Neuron::SystemViewData& _outSystem) const override;
+  [[nodiscard]] bool WatchedSystem(std::uint16_t& _outSystemId) const override;
+  [[nodiscard]] bool AnchorVerbs(std::uint16_t _anchorId, std::span<const Neuron::EntityId> _selectedIds,
+                                 Neuron::SystemAnchorVerbs& _outVerbs) const override;
 
   /// Which system this client's view is standing in, for the route's origin and
   /// for the top bar's region line. `INVALID_ID` before a world has arrived.
@@ -351,6 +355,10 @@ private:
     /// The ships themselves, for the hangar screen T3 builds. Empty for a
     /// station whose roster did not fit.
     std::vector<Game::RosterEntry> docked;
+
+    /// Whose crossing this is, and `INVALID_WING_ID` for the two states whose
+    /// anchor is where the ships actually are (U6b, `FleetSummary::wing`).
+    Game::WingId wing = Game::INVALID_WING_ID;
   };
 
   /*
@@ -719,9 +727,25 @@ private:
    */
   struct PendingNotice
   {
-    std::uint16_t code = 0;
+    /*
+     * `Neuron::Notice::code`'s width, which it had not been.
+     *
+     * The dock notices key on `(anchor << 1) | kind` and this field was a
+     * `std::uint16_t`, so the shift walked the top bit off a high anchor id --
+     * two stations whose ids differ only above bit 15 would have coalesced into
+     * one row. The bake does not produce such an id today, which is why nothing
+     * had seen it; the arrival notice below keys on the same arithmetic, so the
+     * field is widened to the number it is supposed to hold rather than to the
+     * ones content happens to mint.
+     */
+    std::uint32_t code = 0;
     const char* title = nullptr;
     std::string body;
+
+    /// The chip, when this notice has one to offer (ADR-020 D15.5). Null label
+    /// is the ordinary case.
+    const char* actionLabel = nullptr;
+    std::uint32_t actionKey = 0;
   };
   std::vector<PendingNotice> m_notices;
 

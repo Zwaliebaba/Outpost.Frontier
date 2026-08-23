@@ -323,12 +323,17 @@ I3 needs for handedness and the Auto toggle)~~ **built 2026-08-23 — handedness
 I3's wheel has its prerequisite**, ~~**U3d-c's counted chip**~~ **built 2026-08-23, which closes
 U3d**, ~~U3b's remainder~~ **built 2026-08-23 — fleet markers, VIEW-on-presence and A16's
 transit edge; what is left is A16's pinned-camera edge behind U6, and A15's timed run**,
-~~U4's client half~~ **built 2026-08-23**, ~~U5 **including N7**~~ **U5a built 2026-08-23; U5b
-(ADD WAYPOINT and search, both buildable; the visual checkpoint and the frame-budget
-measurement, which are not) and N7's site layer remain**, ~~U6~~ **U6a built 2026-08-23 — the
-seam and the device-free half, with all four owner rulings answered the same day at
-[ADR-016 §9b](ADR/ADR-016-procedural-universe-and-warp.md); U6b (the draw, the plate check and
-warp issued from the surface) and the four focus-polish items remain**, E5.
+~~U4's client half~~ **built 2026-08-23**, ~~U5 **including N7**~~ **U5a built 2026-08-23; the
+visual checkpoint was then run the same day and 🔥 R15 is what it found — the map drew the
+2,500-system bake as seven horizontal strips under 250 overlapping names, through one bake
+defect and three of the screen's own. All four are fixed, the universe is re-baked, and the
+checkable half of the checkpoint is now a headless gate over the committed file
+(`RunStrategicMapGate`). U5b (ADD WAYPOINT, search, per-label de-confliction and the GPU half
+of the frame budget) and N7's site layer remain**, ~~U6~~ **built 2026-08-23 — U6a's
+seam and device-free half, with all four owner rulings answered the same day at
+[ADR-016 §9b](ADR/ADR-016-procedural-universe-and-warp.md), and **U6b the same day**: the draw,
+the breadcrumb door, a warp issued from the surface and all four focus-polish items. 🏁 W2 is
+met; what is left is the plate check, owed upstream, and the transit view's own run**, E5.
 
 **T4 joins that queue ahead of E5** *(decision 9, 2026-08-23)*: **T4a** is registry truth,
 device-free, and can land any time; **T4b** reshapes the hangar P1 draws and the roster 07a
@@ -337,6 +342,28 @@ already struck** — the same clause that put every screen behind the input mode
 decision along. Its print deltas (P1 — a major bump, a §2 call reversed; 07a — sized at
 capture) travel inside T4b rather than as separate deliverables, and its visual checkpoint
 joins the R1 backlog like every other.
+
+> **U5's checkpoint, 2026-08-23 — the one that was owed, and what it cost.**
+>
+> The map opened on the committed bake as **seven full-width horizontal strips** of overlapping
+> dots under ~250 constellation names stacked on one another. Four defects: the bake laid five
+> constellations on a three-column lattice inside a *square* region cell, so the gap between two
+> regions was smaller than the pitch inside one; the client had no density ladder at REGION and
+> emitted group labels outside the label budget; the pinch thresholds and the zoom ceiling were
+> fractions of total extent derived from the print's 48-system era, which put SYSTEM out of
+> reach entirely; and the top bar named the first region in the bake beside whole-universe
+> counts. A fifth fell out of reproducing it — the mouse wheel had never zoomed this map,
+> because the zoom was gated on the *gesture's* position and a gesture has one only while
+> something is touching the screen.
+>
+> **All 1,281 tests were green while it drew strips**, including the pixel-level clustering
+> assertion below — because the property that broke was never the Voronoi one. That is the
+> finding worth keeping: a legibility invariant has to be about *what the eye groups by*. The
+> bake now asserts that a region's content is isotropic and that regions stand further apart
+> than their own constellations do, on both axes, over the baked positions; the self test
+> asserts the same property **after the projection**, at the print's own 1440×900, over the
+> committed file. See [Universe-Build-Order](Universe-Build-Order.md)'s U1 and U5 and
+> [ADR-016 §2/§9](ADR/ADR-016-procedural-universe-and-warp.md).
 
 > **U5a, 2026-08-23 — the strategic map's seam and device-free half.**
 >
@@ -441,6 +468,45 @@ joins the R1 backlog like every other.
 > it cannot quietly stop testing the tie-break.
 >
 > Device-free again, which is the fifth screen slice in a row.
+
+> **U6b, 2026-08-23 — the screen, the door, and the run that broke the streak.**
+>
+> The sixth screen slice was *not* device-free, and it is the first one where that mattered. The
+> suites were green -- 1,235 unit tests, a self-test gate over a real bake, thirty-eight of them
+> U6a's own on this screen -- and the built screen drew `Vesta-3 Anchorage` through `Halgren`
+> with four fifths of its disc empty. The rings ran evenly *from* `firstRingRadius` outward,
+> which is defensible arithmetic and is wrong for the shape the bake actually produces: six
+> anchors on an inner ring, two fields outside it. **Nothing in the arithmetic can say "these two
+> words occupy the same pixels"**, so nothing did. That is R1's category earning its name, and it
+> is worth recording against this document's own repeated finding that the device-free share of a
+> screen slice is larger than the plan assumes: it is, and the remainder is not decoration.
+>
+> **The door was the cheap part and one seam call was the whole of it.** A breadcrumb is a
+> hierarchy; U5 made it one target because there was one screen above it. The system word now
+> opens the system, the chevron still opens the map, and `WorldView::WatchedSystem` exists
+> because the client held the *word* while `BuildSystemView` takes an **id**.
+>
+> **Two decisions the slice had to take rather than look up.** The command row's WARP stays
+> greyed and its comment was corrected instead: it promised to *"lift by deletion the day a
+> destination picker exists"*, and two now do -- so what was wrong was the scope of the sentence
+> rather than the gate, because a warp is a verb spent on a **place** and the places are on the
+> two surfaces that draw them. And the verbs' *words* being the game's forced `AnchorVerbs` to
+> answer for `INVALID_SYSTEM_ANCHOR` too: the panel draws both buttons with nothing selected, and
+> a client that filled that frame itself would have learned what a warp is.
+>
+> **The focus polish closed D16 and gave ADR-020 D15.5 its first consumer.** Camera pinning is
+> the pinned state D16's first presence edge had nothing to test against; the transit view turns
+> D16's second edge into a screen that frames the crossing and then hands the player back on
+> arrival; `JUMP TO` is the toast action payload finally spent on something -- and building it
+> moved the chip's *press* above the surface branch, where its *draw* already was.
+>
+> **And one thing the owner found by playing it, which no gate could have.** A crossing's summary
+> row is keyed on its destination, so the ELSEWHERE block read `VESTA-3 / IN WARP` -- a station
+> apparently in warp -- at exactly the moment the wing's own roster row had gone.
+> `FleetSummary` now carries a wing and crossings group on it: a wire and schema change, taken
+> deliberately ([ADR-016 §6](ADR/ADR-016-procedural-universe-and-warp.md)). The warp itself was
+> retuned ×10 in the same sitting and for the same kind of reason -- a hop across one system read
+> **2:01**, which is two minutes of a fleet nobody can command.
 
 **What moved and why:** every screen slice now sits behind the input model rather than beside it.
 Building a screen against the mouse adaptation and re-fitting it for touch afterwards is the

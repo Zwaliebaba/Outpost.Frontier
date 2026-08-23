@@ -2,7 +2,10 @@
 
 #include "MapScreen.h"
 
+#include "UploadBudget.h" // MAX_MAP_GROUPS -- see `MeasureMapGraph`.
+
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace Neuron
@@ -166,18 +169,156 @@ MapCamera FitMapCamera(const MapExtent& _extent, const UiRect& _graph, const Map
   return camera;
 }
 
-MapPinchLevel MapLevelOf(const MapCamera& _camera, const MapExtent& _extent, const UiRect& _graph,
-                         const MapScreenTuning& _tuning) noexcept
+MapGraphMetrics MeasureMapGraph(const MapTopology& _topology) noexcept
 {
+  MapGraphMetrics metrics;
+  const auto groupCount = static_cast<std::uint32_t>(std::min<std::size_t>(_topology.groups.size(), MAX_MAP_GROUPS));
+  if (groupCount == 0)
+  {
+    return metrics;
+  }
+
   /*
-   * Stated against the fit rather than against pixels per unit, so the three
-   * thresholds and `maxZoomFactor` are in one currency: 1 is "the whole graph",
-   * 0.5 is "half of it". A shard whose universe is a thousand times wider sits
-   * at exactly the same numbers, which is the point -- the bake's scale is the
-   * bake's business.
+   * Fixed arrays rather than vectors, and `MAX_MAP_GROUPS` rather than the
+   * topology's own size: this is `noexcept`, and a `noexcept` function that
+   * allocates is one `std::terminate` away from an out-of-memory boot -- which
+   * is the exact defect CI's clang-tidy sweep caught in `ComputeUniverseHash`
+   * (AGENTS.md section 6). The cap is the client's standing statement of what
+   * it is built to draw, so measuring past it would be measuring content the
+   * graph builder will not draw anyway.
+   *
+   * One pass over the nodes for the radii, for `BuildMapGraph`'s reason: the
+   * obvious shape -- for each group, walk the systems looking for its members --
+   * is 512 x 2,500 at the caps. This runs once at boot rather than per frame,
+   * and is still written the cheap way because the frame path next door had to
+   * be.
+   */
+  std::array<float, MAX_MAP_GROUPS> radius{};
+  std::array<std::uint32_t, MAX_MAP_GROUPS> members{};
+  for (const MapNode& node : _topology.nodes)
+  {
+    if (node.group >= groupCount)
+    {
+      continue;
+    }
+    const MapGroup& group = _topology.groups[node.group];
+    const float dx = node.x - group.x;
+    const float dy = node.y - group.y;
+    radius[node.group] = std::max(radius[node.group], std::sqrt(dx * dx + dy * dy));
+    ++members[node.group];
+  }
+
+  float radiusSum = 0.0f;
+  for (std::uint32_t index = 0; index < groupCount; ++index)
+  {
+    if (members[index] == 0)
+    {
+      continue; // A group with no systems has no radius, and averaging a zero
+                // in would make the thresholds answer to content that is absent.
+    }
+    radiusSum += radius[index];
+    ++metrics.groups;
+  }
+  metrics.groupRadiusUnits = metrics.groups > 0 ? radiusSum / static_cast<float>(metrics.groups) : 0.0f;
+
+  /*
+   * And the regions, from the boxes their *constellations* occupy -- grown by
+   * the mean group radius, so the number covers what is drawn rather than what
+   * is placed. The bake gives a region no centre of its own (ADR-009 section 4),
+   * so this is the same derivation the game already makes for the label's
+   * anchor, done here for its size.
+   *
+   * A region holds at least one group, so `MAX_MAP_GROUPS` bounds the regions
+   * too and the same reasoning about the cap applies.
+   */
+  const auto regionCount = static_cast<std::uint32_t>(std::min<std::size_t>(_topology.regions.size(), MAX_MAP_GROUPS));
+  if (regionCount == 0)
+  {
+    return metrics;
+  }
+
+  std::array<float, MAX_MAP_GROUPS> minX{};
+  std::array<float, MAX_MAP_GROUPS> maxX{};
+  std::array<float, MAX_MAP_GROUPS> minY{};
+  std::array<float, MAX_MAP_GROUPS> maxY{};
+  std::array<std::uint32_t, MAX_MAP_GROUPS> groupsHere{};
+  for (std::uint32_t index = 0; index < groupCount; ++index)
+  {
+    const MapGroup& group = _topology.groups[index];
+    if (group.region >= regionCount)
+    {
+      continue;
+    }
+    const std::uint16_t region = group.region;
+    if (groupsHere[region] == 0)
+    {
+      minX[region] = maxX[region] = group.x;
+      minY[region] = maxY[region] = group.y;
+    }
+    else
+    {
+      minX[region] = std::min(minX[region], group.x);
+      maxX[region] = std::max(maxX[region], group.x);
+      minY[region] = std::min(minY[region], group.y);
+      maxY[region] = std::max(maxY[region], group.y);
+    }
+    ++groupsHere[region];
+  }
+
+  float regionSum = 0.0f;
+  for (std::uint32_t index = 0; index < regionCount; ++index)
+  {
+    if (groupsHere[index] == 0)
+    {
+      continue;
+    }
+    const float half = std::max(maxX[index] - minX[index], maxY[index] - minY[index]) * 0.5f;
+    regionSum += half + metrics.groupRadiusUnits;
+    ++metrics.regions;
+  }
+  metrics.regionRadiusUnits = metrics.regions > 0 ? regionSum / static_cast<float>(metrics.regions) : 0.0f;
+  return metrics;
+}
+
+MapPinchLevel MapLevelOf(const MapCamera& _camera, const MapExtent& _extent, const UiRect& _graph,
+                         const MapGraphMetrics& _metrics, const MapScreenTuning& _tuning) noexcept
+{
+  if (_camera.pixelsPerUnit <= 0.0f)
+  {
+    return MapPinchLevel::Region;
+  }
+
+  /*
+   * The level is read off one measurement: how many pixels across a
+   * constellation is right now. See `MapScreenTuning::regionLevelDiameter` for
+   * why that replaced a fraction of the whole graph's extent -- in one
+   * sentence, 40 % of the committed bake is twenty regions and the screen used
+   * to call that CONSTELLATION.
+   *
+   * REGION is tested first so a viewport shorter than the region threshold --
+   * a window dragged very small -- reports the coarsest level rather than the
+   * finest, which is the answer that degrades into something drawable.
+   */
+  const float viewport = std::min(_graph.width, _graph.height);
+  if (_metrics.groupRadiusUnits > 0.0f && viewport > 0.0f)
+  {
+    const float diameter = 2.0f * _metrics.groupRadiusUnits * _camera.pixelsPerUnit;
+    if (diameter < _tuning.regionLevelDiameter)
+    {
+      return MapPinchLevel::Region;
+    }
+    return diameter >= viewport * _tuning.systemLevelViewportSpans ? MapPinchLevel::System
+                                                                   : MapPinchLevel::Constellation;
+  }
+
+  /*
+   * The fallback, for a graph with no constellation to measure: one system per
+   * group, no groups at all, or a fixture. Stated against the fit rather than
+   * against pixels per unit, so the two thresholds and `maxZoomFactor` are in
+   * one currency -- 1 is "the whole graph", 0.5 is "half of it".
    */
   const MapCamera fit = FitMapCamera(_extent, _graph, _tuning);
-  if (_camera.pixelsPerUnit <= 0.0f || fit.pixelsPerUnit <= 0.0f)
+  if (fit.pixelsPerUnit <= 0.0f)
   {
     return MapPinchLevel::Region;
   }
@@ -192,6 +333,50 @@ MapPinchLevel MapLevelOf(const MapCamera& _camera, const MapExtent& _extent, con
     return MapPinchLevel::Constellation;
   }
   return MapPinchLevel::Region;
+}
+
+float MapScaleForLevel(MapPinchLevel _level, const MapExtent& _extent, const UiRect& _graph,
+                       const MapGraphMetrics& _metrics, const MapScreenTuning& _tuning) noexcept
+{
+  const MapCamera fit = FitMapCamera(_extent, _graph, _tuning);
+  const float viewport = std::min(_graph.width, _graph.height);
+
+  if (_metrics.groupRadiusUnits > 0.0f && viewport > 0.0f)
+  {
+    /*
+     * `MapLevelOf` solved for `pixelsPerUnit`, rather than a second derivation
+     * that could disagree with the first -- a camera that jumped to "SYSTEM"
+     * and then read back as CONSTELLATION would be the screen contradicting the
+     * button that put it there.
+     *
+     * A little past each boundary, because the boundaries are exclusive on one
+     * side: landing exactly on `regionLevelDiameter` is REGION, not
+     * CONSTELLATION.
+     */
+    const float perDiameter = 1.0f / (2.0f * _metrics.groupRadiusUnits);
+    switch (_level)
+    {
+    case MapPinchLevel::Region:
+      return fit.pixelsPerUnit;
+    case MapPinchLevel::Constellation:
+      return _tuning.regionLevelDiameter * 1.25f * perDiameter;
+    case MapPinchLevel::System:
+      return viewport * _tuning.systemLevelViewportSpans * 1.1f * perDiameter;
+    }
+    return fit.pixelsPerUnit;
+  }
+
+  switch (_level)
+  {
+  case MapPinchLevel::Region:
+    return fit.pixelsPerUnit;
+  case MapPinchLevel::Constellation:
+    return _tuning.constellationLevelFraction > 0.0f ? fit.pixelsPerUnit / _tuning.constellationLevelFraction
+                                                     : fit.pixelsPerUnit;
+  case MapPinchLevel::System:
+    return _tuning.systemLevelFraction > 0.0f ? fit.pixelsPerUnit / _tuning.systemLevelFraction : fit.pixelsPerUnit;
+  }
+  return fit.pixelsPerUnit;
 }
 
 namespace
@@ -628,20 +813,12 @@ namespace
 {
 
 /// A node's dot, per level. It grows with the pinch because a pip that stayed
-/// 6 px would be indistinguishable from a gate link at the level where the
-/// player is choosing between two systems.
+/// 9 px would be indistinguishable from a gate link at the level where the
+/// player is choosing between two systems. REGION has no size of its own
+/// because it draws no dots -- see `MapScreenTuning::nodeDotConstellation`.
 [[nodiscard]] float NodeDotFor(MapPinchLevel _level, float _scale, const MapScreenTuning& _tuning) noexcept
 {
-  switch (_level)
-  {
-  case MapPinchLevel::Region:
-    return _tuning.nodeDotRegion * _scale;
-  case MapPinchLevel::Constellation:
-    return _tuning.nodeDotConstellation * _scale;
-  case MapPinchLevel::System:
-    return _tuning.nodeDotSystem * _scale;
-  }
-  return _tuning.nodeDotRegion * _scale;
+  return (_level == MapPinchLevel::System ? _tuning.nodeDotSystem : _tuning.nodeDotConstellation) * _scale;
 }
 
 [[nodiscard]] bool InsideMargin(const MapPoint& _point, const UiRect& _zone, float _margin) noexcept
@@ -663,55 +840,82 @@ MapGraphCounts BuildMapGraph(const MapTopology& _topology, const MapCamera& _cam
   const float labelHeight = _tuning.labelHeight * scale;
   const float labelGap = _tuning.labelGap * scale;
 
-  // Labels from CONSTELLATION in, which is the print's "region zoom: count and
-  // brightness only" -- and off entirely when the checkbox is.
-  const bool wantLabels = _show.systemNames && _level != MapPinchLevel::Region;
+  /*
+   * **REGION builds no node rects**, which is the print's *"region zoom: count
+   * and brightness only"* taken as the sentence it is rather than as a rule
+   * about labels.
+   *
+   * The screen used to draw all 2,500 pips here: at the fit over the committed
+   * bake that is ten systems inside two pixels, 250 times over -- a grey wash
+   * with no cluster visible in it, which is R15's *"the generator's layout
+   * defeats the strategic map"* arriving through the client instead of through
+   * the bake. What replaces them is one counted chip per constellation, below.
+   */
+  const bool wantNodes = _level != MapPinchLevel::Region;
 
-  // Hulls at the two levels where a constellation is a thing you are looking
-  // *at* rather than a thing you are inside.
-  const bool wantHulls = _show.constellationHulls && _level != MapPinchLevel::System;
+  // Names on the dots follow the dots, and are off entirely when the checkbox is.
+  const bool wantLabels = wantNodes && _show.systemNames;
+
+  /*
+   * Hulls at the two levels where a constellation is a thing you are looking
+   * *at* rather than a thing you are inside -- and at REGION the same pass
+   * produces the chip rather than the outline, because the two are the same
+   * measurement (a centre, a radius and a count) drawn at two rungs of the
+   * density ladder.
+   *
+   * **The checkbox governs the outline, not the chip**, and the difference is
+   * not pedantry: at REGION the chips *are* the graph, so a box labelled
+   * `Constellation hulls` that emptied the whole viewport would be a control
+   * whose word and whose effect had come apart. At CONSTELLATION a hull is
+   * exactly what its word says, and the box turns it off.
+   */
+  const bool chipLevel = _level == MapPinchLevel::Region;
+  const bool wantHulls = chipLevel || (_show.constellationHulls && _level == MapPinchLevel::Constellation);
 
   MapGraphCounts counts;
 
-  for (std::uint32_t index = 0; index < _topology.nodes.size(); ++index)
+  if (wantNodes)
   {
-    if (counts.nodes >= _outNodes.size())
+    for (std::uint32_t index = 0; index < _topology.nodes.size(); ++index)
     {
-      break;
-    }
-    const MapNode& node = _topology.nodes[index];
-    const MapPoint point = MapProject(_camera, _graph, node.x, node.y);
-    if (!InsideMargin(point, _graph, margin))
-    {
-      continue;
-    }
+      if (counts.nodes >= _outNodes.size())
+      {
+        break;
+      }
+      const MapNode& node = _topology.nodes[index];
+      const MapPoint point = MapProject(_camera, _graph, node.x, node.y);
+      if (!InsideMargin(point, _graph, margin))
+      {
+        continue;
+      }
 
-    MapNodeRect& out = _outNodes[counts.nodes];
-    out.point = point;
-    out.node = index;
-    out.dot = UiRect{point.x - dot * 0.5f, point.y - dot * 0.5f, dot, dot};
-    out.labelled = false;
-    out.label = UiRect{};
+      MapNodeRect& out = _outNodes[counts.nodes];
+      out.point = point;
+      out.node = index;
+      out.dot = UiRect{point.x - dot * 0.5f, point.y - dot * 0.5f, dot, dot};
+      out.labelled = false;
+      out.label = UiRect{};
 
-    /*
-     * The label budget, spent in visible-node order.
-     *
-     * Not a de-confliction pass -- the print places each label against four
-     * candidate positions and drops the collisions, which needs a glyph metric
-     * and a look to tune, and lands with the visual checkpoint (U5b). What this
-     * gives instead is *stability*: a static view labels the same nodes every
-     * frame, and panning changes the labels because the view changed rather
-     * than because a sort did.
-     */
-    if (wantLabels && counts.labels < _tuning.maxLabels && node.label != nullptr)
-    {
-      const auto cells = static_cast<float>(TextCellCount(node.label));
-      out.label = UiRect{point.x + dot * 0.5f + labelGap, point.y - labelHeight * 0.5f, cells * _cellWidth,
-                         labelHeight};
-      out.labelled = true;
-      ++counts.labels;
+      /*
+       * The label budget, spent in visible-node order.
+       *
+       * Not a de-confliction pass -- the print places each label against four
+       * candidate positions and drops the collisions, which needs a glyph metric
+       * and a look to tune, and lands with the visual checkpoint (U5b). What this
+       * gives instead is *stability*: a static view labels the same nodes every
+       * frame, and panning changes the labels because the view changed rather
+       * than because a sort did.
+       */
+      if (wantLabels && counts.labels < _tuning.maxLabels && node.label != nullptr)
+      {
+        const auto cells = static_cast<float>(TextCellCount(node.label));
+        out.label = UiRect{point.x + dot * 0.5f + labelGap, point.y - labelHeight * 0.5f, cells * _cellWidth,
+                           labelHeight};
+        out.labelled = true;
+        ++counts.labels;
+      }
+      ++counts.nodes;
     }
-    ++counts.nodes;
   }
 
   if (_show.gateLinks)
@@ -765,6 +969,9 @@ MapGraphCounts BuildMapGraph(const MapTopology& _topology, const MapCamera& _cam
       seed.group = index;
       seed.nodeCount = 0;
       seed.label = UiRect{};
+      seed.chip = UiRect{};
+      seed.labelled = false;
+      seed.chipped = false;
 
       // Carried in *map units* until the compaction below converts it, so the
       // accumulation does not multiply by the zoom once per node.
@@ -778,7 +985,9 @@ MapGraphCounts BuildMapGraph(const MapTopology& _topology, const MapCamera& _cam
      * overlapping on screen is the bake having broken its own invariant,
      * visibly -- and it is measured over **every** node rather than the visible
      * ones, because a hull whose radius shrank as its systems panned off screen
-     * would be a hull that changed shape for a reason the bake did not.
+     * would be a hull that changed shape for a reason the bake did not. The
+     * count beside it is membership for the same reason: the chip must not
+     * report a smaller number when you pan.
      */
     for (const MapNode& node : _topology.nodes)
     {
@@ -813,12 +1022,54 @@ MapGraphCounts BuildMapGraph(const MapTopology& _topology, const MapCamera& _cam
       out = candidate;
       out.radiusPixels = radiusPixels;
       out.label = UiRect{};
-      if (_topology.groups[index].label != nullptr)
+      out.chip = UiRect{};
+      out.labelled = false;
+      out.chipped = false;
+
+      /*
+       * The chip: a pip that grows with the count, centred on the cluster.
+       *
+       * `IconDensity.h`'s merge and `CountedChip.h`'s rung applied to the map,
+       * and the print's own sentence for this level -- *count and brightness*.
+       * Both halves of that reach the player: the size carries the count at a
+       * glance, the number under it carries it exactly, and the brightness is
+       * the group's tint, which the *game* supplied because deciding what a
+       * constellation's colour means is a question about its overlay.
+       */
+      if (chipLevel)
+      {
+        const float span = std::max(0.0f, _tuning.groupChipDotMax - _tuning.groupChipDot);
+        const std::uint32_t cap = _tuning.groupChipCountAtMax > 0 ? _tuning.groupChipCountAtMax : 1u;
+        const float weight = std::min(1.0f, static_cast<float>(candidate.nodeCount) / static_cast<float>(cap));
+        const float size = (_tuning.groupChipDot + span * weight) * scale;
+        out.chip = UiRect{candidate.centre.x - size * 0.5f, candidate.centre.y - size * 0.5f, size, size};
+        out.chipped = true;
+      }
+
+      /*
+       * And the name, which is **not** automatic and used not to be optional.
+       *
+       * It was emitted for every group whose label was non-null, outside the
+       * `maxLabels` budget the node labels spend from -- so the fit over the
+       * committed bake drew 250 constellation names on top of each other, which
+       * is the text soup half of R15. Two gates now: the disc has to be big
+       * enough that a word could sit on it at all, and the word has to fit in
+       * the same budget as everything else that is a word on this graph.
+       *
+       * That is deliberately *not* de-confliction (U5b's, with the visual
+       * checkpoint). It is the half of the problem that is about size rather
+       * than about placement, and it is the half that was missing.
+       */
+      const float diameter = radiusPixels * 2.0f;
+      if (diameter >= _tuning.groupLabelMinDiameter * scale && counts.labels < _tuning.maxLabels &&
+          _topology.groups[index].label != nullptr)
       {
         const auto cells = static_cast<float>(TextCellCount(_topology.groups[index].label));
         out.label = UiRect{candidate.centre.x - cells * _cellWidth * 0.5f,
                            candidate.centre.y - radiusPixels - labelGap - labelHeight, cells * _cellWidth,
                            labelHeight};
+        out.labelled = true;
+        ++counts.labels;
       }
       ++counts.groups;
     }
@@ -833,6 +1084,85 @@ MapGraphCounts BuildMapGraph(const MapTopology& _topology, const MapCamera& _cam
   }
 
   return counts;
+}
+
+std::uint32_t BuildMapRegionMarks(const MapTopology& _topology, const MapCamera& _camera, const UiRect& _graph,
+                                  MapPinchLevel _level, const MapGraphMetrics& _metrics, float _cellWidth,
+                                  float _scale, const MapScreenTuning& _tuning,
+                                  std::span<MapRegionMark> _outMarks) noexcept
+{
+  /*
+   * REGION only, which is the whole of `MapRegion`'s stated role -- *"the
+   * coarsest pinch level, and the one the print badges"* -- and which nothing
+   * drew until R15 sent somebody looking at this file. One level in, a region
+   * is wider than the viewport and a name at its centre would sit on top of the
+   * constellations it contains rather than over them.
+   */
+  if (_level != MapPinchLevel::Region || _metrics.regionRadiusUnits <= 0.0f || _camera.pixelsPerUnit <= 0.0f)
+  {
+    return 0;
+  }
+
+  // How wide the thing being named is, which is what decides whether its words
+  // fit on it. See the header: this is the group label's rule one tier up.
+  const float regionWidth = 2.0f * _metrics.regionRadiusUnits * _camera.pixelsPerUnit;
+  const float scale = SafeScale(_scale);
+  const float margin = _tuning.cullMargin * scale;
+  const float markHeight = _tuning.regionMarkHeight * scale;
+  const float markGap = _tuning.regionMarkGap * scale;
+
+  std::uint32_t written = 0;
+  for (std::uint32_t index = 0; index < _topology.regions.size() && written < _outMarks.size(); ++index)
+  {
+    const MapRegion& region = _topology.regions[index];
+    const MapPoint centre = MapProject(_camera, _graph, region.x, region.y);
+    if (!InsideMargin(centre, _graph, margin))
+    {
+      continue;
+    }
+
+    MapRegionMark& out = _outMarks[written];
+    out.centre = centre;
+    out.region = index;
+    out.label = UiRect{};
+    out.badge = UiRect{};
+
+    /*
+     * The name above the cluster and the badge below it, both centred on it --
+     * the print's `<region> [BAND]` pairing, rotated onto the plane.
+     *
+     * Clear of the region's own content rather than on top of it, which is what
+     * `regionWidth * 0.5f` buys: the quincunx puts a constellation *at* the
+     * centre of a region, so a word centred there is a word stamped over a
+     * chip. Above and below rather than side by side because the two words
+     * belong to the cluster between them, and one beside it would be one the
+     * player has to decide which cluster owns.
+     */
+    const float reach = regionWidth * 0.5f;
+    if (region.label != nullptr)
+    {
+      const float width = static_cast<float>(TextCellCount(region.label)) * _cellWidth;
+      if (width <= regionWidth)
+      {
+        out.label = UiRect{centre.x - width * 0.5f, centre.y - reach - markGap - markHeight, width, markHeight};
+      }
+    }
+    if (region.badge != nullptr)
+    {
+      const float width = static_cast<float>(TextCellCount(region.badge)) * _cellWidth;
+      if (width <= regionWidth)
+      {
+        out.badge = UiRect{centre.x - width * 0.5f, centre.y + reach + markGap, width, markHeight};
+      }
+    }
+    if (out.label.width <= 0.0f && out.badge.width <= 0.0f)
+    {
+      continue; // Neither word fits this region. A mark with nothing on it is
+                // an empty rect the caller would have to remember to skip.
+    }
+    ++written;
+  }
+  return written;
 }
 
 const MapNodeRect* HitMapNode(std::span<const MapNodeRect> _nodes, float _x, float _y, float _scale,
@@ -863,6 +1193,78 @@ const MapNodeRect* HitMapNode(std::span<const MapNodeRect> _nodes, float _x, flo
     {
       bestDistance = distance;
       best = &node;
+    }
+  }
+  return best;
+}
+
+const MapGroupDisc* HitMapGroup(std::span<const MapGroupDisc> _groups, float _x, float _y, float _scale,
+                                const MapScreenTuning& _tuning) noexcept
+{
+  const float scale = SafeScale(_scale);
+  const float target = TargetHeightPixels(_tuning.nodeTargetSize, scale);
+  const float radius = target * 0.5f;
+  const float radiusSquared = radius * radius;
+
+  const MapGroupDisc* best = nullptr;
+  float bestDistance = radiusSquared;
+  for (const MapGroupDisc& disc : _groups)
+  {
+    if (!disc.chipped)
+    {
+      continue; // A hull is not a target. At CONSTELLATION the systems inside
+                // it are separately hittable, and a tap that selected the outline
+                // instead would take the finer answer away.
+    }
+    const float dx = disc.centre.x - _x;
+    const float dy = disc.centre.y - _y;
+    const float distance = dx * dx + dy * dy;
+
+    // Strictly nearer, so a tie keeps the first -- `HitMapNode`'s rule and for
+    // its reason: the same coin toss twice beats a double tap selecting two
+    // different places.
+    if (distance < bestDistance)
+    {
+      bestDistance = distance;
+      best = &disc;
+    }
+  }
+  return best;
+}
+
+std::uint32_t MapTitleRegion(const MapTopology& _topology, const MapCamera& _camera, const UiRect& _graph,
+                             const MapGraphMetrics& _metrics, const MapScreenTuning& _tuning) noexcept
+{
+  if (_topology.regions.empty() || _camera.pixelsPerUnit <= 0.0f || _metrics.regionRadiusUnits <= 0.0f)
+  {
+    return INVALID_MAP_REGION;
+  }
+
+  /*
+   * Does *a* region fill most of the viewport? Asked before which one, because
+   * at the fit the answer is no and the bar reads the universe -- and the
+   * region nearest the centre of a fifty-region view is a fact about arithmetic
+   * rather than about what the player is looking at.
+   */
+  const float viewport = std::min(_graph.width, _graph.height);
+  const float diameter = 2.0f * _metrics.regionRadiusUnits * _camera.pixelsPerUnit;
+  if (viewport <= 0.0f || diameter < viewport * _tuning.regionTitleViewportSpans)
+  {
+    return INVALID_MAP_REGION;
+  }
+
+  std::uint32_t best = INVALID_MAP_REGION;
+  float bestDistance = 0.0f;
+  for (std::uint32_t index = 0; index < _topology.regions.size(); ++index)
+  {
+    const MapRegion& region = _topology.regions[index];
+    const float dx = region.x - _camera.centreX;
+    const float dy = region.y - _camera.centreY;
+    const float distance = dx * dx + dy * dy;
+    if (best == INVALID_MAP_REGION || distance < bestDistance)
+    {
+      bestDistance = distance;
+      best = index;
     }
   }
   return best;
@@ -918,7 +1320,8 @@ MapActionHit HitMapAction(const MapScreenLayout& _layout, bool _canRoute, bool _
   return MapActionHit::None;
 }
 
-std::uint32_t BuildMapMarkerRects(std::span<const MapMarker> _markers, std::span<const MapNodeRect> _nodes,
+std::uint32_t BuildMapMarkerRects(std::span<const MapMarker> _markers, const MapTopology& _topology,
+                                  std::span<const MapNodeRect> _nodes, std::span<const MapGroupDisc> _groups,
                                   float _scale, const MapScreenTuning& _tuning,
                                   std::span<MapMarkerRect> _outRects) noexcept
 {
@@ -937,9 +1340,39 @@ std::uint32_t BuildMapMarkerRects(std::span<const MapMarker> _markers, std::span
     const auto found = std::lower_bound(_nodes.begin(), _nodes.end(), _markers[index].node,
                                         [](const MapNodeRect& _rect, std::uint32_t _value)
                                         { return _rect.node < _value; });
-    if (found == _nodes.end() || found->node != _markers[index].node)
+
+    MapPoint anchor;
+    if (found != _nodes.end() && found->node == _markers[index].node)
     {
-      continue; // Culled. Not drawn, so nothing to place.
+      anchor = found->point;
+    }
+    else
+    {
+      /*
+       * No dot to sit on, which at REGION is *every* marker -- the density
+       * ladder merged the systems into chips and there are no node rects at all
+       * up there. So the mark falls back to the chip that swallowed its system:
+       * "the player's ships are in this cluster" is the honest statement at a
+       * level whose whole subject is clusters, and a fleet that vanished from
+       * the map at the one zoom that shows the whole map would be the coarsest
+       * level answering the question it exists to answer with silence.
+       *
+       * The group run is emitted in group order and compacted in place, so it
+       * is sorted by `group` and joins the same way the node run does.
+       */
+      if (_markers[index].node >= _topology.nodes.size())
+      {
+        continue; // A mark on a system this graph does not have.
+      }
+      const std::uint32_t group = _topology.nodes[_markers[index].node].group;
+      const auto disc = std::lower_bound(_groups.begin(), _groups.end(), group,
+                                         [](const MapGroupDisc& _disc, std::uint32_t _value)
+                                         { return _disc.group < _value; });
+      if (disc == _groups.end() || disc->group != group)
+      {
+        continue; // Culled at both levels. Not drawn, so nothing to place.
+      }
+      anchor = disc->centre;
     }
 
     /*
@@ -949,7 +1382,7 @@ std::uint32_t BuildMapMarkerRects(std::span<const MapMarker> _markers, std::span
      */
     MapMarkerRect& out = _outRects[written];
     out.marker = index;
-    out.badge = UiRect{found->point.x + gap, found->point.y - height - gap, width, height};
+    out.badge = UiRect{anchor.x + gap, anchor.y - height - gap, width, height};
     ++written;
   }
   return written;

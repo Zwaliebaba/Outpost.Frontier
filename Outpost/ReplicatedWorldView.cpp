@@ -1011,20 +1011,28 @@ std::uint32_t ReplicatedWorldView::OrderKinds(std::span<const Neuron::EntityId> 
      * it is the same function (ADR-014 3).
      */
     /*
-     * Warp is real, simulated and reachable -- **from a surface this build does
-     * not have**.
+     * Warp is real, simulated and reachable -- **and it is not named from this
+     * row**.
      *
-     * A warp names an anchor (ADR-016 3), and the two screens that let a player
-     * pick one are the strategic map and the system view, neither of which is
-     * built. Nothing in the tactical HUD can supply the field, so every warp it
-     * could compose carries no destination and comes back `UnknownAnchor` --
-     * which made the verb a live-looking button that could only ever bounce.
+     * A warp names an anchor (ADR-016 §3), and the tactical plane has no way to
+     * supply one: a gesture there produces a point in metres, which is the one
+     * thing §3 rules a warp may never take. So every warp this row could compose
+     * carries no destination and comes back `UnknownAnchor`, which made the verb
+     * a live-looking button that could only ever bounce. Greyed with that same
+     * reason, so the row says now what the authority would have said a round
+     * trip later.
      *
-     * Greyed with that same reason, so the row says now what the authority
-     * would have said a round trip later. This is a statement about the
-     * *surfaces this build has* rather than about the game, which is why it
-     * lives in the composition root: it is the one place that knows both, and
-     * the gate lifts by deletion the day a destination picker exists.
+     * **The destination pickers exist, and this is still right**, which is a
+     * correction to what this comment used to say. It promised to *"lift by
+     * deletion the day a destination picker exists"*, and by 2026-08-23 two did
+     * -- the map's SET DESTINATION feeds anchored warps through `RoutePlan`, and
+     * U6's system view issues one from `AnchorVerbs`. Neither lifts the gate,
+     * because neither is this row: a warp is a verb you spend on a **place**, and
+     * the places are on the two surfaces that draw them. What was wrong was the
+     * scope of the sentence, not the gate -- so it now says what it is about.
+     *
+     * It lives in the composition root because it is a statement about *how this
+     * game's warp is named*, which is the one place allowed to make one.
      */
     if (_outKinds[count].available && kind == Game::OrderKind::Warp)
     {
@@ -1315,6 +1323,39 @@ bool ReplicatedWorldView::ContextActionFor(Neuron::EntityId _entityId, std::span
 }
 
 /*
+ * Which entity is a *place* (ADR-017 §2, ADR-020 §6).
+ *
+ * The station structure, and the same two conditions `StationAnchor` uses --
+ * this grid's anchor, and a structure that has actually arrived in a snapshot.
+ * A place named before its hull is drawn would be a screen the player could
+ * open by tapping empty space.
+ *
+ * **No selection parameter, and that is the difference from `ContextActionFor`
+ * rather than an omission.** Whether Vesta-3 is somewhere you can walk into does
+ * not depend on what the player has highlighted; DOCK does, because a verb needs
+ * a subject. Handing the selection in here would invite exactly the rule that
+ * makes the two answers drift.
+ *
+ * What the client does with a yes is its own business and is stated on the seam:
+ * a place is not a fleet member, so it is not selectable, and a tap on it opens
+ * the surface instead of arming a command row full of verbs a structure cannot
+ * take.
+ */
+bool ReplicatedWorldView::PlaceForEntity(Neuron::EntityId _entityId, std::uint16_t& _outAnchor) const
+{
+  if (m_stationEntityId == Game::INVALID_SHIP_ID || _entityId != m_stationEntityId)
+  {
+    return false;
+  }
+  if (m_desc.gridAnchor == Game::INVALID_ID)
+  {
+    return false;
+  }
+  _outAnchor = static_cast<std::uint16_t>(m_desc.gridAnchor);
+  return true;
+}
+
+/*
  * The 1 Hz family, decoded (ADR-016 6, ADR-017 1).
  *
  * **A frame is a complete statement, so the block list is replaced wholesale.**
@@ -1402,7 +1443,17 @@ bool ReplicatedWorldView::ApplySummary(std::span<const std::uint8_t> _payload)
         // player is not watching is as invisible as a docked one -- which is
         // U3b's whole observation. Which of them the viewed grid already draws
         // is a question for the build, not for the decode.
-        staged.push_back(FleetPlace{row.anchor, row.state, row.etaSeconds, row.shipCount, {}});
+        /*
+         * The third place a wing id arrives from outside (U6b), beside the
+         * snapshot's and the station roster's -- so the crossing's call sign is
+         * minted here, where `EnsureWingName` says it should be, rather than in
+         * the const build that draws it.
+         */
+        if (row.state == Game::FleetState::InTransit && row.wing != Game::INVALID_WING_ID)
+        {
+          (void)EnsureWingName(row.wing);
+        }
+        staged.push_back(FleetPlace{row.anchor, row.state, row.etaSeconds, row.shipCount, {}, row.wing});
       }
       break;
     }
@@ -1639,6 +1690,83 @@ void ReplicatedWorldView::NoteRosterChanges(const std::vector<FleetPlace>& _next
       raise(block.anchor, block.shipCount, false);
     }
   }
+
+  /*
+   * And the arrivals (U6's clickable warp toasts, ADR-020 D15.5).
+   *
+   * **A crossing that ended, not a count that rose**, and the difference is the
+   * whole reason this is a third comparison rather than a fourth case in the
+   * first loop. An `OnGrid` count goes up for two unrelated reasons -- a fleet
+   * undocked, or a fleet arrived -- and the loop above already announces the
+   * first. What identifies an arrival is the `InTransit` row *disappearing*
+   * from the anchor it was crossing to, which is a fact no count can be read
+   * for and which the state field carries directly.
+   *
+   * `FleetPlace::anchor` on a crossing is the **destination** (`BuildMapMarkers`
+   * folds it that way), so the row names where the ships landed and the chip's
+   * key is that grid.
+   *
+   * **Gated on ships actually being there afterwards.** A crossing also leaves
+   * the list when the fleet it carried is destroyed en route, and announcing
+   * "arrived" for one is a message about something that did not happen. The
+   * `OnGrid` presence in the new list is the evidence.
+   */
+  for (const FleetPlace& block : m_places)
+  {
+    if (block.state != Game::FleetState::InTransit || block.shipCount == 0)
+    {
+      continue;
+    }
+    /*
+     * Matched on the wing as well as the place, because a crossing row is now
+     * one wing's (U6b): two wings warping to one anchor are two rows, and a
+     * match on the anchor alone would see the second still crossing and hold
+     * back the first one's arrival.
+     */
+    const auto stillCrossing = std::find_if(_next.begin(), _next.end(), [&](const FleetPlace& _entry) {
+      return _entry.anchor == block.anchor && _entry.state == Game::FleetState::InTransit &&
+             _entry.wing == block.wing;
+    });
+    if (stillCrossing != _next.end())
+    {
+      continue; // Still on its way; there is nothing to say yet.
+    }
+    const auto landed = std::find_if(_next.begin(), _next.end(), [&](const FleetPlace& _entry) {
+      return _entry.anchor == block.anchor && _entry.state == Game::FleetState::OnGrid && _entry.shipCount > 0;
+    });
+    if (landed == _next.end())
+    {
+      continue;
+    }
+
+    char body[96] = {};
+    const char* where = AnchorNameFor(block.anchor);
+    std::snprintf(body, sizeof(body), "%u SHIP%s AT %s", block.shipCount, block.shipCount == 1 ? "" : "S",
+                  where != nullptr ? where : "DESTINATION");
+
+    PendingNotice notice;
+    /*
+     * Keyed past the dock codes' two bits rather than beside them, so an
+     * arrival at a station never folds into a docking at the same one. Those
+     * are two events six seconds apart in the ordinary case -- warp in, then
+     * dock -- and one row would swallow the first.
+     */
+    notice.code = (static_cast<std::uint32_t>(block.anchor) << 2) | 0x2u;
+    notice.title = "FLEET ARRIVED";
+    notice.body = body;
+
+    /*
+     * The chip, and the word is this game's (ADR-014 §2b).
+     *
+     * The key is the **grid** the player would be taken to, which is what a view
+     * request names -- and it is offered even when they are already watching it,
+     * because the engine has no business deciding that and `RequestView` on the
+     * grid you are on is a no-op the client already refuses.
+     */
+    notice.actionLabel = "JUMP TO";
+    notice.actionKey = static_cast<std::uint32_t>(block.anchor);
+    m_notices.push_back(std::move(notice));
+  }
 }
 
 const char* ReplicatedWorldView::AnchorNameFor(Game::AnchorId _anchor) const
@@ -1825,7 +1953,30 @@ std::uint32_t ReplicatedWorldView::BuildLocationBlocks(std::span<LocationBlock> 
      * client is allowed to notice.
      */
     LocationBlock& out = _outBlocks[written];
-    out.name = AnchorNameFor(block.anchor);
+
+    /*
+     * **A crossing is named by its wing; everywhere else is named by the place**
+     * (U6b, 2026-08-23).
+     *
+     * The other two states name somewhere the ships *are*, and the place is the
+     * answer to "where are they". A crossing's anchor is where they are *going*,
+     * so drawing it here produced `VESTA-3 / IN WARP` -- a station wearing a
+     * fleet's status, at precisely the moment the fleet's own roster row has
+     * gone: `BuildRoster` draws wings with members on the watched grid, and a
+     * wing mid-warp has members on no grid at all. The call sign vanished from
+     * the HUD exactly when it was the only thing that identified the block.
+     *
+     * The name is *minted* where the wing id arrives -- in the summary decode,
+     * beside the snapshot's and the roster's -- rather than here, which is
+     * `EnsureWingName`'s own rule and also what keeps this function const. A
+     * crossing that still cannot be named -- wingless ships, which group under
+     * `INVALID_WING_ID` -- falls back to the destination, which is the honest
+     * answer for a fleet with no name.
+     */
+    const char* wingWord =
+      block.state == Game::FleetState::InTransit && block.wing != Game::INVALID_WING_ID ? WingName(block.wing)
+                                                                                        : nullptr;
+    out.name = wingWord != nullptr ? wingWord : AnchorNameFor(block.anchor);
     out.shipCount = block.shipCount;
     out.anchor = static_cast<std::uint16_t>(block.anchor);
     out.stateLabel = Game::FleetStateName(block.state);
@@ -1916,10 +2067,31 @@ bool ReplicatedWorldView::MakeStationCommand(const Neuron::StationIntent& _inten
  */
 std::uint32_t ReplicatedWorldView::BuildStationTabs(std::uint16_t _anchor, std::span<Neuron::StationTab> _outTabs) const
 {
-  // Nothing of this commander's is docked there, so there is no screen to tab
-  // across. Refusing here rather than drawing an empty row is the same rule the
-  // location blocks take: a place holding nothing of yours is not a place.
-  if (DockedAt(static_cast<Game::AnchorId>(_anchor)) == nullptr)
+  /*
+   * A place you are standing in front of is a place, whether or not any of your
+   * ships are inside it.
+   *
+   * **This gate used to be `DockedAt` alone**, and the sentence under it was
+   * *"a place holding nothing of yours is not a place"* -- borrowed from the
+   * ELSEWHERE column, which is a list of *where your ships are* and for which
+   * the rule is exactly right. It was also, until the tactical surface learned
+   * to open a station, the only door onto this screen, so the two questions had
+   * the same answer by construction and nobody had to tell them apart.
+   *
+   * Tapping the structure on your own grid separates them, and the borrowed
+   * rule reads as a defect the moment it does: the hangar opens with no tab row
+   * at all -- no HANGAR, no CARGO, no REPAIR -- because the commander's ships
+   * happen to all be in space. The services a station offers are the station's,
+   * and an empty hangar is a hangar with nothing in it rather than a station
+   * with nothing on it.
+   *
+   * So the gate is "is this anchor a station this view can describe": one you
+   * have ships in, **or** the one on the grid being watched -- `StationAnchor`,
+   * which is itself gated on the structure having arrived in a snapshot, so an
+   * anchor named before its hull is drawn still opens nothing.
+   */
+  const auto anchorId = static_cast<Game::AnchorId>(_anchor);
+  if (DockedAt(anchorId) == nullptr && (anchorId != StationAnchor() || StationAnchor() == Game::INVALID_ID))
   {
     return 0;
   }
@@ -2572,7 +2744,8 @@ std::uint32_t ReplicatedWorldView::PollNotices(std::span<Notice> _outNotices)
     {
       break;
     }
-    _outNotices[written] = Notice{notice.code, notice.title, notice.body.c_str()};
+    _outNotices[written] = Notice{notice.code, notice.title, notice.body.c_str(), notice.actionLabel,
+                                  notice.actionKey};
     ++written;
   }
   return written;
@@ -2882,6 +3055,63 @@ void ReplicatedWorldView::BuildMapGraph()
   }
 
   /*
+   * And what colour each constellation is at REGION level, where the ladder
+   * merges its systems into one counted chip (`MapGroup::tint`).
+   *
+   * **The game's, and it has to be**: the engine has the member nodes and their
+   * tints and could take a majority in four lines, and would thereby have
+   * decided that a constellation's colour is a fact about its systems' security
+   * rather than about whichever overlay is selected. `MapLegendRow::count` draws
+   * the same line for the same reason.
+   *
+   * The rule is the **modal** class -- what most of the constellation is -- with
+   * ties going to the more dangerous of the two. A tie is genuinely ambiguous
+   * and the map is a screen people plan crossings on, so it rounds risk up: a
+   * constellation drawn safer than half of it is is the one error here that
+   * costs a fleet.
+   */
+  {
+    std::vector<std::array<std::uint32_t, 3>> tally(m_mapGroups.size());
+    for (const Neuron::MapNode& node : m_mapNodes)
+    {
+      if (node.group >= tally.size())
+      {
+        continue;
+      }
+      switch (node.tint)
+      {
+      case Neuron::StandingColour::Allied:
+        ++tally[node.group][0];
+        break;
+      case Neuron::StandingColour::Neutral:
+        ++tally[node.group][1];
+        break;
+      default:
+        ++tally[node.group][2];
+        break;
+      }
+    }
+    for (std::size_t index = 0; index < m_mapGroups.size(); ++index)
+    {
+      const std::array<std::uint32_t, 3>& counts = tally[index];
+      // Walked most-dangerous first with a strict `>`, which is how "ties go to
+      // the more dangerous" is spelled without a second comparison.
+      Neuron::StandingColour tint = Neuron::StandingColour::Hostile;
+      std::uint32_t best = counts[2];
+      if (counts[1] > best)
+      {
+        best = counts[1];
+        tint = Neuron::StandingColour::Neutral;
+      }
+      if (counts[0] > best)
+      {
+        tint = Neuron::StandingColour::Allied;
+      }
+      m_mapGroups[index].tint = tint;
+    }
+  }
+
+  /*
    * The gate graph, **stored once per pair**.
    *
    * The bake authors gates as symmetric pairs, so walking every system's gate
@@ -2946,6 +3176,12 @@ bool ReplicatedWorldView::BuildMapTopology(Neuron::MapTopology& _outTopology) co
   _outTopology.links = m_mapLinks;
   _outTopology.groups = m_mapGroups;
   _outTopology.regions = m_mapRegions;
+
+  // The universe's own word, for the top bar at the fit -- where there is no
+  // region you are looking at and the bar used to name the first one in the
+  // bake anyway. Borrowed from the `UniverseDef`, which outlives the session
+  // like every other string this graph hands over.
+  _outTopology.name = m_desc.universe != nullptr ? m_desc.universe->name.c_str() : nullptr;
   return true;
 }
 
@@ -3815,6 +4051,92 @@ bool ReplicatedWorldView::BuildSystemView(std::uint16_t _systemId, Neuron::Syste
   _outSystem.anchors = m_systemAnchors;
   _outSystem.backdrop = m_systemBackdrop;
   _outSystem.ringCount = static_cast<std::uint16_t>(innerRings + siteRings);
+  return true;
+}
+
+/*
+ * Where the player is looking, as an id (U6's door).
+ *
+ * `MapOriginSystem` renamed for a second caller rather than copied: the map
+ * wanted it as a route origin, the breadcrumb wants it as a place to open, and
+ * both mean "the system this grid is in". A second function computing the same
+ * indirection is a second function that can disagree about a grid with no
+ * anchor.
+ */
+bool ReplicatedWorldView::WatchedSystem(std::uint16_t& _outSystemId) const
+{
+  const Game::SystemId system = MapOriginSystem();
+  if (system == Game::INVALID_ID)
+  {
+    return false;
+  }
+  _outSystemId = static_cast<std::uint16_t>(system);
+  return true;
+}
+
+/*
+ * The system view's two verbs, for one anchor (ADR-016 §9, U6).
+ *
+ * **Both answers come from `ValidateOrder` and neither is written here**, which
+ * is the same claim `OrderKinds` makes one screen down and it is worth making
+ * twice: the button greys with the code the authority would have bounced with,
+ * so a player who presses it anyway and a player who reads why it is dead are
+ * told the same thing in the same words (ADR-014 §3).
+ *
+ * The order is composed exactly as the press will send it -- kind, anchor and
+ * the same ships -- so what is judged is the command rather than a summary of
+ * it. That is `AdvanceApproach`'s discipline, and it is what stops a screen
+ * inventing a second definition of "close enough" or "reachable".
+ *
+ * **Dock names the anchor the player pointed at rather than this grid's.**
+ * `SelectionOnlyVerdict` defaults a Dock to `stationAnchor` because the command
+ * row has no way to name one; this screen's whole subject is the naming, so the
+ * anchor under the finger is the one that goes in -- and a station on another
+ * grid is refused for the reason it should be, by the validator, rather than by
+ * a check written here.
+ */
+bool ReplicatedWorldView::AnchorVerbs(std::uint16_t _anchorId, std::span<const Neuron::EntityId> _selectedIds,
+                                      Neuron::SystemAnchorVerbs& _outVerbs) const
+{
+  _outVerbs = Neuron::SystemAnchorVerbs{};
+  _outVerbs.warp.name = "WARP HERE";
+  _outVerbs.warp.kind = static_cast<std::uint16_t>(Game::OrderKind::Warp);
+  _outVerbs.dock.name = "DOCK HERE";
+  _outVerbs.dock.kind = static_cast<std::uint16_t>(Game::OrderKind::Dock);
+
+  /*
+   * No fleet or no place, and in both cases no reason either.
+   *
+   * An order naming nothing never reaches the validator, so there is no code it
+   * would bounce with -- the same silence `OrderKinds` keeps for an empty
+   * selection, rather than a reason invented to fill a row. The names are
+   * answered regardless, which is what the call is for in this state: the panel
+   * draws both verbs at all times and may not spell either itself.
+   */
+  if (_selectedIds.empty() || _anchorId == Neuron::INVALID_SYSTEM_ANCHOR)
+  {
+    return true;
+  }
+
+  const Game::ValidationView view = MakeValidationView();
+  const auto judge = [&](Neuron::SystemVerb& _verb) {
+    Game::OrderSubmit order;
+    order.kind = static_cast<Game::OrderKind>(_verb.kind);
+    order.anchor = static_cast<Game::AnchorId>(_anchorId);
+    order.shipCount =
+      static_cast<std::uint16_t>(std::min<std::size_t>(_selectedIds.size(), Game::MAX_SHIPS_PER_ORDER));
+    for (std::uint16_t index = 0; index < order.shipCount; ++index)
+    {
+      order.shipIds[index] = _selectedIds[index];
+    }
+
+    const Game::OrderVerdict verdict = Game::ValidateOrder(view, order);
+    _verb.available = verdict.accepted;
+    _verb.reasonCode = static_cast<std::uint16_t>(verdict.reason);
+  };
+
+  judge(_outVerbs.warp);
+  judge(_outVerbs.dock);
   return true;
 }
 

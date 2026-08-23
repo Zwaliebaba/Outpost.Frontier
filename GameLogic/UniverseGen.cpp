@@ -216,6 +216,88 @@ constexpr std::array<const char*, 8> CONSTELLATION_FORM = {"Drift", "Veil",  "Ch
   return _metres * 100;
 }
 
+/*
+ * ---- Constellation layout -----------------------------------------------
+ */
+
+// A **quincunx** inside each region cell -- the centre and the four corners of
+// a square -- jittered by less than the gap it leaves, so
+// `CONSTELLATION_SEPARATION_METRES` holds by construction rather than by
+// rejection. That is what lets the invariants suite assert the Voronoi
+// property without knowing how any of this works.
+//
+// **It was a 3-column lattice until R15 arrived on screen, and the shape is
+// the whole defect.** Five slots on three columns spans three pitches in x
+// and two in y, which made a region's content half again as wide as it was
+// tall inside a square cell -- so the horizontal gap between two regions came
+// out *smaller* than the pitch between two constellations inside one, and the
+// vertical gap came out far larger. Fifty regions then read as seven
+// full-width horizontal strips of merged dots rather than as fifty clusters:
+// "the generator's layout defeats the strategic map", exactly as the risk
+// register names it. The fix is not a tuning pass on the pitch. It is that a
+// square cell needs square content, and the invariants below now say so.
+constexpr std::int64_t CONSTELLATION_REACH_METRES = 40'000'000'000'000'000;
+constexpr std::int64_t CONSTELLATION_JITTER = 6'000'000'000'000'000;
+
+/*
+ * The same constants in units of 1e15 metres (~0.1 ly), so the asserts below
+ * can square them. A squared universe-plane metre does not fit in an int64 --
+ * the same overflow `DistanceSquared`'s shift exists for -- and an assert that
+ * overflowed would pass for the wrong reason, which is worse than no assert.
+ */
+constexpr std::int64_t LAYOUT_UNIT = 1'000'000'000'000'000;
+constexpr std::int64_t REACH_UNITS = CONSTELLATION_REACH_METRES / LAYOUT_UNIT;
+constexpr std::int64_t JITTER_UNITS = CONSTELLATION_JITTER / LAYOUT_UNIT;
+constexpr std::int64_t RADIUS_UNITS = CONSTELLATION_RADIUS_METRES / LAYOUT_UNIT;
+constexpr std::int64_t SEPARATION_UNITS = CONSTELLATION_SEPARATION_METRES / LAYOUT_UNIT;
+constexpr std::int64_t REGION_PITCH_UNITS = REGION_PITCH_METRES / LAYOUT_UNIT;
+static_assert(REACH_UNITS * LAYOUT_UNIT == CONSTELLATION_REACH_METRES && JITTER_UNITS * LAYOUT_UNIT == CONSTELLATION_JITTER &&
+                  RADIUS_UNITS * LAYOUT_UNIT == CONSTELLATION_RADIUS_METRES &&
+                  SEPARATION_UNITS * LAYOUT_UNIT == CONSTELLATION_SEPARATION_METRES &&
+                  REGION_PITCH_UNITS * LAYOUT_UNIT == REGION_PITCH_METRES,
+              "the layout constants must divide the unit the asserts square them in");
+
+/*
+ * The tightest pair in the quincunx is the centre against a corner, at
+ * `sqrt(2) * REACH`, and the jitter can take `2 * JITTER` off *each* axis --
+ * so the worst case is `sqrt(2) * (REACH - 2 * JITTER)`, squared here to keep
+ * it integer. (Stating it as `REACH - 2 * JITTER` against the separation, the
+ * way the old axis-aligned pitch did, would be the arithmetic for an
+ * axis-aligned neighbour and too generous by a factor of sqrt(2) for a
+ * diagonal one.)
+ */
+static_assert(2 * (REACH_UNITS - 2 * JITTER_UNITS) * (REACH_UNITS - 2 * JITTER_UNITS) > SEPARATION_UNITS * SEPARATION_UNITS,
+              "constellation centres must stay separated whatever the jitter draws");
+static_assert(CONSTELLATION_SEPARATION_METRES > 2 * CONSTELLATION_RADIUS_METRES,
+              "a system must be nearer its own constellation's centre than any other's");
+
+/*
+ * And R15's own invariant, stated where the numbers are rather than left to
+ * the suite: the gap a region leaves around its content, on **either** axis,
+ * exceeds the widest span *inside* a region. That is the property that makes
+ * fifty regions read as fifty clusters, and it is the one the strips broke.
+ */
+static_assert(REGION_PITCH_UNITS - 2 * (REACH_UNITS + RADIUS_UNITS + JITTER_UNITS) > 2 * REACH_UNITS + 2 * JITTER_UNITS,
+              "regions must stand further apart than their own constellations do");
+
+/*
+ * The slots, in units of `CONSTELLATION_REACH_METRES`, indexed by
+ * `constellationsPerRegion - 1`.
+ *
+ * Every row's bounding box is the same square, which is what keeps a region's
+ * content isotropic whatever the recipe asks for -- the aspect invariant is a
+ * property of this table rather than of the count that indexes it. The counts
+ * beyond five are refused rather than approximated, because the next honest
+ * arrangement is a 3x3 lattice whose spacing does not clear the separation at
+ * this radius, and a recipe silently laid out on a shape that breaks the
+ * Voronoi property is exactly the failure this file is arranged to prevent.
+ */
+constexpr std::uint16_t MAX_CONSTELLATIONS_PER_REGION = 5;
+constexpr std::int8_t CONSTELLATION_SLOT_X[MAX_CONSTELLATIONS_PER_REGION][MAX_CONSTELLATIONS_PER_REGION] = {
+    {0}, {-1, 1}, {-1, 1, 0}, {-1, 1, -1, 1}, {0, -1, 1, -1, 1}};
+constexpr std::int8_t CONSTELLATION_SLOT_Y[MAX_CONSTELLATIONS_PER_REGION][MAX_CONSTELLATIONS_PER_REGION] = {
+    {0}, {-1, 1}, {-1, -1, 1}, {-1, -1, 1, 1}, {0, -1, -1, 1, 1}};
+
 } // namespace
 
 bool GenerateUniverse(const UniverseGenConfig& _config, const SitesInfo& _sites, UniverseDef& _outUniverse)
@@ -225,6 +307,12 @@ bool GenerateUniverse(const UniverseGenConfig& _config, const SitesInfo& _sites,
   if (_config.regionCount == 0 || _config.constellationsPerRegion == 0 || constellationCount > _config.systemCount)
   {
     return false; // Not content the caller can fix -- a recipe that makes no sense.
+  }
+  if (_config.constellationsPerRegion > MAX_CONSTELLATIONS_PER_REGION)
+  {
+    return false; // A count the slot table has no *checked* arrangement for. See
+                  // the table in the layout block: refused rather than laid out
+                  // on a shape whose separation nobody has proved.
   }
 
   _outUniverse = UniverseDef{};
@@ -252,6 +340,22 @@ bool GenerateUniverse(const UniverseGenConfig& _config, const SitesInfo& _sites,
     }
     return columns;
   }();
+  const std::uint32_t regionRows = (_config.regionCount + regionColumns - 1u) / regionColumns;
+
+  /*
+   * The lattice is centred on **doubled** coordinates, and the odd-looking
+   * arithmetic is the point: `(column - (columns - 1) / 2)` is integer
+   * division, so an even column count rounds the centre down and puts the whole
+   * grid half a pitch off origin. Doubling the index and halving the pitch
+   * lands the centre exactly on either parity, and the halved pitch is exact
+   * because `REGION_PITCH_METRES` is even.
+   *
+   * The row count is derived from the region count rather than reusing the
+   * column count -- 50 regions on 8 columns is 7 rows, and centring 7 rows as
+   * though there were 8 is the same off-by-half-a-pitch in y.
+   */
+  constexpr std::int64_t REGION_HALF_PITCH_METRES = REGION_PITCH_METRES / 2;
+  static_assert(REGION_HALF_PITCH_METRES * 2 == REGION_PITCH_METRES, "the region pitch must halve exactly");
 
   std::vector<UniversePos> regionCentre(_config.regionCount);
   _outUniverse.regions.reserve(_config.regionCount);
@@ -259,8 +363,9 @@ bool GenerateUniverse(const UniverseGenConfig& _config, const SitesInfo& _sites,
   {
     const std::int64_t column = index % regionColumns;
     const std::int64_t row = index / regionColumns;
-    regionCentre[index] = UniversePos{(column - (regionColumns - 1) / 2) * REGION_PITCH_METRES,
-                                      (row - (regionColumns - 1) / 2) * REGION_PITCH_METRES};
+    regionCentre[index] =
+        UniversePos{(column * 2 - (static_cast<std::int64_t>(regionColumns) - 1)) * REGION_HALF_PITCH_METRES,
+                    (row * 2 - (static_cast<std::int64_t>(regionRows) - 1)) * REGION_HALF_PITCH_METRES};
 
     Region region;
     region.id = static_cast<RegionId>(index + 1);
@@ -290,16 +395,8 @@ bool GenerateUniverse(const UniverseGenConfig& _config, const SitesInfo& _sites,
 
   // ---- Constellations ----------------------------------------------------
   //
-  // A lattice inside each region cell, jittered by less than half the gap it
-  // leaves, so `CONSTELLATION_SEPARATION_METRES` holds by construction rather
-  // than by rejection -- which is what lets the invariants suite assert the
-  // Voronoi property without knowing how any of this works.
-  constexpr std::int64_t CONSTELLATION_PITCH = 70'000'000'000'000'000;
-  constexpr std::int64_t CONSTELLATION_JITTER = 15'000'000'000'000'000;
-  static_assert(CONSTELLATION_PITCH - 2 * CONSTELLATION_JITTER > CONSTELLATION_SEPARATION_METRES,
-                "constellation centres must stay separated whatever the jitter draws");
-  static_assert(CONSTELLATION_SEPARATION_METRES > 2 * CONSTELLATION_RADIUS_METRES,
-                "a system must be nearer its own constellation's centre than any other's");
+  // The quincunx from the layout block above, one region cell at a time.
+  const std::uint32_t slotRow = _config.constellationsPerRegion - 1u;
 
   std::vector<UniversePos> constellationCentre(constellationCount);
   _outUniverse.constellations.reserve(constellationCount);
@@ -307,13 +404,10 @@ bool GenerateUniverse(const UniverseGenConfig& _config, const SitesInfo& _sites,
   {
     const std::uint16_t regionIndex = static_cast<std::uint16_t>(index / _config.constellationsPerRegion);
     const std::uint32_t slot = index % _config.constellationsPerRegion;
-    const std::uint32_t columns = 3;
-    const std::int64_t column = slot % columns;
-    const std::int64_t row = slot / columns;
 
-    constellationCentre[index] =
-        UniversePos{regionCentre[regionIndex].x + (column - 1) * CONSTELLATION_PITCH + Jitter(CONSTELLATION_JITTER, rng),
-                    regionCentre[regionIndex].y + (row - 1) * CONSTELLATION_PITCH + Jitter(CONSTELLATION_JITTER, rng)};
+    constellationCentre[index] = UniversePos{
+        regionCentre[regionIndex].x + CONSTELLATION_SLOT_X[slotRow][slot] * CONSTELLATION_REACH_METRES + Jitter(CONSTELLATION_JITTER, rng),
+        regionCentre[regionIndex].y + CONSTELLATION_SLOT_Y[slotRow][slot] * CONSTELLATION_REACH_METRES + Jitter(CONSTELLATION_JITTER, rng)};
 
     Constellation constellation;
     constellation.id = static_cast<ConstellationId>(index + 1);

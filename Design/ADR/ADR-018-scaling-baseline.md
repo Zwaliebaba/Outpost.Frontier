@@ -270,6 +270,18 @@ into a player right. The undefined edges get their rules now: **presence lost un
 pinned camera → the view falls to the map; every fleet in transit → the map is the view.**
 *(UX-3.)*
 
+> **Both edges built 2026-08-23.** The second landed with U3b's client half; the **first** waited
+> on U6b, and not for want of effort — there was no *pinned state* to lose presence under, so the
+> rule had nothing to be true about. `PIN` is a chip beside MENU with a key over it, and the
+> condition the pinned branch reads is the very follow it suppresses: `FollowTarget` naming a
+> grid is exactly "nothing of mine is here and there is somewhere it went". A pin that merely
+> froze the feed would leave the player watching an empty plane with no prospect of it filling,
+> which is what this edge exists to prevent.
+>
+> **And the map it falls to is now a screen with a job.** U6b's transit view frames the soonest
+> arrival, rings it, and pops itself when the fleet lands — so "the view falls to the map" ends
+> somewhere rather than parking the player on a graph of 2,500 systems.
+
 ### D17 — The transfer bus's total order *(adopted default)*
 
 A universe-layer monotonic **`transferId`**, stamped at filing, is the tie-break:

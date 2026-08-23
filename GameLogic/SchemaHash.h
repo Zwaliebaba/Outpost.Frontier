@@ -68,7 +68,11 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     // discriminator would read an Undock as a Move and validate it.
     "CommandFrame{u8 kind,body}"
     "StationRoster{u16 station,u16 count,(u32 shipId,u8 classId,u8 wingId,u32 oreUnits[3])[count]}"
-    "FleetSummaries{u16 count,(u16 anchor,u8 state,u16 shipCount,u16 etaSeconds)[count]}"
+    // U6b added `wing`: a crossing's `anchor` is its destination, so the row had
+    // no way to say *whose* crossing it was -- and the ELSEWHERE block drew the
+    // destination's name wearing the fleet's status. Crossings group on it;
+    // the other two states carry `INVALID_WING_ID`.
+    "FleetSummaries{u16 count,(u16 anchor,u8 state,u16 shipCount,u16 etaSeconds,u8 wing)[count]}"
     // ADR-016 §6's family shares one engine wire type, so the byte that says
     // which member a record carries is ours and belongs in this hash. No length
     // prefix: every body above is self-delimiting, and a reader that does not
@@ -89,7 +93,8 @@ inline constexpr std::string_view GAME_SCHEMA_TEXT =
     // a build that reordered the enum would paint hostiles as neutrals -- so it
     // belongs in the hash even though the bits live in the engine's record.
     "statusBits.bit1_2=relationship{Own=0,Allied=1,Neutral=2,Hostile=3},"
-    "summary.anchor=whereItIsOrWhereItIsGoing,summary.etaSeconds=s|65535=none}"
+    "summary.anchor=whereItIsOrWhereItIsGoing,summary.etaSeconds=s|65535=none,"
+    "summary.wing=WingId|0=none,summary.wingIsSetOnlyForInTransit}"
     "quantisation{position=cm,velocity=cm/s,heading=turns/65536}"
     "hull{12 classes,Fighter+Cruiser reserved,Gate=11}"
     "caps{shipsPerOrder=64,ordersPerSnapshot=16,dockRadiusMetres=5000,undockProtectionSeconds=15,"

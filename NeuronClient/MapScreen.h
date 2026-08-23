@@ -234,11 +234,15 @@ struct MapScreenTuning
   float graphFooterHeight = 26.0f;
 
   /*
-   * A system's dot, per level. It grows as you pinch in because a pip that
-   * stayed 6 px would be a pip you could not tell from a gate link at the level
-   * where you are choosing between two systems.
+   * A system's dot, per level it *has* one. It grows as you pinch in because a
+   * pip that stayed 9 px would be a pip you could not tell from a gate link at
+   * the level where you are choosing between two systems.
+   *
+   * **There is no REGION size, because REGION draws no dots.** It used to, at
+   * 6 px -- which over the committed bake is ten of them inside two pixels, 250
+   * times over. That rung is the counted chip now (`groupChipDot`), so the
+   * smallest a system's own pip gets is the constellation's.
    */
-  float nodeDotRegion = 6.0f;
   float nodeDotConstellation = 9.0f;
   float nodeDotSystem = 14.0f;
 
@@ -294,20 +298,88 @@ struct MapScreenTuning
   float cullMargin = 96.0f;
 
   /*
-   * Where the pinch levels change, as the fraction of the graph's own extent
-   * the viewport can see.
+   * Where the pinch levels change, stated in **pixels a constellation
+   * occupies** rather than in fractions of the whole graph.
    *
-   * Fractions rather than pixel-per-unit thresholds because the bake's scale is
-   * the bake's business: a shard with a wider universe would otherwise sit at
-   * REGION for ever. The numbers are the print's own arithmetic -- seven
-   * constellations to a region, so about a seventh of the extent is one
-   * constellation, and a tenth of that is a neighbourhood.
+   * The fractions this replaced (0.40 and 0.12 of the total extent) were
+   * derived from the print's own footer -- `48 SYSTEMS · 61 GATE LINKS`, seven
+   * constellations to a region -- which is to say from a graph that *was* one
+   * region. Against the committed 2,500-system bake, 40 % of the whole universe
+   * is about twenty regions, and the screen reported CONSTELLATION over a view
+   * with two hundred constellations in it. A fraction of the extent is a
+   * statement about the bake; what a level is actually about is what is
+   * **legible**, and that is a number of pixels.
    *
-   * Tuning rather than constants for `MAX_MAP_NODES`' reason: content that
-   * outgrows them is a config change rather than a rebuild.
+   * So the level is read off one measurement -- the mean constellation's
+   * projected diameter, from `MeasureMapGraph` -- and the two numbers below are
+   * the two legibility questions:
+   *
+   * - Under `regionLevelDiameter`, a constellation is a smudge and its name
+   *   would not fit inside it: REGION, where the print says *"count and
+   *   brightness only"*.
+   * - Once one constellation more than fills the viewport, there is no cluster
+   *   left to see and the player is choosing between systems: SYSTEM.
+   *   `systemLevelViewportSpans` states that against the viewport's shorter
+   *   side, so it is one number at any window size.
+   *
+   * Between them is CONSTELLATION. A graph whose groups have no radius at all
+   * -- one system each, or no groups -- has no constellation to measure, and
+   * falls back to the fractions below, which is the only thing they are still
+   * for.
    */
+  float regionLevelDiameter = 90.0f;
+  float systemLevelViewportSpans = 1.0f;
   float constellationLevelFraction = 0.40f;
   float systemLevelFraction = 0.12f;
+
+  /*
+   * How big a group's disc has to be before it is allowed a name.
+   *
+   * Not a de-confliction pass -- that is U5b's, with the visual checkpoint --
+   * but the half of the problem that is not about glyph metrics: a label on a
+   * disc smaller than its own word is a label that cannot be *placed* legibly
+   * however cleverly it is nudged. At the fit over the committed bake that
+   * suppresses all 250 of them, which is the print's rule and the difference
+   * between a map and the stack of overlapping constellation names the screen
+   * used to draw.
+   */
+  float groupLabelMinDiameter = 60.0f;
+
+  /*
+   * The counted chip a constellation becomes at REGION level (`CountedChip.h`'s
+   * rung, `IconDensity.h`'s merge, `strategic-map.png` §2).
+   *
+   * `groupChipDot` is the pip at the smallest count and `groupChipDotMax` the
+   * largest it grows to, because §2's rule is *count and brightness* -- so the
+   * count reaches the player twice, as a size and as a number, and the number
+   * is what makes it honest. `groupChipCountAtMax` is the membership that
+   * reaches the top of that range; the shipped bake gives a constellation ten
+   * systems, so a dozen is where growth stops meaning anything.
+   */
+  float groupChipDot = 5.0f;
+  float groupChipDotMax = 10.0f;
+  std::uint32_t groupChipCountAtMax = 12;
+
+  /*
+   * The region's own mark: its name over its band badge, at the centre of its
+   * constellations. Drawn only at REGION, which is `MapRegion`'s whole role --
+   * *"the coarsest pinch level, and the one the print badges"* -- and which the
+   * screen did not draw at all until R15 sent somebody looking.
+   */
+  float regionMarkHeight = 18.0f;
+  float regionMarkGap = 4.0f;
+
+  /*
+   * How much of the viewport a region's own content has to cover before the top
+   * bar names it rather than the universe.
+   *
+   * The print's bar is `◀ TACTICAL | <region> [BAND]`, and the region on it is
+   * the one you are *looking at*. At the fit over fifty regions there is no such
+   * region, so the bar reads the universe's name; the moment one fills most of
+   * the screen it reads that one. Two thirds rather than a half, because "most
+   * of the viewport" should not flicker between two neighbours at the boundary.
+   */
+  float regionTitleViewportSpans = 0.66f;
 
   /*
    * Air between the fitted graph and the edge of its viewport.
@@ -324,11 +396,24 @@ struct MapScreenTuning
    *
    * The floor is the fit itself -- there is nothing to see past the whole
    * universe, and letting the player zoom out into empty space is how a map
-   * gets lost. The ceiling is a number: at 24× the fit of the print's region you
-   * are looking at two systems, which is the point where the system view takes
-   * over (U6).
+   * gets lost.
+   *
+   * **The ceiling was 24 and had the same defect the level fractions did.** It
+   * was read off *"24× the fit of the print's region, where you are looking at
+   * two systems"* -- and the print's region is 48 systems, where the committed
+   * bake is 2,500. At 24× that bake the viewport still holds a third of one
+   * region, so the deepest zoom the player could reach was short of SYSTEM
+   * level entirely: the level existed and could not be arrived at.
+   *
+   * 120 is derived from the same legibility currency as the thresholds above:
+   * a constellation fills the 1440×900 viewport at about 66× the fit of the
+   * committed bake, and the rest is the room to spread the ten systems inside
+   * it far enough apart to read their names. It is still the one number on this
+   * screen stated against total extent rather than against a measured
+   * constellation, and it is a ceiling rather than a threshold, which is why
+   * that is tolerable: overshooting it costs a player nothing but empty space.
    */
-  float maxZoomFactor = 24.0f;
+  float maxZoomFactor = 120.0f;
 };
 
 /*
@@ -438,9 +523,69 @@ struct MapPoint
 [[nodiscard]] MapCamera FitMapCamera(const MapExtent& _extent, const UiRect& _graph,
                                      const MapScreenTuning& _tuning) noexcept;
 
-/// Which level this camera is at.
+/*
+ * What the map measures about its own graph, once.
+ *
+ * The pinch levels and the top bar are both statements about how big a *thing*
+ * is on screen -- a constellation, a region -- and neither can be derived from
+ * the graph's total extent, which is what the fractions this replaced tried to
+ * do. So the two sizes are measured from the topology at boot and carried, for
+ * `MapTopology`'s own reason: the bake does not change, so a per-frame walk over
+ * 2,500 nodes would be re-answering a question whose answer is fixed.
+ *
+ * Both radii are in **map units**, like everything else that crosses.
+ */
+struct MapGraphMetrics
+{
+  /*
+   * The mean constellation's radius: per group, the furthest member from its
+   * *placed* centre, averaged over the groups that have members.
+   *
+   * The mean rather than the largest, because one sprawling constellation
+   * should not decide what the other 249 read as -- and rather than the
+   * smallest, because an empty or single-system group would drive it to zero.
+   */
+  float groupRadiusUnits = 0.0f;
+
+  /*
+   * And the mean region's: half the larger side of the box its constellation
+   * centres occupy, grown by `groupRadiusUnits` so it covers what is drawn
+   * rather than what is placed.
+   */
+  float regionRadiusUnits = 0.0f;
+
+  /// How many groups and regions actually had members. Zero of either means
+  /// there is nothing to measure and the fallbacks take over.
+  std::uint32_t groups = 0;
+  std::uint32_t regions = 0;
+};
+
+/// Measures the graph. Cheap, but linear in the nodes -- ask it once, beside
+/// `MapExtentOf`, and keep the answer for the session.
+[[nodiscard]] MapGraphMetrics MeasureMapGraph(const MapTopology& _topology) noexcept;
+
+/*
+ * Which level this camera is at.
+ *
+ * `_metrics` is what decides it and `_extent` is only the fallback for a graph
+ * with no constellation to measure -- see `MapScreenTuning::regionLevelDiameter`
+ * for why the measurement replaced the fractions.
+ */
 [[nodiscard]] MapPinchLevel MapLevelOf(const MapCamera& _camera, const MapExtent& _extent, const UiRect& _graph,
-                                       const MapScreenTuning& _tuning) noexcept;
+                                       const MapGraphMetrics& _metrics, const MapScreenTuning& _tuning) noexcept;
+
+/*
+ * And the scale that reads as `_level`, for a caller that wants to *jump* to a
+ * level rather than pinch to it -- the transit view frames a crossing that way
+ * (U6's focus polish, D16).
+ *
+ * Stated in the level's own currency so the jump lands where the readout agrees
+ * with it: this is `MapLevelOf` solved for `pixelsPerUnit` rather than a second
+ * derivation that could disagree with the first. Falls back to the fit's own
+ * scale times the fraction, for `MapLevelOf`'s reason.
+ */
+[[nodiscard]] float MapScaleForLevel(MapPinchLevel _level, const MapExtent& _extent, const UiRect& _graph,
+                                     const MapGraphMetrics& _metrics, const MapScreenTuning& _tuning) noexcept;
 
 /// The level's word, for the hint box. Never null.
 [[nodiscard]] const char* MapPinchLevelName(MapPinchLevel _level) noexcept;
@@ -713,11 +858,81 @@ struct MapGroupDisc
   UiRect label;
   std::uint32_t group = 0;
 
-  /// How many of its systems survived the cull. Zero is legal and means the
-  /// disc is on screen and its systems are not, which is what a constellation
-  /// looks like from its own edge.
+  /*
+   * How many systems belong to it -- **membership, not the cull**.
+   *
+   * Counted over the whole topology rather than over the visible nodes, for the
+   * same reason the radius is: a disc whose shape or number changed as its
+   * systems panned off screen would be a disc reporting something about the
+   * viewport while looking like it reported something about the universe. It is
+   * also what the chip below prints, and a count that shrank when you panned
+   * would be the one number on this screen a player could catch lying.
+   */
   std::uint32_t nodeCount = 0;
+
+  /*
+   * The counted chip, at REGION level: the pip, centred on `centre`.
+   *
+   * This is the density ladder's last rung applied to the map
+   * (`IconDensity.h`, `strategic-map.png` §2's *"region zoom: count +
+   * brightness only"*). At the fit over the committed bake, ten systems inside
+   * one constellation are two pixels apart -- so they are not drawn as ten
+   * smeared pips but as one chip that says how many, roughly where. The
+   * individual dots start at CONSTELLATION.
+   *
+   * Collapsed when `chipped` is false, so a caller that forgot to check draws
+   * nothing rather than drawing at the origin -- `MapNodeRect::label`'s posture.
+   */
+  UiRect chip;
+  bool chipped = false;
+
+  /// Whether the disc earned a name this frame: big enough to hold one, and
+  /// inside the label budget. See `MapScreenTuning::groupLabelMinDiameter`.
+  bool labelled = false;
 };
+
+/*
+ * One region, marked: its name over its band badge, at the centre of its
+ * constellations.
+ *
+ * Built only at REGION level, which is the role `MapView.h` gives the type --
+ * *"the coarsest pinch level, and the one the print badges"* -- and which the
+ * screen did not draw at all until R15 was found on it. A separate builder
+ * rather than a fourth span on `BuildMapGraph` because it answers a different
+ * question at a different rate: the graph is projected and culled per frame at
+ * 2,500 nodes, and this is fifty labels that only exist at one level.
+ */
+struct MapRegionMark
+{
+  MapPoint centre;
+  UiRect label;
+  UiRect badge;
+
+  /// Which region this is, by index into `MapTopology::regions`.
+  std::uint32_t region = 0;
+};
+
+/*
+ * Places the region marks for one camera. Returns what it wrote; nothing at all
+ * at the two finer levels, where a region is bigger than the screen and a name
+ * at its centre would sit on top of the systems it contains.
+ *
+ * **The name and the badge are gated separately, each on its own width**, which
+ * is the group label's rule one level up and was learned the same way: fifty
+ * region names at the universe fit are 112 pixels of word laid over 47 pixels
+ * of region, which is the label soup R15 names, arriving one tier higher than
+ * the constellations it was found on. So a word is drawn only where it fits the
+ * thing it names -- which at the fit is the short band badges and not the long
+ * names, and one pinch in is both.
+ *
+ * `_metrics` supplies how wide a region is; a graph it could not measure gets
+ * no marks rather than unmeasured ones.
+ */
+[[nodiscard]] std::uint32_t BuildMapRegionMarks(const MapTopology& _topology, const MapCamera& _camera,
+                                                const UiRect& _graph, MapPinchLevel _level,
+                                                const MapGraphMetrics& _metrics, float _cellWidth, float _scale,
+                                                const MapScreenTuning& _tuning,
+                                                std::span<MapRegionMark> _outMarks) noexcept;
 
 /// What one graph build produced.
 struct MapGraphCounts
@@ -735,13 +950,27 @@ struct MapGraphCounts
  * -- the camera moves continuously and a diffed graph would be a cache that has
  * to be told when the camera moved.
  *
- * **What the level and the checkboxes govern.** Hulls are built at REGION and
- * CONSTELLATION and not at SYSTEM, because inside one constellation its own
- * outline is the whole screen. Labels are built from CONSTELLATION in, which is
- * the print's `Region zoom: count and brightness only`. Both are further gated
- * by their SHOW checkbox, and a checkbox that is off means zero built rather
- * than built-and-not-drawn: the cost this saves is the whole point of the
- * control at 2,500 nodes.
+ * **What the level and the checkboxes govern**, which is the density ladder
+ * `strategic-map.png` §2 states and this builder did not have:
+ *
+ * - **REGION** builds *no node rects at all*. Every constellation becomes one
+ *   counted chip (`MapGroupDisc::chip`), because 2,500 six-pixel pips two
+ *   pixels apart are a smear rather than a graph -- §2's *"region zoom: count
+ *   and brightness only"* taken literally instead of applied to labels only.
+ * - **CONSTELLATION** builds the dots, their names, and the hulls: this is the
+ *   level a constellation is a thing you are looking *at*.
+ * - **SYSTEM** builds the dots and their names and no hulls, because inside one
+ *   constellation its own outline is the whole screen.
+ *
+ * A group's **name** is not automatic at either level it is drawn: it needs a
+ * disc big enough to hold one (`groupLabelMinDiameter`) and a slot in the same
+ * `maxLabels` budget the node labels spend from. Emitting 250 group labels
+ * unconditionally, outside the budget, is what put the whole constellation
+ * vocabulary on top of itself at the fit.
+ *
+ * Everything is further gated by its SHOW checkbox, and a checkbox that is off
+ * means zero built rather than built-and-not-drawn: the cost this saves is the
+ * whole point of the control at 2,500 nodes.
  *
  * `_cellWidth` measures labels, and it is the caller's *drawn* cell width, so
  * the label rect cannot be sized against a different face than the one inside
@@ -771,6 +1000,45 @@ struct MapGraphCounts
  */
 [[nodiscard]] const MapNodeRect* HitMapNode(std::span<const MapNodeRect> _nodes, float _x, float _y, float _scale,
                                             const MapScreenTuning& _tuning) noexcept;
+
+/*
+ * Which constellation a tap selected at REGION level, or null.
+ *
+ * **The counterpart to the chip, and the reason the chip is worth building.**
+ * At the fit over the committed bake a constellation's ten systems sit inside
+ * two pixels of each other, so ten 48 px targets are stacked on one point and
+ * `HitMapNode` would resolve between them on sub-pixel proximity -- a coin toss
+ * dressed as a choice. A player up there is not choosing a system; they are
+ * choosing where to go and look. So the tap lands on the cluster, and what it
+ * means is select-and-zoom rather than select.
+ *
+ * Nearest within the target radius, like `HitMapNode`, and measured against the
+ * disc's centre so the target does not change size with the pinch.
+ */
+[[nodiscard]] const MapGroupDisc* HitMapGroup(std::span<const MapGroupDisc> _groups, float _x, float _y, float _scale,
+                                              const MapScreenTuning& _tuning) noexcept;
+
+/*
+ * Which region the top bar names, or `INVALID_MAP_REGION` for the universe.
+ *
+ * `strategic-map.png`'s bar is `◀ TACTICAL | <region> [BAND]`, and the region on
+ * it is the one you are **looking at**. What the screen drew instead was the
+ * first region in the bake beside whole-universe counts -- a name that was
+ * right only by accident and never changed as the camera moved across fifty
+ * regions.
+ *
+ * The rule is what the print's own sentence says: at the fit there is no region
+ * you are looking at, so the bar reads the universe; once one region's content
+ * covers most of the viewport, it reads that one. The region nearest the camera
+ * centre is the one it means -- regions do not overlap (U1's own invariant says
+ * so, mechanically, since R15), so nearest-centre and contains-the-centre are
+ * the same answer wherever they differ by less than a region's own width.
+ */
+inline constexpr std::uint32_t INVALID_MAP_REGION = 0xffffffffu;
+
+[[nodiscard]] std::uint32_t MapTitleRegion(const MapTopology& _topology, const MapCamera& _camera,
+                                           const UiRect& _graph, const MapGraphMetrics& _metrics,
+                                           const MapScreenTuning& _tuning) noexcept;
 
 /// The three controls in the top bar, and nothing.
 enum class MapTopBarHit : std::uint8_t
@@ -845,8 +1113,9 @@ struct MapMarkerRect
  * nothing to place. The count line under the graph is where "there are more
  * than you can see" belongs, the way it already is for nodes.
  */
-[[nodiscard]] std::uint32_t BuildMapMarkerRects(std::span<const MapMarker> _markers,
-                                                std::span<const MapNodeRect> _nodes, float _scale,
+[[nodiscard]] std::uint32_t BuildMapMarkerRects(std::span<const MapMarker> _markers, const MapTopology& _topology,
+                                                std::span<const MapNodeRect> _nodes,
+                                                std::span<const MapGroupDisc> _groups, float _scale,
                                                 const MapScreenTuning& _tuning,
                                                 std::span<MapMarkerRect> _outRects) noexcept;
 

@@ -129,6 +129,21 @@ struct MapGroup
   float y = 0.0f;
 
   const char* label = nullptr;
+
+  /*
+   * What the whole cluster is drawn in at REGION level, where it stops being
+   * hulls and becomes one counted chip (`strategic-map.png` §2's *"region zoom:
+   * count + brightness only"*).
+   *
+   * **The game's, for `MapLegendRow::count`'s reason.** The engine has the
+   * member nodes and their tints and could take the majority in four lines --
+   * and would thereby have decided that a constellation's colour is its modal
+   * system's security rather than its worst, or its capital's, or its
+   * sovereign's. That is a design question about one game's overlay, and it
+   * moves when the overlay does; the count beside it is a membership tally and
+   * stays the engine's.
+   */
+  StandingColour tint = StandingColour::Neutral;
 };
 
 /*
@@ -200,6 +215,19 @@ struct MapTopology
   std::span<const MapLink> links;
   std::span<const MapGroup> groups;
   std::span<const MapRegion> regions;
+
+  /*
+   * The game's word for the whole plane -- `FRONTIER` on the shipped bake.
+   *
+   * What the top bar reads when **no** region dominates the view, which is the
+   * ordinary state at the fit. It is here rather than composed by the screen
+   * because a client that wrote "UNIVERSE" over a graph would have named a
+   * place, and this file's one rule is that every word on this surface except
+   * the three SHOW checkboxes is the game's.
+   *
+   * Null is legal and draws nothing, for `MapNode::badge`'s reason.
+   */
+  const char* name = nullptr;
 
   [[nodiscard]] bool Empty() const noexcept { return nodes.empty(); }
 };

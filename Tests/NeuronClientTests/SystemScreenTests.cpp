@@ -398,16 +398,29 @@ TEST_CLASS(SystemHitTests)
 public:
   /*
    * A press picks the nearest anchor, never the first -- and this is not a
-   * theoretical hazard on this screen, which is the point of the scale it is
-   * asserted at.
+   * theoretical hazard on this screen, which is the point of the fixture it is
+   * asserted against.
    *
-   * **ADR-020's 48 px floor does not scale, and the rings do.** A full ring of
-   * eight sits 59.7 px apart at 1x, which the 48 px target just clears; at 0.75
-   * they are 44.8 px apart and at 0.5 they are 29.8, so below about 0.8 every
-   * neighbouring pair on a full inner ring is inside one finger. That is the
-   * floor doing exactly what it is for and it is why nearest-wins is
-   * load-bearing here: first-found would let bake order decide which anchor a
+   * **ADR-020's 48 px floor does not scale, and the rings do**, so a ring is
+   * crowded whenever what is on it divided into its circumference falls inside
+   * one finger. First-found would then let *bake order* decide which anchor a
    * tap selects, on the screen where a tap is a warp.
+   *
+   * **Where the crowding comes from moved on 2026-08-23** (U6b's visual
+   * checkpoint), and the fixture moved with it rather than being deleted. The
+   * rings used to start at `firstRingRadius` and run outward, which put a full
+   * inner ring 29.8 px apart at 0.5 -- and also drew the committed bake's
+   * ordinary system with its labels through each other, which is why that
+   * spacing was replaced by rings that divide the disc. A full ring of eight is
+   * no longer inside one finger at any ordinary window, and pretending it is
+   * would be a test asserting a fixed number rather than the rule.
+   *
+   * What still crowds is a ring the **game** fills past its own capacity. The
+   * client is handed a ring index and a slot and does not know §9b.1 exists
+   * (`SystemView.h`), so a ring of thirty is a thing it must hit-test
+   * correctly rather than a thing it may assume away -- and the premise below
+   * is asserted, not assumed, so this cannot quietly stop testing the tie-break
+   * a second time.
    */
   TEST_METHOD(APressPicksTheNearestNotTheFirst)
   {
@@ -415,9 +428,10 @@ public:
     const SystemScreenLayout layout = Layout(SCALE);
     const SystemScreenTuning tuning;
 
-    // A ring at §9b.1's capacity, which is where neighbours crowd.
+    // More on one ring than §9b.1 would put there, which is the client's
+    // problem rather than its business: the game decides what a ring holds.
     std::vector<SystemAnchor> full;
-    for (std::uint16_t slot = 0; slot < 8; ++slot)
+    for (std::uint16_t slot = 0; slot < 30; ++slot)
     {
       SystemAnchor anchor;
       anchor.id = static_cast<std::uint16_t>(300 + slot);

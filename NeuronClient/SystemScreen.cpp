@@ -131,13 +131,32 @@ float SystemRingRadius(std::uint16_t _ring, std::uint16_t _ringCount, const Syst
   }
 
   /*
-   * Otherwise evenly between the first and the outer, so a system that grows a
-   * ring gets tighter rather than clipped. That is what makes ADR-016 §9b.1's
-   * overflow safe at 15 anchors, which is the committed bake's worst case.
+   * Otherwise the rings **divide the disc** rather than starting at `first`,
+   * with `first` as a floor -- so a system that grows a ring gets tighter,
+   * never clipped, and a system with few rings uses the room it has.
+   *
+   * **This is what the visual checkpoint corrected** (U6b, 2026-08-23). The
+   * first draft spaced them evenly *from* `first` *to* `outer`, which reads
+   * fine as arithmetic and put the committed bake's ordinary system -- two
+   * rings, six anchors inside and its fields outside -- on a 78 px inner ring
+   * inside a 400 px disc. Six labelled reticles on that circumference are about
+   * 80 px apart, so `Vesta-3 Anchorage` was drawn through `Halgren` and two
+   * gates' far-side lines through each other, while four fifths of the disc
+   * held nothing. Every test passed: the rings were ordered, the slots were
+   * distinct, and nothing about "these two words occupy the same pixels" is
+   * expressible in the arithmetic.
+   *
+   * ADR-016 §9's *"layout is legibility"* is the rule that was broken, and it is
+   * a rule about the drawing rather than about the numbers -- which is exactly
+   * the class of thing R1's category exists for, and why this one needed a
+   * person looking at a screen.
+   *
+   * `first` stays as the floor because the reason it exists is unchanged: it
+   * keeps a ring off the star. It is no longer where ring zero *sits*.
    */
-  const float step = (outer - first) / static_cast<float>(_ringCount - 1);
   const std::uint16_t ring = std::min(_ring, static_cast<std::uint16_t>(_ringCount - 1));
-  return first + step * static_cast<float>(ring);
+  const float share = static_cast<float>(ring + 1u) / static_cast<float>(_ringCount);
+  return std::max(first, outer * share);
 }
 
 SystemPlacement PlaceSystemView(const SystemViewData& _system, const SystemScreenLayout& _layout, float _scale,

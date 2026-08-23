@@ -3,6 +3,7 @@
 
 #include "MapScreen.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <vector>
@@ -507,20 +508,137 @@ public:
      * REACH / pinch in ▸ CONSTELLATION ▸ SYSTEM"*. The level is a property of
      * the camera and not a mode the player switches -- there is no level button
      * anywhere on the print, because zooming *is* the navigation.
+     *
+     * The thresholds are read off a **measured constellation**, not off a
+     * fraction of the graph's extent -- see `MapScreenTuning::regionLevelDiameter`.
+     * So the walk down is expressed the way the rule is: a constellation too
+     * small to hold its own name, then one you are looking at, then one that
+     * has outgrown the viewport.
      */
     const MapScreenTuning tuning;
     const Fixture fixture = MakeFixture();
     const UiRect graph{240.0f, 46.0f, 920.0f, 708.0f};
     const MapExtent extent = MapExtentOf(fixture.View());
+    const MapGraphMetrics metrics = MeasureMapGraph(fixture.View());
+    Assert::AreEqual(100.0f, metrics.groupRadiusUnits, 0.01f, L"the fixture's members sit 100 units out");
+
+    const auto scaleFor = [&](float _diameterPixels) { return _diameterPixels / (2.0f * metrics.groupRadiusUnits); };
 
     MapCamera camera = FitMapCamera(extent, graph, tuning);
-    Assert::IsTrue(MapLevelOf(camera, extent, graph, tuning) == MapPinchLevel::Region, L"the fit is the region");
+    Assert::IsTrue(MapLevelOf(camera, extent, graph, metrics, tuning) == MapPinchLevel::Region, L"the fit is the region");
 
-    camera.pixelsPerUnit /= tuning.constellationLevelFraction;
-    Assert::IsTrue(MapLevelOf(camera, extent, graph, tuning) == MapPinchLevel::Constellation, L"then constellation");
+    camera.pixelsPerUnit = scaleFor(tuning.regionLevelDiameter + 1.0f);
+    Assert::IsTrue(MapLevelOf(camera, extent, graph, metrics, tuning) == MapPinchLevel::Constellation,
+                   L"then constellation, the moment a constellation could hold a name");
 
-    camera.pixelsPerUnit = FitMapCamera(extent, graph, tuning).pixelsPerUnit / tuning.systemLevelFraction;
-    Assert::IsTrue(MapLevelOf(camera, extent, graph, tuning) == MapPinchLevel::System, L"then system");
+    camera.pixelsPerUnit = scaleFor(std::min(graph.width, graph.height) * tuning.systemLevelViewportSpans + 1.0f);
+    Assert::IsTrue(MapLevelOf(camera, extent, graph, metrics, tuning) == MapPinchLevel::System,
+                   L"then system, once one constellation more than fills the viewport");
+  }
+
+  TEST_METHOD(TheLevelIsReadOffAConstellationRatherThanOffTheWholeGraph)
+  {
+    /*
+     * The defect the measurement replaced, in one assertion (R15, U5).
+     *
+     * `constellationLevelFraction` was 0.40 -- forty per cent of the graph's
+     * total extent -- and it was derived from the print's own footer, `48
+     * SYSTEMS · 61 GATE LINKS`, which is to say from a graph that *was* one
+     * region. Against the committed 2,500-system bake, forty per cent of the
+     * universe is about twenty regions, and the hint box read CONSTELLATION over
+     * a view with two hundred constellations in it.
+     *
+     * So: two graphs with the same shape and different *sizes*, at the same
+     * fraction of their own extent. The old rule called them the same level by
+     * construction; the new one calls the big one REGION, because in it a
+     * constellation is still a smudge.
+     */
+    const MapScreenTuning tuning;
+    const UiRect graph{240.0f, 46.0f, 920.0f, 708.0f};
+
+    const auto build = [](float _spread) {
+      Fixture fixture;
+      fixture.regions.push_back(MapRegion{0, 0.0f, 0.0f, "KESTREL REACH", "FRONTIER", StandingColour::Neutral});
+      for (std::uint16_t group = 0; group < 3; ++group)
+      {
+        const float centreX = static_cast<float>(group) * _spread;
+        fixture.groups.push_back(MapGroup{group, 0, centreX, 0.0f, "VEIL"});
+        for (std::uint16_t member = 0; member < 3; ++member)
+        {
+          MapNode node;
+          node.id = static_cast<std::uint16_t>(group * 3 + member + 1);
+          node.group = group;
+          node.x = centreX + (static_cast<float>(member) - 1.0f) * 100.0f;
+          node.y = 0.0f;
+          node.label = "ROOT-1";
+          fixture.nodes.push_back(node);
+        }
+      }
+      return fixture;
+    };
+
+    // Same three clusters of the same size; one graph twenty times wider.
+    const Fixture small = build(1000.0f);
+    const Fixture large = build(20000.0f);
+
+    const auto levelAtFraction = [&](const Fixture& _fixture, float _fraction) {
+      const MapExtent extent = MapExtentOf(_fixture.View());
+      MapCamera camera = FitMapCamera(extent, graph, tuning);
+      camera.pixelsPerUnit /= _fraction;
+      return MapLevelOf(camera, extent, graph, MeasureMapGraph(_fixture.View()), tuning);
+    };
+
+    Assert::IsTrue(levelAtFraction(small, 0.30f) == MapPinchLevel::Constellation,
+                   L"a third of the small graph is one constellation");
+    Assert::IsTrue(levelAtFraction(large, 0.30f) == MapPinchLevel::Region,
+                   L"a third of the large graph is still a field of smudges");
+  }
+
+  TEST_METHOD(JumpingToALevelLandsAtThatLevel)
+  {
+    /*
+     * `MapScaleForLevel` is `MapLevelOf` solved for `pixelsPerUnit`, and this is
+     * the property that makes it worth being that rather than a second
+     * derivation: the transit view frames a crossing "at SYSTEM level" and the
+     * hint box has to agree with it. A camera that jumped somewhere and then
+     * read back as a different level would be the screen contradicting the thing
+     * that put the player there.
+     */
+    const MapScreenTuning tuning;
+    const Fixture fixture = MakeFixture();
+    const UiRect graph{240.0f, 46.0f, 920.0f, 708.0f};
+    const MapExtent extent = MapExtentOf(fixture.View());
+    const MapGraphMetrics metrics = MeasureMapGraph(fixture.View());
+
+    for (const MapPinchLevel level : {MapPinchLevel::Region, MapPinchLevel::Constellation, MapPinchLevel::System})
+    {
+      MapCamera camera = FitMapCamera(extent, graph, tuning);
+      camera.pixelsPerUnit = MapScaleForLevel(level, extent, graph, metrics, tuning);
+      Assert::IsTrue(MapLevelOf(camera, extent, graph, metrics, tuning) == level, L"the jump reads back as itself");
+    }
+  }
+
+  TEST_METHOD(TheZoomCeilingReachesTheSystemLevel)
+  {
+    /*
+     * The other half of the same defect, and it made a whole pinch level
+     * unreachable rather than merely mislabelled.
+     *
+     * `maxZoomFactor` was 24, read off *"24× the fit of the print's region"* --
+     * and the print's region is 48 systems where the committed bake is 2,500.
+     * At 24× that bake the viewport still held a third of one region, so the
+     * deepest zoom a player could reach was short of SYSTEM entirely.
+     */
+    const MapScreenTuning tuning;
+    const Fixture fixture = MakeFixture();
+    const UiRect graph{240.0f, 46.0f, 920.0f, 708.0f};
+    const MapExtent extent = MapExtentOf(fixture.View());
+    const MapGraphMetrics metrics = MeasureMapGraph(fixture.View());
+
+    MapCamera camera = FitMapCamera(extent, graph, tuning);
+    camera.pixelsPerUnit *= tuning.maxZoomFactor;
+    Assert::IsTrue(MapLevelOf(camera, extent, graph, metrics, tuning) == MapPinchLevel::System,
+                   L"the deepest the pinch goes is a level the map admits to");
   }
 
   TEST_METHOD(AGameWithNoUniverseOpensTheScreenAnyway)
@@ -539,7 +657,8 @@ public:
     Assert::IsTrue(extent.Empty(), L"no nodes, no extent");
     const MapCamera camera = FitMapCamera(extent, graph, tuning);
     Assert::IsTrue(camera.pixelsPerUnit > 0.0f, L"and a legible camera rather than a division by zero");
-    Assert::IsTrue(MapLevelOf(camera, extent, graph, tuning) == MapPinchLevel::Region, L"at the coarsest level");
+    Assert::IsTrue(MapLevelOf(camera, extent, graph, MeasureMapGraph(empty), tuning) == MapPinchLevel::Region,
+                   L"at the coarsest level");
   }
 
   TEST_METHOD(OneNodeIsAnExtentWithNoAreaAndStillFits)
@@ -585,8 +704,8 @@ public:
     const MapShowFlags show;
 
     const MapGraphCounts all =
-        BuildMapGraph(fixture.View(), fit, graph, MapPinchLevel::Region, show, 8.0f, 1.0f, tuning, nodes, links,
-                      groups);
+        BuildMapGraph(fixture.View(), fit, graph, MapPinchLevel::Constellation, show, 8.0f, 1.0f, tuning, nodes,
+                      links, groups);
     Assert::AreEqual(9u, all.nodes, L"the fit shows every system");
 
     // Zoom hard onto the first cluster; the far two are off screen.
@@ -659,12 +778,18 @@ public:
     Assert::AreEqual(0u, counts.links, L"a link into nothing is not a line");
   }
 
-  TEST_METHOD(TheRegionLevelDrawsHullsAndNoSystemNames)
+  TEST_METHOD(TheRegionLevelIsCountedChipsAndNothingElse)
   {
     /*
-     * The print's own rule for the coarsest level -- *"region zoom: count and
-     * brightness only"* -- because a label at 6 px per system is a smear rather
-     * than a name. The hulls are what a player navigates by up there.
+     * The print's own rule for the coarsest level, taken as the sentence it is:
+     * *"region zoom: count and brightness only"*.
+     *
+     * The screen used to read that as a rule about **labels** and go on drawing
+     * all 2,500 pips -- which at the fit over the committed bake is ten systems
+     * inside two pixels, 250 times over, and is the grey wash half of R15. So
+     * the assertion is that REGION builds *no node rects at all*: every
+     * constellation is one counted chip carrying its membership, and the
+     * individual dots start one level in.
      */
     const MapScreenTuning tuning;
     const Fixture fixture = MakeFixture();
@@ -680,18 +805,210 @@ public:
     const MapGraphCounts region =
         BuildMapGraph(fixture.View(), fit, graph, MapPinchLevel::Region, show, 8.0f, 1.0f, tuning, nodes, links,
                       groups);
-    Assert::AreEqual(0u, region.labels, L"no system names at the region level");
-    Assert::AreEqual(3u, region.groups, L"and three constellation hulls");
+    Assert::AreEqual(0u, region.nodes, L"no individual systems at the region level");
+    Assert::AreEqual(3u, region.groups, L"three constellations, as three chips");
+    Assert::AreEqual(3u, region.labels, L"and the only names up here are theirs -- there are no system names to have");
+    for (std::uint32_t index = 0; index < region.groups; ++index)
+    {
+      Assert::IsTrue(groups[index].chipped, L"a group at the region level is a chip");
+      Assert::IsTrue(groups[index].chip.width > 0.0f, L"and the chip has a pip to draw");
+      Assert::AreEqual(3u, groups[index].nodeCount, L"carrying its membership, not its visible members");
+    }
 
     const MapGraphCounts constellation =
         BuildMapGraph(fixture.View(), fit, graph, MapPinchLevel::Constellation, show, 8.0f, 1.0f, tuning, nodes, links,
                       groups);
-    Assert::AreEqual(9u, constellation.labels, L"and names from the constellation level in");
+    Assert::AreEqual(9u, constellation.nodes, L"the dots appear one level in");
+    Assert::IsTrue(constellation.labels >= 9u, L"and names from the constellation level in");
+    for (std::uint32_t index = 0; index < constellation.groups; ++index)
+    {
+      Assert::IsFalse(groups[index].chipped, L"and a group is a hull again, not a chip");
+    }
 
     const MapGraphCounts system =
         BuildMapGraph(fixture.View(), fit, graph, MapPinchLevel::System, show, 8.0f, 1.0f, tuning, nodes, links,
                       groups);
     Assert::AreEqual(0u, system.groups, L"inside a constellation, its own outline is the whole screen");
+  }
+
+  TEST_METHOD(AGroupLabelNeedsRoomAndABudgetSlot)
+  {
+    /*
+     * The text-soup half of R15, and it was two bugs in one line: group labels
+     * were emitted whenever `label != nullptr`, with no size test and **outside**
+     * the `maxLabels` budget that gates the node labels. At the fit over the
+     * committed bake that is 250 constellation names stacked on each other in
+     * the middle of the screen.
+     *
+     * Two gates now. A disc smaller than `groupLabelMinDiameter` gets no name at
+     * all -- a word cannot be placed legibly on a shape smaller than the word,
+     * however cleverly it is nudged -- and the ones that survive spend from the
+     * same budget as everything else that is a word on this graph.
+     *
+     * This is deliberately not de-confliction; that is U5b's, with the visual
+     * checkpoint. It is the half of the problem that is about size.
+     */
+    const MapScreenTuning tuning;
+    const Fixture fixture = MakeFixture();
+    const UiRect graph{240.0f, 46.0f, 920.0f, 708.0f};
+    const MapExtent extent = MapExtentOf(fixture.View());
+    const MapCamera fit = FitMapCamera(extent, graph, tuning);
+
+    std::array<MapNodeRect, 64> nodes{};
+    std::array<MapLinkSegment, 64> links{};
+    std::array<MapGroupDisc, 16> groups{};
+    const MapShowFlags show;
+
+    /*
+     * Pulled back until the discs are under the threshold -- which is what the
+     * committed bake looks like at its own fit, where a constellation is about
+     * eleven pixels across against a 60 px floor.
+     */
+    MapCamera far = fit;
+    far.pixelsPerUnit = fit.pixelsPerUnit * 0.5f;
+
+    const MapGraphCounts smudged =
+        BuildMapGraph(fixture.View(), far, graph, MapPinchLevel::Region, show, 8.0f, 1.0f, tuning, nodes, links,
+                      groups);
+    Assert::AreEqual(3u, smudged.groups, L"the chips are still drawn");
+    for (std::uint32_t index = 0; index < smudged.groups; ++index)
+    {
+      Assert::IsTrue(groups[index].radiusPixels * 2.0f < tuning.groupLabelMinDiameter, L"the fixture's premise");
+      Assert::IsFalse(groups[index].labelled, L"a disc too small to hold a word does not get one");
+    }
+    Assert::AreEqual(0u, smudged.labels, L"and the budget is untouched");
+
+    // At the fit they clear it -- and the names come out of the shared budget
+    // rather than sitting outside it, which is what a budget of one proves.
+    MapScreenTuning tight = tuning;
+    tight.maxLabels = 1;
+
+    const MapGraphCounts spent =
+        BuildMapGraph(fixture.View(), fit, graph, MapPinchLevel::Region, show, 8.0f, 1.0f, tight, nodes, links,
+                      groups);
+    Assert::AreEqual(1u, spent.labels, L"group names spend from `maxLabels`, they do not sit outside it");
+  }
+
+  TEST_METHOD(TheRegionsAreDrawnAndOnlyAtTheRegionLevel)
+  {
+    /*
+     * `MapRegion` has described itself as *"the coarsest pinch level, and the
+     * one the print badges"* since the seam was written, and nothing drew it:
+     * the type crossed, was stored, and was read only for the top bar's first
+     * entry. At REGION this is what a player navigates by.
+     *
+     * One level in, a region is wider than the viewport and a name at its centre
+     * would sit on top of the constellations it contains rather than over them
+     * -- so this builds nothing there, which is the assertion that keeps it from
+     * becoming another layer of overlapping words.
+     */
+    const MapScreenTuning tuning;
+    const Fixture fixture = MakeFixture();
+    const UiRect graph{240.0f, 46.0f, 920.0f, 708.0f};
+    const MapExtent extent = MapExtentOf(fixture.View());
+    const MapCamera fit = FitMapCamera(extent, graph, tuning);
+
+    const MapGraphMetrics metrics = MeasureMapGraph(fixture.View());
+    std::array<MapRegionMark, 8> marks{};
+    Assert::AreEqual(1u, BuildMapRegionMarks(fixture.View(), fit, graph, MapPinchLevel::Region, metrics, 8.0f, 1.0f,
+                                             tuning, marks),
+                     L"the fixture's one region is marked");
+    Assert::IsTrue(marks[0].label.width > 0.0f, L"with its name");
+    Assert::IsTrue(marks[0].badge.width > 0.0f, L"and its band badge");
+    Assert::IsTrue(marks[0].badge.y > marks[0].label.y, L"the badge under the name, both on the centre");
+
+    Assert::AreEqual(0u, BuildMapRegionMarks(fixture.View(), fit, graph, MapPinchLevel::Constellation, metrics, 8.0f,
+                                             1.0f, tuning, marks),
+                     L"and nothing one level in");
+    Assert::AreEqual(0u, BuildMapRegionMarks(fixture.View(), fit, graph, MapPinchLevel::System, metrics, 8.0f, 1.0f,
+                                             tuning, marks),
+                     L"or two");
+
+    /*
+     * And a region too narrow to hold its own name carries neither word rather
+     * than both on top of its neighbours -- the group label's rule one tier up,
+     * and the one that keeps fifty region names off each other at the universe
+     * fit.
+     */
+    MapCamera far = fit;
+    far.pixelsPerUnit = fit.pixelsPerUnit * 0.02f;
+    Assert::AreEqual(0u, BuildMapRegionMarks(fixture.View(), far, graph, MapPinchLevel::Region, metrics, 8.0f, 1.0f,
+                                             tuning, marks),
+                     L"a word is drawn only where it fits the thing it names");
+  }
+
+  TEST_METHOD(ATapAtTheRegionLevelLandsOnAClusterRatherThanOnACoinToss)
+  {
+    /*
+     * Why the chip is worth building at all. At the fit over the committed bake
+     * a constellation's ten systems sit inside two pixels of each other, so ten
+     * 48 px targets are stacked on one point and `HitMapNode` would resolve
+     * between them on sub-pixel proximity -- a coin toss dressed as a choice.
+     * The chip is one target for the cluster, and what a press on it means is
+     * select-and-zoom.
+     */
+    const MapScreenTuning tuning;
+    const Fixture fixture = MakeFixture();
+    const UiRect graph{240.0f, 46.0f, 920.0f, 708.0f};
+    const MapExtent extent = MapExtentOf(fixture.View());
+    const MapCamera fit = FitMapCamera(extent, graph, tuning);
+
+    std::array<MapNodeRect, 64> nodes{};
+    std::array<MapLinkSegment, 64> links{};
+    std::array<MapGroupDisc, 16> groups{};
+    const MapShowFlags show;
+
+    const MapGraphCounts counts =
+        BuildMapGraph(fixture.View(), fit, graph, MapPinchLevel::Region, show, 8.0f, 1.0f, tuning, nodes, links,
+                      groups);
+    Assert::AreEqual(3u, counts.groups);
+
+    const MapGroupDisc* hit =
+        HitMapGroup({groups.data(), counts.groups}, groups[1].centre.x + 6.0f, groups[1].centre.y, 1.0f, tuning);
+    Assert::IsTrue(hit == &groups[1], L"the nearest chip, not the first");
+
+    Assert::IsTrue(HitMapGroup({groups.data(), counts.groups}, groups[0].centre.x, groups[0].centre.y - 400.0f, 1.0f,
+                               tuning) == nullptr,
+                   L"and a press on nothing is nothing");
+
+    // A hull is not a target: at CONSTELLATION the systems inside it are
+    // separately hittable, and a tap that took the outline would take the finer
+    // answer away.
+    const MapGraphCounts hulls =
+        BuildMapGraph(fixture.View(), fit, graph, MapPinchLevel::Constellation, show, 8.0f, 1.0f, tuning, nodes,
+                      links, groups);
+    Assert::IsTrue(HitMapGroup({groups.data(), hulls.groups}, groups[0].centre.x, groups[0].centre.y, 1.0f, tuning) ==
+                       nullptr,
+                   L"a hull is not pressed");
+  }
+
+  TEST_METHOD(TheTopBarNamesTheUniverseUntilOneRegionFillsTheView)
+  {
+    /*
+     * `strategic-map.png`'s bar is `◀ TACTICAL | <region> [BAND]`, and the
+     * region on it is the one you are **looking at**. What the screen drew
+     * instead was `<the first region in the bake> REGION · 250 CONSTELLATIONS ·
+     * 2500 SYSTEMS` -- a name that was right only by accident, never changed as
+     * the camera crossed fifty regions, and sat beside whole-universe counts on
+     * a bar that names one place.
+     */
+    const MapScreenTuning tuning;
+    const Fixture fixture = MakeFixture();
+    const UiRect graph{240.0f, 46.0f, 920.0f, 708.0f};
+    const MapExtent extent = MapExtentOf(fixture.View());
+    const MapGraphMetrics metrics = MeasureMapGraph(fixture.View());
+
+    MapCamera camera = FitMapCamera(extent, graph, tuning);
+    camera.pixelsPerUnit *= 0.05f; // A view fifty regions wide, in miniature.
+    Assert::AreEqual(INVALID_MAP_REGION, MapTitleRegion(fixture.View(), camera, graph, metrics, tuning),
+                     L"at the fit there is no region you are looking at");
+
+    camera = FitMapCamera(extent, graph, tuning);
+    camera.pixelsPerUnit *= 8.0f;
+    camera.centreX = fixture.groups[1].x;
+    camera.centreY = fixture.groups[1].y;
+    Assert::AreEqual(0u, MapTitleRegion(fixture.View(), camera, graph, metrics, tuning),
+                     L"and the region under the camera once one fills the view");
   }
 
   TEST_METHOD(ACheckboxThatIsOffBuildsNothingRatherThanDrawingNothing)
@@ -724,6 +1041,17 @@ public:
     Assert::AreEqual(0u, counts.labels, L"no system names");
     Assert::AreEqual(0u, counts.groups, L"no hulls");
     Assert::AreEqual(9u, counts.nodes, L"and the systems themselves, which have no checkbox");
+
+    /*
+     * But the chips at REGION are **not** the checkbox's to remove: up there
+     * they are the graph rather than an outline over it, and a box labelled
+     * `Constellation hulls` that emptied the whole viewport would be a control
+     * whose word and whose effect had come apart.
+     */
+    const MapGraphCounts atRegion =
+        BuildMapGraph(fixture.View(), fit, graph, MapPinchLevel::Region, show, 8.0f, 1.0f, tuning, nodes, links,
+                      groups);
+    Assert::AreEqual(3u, atRegion.groups, L"the chips are the graph, not decoration on it");
   }
 
   TEST_METHOD(TheLabelBudgetIsStableAcrossFramesThatDidNotMove)
@@ -866,8 +1194,8 @@ public:
     const MapShowFlags show;
 
     const MapGraphCounts counts =
-        BuildMapGraph(fixture.View(), fit, graph, MapPinchLevel::Region, show, 8.0f, 1.0f, tuning, nodes, links,
-                      groups);
+        BuildMapGraph(fixture.View(), fit, graph, MapPinchLevel::Constellation, show, 8.0f, 1.0f, tuning, nodes,
+                      links, groups);
     Assert::AreEqual(2u, counts.nodes, L"as many nodes as the span holds");
     Assert::AreEqual(1u, counts.links, L"and links");
     Assert::AreEqual(1u, counts.groups, L"and hulls");
@@ -881,9 +1209,10 @@ public:
   {
     /*
      * The 48 px floor applied to the *graph*, which is the one place on this
-     * screen it changes behaviour rather than a number. A system draws as a 6 px
-     * pip at the region level and a finger is eight times that, so the target is
-     * floored and the dot is not.
+     * screen it changes behaviour rather than a number. A system draws as a 9 px
+     * pip at the constellation level -- the smallest a dot gets, now that REGION
+     * draws chips instead of dots -- and a finger is five times that, so the
+     * target is floored and the dot is not.
      */
     const MapScreenTuning tuning;
     const UiRect graph{0.0f, 0.0f, 900.0f, 700.0f};
@@ -897,12 +1226,12 @@ public:
     const MapShowFlags show;
 
     const MapGraphCounts counts =
-        BuildMapGraph(fixture.View(), camera, graph, MapPinchLevel::Region, show, 8.0f, 1.0f, tuning, nodes, links,
-                      groups);
+        BuildMapGraph(fixture.View(), camera, graph, MapPinchLevel::Constellation, show, 8.0f, 1.0f, tuning, nodes,
+                      links, groups);
     Assert::AreEqual(1u, counts.nodes);
-    Assert::AreEqual(tuning.nodeDotRegion, nodes[0].dot.width, 0.001f, L"the pip is the print's size");
+    Assert::AreEqual(tuning.nodeDotConstellation, nodes[0].dot.width, 0.001f, L"the pip is the print's size");
 
-    // 20 px off the centre is well outside a 6 px dot and well inside a 48 px
+    // 20 px off the centre is well outside a 9 px dot and well inside a 48 px
     // target.
     const float x = nodes[0].point.x + 20.0f;
     const float y = nodes[0].point.y;
@@ -915,7 +1244,7 @@ public:
     /*
      * The consequence of a finger-sized target over a 6 px pip, and the reason
      * `HitMapNode` measures rather than returning the first it finds: at the
-     * region level two adjacent systems can both be under one finger, and
+     * constellation level two adjacent systems can both be under one finger, and
      * first-found would let *bake order* decide which one a tap selected. Bake
      * order is not something a player can see.
      */
@@ -1117,7 +1446,7 @@ public:
     marks[1].incomingCount = 2;
 
     MapMarkerRect placed[4] = {};
-    const std::uint32_t count = BuildMapMarkerRects(marks, nodes, 1.0f, tuning, placed);
+    const std::uint32_t count = BuildMapMarkerRects(marks, MapTopology{}, nodes, {}, 1.0f, tuning, placed);
     Assert::AreEqual(std::uint32_t{2}, count);
 
     // Above and right of the dot, which is the corner the label does not use.
@@ -1146,9 +1475,55 @@ public:
     marks[1].shipCount = 1;
 
     MapMarkerRect placed[4] = {};
-    const std::uint32_t count = BuildMapMarkerRects(marks, nodes, 1.0f, tuning, placed);
+    const std::uint32_t count = BuildMapMarkerRects(marks, MapTopology{}, nodes, {}, 1.0f, tuning, placed);
     Assert::AreEqual(std::uint32_t{1}, count, L"one of the two is on screen");
     Assert::AreEqual(std::uint32_t{1}, placed[0].marker, L"and it is the second marker, not the first");
+  }
+
+  TEST_METHOD(AMarkerWithNoDotFallsBackToTheChipThatSwallowedIt)
+  {
+    /*
+     * REGION builds no node rects at all -- the density ladder merged the
+     * systems into counted chips -- so every marker would have had nothing to
+     * sit on, and the coarsest level would have answered *"where are my
+     * ships"* with silence at the one zoom that shows the whole map.
+     *
+     * "The player's ships are in this cluster" is the honest statement at a
+     * level whose whole subject is clusters, and the chip is where it goes.
+     */
+    const MapScreenTuning tuning;
+    const Fixture fixture = MakeFixture();
+    const UiRect graph{240.0f, 46.0f, 920.0f, 708.0f};
+    const MapExtent extent = MapExtentOf(fixture.View());
+    const MapCamera fit = FitMapCamera(extent, graph, tuning);
+
+    std::array<MapNodeRect, 64> nodes{};
+    std::array<MapLinkSegment, 64> links{};
+    std::array<MapGroupDisc, 16> groups{};
+    const MapShowFlags show;
+    const MapGraphCounts counts =
+        BuildMapGraph(fixture.View(), fit, graph, MapPinchLevel::Region, show, 8.0f, 1.0f, tuning, nodes, links,
+                      groups);
+    Assert::AreEqual(0u, counts.nodes, L"the premise: no dots at the region level");
+
+    // The fixture's node 4 is the middle system of the middle constellation.
+    MapMarker marks[1] = {};
+    marks[0].node = 4;
+    marks[0].shipCount = 6;
+
+    MapMarkerRect placed[2] = {};
+    Assert::AreEqual(std::uint32_t{1},
+                     BuildMapMarkerRects(marks, fixture.View(), {}, {groups.data(), counts.groups}, 1.0f, tuning,
+                                         placed),
+                     L"the marker is placed even with no dot to place it on");
+
+    const MapGroupDisc& disc = groups[fixture.nodes[4].group];
+    Assert::IsTrue(placed[0].badge.x > disc.centre.x, L"right of the chip");
+    Assert::IsTrue(placed[0].badge.Bottom() <= disc.centre.y, L"and above it");
+
+    // And a marker whose chip is culled too is silent, like a culled dot.
+    Assert::AreEqual(std::uint32_t{0}, BuildMapMarkerRects(marks, fixture.View(), {}, {}, 1.0f, tuning, placed),
+                     L"culled at both levels is not drawn");
   }
 
   TEST_METHOD(AnEmptyGraphPlacesNothing)
@@ -1158,7 +1533,7 @@ public:
     MapMarker marks[1] = {};
     marks[0].shipCount = 9;
     MapMarkerRect placed[4] = {};
-    Assert::AreEqual(std::uint32_t{0}, BuildMapMarkerRects(marks, {}, 1.0f, tuning, placed));
+    Assert::AreEqual(std::uint32_t{0}, BuildMapMarkerRects(marks, MapTopology{}, {}, {}, 1.0f, tuning, placed));
   }
 
   TEST_METHOD(TheBadgeScalesWithTheInterface)
@@ -1173,8 +1548,8 @@ public:
 
     MapMarkerRect atOneX[1] = {};
     MapMarkerRect atTwoX[1] = {};
-    (void)BuildMapMarkerRects(marks, nodes, 1.0f, tuning, atOneX);
-    (void)BuildMapMarkerRects(marks, nodes, 2.0f, tuning, atTwoX);
+    (void)BuildMapMarkerRects(marks, MapTopology{}, nodes, {}, 1.0f, tuning, atOneX);
+    (void)BuildMapMarkerRects(marks, MapTopology{}, nodes, {}, 2.0f, tuning, atTwoX);
     Assert::IsTrue(atTwoX[0].badge.height > atOneX[0].badge.height * 1.9f, L"twice the scale, twice the badge");
     Assert::IsTrue(atOneX[0].badge.height < TARGET_FLOOR_PIXELS,
                    L"and it is deliberately under the target floor, being a readout");
@@ -1191,7 +1566,7 @@ public:
       marks[index].shipCount = 1;
     }
     MapMarkerRect placed[2] = {};
-    Assert::AreEqual(std::uint32_t{2}, BuildMapMarkerRects(marks, nodes, 1.0f, tuning, placed));
+    Assert::AreEqual(std::uint32_t{2}, BuildMapMarkerRects(marks, MapTopology{}, nodes, {}, 1.0f, tuning, placed));
   }
 };
 

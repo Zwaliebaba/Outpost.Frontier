@@ -1875,6 +1875,92 @@ public:
     }
   }
 
+  /*
+   * U6b: a crossing says **whose** it is.
+   *
+   * The row's `anchor` is where the fleet is *going*, so it is the one state
+   * whose place is not an answer to "where are they" -- and the client's
+   * ELSEWHERE block drew that destination wearing the fleet's status, at exactly
+   * the moment the wing's own roster row had gone (a wing mid-warp has members
+   * on no grid). The wing byte is what lets the block say TALON.
+   */
+  TEST_METHOD(ACrossingCarriesTheWingItBelongsTo)
+  {
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, nullptr, Config());
+    std::uint32_t tick = 0;
+
+    const ShipId ship = AddShip(registry, anchors[0], 300.0f, 0.0f, 3);
+    const ShipId fleet[] = {ship};
+    Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], fleet).accepted);
+    TickUntil(registry, tick, 2000, [&] { return !OnGrid(registry, anchors[0], ship); });
+
+    const std::vector<FleetSummary> crossing = registry.Summaries(Neuron::SOLE_PLAYER_ID);
+    const auto row = std::find_if(crossing.begin(), crossing.end(),
+                                  [](const FleetSummary& _r) { return _r.state == FleetState::InTransit; });
+    Assert::IsTrue(row != crossing.end());
+    Assert::AreEqual<std::uint32_t>(3, row->wing, L"a crossing that cannot name its wing cannot be labelled");
+
+    // And the row survives the wire with it, which is the half the client sees.
+    std::uint8_t buffer[512];
+    Neuron::ByteWriter writer{std::span<std::uint8_t>{buffer}};
+    Assert::IsTrue(WriteFleetSummaries(crossing, writer));
+
+    Neuron::ByteReader reader{writer.Written()};
+    std::vector<FleetSummary> decoded;
+    Assert::IsTrue(ReadFleetSummaries(reader, decoded));
+    const auto back = std::find_if(decoded.begin(), decoded.end(),
+                                   [](const FleetSummary& _r) { return _r.state == FleetState::InTransit; });
+    Assert::IsTrue(back != decoded.end());
+    Assert::AreEqual<std::uint32_t>(3, back->wing);
+  }
+
+  /*
+   * And two wings crossing to one place are two rows, because a row carries one
+   * name and a mixed crossing has two.
+   *
+   * The alternative was one row labelled with one of the two call signs, which
+   * is the failure the wing byte exists to prevent rather than a smaller version
+   * of it: a player would read TALON and be looking at a count that included
+   * ships that are not TALON's.
+   */
+  TEST_METHOD(TwoWingsCrossingToOnePlaceAreTwoRows)
+  {
+    const UniverseDef universe = SmallUniverse();
+    const std::vector<AnchorId> anchors = TwoAnchorsInOneSystem(universe);
+
+    WorldRegistry registry;
+    registry.Reset(&universe, nullptr, Config());
+    std::uint32_t tick = 0;
+
+    const ShipId talon = AddShip(registry, anchors[0], 300.0f, 0.0f, 1);
+    const ShipId vulture = AddShip(registry, anchors[0], 320.0f, 0.0f, 2);
+    const ShipId both[] = {talon, vulture};
+    Assert::IsTrue(SubmitWarp(registry, anchors[0], anchors[1], both).accepted);
+    TickUntil(registry, tick, 2000, [&] { return !OnGrid(registry, anchors[0], talon); });
+
+    const std::vector<FleetSummary> crossing = registry.Summaries(Neuron::SOLE_PLAYER_ID);
+    std::vector<WingId> wings;
+    std::uint32_t total = 0;
+    for (const FleetSummary& row : crossing)
+    {
+      if (row.state == FleetState::InTransit)
+      {
+        wings.push_back(row.wing);
+        total += row.shipCount;
+      }
+    }
+
+    Assert::AreEqual<std::size_t>(2, wings.size(), L"one row cannot carry two call signs");
+    Assert::AreEqual<std::uint32_t>(2, total, L"and splitting must not lose or double a ship");
+
+    // Sorted, so the panel does not reshuffle between ticks.
+    Assert::IsTrue(std::is_sorted(wings.begin(), wings.end()));
+  }
+
   TEST_METHOD(TheSameShardProducesTheSameSummaryMessageTwice)
   {
     // Ordered by anchor and then state, so a client can diff two of them

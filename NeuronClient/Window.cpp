@@ -458,6 +458,15 @@ void Window::SetKey(WPARAM _virtualKey, bool _down) noexcept
     // it reach the surface as "back".
     actions[count++] = InputAction::Back;
     break;
+  case VK_TAB:
+    // The fleet stepper (U6). A key and nothing else: every fleet it visits is
+    // already a row or a block on the roster, so this is a shortcut over the
+    // screen rather than a second way in.
+    actions[count++] = InputAction::CycleFleet;
+    break;
+  case 'P':
+    actions[count++] = InputAction::PinCamera;
+    break;
   case VK_RETURN:
     // Its twin, and it goes nowhere but a field. `WM_CHAR` also delivers `\r`
     // for this key; the buffer refuses it as a control character, so binding

@@ -74,12 +74,39 @@ struct FleetSummary
   /// This is the number U3a owed and could not give: a fleet mid-crossing is in
   /// no world, so no grid's order records can carry its ETA.
   std::uint16_t etaSeconds = FLEET_ETA_NONE;
+
+  /*
+   * Which wing a **crossing** belongs to (U6b, 2026-08-23), and
+   * `INVALID_WING_ID` on every other row.
+   *
+   * **Because a crossing is the one row whose `anchor` is not where the ships
+   * are.** The other two states name a place the player can point at and the
+   * count under it is the answer; a crossing names a destination, so a block
+   * drawn from `anchor` alone reads *"VESTA-3, in warp"* -- the station wearing
+   * the fleet's status, at exactly the moment the fleet's own roster row has
+   * gone (`BuildRoster` draws wings with members on the watched grid, and a
+   * wing mid-warp has none). The call sign is the only thing that identifies
+   * it, and it was the one thing the summary could not say.
+   *
+   * **Crossings split on it and nothing else does.** Two wings warping to one
+   * anchor become two rows, because one row would have to be labelled with one
+   * of two names; a station's docked ships stay one row per state, because
+   * *there* the place is the answer and per-wing rows would turn one hangar
+   * into four entries in a list of places. So the field is on every row and the
+   * grouping changes for one state -- which is the smallest change that makes
+   * the label honest.
+   *
+   * `INVALID_WING_ID` is a real value here rather than an absence: ships with
+   * no wing cross too, and they group together.
+   */
+  WingId wing = INVALID_WING_ID;
 };
 
-/// Bytes one message occupies. Fixed part plus seven per row.
+/// Bytes one message occupies. Fixed part plus eight per row -- seven until U6b
+/// gave a crossing its wing.
 [[nodiscard]] constexpr std::size_t FleetSummariesBytes(std::size_t _rowCount) noexcept
 {
-  return 2 + _rowCount * 7;
+  return 2 + _rowCount * 8;
 }
 
 /// How many rows one message may carry. A commander with more places than this

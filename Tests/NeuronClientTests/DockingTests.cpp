@@ -465,6 +465,100 @@ public:
     const std::vector<LocationBlock> blocks = {Block(20, 0, false)};
     Assert::AreEqual<std::uint16_t>(NO_FOLLOW_TARGET, FollowTarget(blocks, 10));
   }
+
+  /*
+   * The pin's rule, asserted through the predicate the client branches on
+   * (ADR-018 D16's *first* presence edge, U6).
+   *
+   * D16 gives a pinned camera that loses presence one destination -- the map --
+   * and the condition for "lost presence" is not a third question: it is
+   * `FollowTarget` finding somewhere to go, which is only ever true when
+   * nothing of the player's is on the grid they are watching. The pair below is
+   * what the pinned branch reads, and it is here so that a change to
+   * `FollowTarget`'s here-guard breaks the pin's rule visibly rather than
+   * turning it into a camera that freezes on an empty grid.
+   */
+  TEST_METHOD(TheConditionAPinnedCameraFallsToTheMapOnIsTheFollowItSuppresses)
+  {
+    const std::vector<LocationBlock> stay = {Block(10, 3, false), Block(20, 12, false)};
+    Assert::AreEqual<std::uint16_t>(NO_FOLLOW_TARGET, FollowTarget(stay, 10),
+                                    L"ships here: a pin holds and nothing else happens");
+
+    const std::vector<LocationBlock> lost = {Block(20, 12, false)};
+    Assert::AreEqual<std::uint16_t>(20, FollowTarget(lost, 10),
+                                    L"nothing here and somewhere it went: unpinned this follows, pinned it maps");
+  }
+};
+
+/*
+ * The fleet stepper (U6's focus polish, Tab).
+ *
+ * Pure and therefore assertable, which is the reason it is a free function at
+ * all -- the surrounding call is a selection and a camera and neither can be
+ * driven in a test project with no device.
+ */
+TEST_CLASS(FleetCycleTests)
+{
+public:
+  TEST_METHOD(APlayerWithNoFleetsStepsNowhere)
+  {
+    Assert::AreEqual<std::uint32_t>(NO_FLEET_CYCLED, NextFleetInCycle({}, NO_FLEET_CYCLED));
+    Assert::AreEqual<std::uint32_t>(NO_FLEET_CYCLED, NextFleetInCycle({}, 7));
+  }
+
+  TEST_METHOD(TheFirstPressTakesTheFirstFleet)
+  {
+    // The order on screen, top to bottom, which is what makes the key
+    // predictable to somebody who has read the panel.
+    const std::vector<std::uint32_t> keys = {3, 7, 9};
+    Assert::AreEqual<std::uint32_t>(3, NextFleetInCycle(keys, NO_FLEET_CYCLED));
+  }
+
+  TEST_METHOD(ItStepsAndWraps)
+  {
+    const std::vector<std::uint32_t> keys = {3, 7, 9};
+    Assert::AreEqual<std::uint32_t>(7, NextFleetInCycle(keys, 3));
+    Assert::AreEqual<std::uint32_t>(9, NextFleetInCycle(keys, 7));
+    Assert::AreEqual<std::uint32_t>(3, NextFleetInCycle(keys, 9), L"round the horn");
+  }
+
+  TEST_METHOD(AFleetThatWentAwayRestartsTheCycle)
+  {
+    /*
+     * The case identity is used for, and the reason an index would have been
+     * wrong.
+     *
+     * A wing docks between two presses and its key leaves the list. An index
+     * would step to whatever inherited the slot -- silently, and only sometimes
+     * -- so the player would find the key skipping a fleet with no way to tell
+     * that it had. Restarting is visible and honest: the next press is the top
+     * of the list.
+     */
+    const std::vector<std::uint32_t> keys = {3, 7, 9};
+    Assert::AreEqual<std::uint32_t>(3, NextFleetInCycle(keys, 5));
+  }
+
+  TEST_METHOD(AWingAndAPlaceWithTheSameNumberAreDifferentStops)
+  {
+    /*
+     * Wing 4 and anchor 4 are both small numbers and both real, so the walk
+     * would fold them into one stop without the flag bit -- and the cycle would
+     * skip whichever came second, on exactly the systems where a player has a
+     * wing flying and ships docked elsewhere.
+     */
+    constexpr std::uint32_t PLACE = 0x8000'0000u;
+    const std::vector<std::uint32_t> keys = {4, PLACE | 4};
+    Assert::AreEqual<std::uint32_t>(PLACE | 4, NextFleetInCycle(keys, 4));
+    Assert::AreEqual<std::uint32_t>(4, NextFleetInCycle(keys, PLACE | 4));
+  }
+
+  TEST_METHOD(OneFleetStepsToItself)
+  {
+    // Not a no-op on a real client: the press re-takes the wing and re-frames
+    // it, which is what a player pressing it expects to happen.
+    const std::vector<std::uint32_t> keys = {11};
+    Assert::AreEqual<std::uint32_t>(11, NextFleetInCycle(keys, 11));
+  }
 };
 
 TEST_CLASS(ToastActionTests)

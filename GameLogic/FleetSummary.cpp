@@ -39,6 +39,7 @@ bool WriteFleetSummaries(std::span<const FleetSummary> _summaries, Neuron::ByteW
     _writer.WriteUInt8(static_cast<std::uint8_t>(row.state));
     _writer.WriteUInt16(row.shipCount);
     _writer.WriteUInt16(row.etaSeconds);
+    _writer.WriteUInt8(row.wing);
   }
   return _writer.Ok();
 }
@@ -68,6 +69,7 @@ bool ReadFleetSummaries(Neuron::ByteReader& _reader, std::vector<FleetSummary>& 
     row.state = static_cast<FleetState>(_reader.ReadUInt8());
     row.shipCount = _reader.ReadUInt16();
     row.etaSeconds = _reader.ReadUInt16();
+    row.wing = _reader.ReadUInt8();
     _outSummaries.push_back(row);
   }
   return _reader.Ok();

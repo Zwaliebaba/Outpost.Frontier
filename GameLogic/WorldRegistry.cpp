@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -2711,27 +2712,64 @@ std::vector<FleetSummary> WorldRegistry::Summaries(Neuron::PlayerId _viewer) con
       continue;
     }
 
-    // This commander's ships in it, counted rather than assumed: a crossing is
-    // one commander's order today, but the member carries the owner precisely
-    // so that "today" is not load-bearing.
+    /*
+     * This commander's ships in it, **counted per wing** (U6b).
+     *
+     * Counted rather than assumed: a crossing is one commander's order today,
+     * but the member carries the owner precisely so that "today" is not
+     * load-bearing -- and it carries the wing, which is what lets the row say
+     * whose crossing it is. A crossing's `anchor` is its *destination*, so
+     * without this the client can only draw the place a fleet is going to and
+     * has nothing to call the fleet: `BuildRoster` draws wings with members on
+     * the watched grid, and a wing mid-warp has none anywhere.
+     *
+     * One row per wing in the record, because a row carries one name and a
+     * mixed crossing has two. Wingless ships gather under `INVALID_WING_ID`,
+     * which is a group rather than a gap.
+     */
+    // One slot per value a `WingId` can hold, so the walk needs no bound of its
+    // own and a wing id off a record can index it unchecked.
+    constexpr std::size_t WING_SLOTS = static_cast<std::size_t>(std::numeric_limits<WingId>::max()) + 1u;
+    std::uint16_t mineByWing[WING_SLOTS] = {};
     std::uint16_t mine = 0;
     for (std::uint16_t index = 0; index < record.what.memberCount; ++index)
     {
-      mine += record.what.members[index].owner == _viewer ? 1u : 0u;
+      const TransferMember& member = record.what.members[index];
+      if (member.owner != _viewer)
+      {
+        continue; // Somebody else's fleet is somebody else's business.
+      }
+      ++mine;
+      ++mineByWing[member.wing];
     }
     if (mine == 0)
     {
-      continue; // Somebody else's fleet is somebody else's business.
+      continue;
     }
 
     // Rounded up, so a fleet one tick out reads as "1s" rather than "arrived".
     const std::uint32_t ticks = record.applyTick > m_shardTick ? record.applyTick - m_shardTick : 0;
     const auto seconds = static_cast<std::uint32_t>(
       (static_cast<double>(ticks) * static_cast<double>(World::TICK_SECONDS)) + 0.999);
-    rows.push_back(FleetSummary{record.what.anchor, FleetState::InTransit, mine,
-                                static_cast<std::uint16_t>(std::min<std::uint32_t>(seconds, FLEET_ETA_NONE - 1))});
+    const auto eta = static_cast<std::uint16_t>(std::min<std::uint32_t>(seconds, FLEET_ETA_NONE - 1));
+
+    for (std::size_t wing = 0; wing < WING_SLOTS; ++wing)
+    {
+      if (mineByWing[wing] == 0)
+      {
+        continue;
+      }
+      rows.push_back(FleetSummary{record.what.anchor, FleetState::InTransit, mineByWing[wing], eta,
+                                  static_cast<WingId>(wing)});
+    }
   }
 
+  /*
+   * Sorted so the panel's order is the universe's rather than arrival's, with
+   * the wing as the last tie-break -- two wings crossing to one anchor are two
+   * rows now, and a list that reshuffled them between ticks would be a list the
+   * player cannot point at.
+   */
   std::sort(rows.begin(), rows.end(),
             [](const FleetSummary& _a, const FleetSummary& _b)
             {
@@ -2739,7 +2777,11 @@ std::vector<FleetSummary> WorldRegistry::Summaries(Neuron::PlayerId _viewer) con
               {
                 return _a.anchor < _b.anchor;
               }
-              return static_cast<std::uint8_t>(_a.state) < static_cast<std::uint8_t>(_b.state);
+              if (_a.state != _b.state)
+              {
+                return static_cast<std::uint8_t>(_a.state) < static_cast<std::uint8_t>(_b.state);
+              }
+              return _a.wing < _b.wing;
             });
   return rows;
 }

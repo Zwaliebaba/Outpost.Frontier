@@ -244,6 +244,36 @@ public:
   }
 
   /*
+   * The place this entity **is**, if it is one (ADR-017 §2, ADR-020 §6).
+   *
+   * `ContextActionFor`'s question is "what would acting on this thing do *to my
+   * fleet*"; this one is "is this thing somewhere you go". They are different
+   * questions with different subjects -- one takes the selection and the other
+   * cannot, because the answer must not depend on what is selected -- so they
+   * are two calls rather than a kind byte on one.
+   *
+   * An entity the game names a place here is **not a fleet member**: the client
+   * refuses to select it and opens the place instead. That is one fact with two
+   * consequences rather than two settings, and it is the game that states it,
+   * because "a structure is not a ship" is a sentence about this game and not
+   * about picking. The engine that decided it from `IconFamily::Static` would
+   * have learned that structures are places, which is exactly the leak
+   * `StationView.h` is written to prevent.
+   *
+   * `_outAnchor` is the anchor to hand back to `BuildStationTabs` and the rest
+   * of the station family -- opaque here, as every anchor on this seam is.
+   *
+   * Defaulted rather than pure: a game whose world holds nothing to walk into
+   * is a real thing, and every client before this one was one.
+   */
+  [[nodiscard]] virtual bool PlaceForEntity(EntityId _entityId, std::uint16_t& _outAnchor) const
+  {
+    (void)_entityId;
+    (void)_outAnchor;
+    return false;
+  }
+
+  /*
    * The player's ships that are not in the scene, by where they are
    * (ADR-017 1, ADR-016 9).
    *
@@ -701,6 +731,60 @@ public:
   {
     (void)_systemId;
     (void)_outSystem;
+    return false;
+  }
+
+  /*
+   * Which system this client is standing in (ADR-016 §7, §9, U6).
+   *
+   * The **id**, where the top bar already draws the name: `Connection`'s world
+   * words are what the breadcrumb prints, and a word is not something
+   * `BuildSystemView` can be asked about. Splitting that breadcrumb into two
+   * targets -- the system opening its inside, the region opening the map -- is
+   * the TACTICAL ⇄ SYSTEM handoff, and this is the one thing the client was
+   * missing to build it.
+   *
+   * **A grid's system rather than a selection's**, because the question the
+   * breadcrumb asks is "where am I looking", and the answer must not change
+   * when the player taps a hull.
+   *
+   * False before a world has arrived, which is a client that has nothing to
+   * open rather than an error.
+   */
+  [[nodiscard]] virtual bool WatchedSystem(std::uint16_t& _outSystemId) const
+  {
+    (void)_outSystemId;
+    return false;
+  }
+
+  /*
+   * The two verbs the system view offers for one anchor (ADR-016 §9, U6).
+   *
+   * `OrderKinds` for a screen whose subject is a *place* rather than a
+   * selection: the row asks "which verbs does this fleet have", and this asks
+   * "which of them would land on that". Both answer with the game's word, an
+   * opaque kind and the reason a refusal would carry, and neither lets the
+   * engine decide what a verb is worth.
+   *
+   * **The availability comes from the validator and not from three checks**,
+   * which is the parity rule (ADR-014 §3) reaching this screen: WARP HERE greys
+   * with the same code the authority would have bounced with, so the button and
+   * the toast cannot disagree about why.
+   *
+   * `_anchorId` is the opaque `SystemAnchor::id` the client echoed back.
+   * `_selectedIds` is the client's selection -- empty is the ordinary case on a
+   * screen a player can open with nothing picked, and both verbs answer
+   * unavailable for it.
+   *
+   * False from a game with no such verbs, which draws two empty rects rather
+   * than two live buttons.
+   */
+  [[nodiscard]] virtual bool AnchorVerbs(std::uint16_t _anchorId, std::span<const EntityId> _selectedIds,
+                                         SystemAnchorVerbs& _outVerbs) const
+  {
+    (void)_anchorId;
+    (void)_selectedIds;
+    (void)_outVerbs;
     return false;
   }
 

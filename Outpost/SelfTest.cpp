@@ -8,8 +8,10 @@
 #include "TickSoak.h"
 
 #include "ClientConnection.h"
+#include "MapScreen.h"
 #include "ObjMesh.h"
 #include "StationView.h"
+#include "UploadBudget.h"
 
 #include "DurableStore.h"
 #include "ServerConfig.h"
@@ -29,6 +31,7 @@
 #include "SummaryMessages.h"
 #include "Universe.h"
 #include "UniverseGen.h"
+#include "UniverseParse.h"
 #include "World.h"
 #include "WorldHash.h"
 #include "WorldRegistry.h"
@@ -45,6 +48,8 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <span>
 #include <string>
 #include <string_view>
@@ -2352,6 +2357,313 @@ void RunRouteFeedGate(Checklist& _checks)
 }
 
 /*
+ * The strategic map over the **committed** bake, device-free (U5's visual
+ * checkpoint, R15, `strategic-map.png` §1 §2).
+ *
+ * U5's accept is *"a visual checkpoint against the print at region level over
+ * the real baked content -- constellation hulls disjoint, labels legible, which
+ * is U1's clustering invariant paying off on screen"*, and the reason it needed
+ * a person is that "legible" is a thing you look at. R15 then arrived exactly
+ * as the risk register wrote it -- fifty regions rendering as seven full-width
+ * strips of merged dots under 250 overlapping names -- and the striking thing
+ * about it is **how much of it was mechanically checkable and unchecked**.
+ *
+ * So this is the checkable part, over the file that ships rather than over a
+ * fixture: the projection, the density ladder, the label budget and the level
+ * readout, at the print's own 1440x900. What is left for a person is whether it
+ * looks right, which is the half that was always theirs.
+ *
+ * It parses `Frontier.json` itself. That costs ~180 ms in Release and is the
+ * whole point -- a gate over a generated fixture would be a gate that passes
+ * while the committed content is wrong, which is the shape of the defect it
+ * exists to catch.
+ */
+void RunStrategicMapGate(Checklist& _checks, const Outpost::AppConfig& _config)
+{
+  const std::string path = Outpost::ResolveContentPath(_config.universeDefinition);
+  std::string text;
+  if (!path.empty())
+  {
+    std::ifstream file(path, std::ios::binary);
+    if (file)
+    {
+      std::ostringstream buffer;
+      buffer << file.rdbuf();
+      text = buffer.str();
+    }
+  }
+
+  Game::UniverseDef universe;
+  std::vector<Game::UniverseDiagnostic> diagnostics;
+  if (text.empty() || !Game::ParseUniverse(text, universe, diagnostics))
+  {
+    _checks.Record("the map gate reads the committed universe", false);
+    return;
+  }
+
+  Outpost::ReplicatedWorldView::Desc desc;
+  desc.renderClassByHull.assign(Game::HULL_CLASS_COUNT, 0);
+  desc.universe = &universe;
+  desc.gridAnchor = universe.StartAnchorId();
+  Outpost::ReplicatedWorldView view{std::move(desc)};
+
+  Neuron::MapTopology topology;
+  if (!view.BuildMapTopology(topology))
+  {
+    _checks.Record("the committed universe crosses the map seam", false);
+    return;
+  }
+  _checks.Record("the committed universe crosses the map seam", true);
+
+  // The print's own viewport, which ADR-020 §7 makes normative.
+  const Neuron::MapScreenTuning tuning;
+  const Neuron::MapScreenLayout layout = Neuron::ResolveMapScreen(1440, 900, 1.0f, tuning);
+  const Neuron::MapExtent extent = Neuron::MapExtentOf(topology);
+  const Neuron::MapGraphMetrics metrics = Neuron::MeasureMapGraph(topology);
+  const Neuron::MapCamera fit = Neuron::FitMapCamera(extent, layout.graph, tuning);
+
+  std::vector<Neuron::MapNodeRect> nodes(Neuron::MAX_MAP_NODES);
+  std::vector<Neuron::MapLinkSegment> links(Neuron::MAX_MAP_LINKS);
+  std::vector<Neuron::MapGroupDisc> groups(Neuron::MAX_MAP_GROUPS);
+  std::vector<Neuron::MapRegionMark> marks(Neuron::MAX_MAP_GROUPS);
+  const Neuron::MapShowFlags show;
+
+  NEURON_LOG_INFO("self test: map graph %zu systems, %zu links, %zu constellations, %zu regions; a constellation is "
+                  "%.1f px across at the fit",
+                  topology.nodes.size(), topology.links.size(), topology.groups.size(), topology.regions.size(),
+                  2.0 * static_cast<double>(metrics.groupRadiusUnits) * static_cast<double>(fit.pixelsPerUnit));
+
+  // --- at the fit ---------------------------------------------------------
+
+  _checks.Record("the whole universe fits at the coarsest level",
+                 Neuron::MapLevelOf(fit, extent, layout.graph, metrics, tuning) == Neuron::MapPinchLevel::Region);
+
+  const Neuron::MapGraphCounts atFit = Neuron::BuildMapGraph(topology, fit, layout.graph, Neuron::MapPinchLevel::Region,
+                                                             show, 8.0f, 1.0f, tuning, nodes, links, groups);
+  const std::uint32_t markCount = Neuron::BuildMapRegionMarks(topology, fit, layout.graph,
+                                                              Neuron::MapPinchLevel::Region, metrics, 8.0f, 1.0f,
+                                                              tuning, marks);
+
+  /*
+   * The soup, and the wash, as two numbers.
+   *
+   * 2,500 pips two pixels apart is not a graph, and 250 constellation names on
+   * one another is not a legend -- and both were what this screen drew. The
+   * ladder says the coarsest level is chips and counts; the budget says a name
+   * costs a slot like every other word on the graph.
+   */
+  _checks.Record("the fit draws no individual systems", atFit.nodes == 0);
+  _checks.Record("every constellation is a counted chip",
+                 atFit.groups == topology.groups.size() &&
+                     std::all_of(groups.begin(), groups.begin() + atFit.groups,
+                                 [](const Neuron::MapGroupDisc& _disc) { return _disc.chipped && _disc.nodeCount > 0; }));
+  _checks.Record("no constellation name is placed where it could not be read", atFit.labels == 0);
+  _checks.Record("every region carries the word that fits it", markCount == topology.regions.size());
+  _checks.Record("the top bar names the universe when no region fills the view",
+                 Neuron::MapTitleRegion(topology, fit, layout.graph, metrics, tuning) == Neuron::INVALID_MAP_REGION);
+
+  /*
+   * U1's clustering invariant, asserted in pixels: no two constellation discs
+   * overlap on the fitted screen. Two of these on top of each other is the bake
+   * having broken its own Voronoi property, visibly.
+   */
+  bool discsDisjoint = true;
+  for (std::uint32_t a = 0; a < atFit.groups && discsDisjoint; ++a)
+  {
+    for (std::uint32_t b = a + 1; b < atFit.groups; ++b)
+    {
+      const float dx = groups[a].centre.x - groups[b].centre.x;
+      const float dy = groups[a].centre.y - groups[b].centre.y;
+      const float reach = groups[a].radiusPixels + groups[b].radiusPixels;
+      if (dx * dx + dy * dy <= reach * reach)
+      {
+        discsDisjoint = false;
+        break;
+      }
+    }
+  }
+  _checks.Record("no two constellations overlap on the fitted screen", discsDisjoint);
+
+  /*
+   * And R15's own property where the player actually reads it: regions are
+   * further apart than their constellations are, **on both axes**, in pixels.
+   *
+   * The bake asserts this in metres; this is the same statement after the
+   * projection, which is the step the strips defect survived. A region whose
+   * content is wider than the gap to the next one merges into it sideways and
+   * fifty clusters become seven bands -- and that is a thing this file can see
+   * and a unit test over a fixture cannot.
+   */
+  struct Box
+  {
+    float minX = 0.0f;
+    float maxX = 0.0f;
+    float minY = 0.0f;
+    float maxY = 0.0f;
+    std::uint32_t members = 0;
+  };
+  std::vector<Box> box(topology.regions.size());
+  for (std::uint32_t index = 0; index < atFit.groups; ++index)
+  {
+    const Neuron::MapGroup& group = topology.groups[groups[index].group];
+    if (group.region >= box.size())
+    {
+      continue;
+    }
+    Box& here = box[group.region];
+    const float radius = groups[index].radiusPixels;
+    if (here.members == 0)
+    {
+      here.minX = groups[index].centre.x - radius;
+      here.maxX = groups[index].centre.x + radius;
+      here.minY = groups[index].centre.y - radius;
+      here.maxY = groups[index].centre.y + radius;
+    }
+    else
+    {
+      here.minX = std::min(here.minX, groups[index].centre.x - radius);
+      here.maxX = std::max(here.maxX, groups[index].centre.x + radius);
+      here.minY = std::min(here.minY, groups[index].centre.y - radius);
+      here.maxY = std::max(here.maxY, groups[index].centre.y + radius);
+    }
+    ++here.members;
+  }
+
+  /*
+   * What "reads as a cluster" actually means, measured: the **widest empty lane
+   * inside** a region, per axis.
+   *
+   * Not the region's own width, which is the first thing this gate asked and
+   * the wrong question -- a region's content and the gap to the next one share
+   * one pitch, so demanding a gap wider than the content is demanding a
+   * universe of mostly emptiness. What decides whether the eye groups fifty
+   * clusters or seven bands is whether the space *between* two regions is
+   * bigger than the spaces *within* one. So that is what is compared.
+   */
+  float widest = 0.0f;
+  float tallest = 0.0f;
+  {
+    std::vector<std::pair<float, float>> lane;
+    for (std::uint32_t region = 0; region < box.size(); ++region)
+    {
+      if (box[region].members == 0)
+      {
+        continue;
+      }
+      for (int axis = 0; axis < 2; ++axis)
+      {
+        lane.clear();
+        for (std::uint32_t index = 0; index < atFit.groups; ++index)
+        {
+          const Neuron::MapGroup& group = topology.groups[groups[index].group];
+          if (group.region != region)
+          {
+            continue;
+          }
+          const float centre = axis == 0 ? groups[index].centre.x : groups[index].centre.y;
+          lane.emplace_back(centre - groups[index].radiusPixels, centre + groups[index].radiusPixels);
+        }
+        std::sort(lane.begin(), lane.end());
+
+        float reach = lane.empty() ? 0.0f : lane.front().second;
+        for (const std::pair<float, float>& span : lane)
+        {
+          const float empty = span.first - reach;
+          if (empty > 0.0f)
+          {
+            (axis == 0 ? widest : tallest) = std::max(axis == 0 ? widest : tallest, empty);
+          }
+          reach = std::max(reach, span.second);
+        }
+      }
+    }
+  }
+
+  const auto gap = [](float _aMin, float _aMax, float _bMin, float _bMax)
+  { return std::max(0.0f, std::max(_aMin, _bMin) - std::min(_aMax, _bMax)); };
+
+  float nearestX = 0.0f;
+  float nearestY = 0.0f;
+  bool anyOverlap = false;
+  for (std::size_t a = 0; a < box.size(); ++a)
+  {
+    if (box[a].members == 0)
+    {
+      continue;
+    }
+    for (std::size_t b = a + 1; b < box.size(); ++b)
+    {
+      if (box[b].members == 0)
+      {
+        continue;
+      }
+      const float gapX = gap(box[a].minX, box[a].maxX, box[b].minX, box[b].maxX);
+      const float gapY = gap(box[a].minY, box[a].maxY, box[b].minY, box[b].maxY);
+      anyOverlap = anyOverlap || (gapX <= 0.0f && gapY <= 0.0f);
+      if (gapX > 0.0f && (nearestX == 0.0f || gapX < nearestX))
+      {
+        nearestX = gapX;
+      }
+      if (gapY > 0.0f && (nearestY == 0.0f || gapY < nearestY))
+      {
+        nearestY = gapY;
+      }
+    }
+  }
+  NEURON_LOG_INFO("self test: at the fit the widest empty lane inside a region is %.1f x %.1f px and the nearest two "
+                  "regions stand %.1f px apart in x and %.1f in y",
+                  static_cast<double>(widest), static_cast<double>(tallest), static_cast<double>(nearestX),
+                  static_cast<double>(nearestY));
+  _checks.Record("no two regions overlap on the fitted screen", !anyOverlap);
+  _checks.Record("regions read as clusters rather than as strips", nearestX > widest && nearestY > tallest);
+
+  // --- one region ---------------------------------------------------------
+
+  Neuron::MapCamera inside = fit;
+  inside.pixelsPerUnit = Neuron::MapScaleForLevel(Neuron::MapPinchLevel::Constellation, extent, layout.graph, metrics,
+                                                  tuning);
+  inside.centreX = topology.regions.front().x;
+  inside.centreY = topology.regions.front().y;
+
+  _checks.Record("pinching into one region reads as CONSTELLATION",
+                 Neuron::MapLevelOf(inside, extent, layout.graph, metrics, tuning) ==
+                     Neuron::MapPinchLevel::Constellation);
+
+  const Neuron::MapGraphCounts atRegion = Neuron::BuildMapGraph(topology, inside, layout.graph,
+                                                                Neuron::MapPinchLevel::Constellation, show, 8.0f, 1.0f,
+                                                                tuning, nodes, links, groups);
+  _checks.Record("the dots appear one level in", atRegion.nodes > 0 && atRegion.labels > 0);
+  _checks.Record("and the constellations are hulls rather than chips",
+                 atRegion.groups > 0 && std::none_of(groups.begin(), groups.begin() + atRegion.groups,
+                                                     [](const Neuron::MapGroupDisc& _disc) { return _disc.chipped; }));
+  _checks.Record("the label budget is never overspent", atRegion.labels <= tuning.maxLabels);
+  _checks.Record("the region marks give way to what is inside them",
+                 Neuron::BuildMapRegionMarks(topology, inside, layout.graph, Neuron::MapPinchLevel::Constellation,
+                                             metrics, 8.0f, 1.0f, tuning, marks) == 0);
+  _checks.Record("and the top bar names the region under the camera",
+                 Neuron::MapTitleRegion(topology, inside, layout.graph, metrics, tuning) !=
+                     Neuron::INVALID_MAP_REGION);
+
+  // --- one constellation --------------------------------------------------
+
+  Neuron::MapCamera close = inside;
+  close.pixelsPerUnit = Neuron::MapScaleForLevel(Neuron::MapPinchLevel::System, extent, layout.graph, metrics, tuning);
+  close.centreX = topology.groups.front().x;
+  close.centreY = topology.groups.front().y;
+
+  _checks.Record("pinching into one constellation reads as SYSTEM",
+                 Neuron::MapLevelOf(close, extent, layout.graph, metrics, tuning) == Neuron::MapPinchLevel::System);
+  _checks.Record("and the deepest pinch the camera allows reaches it",
+                 close.pixelsPerUnit <= fit.pixelsPerUnit * tuning.maxZoomFactor);
+
+  const Neuron::MapGraphCounts atSystem = Neuron::BuildMapGraph(topology, close, layout.graph,
+                                                                Neuron::MapPinchLevel::System, show, 8.0f, 1.0f,
+                                                                tuning, nodes, links, groups);
+  _checks.Record("inside a constellation its own outline is the whole screen",
+                 atSystem.groups == 0 && atSystem.nodes > 0 && atSystem.labels == atSystem.nodes);
+}
+
+/*
  * The map's fleet markers, folded from the summary family (U3b, ADR-016 §6).
  *
  * The claim under test is the fold: a summary row is an *anchor* and the map
@@ -2782,6 +3094,148 @@ void RunSystemViewGate(Checklist& _checks, const Game::EconomyDef& _economy)
     }
   }
   _checks.Record("and it does not carry the first system's counts across", countsCleared);
+
+  /*
+   * --- U6b: the door, the verbs, and the arrival -------------------------
+   *
+   * The three things the screen needs from the game that U6a did not build, all
+   * driven against the same real bake the rings above came from.
+   */
+
+  /*
+   * The door. The breadcrumb draws a *word* and `BuildSystemView` takes an
+   * **id**, and this call is the only bridge between them -- so a client
+   * without it has a system view it cannot open from the surface it is standing
+   * on.
+   */
+  std::uint16_t watched = 0xffffu;
+  _checks.Record("the client can name the system it is standing in", view.WatchedSystem(watched));
+  _checks.Record("and it is the one the grid's anchor belongs to",
+                 watched == static_cast<std::uint16_t>(start->system));
+
+  /*
+   * The verbs. Both are always *named*, because the panel draws two buttons at
+   * all times and the engine may not spell either word -- and both are dead
+   * with no fleet, because an order naming nothing never reaches the validator.
+   */
+  Neuron::SystemAnchorVerbs verbs;
+  const bool answered = view.AnchorVerbs(static_cast<std::uint16_t>(startAnchor), {}, verbs);
+  _checks.Record("the game names the system view's two verbs",
+                 answered && verbs.warp.name != nullptr && verbs.dock.name != nullptr);
+  _checks.Record("and offers neither to an empty selection", !verbs.warp.available && !verbs.dock.available);
+
+  Neuron::SystemAnchorVerbs unpicked;
+  _checks.Record("the words are answered for no anchor at all, so the panel need not invent them",
+                 view.AnchorVerbs(Neuron::INVALID_SYSTEM_ANCHOR, {}, unpicked) && unpicked.warp.name != nullptr &&
+                   unpicked.dock.name != nullptr && !unpicked.warp.available);
+
+  /*
+   * And the greying carries the **authority's** reason rather than one written
+   * on this screen (ADR-014 §3). A selection this client has never seen in a
+   * snapshot is refused by the shared validator, and the code the button greys
+   * with has to be the code the bounce would have carried -- asserted against
+   * the reason rather than merely against "not accepted", because a button that
+   * greys for the wrong reason tells the player the wrong thing.
+   */
+  const Neuron::EntityId strangers[] = {4242};
+  Neuron::SystemAnchorVerbs refused;
+  const bool judged = view.AnchorVerbs(static_cast<std::uint16_t>(second), strangers, refused);
+  _checks.Record("a fleet the client has never seen is refused both verbs",
+                 judged && !refused.warp.available && !refused.dock.available);
+  _checks.Record("and the reason is the validator's own word",
+                 refused.warp.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::UnknownShip));
+
+  /*
+   * And the reticle a fleet is **standing on** greys for a different reason,
+   * which is the half that proves the screen is asking about the anchor rather
+   * than about the selection.
+   *
+   * `ReachableAnchors` excludes the grid a fleet is on -- you cannot warp to
+   * where you already are -- so the home reticle answers `UnknownAnchor` while
+   * every other reticle in the system answers about the ships. Two anchors, two
+   * reasons, one selection: a verb greying on the selection alone could not
+   * produce that, and the panel would tell the player the wrong thing on the one
+   * place they are looking at.
+   */
+  Neuron::SystemAnchorVerbs atHome;
+  _checks.Record("and warping to the anchor you are standing on greys as an unreachable place",
+                 view.AnchorVerbs(static_cast<std::uint16_t>(startAnchor), strangers, atHome) &&
+                   atHome.warp.reasonCode == static_cast<std::uint16_t>(Game::OrderReason::UnknownAnchor));
+
+  /*
+   * The arrival notice (U6's clickable warp toasts, ADR-020 D15.5).
+   *
+   * The crossing above lands: its `InTransit` row leaves the summary and an
+   * `OnGrid` row appears at the same anchor. That -- and not a count going up --
+   * is what an arrival *is*, which is the distinction the notice exists to keep:
+   * an undock raises the count at a station too, and already has its own row.
+   */
+  const Game::FleetSummary landed[] = {
+    {startAnchor, Game::FleetState::OnGrid, 3, Game::FLEET_ETA_NONE},
+    {startAnchor, Game::FleetState::Docked, 2, Game::FLEET_ETA_NONE},
+    {second, Game::FleetState::OnGrid, 5, Game::FLEET_ETA_NONE},
+  };
+  if (!feed(landed))
+  {
+    _checks.Record("the arrival summary decodes", false);
+    return;
+  }
+
+  std::array<Neuron::Notice, Neuron::MAX_NOTICES_PER_POLL> notices{};
+  const std::uint32_t noticeCount = view.PollNotices(notices);
+
+  const Neuron::Notice* arrival = nullptr;
+  std::uint32_t dockNotices = 0;
+  for (std::uint32_t index = 0; index < noticeCount; ++index)
+  {
+    if (notices[index].actionLabel != nullptr)
+    {
+      arrival = &notices[index];
+    }
+    else
+    {
+      ++dockNotices;
+    }
+  }
+
+  _checks.Record("a crossing that lands raises a notice", arrival != nullptr);
+  if (arrival != nullptr)
+  {
+    _checks.Record("it carries the game's word for what a player can do about it",
+                   arrival->actionLabel != nullptr && arrival->actionLabel[0] != 0);
+    _checks.Record("and the grid to go to, which is where the fleet landed",
+                   arrival->actionKey == static_cast<std::uint32_t>(second));
+  }
+
+  /*
+   * And nothing else fired. The docked count did not move across those two
+   * summaries, so a dock or undock row here would mean the arrival comparison
+   * had leaked into the one above it -- the exact failure `NoteRosterChanges`
+   * warns about in its own comment.
+   */
+  _checks.Record("and an arrival is not also announced as a docking", dockNotices == 0);
+
+  /*
+   * The other direction, which is the regression this pair is really for: ships
+   * *leaving* a grid must not look like an arrival somewhere. The fleet warps
+   * out again -- `OnGrid` at `second` becomes a crossing back -- and the only
+   * honest number of arrival notices for that is zero.
+   */
+  const Game::FleetSummary leaving[] = {
+    {startAnchor, Game::FleetState::OnGrid, 3, Game::FLEET_ETA_NONE},
+    {startAnchor, Game::FleetState::Docked, 2, Game::FLEET_ETA_NONE},
+    {second, Game::FleetState::InTransit, 5, 90},
+  };
+  if (feed(leaving))
+  {
+    const std::uint32_t afterCount = view.PollNotices(notices);
+    std::uint32_t departures = 0;
+    for (std::uint32_t index = 0; index < afterCount; ++index)
+    {
+      departures += notices[index].actionLabel != nullptr ? 1u : 0u;
+    }
+    _checks.Record("a fleet leaving is not announced as an arrival", departures == 0);
+  }
 }
 
 void RunRosterOwnershipGate(Checklist& _checks)
@@ -3983,6 +4437,7 @@ int RunSelfTest(const AppConfig& _config, Neuron::Simulation& _simulation, const
   RunInSpaceWingGate(checks);
   RunWingNameLayerGate(checks);
   RunMapMarkerGate(checks);
+  RunStrategicMapGate(checks, _config);
   RunSystemViewGate(checks, _economy);
   RunRosterOwnershipGate(checks);
   RunRouteFeedGate(checks);

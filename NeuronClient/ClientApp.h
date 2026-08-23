@@ -41,6 +41,9 @@
 #include "StationView.h"
 #include "SurfaceStack.h"
 #include "SnapshotBuffer.h"
+#include "SystemScreen.h"
+#include "SystemView.h"
+#include "UploadBudget.h" // MAX_MAP_GROUPS -- the region-mark run is sized by it.
 #include "TextEditState.h"
 #include "UiFocus.h"
 #include "ToastStack.h"
@@ -239,6 +242,36 @@ private:
   void UpdateMapSurface();
 
   /*
+   * The system view's frame (U6, ADR-016 §9): the rings, the anchor under the
+   * finger, and the two verbs at the panel's foot.
+   *
+   * No camera and no cull, which is what separates it from the map above it:
+   * one system's anchors always fit, so the rings are laid out against the disc
+   * and every one of them is drawn. What it shares is the shape -- the seam is
+   * asked at the rate its answer changes, the placement is per frame, and the
+   * press is tested against the rects this function resolved (ADR-020 §5.1).
+   */
+  void UpdateSystemSurface();
+
+  /// A toast's action chip, tested above the surface branch because the stack is
+  /// drawn above it (U6). True when it took the press.
+  [[nodiscard]] bool UpdateToastActions();
+
+  /*
+   * One order at a named place, composed and sent (ADR-016 §9's *"the existing
+   * grammar"*).
+   *
+   * `CommitOrder` with an anchor where the puck's point would be, and it is a
+   * second function rather than an argument because the two differ in what
+   * *names* the target: a gesture produces metres, a screen produces an id, and
+   * §3 rules that a warp may take only the second. Everything after that --
+   * preview, ghost, pre-check, bounce, encode -- is the same pipeline, which is
+   * what makes a warp issued from a screen and a Move issued on the plane fail
+   * identically.
+   */
+  void CommitAnchorOrder(std::uint16_t _kind, std::uint16_t _anchor, double _nowSeconds);
+
+  /*
    * --- the route feeder (U4, ADR-016 §8) -----------------------------------
    *
    * SET DESTINATION asks the game for a plan and captures the fleet flying it;
@@ -313,6 +346,26 @@ private:
    */
   void AdvanceAutoFollow();
 
+  /*
+   * Steps to the next fleet this commander owns (U6, Tab).
+   *
+   * One ordering over two lists: the wings standing on this grid, then the
+   * places elsewhere the roster's blocks name. A wing is *taken and framed*,
+   * because both of those are what its row already does; a place is *asked for*,
+   * because that is what its block's button already does. So the key visits
+   * every fleet and invents no verb of its own.
+   */
+  void CycleFleet();
+
+  /*
+   * Puts the camera on the current selection (I2's rule 2, U6).
+   *
+   * Factored out of the roster's double-tap so the Tab stepper frames a wing
+   * exactly as a second tap on its row does -- two framings that could drift
+   * are one framing that cannot.
+   */
+  void FrameSelection();
+
   /// The slot in `m_orderKinds` holding this kind value, or `m_orderKindCount`
   /// when the game never listed it -- the per-kind option tables are indexed by
   /// slot, never by the opaque kind number.
@@ -368,6 +421,11 @@ private:
   /// nothing to them: the rule that makes a hit test on this screen mean
   /// anything is that the draw takes the same rects (ADR-020 §5.1).
   void BuildMapSurface();
+
+  /// The system view's draw (U6, D1): the star, the rings, the anchors and the
+  /// panel. Reads what `UpdateSystemSurface` placed and resolves nothing, on
+  /// the same rule as every other surface here.
+  void BuildSystemSurface();
 
   /*
    * The Tier-1 strip's collection and build (S14). Runs inside `BuildHud`'s
@@ -576,6 +634,55 @@ private:
   /// The grid a refused follow named, so the same one is not asked for again
   /// the moment the reply clears the request above.
   std::uint16_t m_followRefused = INVALID_FOLLOW_ANCHOR;
+
+  /*
+   * The camera pin (ADR-018 D16, U6's focus polish).
+   *
+   * *"I meant to be here."* Auto-follow moves the feed when nothing of the
+   * player's is left on the grid they are watching, which is right by default
+   * and wrong for a player deliberately watching a place. This suppresses the
+   * follow -- and D16 names what happens instead of it, which is why a pin is
+   * not simply a freeze: presence lost under a pinned camera falls to the map.
+   *
+   * Session state and not a setting: it is a decision about *this* grid at
+   * *this* moment, and a pin that survived a restart would be a camera held
+   * somewhere the player has forgotten they held it.
+   */
+  bool m_cameraPinned = false;
+
+  /// The pin's chip, left of MENU on the tactical bar. Resolved in `UpdateHud`
+  /// because it takes a press -- and it is a chip as well as a key because the
+  /// key is the accelerator and touch is the primary input (ADR-020's
+  /// 2026-08-22 amendment).
+  UiRect m_pinChipRect;
+
+  /*
+   * Which fleet the Tab stepper last visited, by **identity** rather than by
+   * index (U6).
+   *
+   * The roster and the location blocks are rebuilt from the game every frame,
+   * so an index would step through a list that had renumbered underneath it --
+   * a fleet docking mid-cycle would silently skip whichever fleet took its
+   * slot. The key is a wing's `groupId` or a place's anchor, with the top bit
+   * saying which, and the stepper finds the entry *after* it in the ordering as
+   * it stands now.
+   */
+  static constexpr std::uint32_t FLEET_CYCLE_PLACE_BIT = 0x8000'0000u;
+  std::uint32_t m_fleetCycled = NO_FLEET_CYCLED;
+
+  /*
+   * Whether the map in front of the player is the **transit view** -- the
+   * between-surface D16's second edge pushes them to, rather than the map they
+   * asked for (U6's focus polish).
+   *
+   * The distinction is what lets the crossing be framed and highlighted without
+   * hijacking a map the player opened themselves, and what lets the arrival
+   * hand them back: auto-follow pops this map when the fleet lands, which is
+   * the half of "the transit view completes auto-follow" that a highlight alone
+   * would not deliver.
+   */
+  bool m_mapIsTransitView = false;
+  bool m_mapTransitFramed = false;
 
   /// Which ships arrived and which left, and when (ADR-017 4). Fed from the
   /// scene rather than from anything the game says, because an id appearing and
@@ -834,10 +941,92 @@ private:
   std::vector<MapGroupDisc> m_mapGroupRects;
   MapGraphCounts m_mapCounts;
 
-  /// The tactical top bar's location breadcrumb, which is the way *up* to the
-  /// map -- `tactical-hud.png` draws it as `◈ VESTA-3 ▸ FRONTIER 0.4` with a
-  /// drill-up chevron, and this is that chevron made real.
-  UiRect m_locationChipRect;
+  /*
+   * What the graph measures, asked once beside the topology.
+   *
+   * The pinch levels and the top bar are both statements about how big a
+   * *constellation* or a *region* is on screen, and neither is derivable from
+   * the graph's total extent -- see `MapScreenTuning::regionLevelDiameter`. The
+   * measurement is fixed for the session because the bake is.
+   */
+  MapGraphMetrics m_mapMetrics;
+
+  /*
+   * The region marks, at REGION level only, and a fixed array because there are
+   * fifty of them rather than 2,500 -- the argument the three runs above make
+   * for `std::vector` does not reach this far.
+   */
+  MapRegionMark m_mapRegionMarks[MAX_MAP_GROUPS];
+  std::uint32_t m_mapRegionMarkCount = 0;
+
+  /// Which region the top bar names this frame, or `INVALID_MAP_REGION` for the
+  /// universe. See `MapTitleRegion`.
+  std::uint32_t m_mapTitleRegion = INVALID_MAP_REGION;
+
+  /*
+   * --- the system view (U6, `D1`, ADR-016 §9, §9b) -------------------------
+   *
+   * One level below the map, and a much smaller surface for it: no camera, no
+   * projection and no cull, because the whole subject is one system's rings and
+   * they all fit. What it keeps is what the game said, what the player picked,
+   * and the rects this frame placed.
+   */
+  SystemScreenTuning m_systemTuning;
+  SystemScreenLayout m_systemLayout;
+
+  /*
+   * Which system is open, and the spans the game filled for it.
+   *
+   * `SystemViewData`'s storage is the game's and is good **only until the next
+   * `BuildSystemView`** (`WorldView.h`), so this is re-asked rather than
+   * retained across a close: a second system asked for while these spans were
+   * being drawn would be a screen drawing another system's labels.
+   */
+  std::uint16_t m_systemId = 0;
+  SystemViewData m_system;
+  bool m_systemHasData = false;
+
+  /// When the rings were last asked for. The bake does not move and the two
+  /// counts on it move at the summary family's ~1 Hz, so this asks at that rate
+  /// -- `SystemView.h`'s second shape, the map markers' arrangement exactly.
+  double m_systemAskedAt = -1.0;
+
+  /// This frame's placement. Fixed arrays, because the caps are a system's
+  /// worth rather than a universe's.
+  SystemAnchorRect m_systemAnchorRects[MAX_SYSTEM_ANCHORS];
+  SystemBackdropRect m_systemBackdropRects[MAX_SYSTEM_BACKDROP];
+  SystemPlacement m_systemPlaced;
+
+  /*
+   * Which anchor the panel is about, as an **id** rather than an index.
+   *
+   * An index would be into a list the game rebuilds on every ask, so a summary
+   * landing between two frames could quietly re-point the selection at a
+   * different place -- the panel would keep its highlight and change its
+   * subject. The id survives the rebuild, which is what `SystemAnchor::id`
+   * being opaque-and-echoed is for.
+   */
+  std::uint16_t m_systemSelected = 0;
+  bool m_systemHasSelection = false;
+
+  /// The two verbs for the selected anchor, asked per frame because their
+  /// answer changes with the selection behind this screen.
+  SystemAnchorVerbs m_systemVerbs;
+  bool m_systemHasVerbs = false;
+
+  /*
+   * The tactical top bar's location breadcrumb, in its two halves (U5, U6).
+   *
+   * `tactical-hud.png` draws it as `◈ VESTA-3 ▸ FRONTIER 0.4`, and a breadcrumb
+   * is a hierarchy of places rather than one control: the **system** word opens
+   * the inside of the system, the chevron and the **region** word open the map
+   * above it. U5 made the whole strip one target because there was only one
+   * screen to reach; U6 gives the other half its own level, which is the
+   * TACTICAL ⇄ SYSTEM handoff and needs no new button on the one bar that has
+   * no room for one.
+   */
+  UiRect m_systemChipRect;
+  UiRect m_regionChipRect;
 
   /*
    * The route being flown, and the fleet flying it (U4).
@@ -1062,6 +1251,11 @@ private:
    * can never truncate and no cap has to be invented for it.
    */
   std::vector<EntityId> m_groupMembers;
+
+  /// The Tab stepper's flattened walk over the two fleet lists, refilled on the
+  /// press. A member for `m_groupMembers`' reason: a keypress should not
+  /// allocate, and this one is pressed repeatedly by design.
+  std::vector<std::uint32_t> m_fleetCycleKeys;
 
   /// Where the selected ships are, for the camera to frame. A member for
   /// `m_groupMembers`' reason: a press should not allocate.

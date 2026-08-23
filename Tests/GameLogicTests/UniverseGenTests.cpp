@@ -178,6 +178,77 @@ constexpr std::int32_t SHIFT_UNIVERSE = 30;
   return dx * dx + dy * dy;
 }
 
+
+/*
+ * R15's measurements, in one place: what a region's content actually occupies
+ * on the plane, and how far it stands from the next one.
+ *
+ * These are *derived from the baked positions* rather than from the generator's
+ * constants, which is the whole point. The strips defect satisfied every
+ * constant the bake declared -- the separations held, the Voronoi property
+ * held -- and still produced seven full-width bands, because nothing measured
+ * the *shape* of what a region occupied against the gap it left. So this
+ * measures the shape.
+ */
+struct RegionExtent
+{
+  std::int64_t minX = 0;
+  std::int64_t maxX = 0;
+  std::int64_t minY = 0;
+  std::int64_t maxY = 0;
+
+  /// The widest a region's own constellations stand apart, per axis. What the
+  /// gaps below have to beat if regions are to read as separate clusters.
+  std::int64_t spanX = 0;
+  std::int64_t spanY = 0;
+
+  [[nodiscard]] std::int64_t Width() const { return maxX - minX; }
+  [[nodiscard]] std::int64_t Height() const { return maxY - minY; }
+};
+
+/*
+ * One box per region: its constellation centres, grown by the radius a system
+ * may sit at from its centre. That grown box is what a player sees -- the dots,
+ * not the placed centres -- so it is what "reads as a cluster" is stated over.
+ */
+[[nodiscard]] std::vector<RegionExtent> RegionExtents(const UniverseDef& _universe)
+{
+  std::vector<RegionExtent> extents(_universe.regions.size());
+  std::vector<bool> seen(_universe.regions.size(), false);
+  for (const Constellation& constellation : _universe.constellations)
+  {
+    const std::size_t index = constellation.region - 1u;
+    RegionExtent& extent = extents[index];
+    if (!seen[index])
+    {
+      seen[index] = true;
+      extent.minX = extent.maxX = constellation.centre.x;
+      extent.minY = extent.maxY = constellation.centre.y;
+      continue;
+    }
+    extent.minX = std::min(extent.minX, constellation.centre.x);
+    extent.maxX = std::max(extent.maxX, constellation.centre.x);
+    extent.minY = std::min(extent.minY, constellation.centre.y);
+    extent.maxY = std::max(extent.maxY, constellation.centre.y);
+  }
+  for (RegionExtent& extent : extents)
+  {
+    extent.spanX = extent.Width();
+    extent.spanY = extent.Height();
+    extent.minX -= CONSTELLATION_RADIUS_METRES;
+    extent.maxX += CONSTELLATION_RADIUS_METRES;
+    extent.minY -= CONSTELLATION_RADIUS_METRES;
+    extent.maxY += CONSTELLATION_RADIUS_METRES;
+  }
+  return extents;
+}
+
+/// The gap between two intervals, or zero where they overlap.
+[[nodiscard]] std::int64_t IntervalGap(std::int64_t _aMin, std::int64_t _aMax, std::int64_t _bMin, std::int64_t _bMax)
+{
+  return std::max<std::int64_t>(0, std::max(_aMin, _bMin) - std::min(_aMax, _bMax));
+}
+
 } // namespace
 
 TEST_CLASS(UniverseRouteTests)
@@ -435,6 +506,107 @@ public:
     {
       Assert::IsTrue(members[constellation.id] > 0, L"a constellation has no systems");
     }
+  }
+
+
+  /*
+   * R15, made mechanical (build order U1's invariants, ADR-016 section 2).
+   *
+   * The risk register's named failure mode is *"the generator's layout defeats
+   * the strategic map ... the print's hulls and labels stop working"*, and it
+   * arrived exactly as written: five constellations laid on a three-column
+   * lattice inside a square region cell made a region's content half again as
+   * wide as it was tall, so the horizontal gap between two regions came out
+   * *smaller* than the pitch between two constellations inside one. Fifty
+   * regions rendered as seven full-width horizontal strips of merged dots.
+   *
+   * Every invariant this suite already had stayed green through that. The
+   * separations held; the Voronoi property held; the gate graph was connected.
+   * What nobody measured was the **shape** -- so these three do, and they are
+   * the checks that would have caught the strips before a person did.
+   */
+  TEST_METHOD(RegionsReadAsClustersRatherThanStrips)
+  {
+    const UniverseDef universe = Bake(SmallConfig());
+    const std::vector<RegionExtent> extents = RegionExtents(universe);
+    Assert::IsTrue(!extents.empty(), L"a universe with no regions has nothing to check");
+
+    /*
+     * (a) A region's content is isotropic. A square cell whose content is a
+     * wide, short rectangle is the strips defect at its source, and it is
+     * visible one region at a time -- which is what makes this the cheapest of
+     * the three to state and the one that localises the fault.
+     *
+     * The band is generous (a 5:3 rectangle passes) because the jitter is real.
+     * What it refuses is the 164 x 94 the three-column lattice produced.
+     */
+    for (const RegionExtent& extent : extents)
+    {
+      Assert::IsTrue(extent.Width() > 0 && extent.Height() > 0, L"a region occupies no area");
+      Assert::IsTrue(extent.Width() * 5 >= extent.Height() * 3 && extent.Height() * 5 >= extent.Width() * 3,
+                     L"a region's content is far wider than it is tall, or the reverse");
+    }
+
+    /*
+     * (b) Regions stand further apart than their own constellations do, on
+     * **both** axes -- the property the player actually reads, and the one the
+     * strips broke. Measured as the smallest gap that separates any two regions
+     * on an axis, against the widest a single region's constellations stand
+     * apart on that axis.
+     *
+     * A pair overlapping on an axis contributes nothing: two regions in one
+     * column are separated in y, and demanding an x gap of them would be
+     * demanding a lattice that is not a lattice.
+     */
+    std::int64_t maxSpanX = 0;
+    std::int64_t maxSpanY = 0;
+    for (const RegionExtent& extent : extents)
+    {
+      maxSpanX = std::max(maxSpanX, extent.spanX);
+      maxSpanY = std::max(maxSpanY, extent.spanY);
+    }
+
+    std::int64_t minGapX = 0;
+    std::int64_t minGapY = 0;
+    for (std::size_t a = 0; a < extents.size(); ++a)
+    {
+      for (std::size_t b = a + 1; b < extents.size(); ++b)
+      {
+        const std::int64_t gapX = IntervalGap(extents[a].minX, extents[a].maxX, extents[b].minX, extents[b].maxX);
+        const std::int64_t gapY = IntervalGap(extents[a].minY, extents[a].maxY, extents[b].minY, extents[b].maxY);
+        Assert::IsTrue(gapX > 0 || gapY > 0, L"two regions' content overlaps");
+        if (gapX > 0 && (minGapX == 0 || gapX < minGapX))
+        {
+          minGapX = gapX;
+        }
+        if (gapY > 0 && (minGapY == 0 || gapY < minGapY))
+        {
+          minGapY = gapY;
+        }
+      }
+    }
+    Assert::IsTrue(minGapX > maxSpanX, L"two regions sit closer in x than one region is wide");
+    Assert::IsTrue(minGapY > maxSpanY, L"two regions sit closer in y than one region is tall");
+
+    /*
+     * (c) And the universe as a whole is roughly square, because the strategic
+     * map fits it to a landscape viewport on its tighter axis: a plane twice as
+     * wide as it is tall wastes half the screen before a single dot is drawn,
+     * and one seven times as wide is the screenshot this test exists for.
+     */
+    std::int64_t minX = extents.front().minX;
+    std::int64_t maxX = extents.front().maxX;
+    std::int64_t minY = extents.front().minY;
+    std::int64_t maxY = extents.front().maxY;
+    for (const RegionExtent& extent : extents)
+    {
+      minX = std::min(minX, extent.minX);
+      maxX = std::max(maxX, extent.maxX);
+      minY = std::min(minY, extent.minY);
+      maxY = std::max(maxY, extent.maxY);
+    }
+    Assert::IsTrue((maxX - minX) <= (maxY - minY) * 2, L"the universe is more than twice as wide as it is tall");
+    Assert::IsTrue((maxY - minY) <= (maxX - minX) * 2, L"the universe is more than twice as tall as it is wide");
   }
 
   TEST_METHOD(SecurityStaysInsideItsRegionsBand)
