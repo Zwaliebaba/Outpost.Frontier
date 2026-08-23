@@ -20,7 +20,7 @@ CHANGELOG below.
 | # | Screen | Plate | Source | v | Status / grounding |
 |---|---|---|---|---|---|
 | 07a | Tactical HUD | tactical-hud.png | Tactical HUD.dc.html | 1.0 | Built (S11); code audited 2026-08-21 — ../Archive/prompt-hud-economy.md carries the deltas |
-| 07b | Tactical Icon System | tactical-icon-system.png | Tactical Icon System.dc.html | 1.0 | ~~Built (IconSystem)~~ **Corrected 2026-08-23: not built, and there is no `IconSystem` in the tree** — no icon family, no density ladder, nothing. Three-channel rule and 20 px floor are the *print's*, unimplemented. **This row is where a repeated mistake came from**: ADR-022 §5d and the universe build order both said the counted chip renders through *"the icon ladder's **existing** rung"*, U3d-c found there was none and built `CountedChip.h` as the first rung, and U4 then found the STATIC icon needs a replicated hull class as well as a system. Three slices re-derived from code what this column asserted |
+| 07b | Tactical Icon System | tactical-icon-system.png | Tactical Icon System.dc.html | 1.0 | ~~Built (IconSystem)~~ ~~**Corrected 2026-08-23: not built, and there is no `IconSystem` in the tree** — no icon family, no density ladder, nothing~~ **Built 2026-08-23 (07b), device-free half: `NeuronClient/IconSystem.h` is the four channels, the 20 px floor and §4's markers; `NeuronClient/IconDensity.h` is §6's ladder and its merge; `Outpost/HullIcons.h` carries §1's eleven `sw`/`sh` pairs (twelve with the gate, flagged inferred) and is `static_assert`ed against the plate's own rules. What is left is §7 — the SDF atlas and the pass that samples it, which are art plus a GPU — and the three combat markers, which have no phase.** **This row is where a repeated mistake came from**: ADR-022 §5d and the universe build order both said the counted chip renders through *"the icon ladder's **existing** rung"*, U3d-c found there was none and built `CountedChip.h` as the first rung, and U4 then found the STATIC icon needs a replicated hull class as well as a system. Three slices re-derived from code what this column asserted. **07b closed the second of those**: `SceneEntity` now carries the hull's icon slot, its standing and its silhouette, so the client knows what class an entity is for the first time. **And the row said "three-channel rule" for a print whose first sentence says *four*** — silhouette, size, colour, ring — which is one more thing a status column asserted and nobody checked |
 | 07c | Overlay Pass | overlay-pass.png | Overlay Pass.dc.html | 1.0 | Built — the pass is `OverlayWorld` in `GpuPasses.h`'s fixed list, ~~`OverlayPass`~~ *(name corrected 2026-08-23; the pass is real, the type never had that name)*; compositing rules D-P6 obeys |
 | 07d | Alerts and Toasts | alerts-and-toasts.png | Alerts and Toasts.dc.html | 1.0 | Built (ToastStack); dwells verified against code 2026-08-21 |
 | 07e | Session Surfaces | session-surfaces.png | Session Surfaces.dc.html | 1.0 | Designed; away-digest names real economy systems |
@@ -44,6 +44,17 @@ CHANGELOG below.
 > lesson is narrow and worth keeping: *a status column that names an implementation type is
 > making a checkable claim, so it should be checked.* Every "Built (X)" row above has now been
 > grepped for X.
+>
+> **And on the same day 07b built the thing the row had claimed, which turned the audit's lesson
+> over.** `IconSystem` exists now — so the row that was wrong for a fortnight is right, by the
+> longer route. Two things came out of building it that the audit could not have found by
+> grepping. The row also said *"three-channel rule"* for a print whose first sentence says
+> **four**, which no amount of checking type names would have caught: a status column can be
+> wrong about the *design* as well as about the code, and only reading the plate finds that.
+> And the plate is now the second one in this corpus to be **stale rather than unimplemented**
+> — `strategic-map.png` predated the touch reversal, and this one predates `HullClass::Gate`,
+> which ADR-016 §10 appended to a taxonomy §7 had closed at eleven. The gate's glyph row is
+> written from §2's description and flagged inferred, in ADR-027's manner.
 
 Not in this corpus, correctly: **character/skills** (no data model — the one inventory item
 that stays open), D-C2 (site field visual treatment), D-C3 (economy audio), D1 System View

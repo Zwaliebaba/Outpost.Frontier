@@ -66,6 +66,39 @@ namespace
 constexpr UiRect PANEL{100.0f, 100.0f, 200.0f, 200.0f};
 constexpr UiRect ELSEWHERE{600.0f, 600.0f, 100.0f, 100.0f};
 
+/*
+ * The two frames a mouse click actually produces, mirroring
+ * `Window::UpdateMouseContact` field for field (R30).
+ *
+ * Modelled rather than approximated, because the whole point of the pair below
+ * is *when* each half arrives: the window fills contact zero from the left
+ * button, so a click goes `Down` on the frame the button falls and `Up` on the
+ * frame it rises -- and the recogniser reports a tap on the second of those.
+ * A helper that set both in one frame would test a machine this client does not
+ * have.
+ */
+[[nodiscard]] InputFrame MouseDownAt(std::int32_t _x, std::int32_t _y)
+{
+  InputFrame frame = FrameWithLeftPressAt(_x, _y);
+  frame.contacts[0] = PointerContact{0u, _x, _y, PointerPhase::Down};
+  frame.contactCount = 1;
+  return frame;
+}
+
+[[nodiscard]] InputFrame MouseUpAt(std::int32_t _x, std::int32_t _y)
+{
+  InputFrame frame = QuietFrame();
+  frame.cursorX = _x;
+  frame.cursorY = _y;
+  frame.buttonReleased[static_cast<std::uint32_t>(InputButton::Left)] = true;
+  frame.contacts[0] = PointerContact{0u, _x, _y, PointerPhase::Up};
+  frame.contactCount = 1;
+  return frame;
+}
+
+/// One frame at 60 Hz, the same step `GestureTests` uses.
+constexpr float FRAME_SECONDS = 1.0f / 60.0f;
+
 /// A field on the hangar, which is the first thing in this game that will hold
 /// focus (a wing rename -- ADR-017 §6).
 constexpr WidgetId WING_NAME_FIELD = 7;
@@ -563,6 +596,107 @@ public:
     Assert::AreEqual(150.0f, router.CursorX(), 1e-6f);
     Assert::AreEqual(175.0f, router.CursorY(), 1e-6f);
     Assert::AreEqual<std::uint32_t>(1440, router.Frame().viewportWidth);
+  }
+
+  /*
+   * --- the tap claim (R30) -----------------------------------------------
+   *
+   * `ClaimPointerIn` asks a mouse's question -- "did a button go down in this
+   * rect" -- and a finger has no button. `ClaimTapIn` asks the one both answer.
+   */
+
+  TEST_METHOD(ATapClaimsWhereItLifted)
+  {
+    // The lift point and not the cursor: they differ by up to the slop, and the
+    // lift is the last place the player saw their finger.
+    GestureState gesture;
+    gesture.tapped = true;
+    gesture.tapX = 150.0f;
+    gesture.tapY = 150.0f;
+
+    InputRouter router;
+    router.Begin(QuietFrame(), UiFocus{});
+    router.NoteGesture(gesture);
+
+    Assert::IsFalse(router.ClaimTapIn(ELSEWHERE), L"a rect the tap did not land in claims nothing");
+    Assert::IsTrue(router.ClaimTapIn(PANEL));
+    Assert::IsFalse(router.PointerAvailable(), L"and it spends the pointer like any other claim");
+  }
+
+  TEST_METHOD(AClaimedPointerHidesTheTapFromEveryLaterStage)
+  {
+    // The same sentence the button edges carry, which is why `ClaimTapIn` asks
+    // through `Gesture()` rather than off the frame: a second way in would route
+    // around the claim.
+    GestureState gesture;
+    gesture.tapped = true;
+    gesture.tapX = 150.0f;
+    gesture.tapY = 150.0f;
+
+    InputRouter router;
+    router.Begin(QuietFrame(), UiFocus{});
+    router.NoteGesture(gesture);
+
+    Assert::IsTrue(router.ClaimTapIn(PANEL));
+    Assert::IsFalse(router.Gesture().tapped, L"the world asks the same question and gets the other answer");
+    Assert::IsFalse(router.ClaimTapIn(PANEL), L"and the rect that took it cannot take it twice");
+  }
+
+  TEST_METHOD(ADragOverAControlActuatesNothing)
+  {
+    // A press used to fire the moment it landed. A drag that begins on a control
+    // now does nothing at all -- the same rule the camera pan carries (a gesture
+    // may only begin where it is allowed to), pointed at the chrome.
+    GestureState gesture;
+    gesture.phase = GesturePhase::Dragging;
+    gesture.x = 150.0f;
+    gesture.y = 150.0f;
+    gesture.originX = 150.0f;
+    gesture.originY = 150.0f;
+
+    InputRouter router;
+    router.Begin(QuietFrame(), UiFocus{});
+    router.NoteGesture(gesture);
+
+    Assert::IsFalse(router.ClaimTapIn(PANEL));
+    Assert::IsTrue(router.PointerAvailable());
+  }
+
+  /*
+   * **The defect R30's conversion was standing on**, asserted rather than
+   * described.
+   *
+   * I2 rewrote the roster to read the gesture and left it behind a
+   * `Pressed(InputButton::Left)` gate. Both halves were right; the gate could
+   * not open, because a press edge is the frame a contact goes *down* and a tap
+   * is the frame it comes *up*. Two frames, never one -- so a tap could not take
+   * a wing, a second tap could not frame one, and a long-press could not add.
+   *
+   * This drives the real recogniser over the real frames `Window` produces, so
+   * it fails if either side of that pair ever changes its mind.
+   */
+  TEST_METHOD(APressEdgeAndTheTapItBecomesAreNeverTheSameFrame)
+  {
+    GestureRecognizer gestures;
+    const GestureTuning tuning;
+
+    const InputFrame down = MouseDownAt(150, 150);
+    const GestureState onDown = gestures.Update(down, tuning, FRAME_SECONDS);
+    Assert::IsTrue(down.Pressed(InputButton::Left), L"the press edge is on the frame the button falls");
+    Assert::IsFalse(onDown.tapped, L"and no tap has happened yet");
+
+    const InputFrame up = MouseUpAt(150, 150);
+    const GestureState onUp = gestures.Update(up, tuning, FRAME_SECONDS);
+    Assert::IsTrue(onUp.tapped, L"the tap arrives on the lift");
+    Assert::IsFalse(up.Pressed(InputButton::Left), L"and the press edge is long gone");
+
+    // Which is the whole finding: a control gated on the press edge and reading
+    // the tap is a control that can never act.
+    InputRouter router;
+    router.Begin(up, UiFocus{});
+    router.NoteGesture(onUp);
+    Assert::IsFalse(router.Pressed(InputButton::Left));
+    Assert::IsTrue(router.ClaimTapIn(PANEL));
   }
 };
 

@@ -157,6 +157,7 @@
     <ClCompile Include="AppConfig.cpp" />
     <ClCompile Include="ConfigLoad.cpp" />
     <ClCompile Include="ReplicatedWorldView.cpp" />
+    <ClCompile Include="HullIcons.cpp" />
     <ClCompile Include="ShaderTable.cpp" />
     <ClCompile Include="UniverseBake.cpp" />
     <ClCompile Include="EconomyLoad.cpp" />
@@ -170,6 +171,7 @@
     <ClInclude Include="AppConfig.h" />
     <ClInclude Include="ConfigLoad.h" />
     <ClInclude Include="ReplicatedWorldView.h" />
+    <ClInclude Include="HullIcons.h" />
     <ClInclude Include="ShaderTable.h" />
     <ClInclude Include="UniverseBake.h" />
     <ClInclude Include="EconomyLoad.h" />

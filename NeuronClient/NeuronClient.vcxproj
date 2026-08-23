@@ -33,6 +33,8 @@
     <ClCompile Include="Window.cpp" />
     <ClCompile Include="GlyphAtlas.cpp" />
     <ClCompile Include="CommandRow.cpp" />
+    <ClCompile Include="IconDensity.cpp" />
+    <ClCompile Include="IconSystem.cpp" />
     <ClCompile Include="GhostLane.cpp" />
     <ClCompile Include="GpuLamps.cpp" />
     <ClCompile Include="GpuMeshes.cpp" />
@@ -138,6 +140,8 @@
     <ClInclude Include="CommandRow.h" />
     <ClInclude Include="GhostLane.h" />
     <ClInclude Include="HudPalette.h" />
+    <ClInclude Include="IconDensity.h" />
+    <ClInclude Include="IconSystem.h" />
     <ClInclude Include="HudRoster.h" />
     <ClInclude Include="UiLayout.h" />
   </ItemGroup>

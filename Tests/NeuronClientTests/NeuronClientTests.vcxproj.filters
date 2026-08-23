@@ -75,6 +75,9 @@
     <ClCompile Include="CountedChipTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="IconTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="MapScreenTests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

@@ -109,6 +109,7 @@
     <ClCompile Include="PickingTests.cpp" />
     <ClCompile Include="SettingsTests.cpp" />
     <ClCompile Include="CountedChipTests.cpp" />
+    <ClCompile Include="IconTests.cpp" />
     <ClCompile Include="MapScreenTests.cpp" />
     <ClCompile Include="SystemScreenTests.cpp" />
     <ClCompile Include="RoutePlanTests.cpp" />

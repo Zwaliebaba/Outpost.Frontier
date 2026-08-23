@@ -704,6 +704,31 @@ place is 200 chips, so the hangar's wing columns scroll.
 > > in-space assignment; that is I3's, beside the order surfaces. The authority half landed
 > > first so the screen slice is a screen slice.
 >
+> > **The chrome converted 2026-08-23, with 07b rather than with I3 — and §2 grew one call.**
+> >
+> > I2 was scoped to *selection* and the camera, so it left every control in the client reading
+> > a left press through `ClaimPointerIn`. `InputRouter::ClaimTapIn` is that method's
+> > replacement wherever a control is **actuated**, and the difference is the whole of the
+> > reversal in one line: a press edge is a mouse's word for *"the button went down"*, and a
+> > finger has no button. A tap is what both produce through the same seam. The tactical HUD,
+> > the settings screen and the three back chips ask it now, and
+> > `Pressed(InputButton::Left)` no longer gates a control anywhere — the right button's order
+> > puck is the one raw button read left, and that is I3's by design.
+> >
+> > Two behaviour changes rather than refactors, both stated because both are visible to a
+> > player. A control acts on **release** rather than on press, so sliding off a button before
+> > lifting is no longer a commitment. And **a drag that begins on a control does nothing at
+> > all**, which is the rule the camera pan already carried — a gesture may only begin where it
+> > is allowed to — pointed at the chrome instead of at the world.
+> >
+> > **And it found that I2's roster conversion had never been able to run.** The roster read
+> > `tapped` and `longPressed` from behind a left-press gate, and a tap fires on the frame a
+> > contact *lifts* while a press edge fires on the frame it goes *down*: never the same frame.
+> > Every rule was right and none of them could fire. That is now a test rather than a paragraph
+> > (`APressEdgeAndTheTapItBecomesAreNeverTheSameFrame`), and the lesson generalises past this
+> > file: **converting a consumer and leaving its gate builds dead code**, silently, with a
+> > green suite either side of it.
+>
 > **The command wheel is therefore built, not superseded.** It is half the order model — under
 > §1's table, ATTACK and ABILITY have no other entry point — and `MAX_ORDER_KINDS = 8`
 > (`OrderIntent.h:383`) stops being circular the day it is real. The verb taxonomy the row and

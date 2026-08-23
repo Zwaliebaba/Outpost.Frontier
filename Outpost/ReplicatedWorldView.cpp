@@ -4,6 +4,7 @@
 
 #include "EconomyDef.h"
 #include "Eta.h"
+#include "HullIcons.h"
 #include "Formation.h"
 #include "FleetSummary.h"
 #include "OrderMessages.h"
@@ -479,6 +480,28 @@ void ReplicatedWorldView::BuildScene(double _renderTick, RenderScene& _outScene)
     // The protection bit and whatever joins it, carried across for the overlay
     // to draw. The engine gets the byte and not its meaning (ADR-014 4).
     entity.statusBits = ship.statusBits;
+
+    /*
+     * And the icon sheet's three game-side channels (`tactical-icon-system.png`,
+     * 07b), filled in the same loop for the same reason everything else here is:
+     * it already has the hull class in hand, and a second sweep to decorate the
+     * entities it just built is a second place for the exclusions above to be
+     * forgotten.
+     *
+     * All three are the game answering a question the engine may not ask.
+     * **Which glyph** is a slot rather than a name, on the mesh table's own
+     * precedent. **Which standing** is ADR-022 §8b's two status bits decoded
+     * here -- the bits' meaning is this project's, and the engine resolves the
+     * class it gets through the player's palette (ADR-018 D14's reading, the
+     * correction U5a had to make on the map). **How big** is
+     * `SilhouetteRadiusMetres`, the presentation-only number this tree already
+     * scales meshes by, which is what carries the sheet's tonnage channel
+     * without NeuronClient learning what a tonne is.
+     */
+    entity.iconSlot = HullIconSlot(hull);
+    entity.standing = StandingOf(Game::RelationshipFrom(ship.statusBits));
+    entity.silhouetteRadiusMetres = Game::SilhouetteRadiusMetres(hull);
+
     _outScene.entities.push_back(entity);
 
     // Which of these is the station, for the context action to offer a verb on.
