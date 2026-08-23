@@ -89,6 +89,9 @@
     <ClCompile Include="ReplicatedWorldView.cpp">
       <Filter>Boot</Filter>
     </ClCompile>
+    <ClCompile Include="HullIcons.cpp">
+      <Filter>Boot</Filter>
+    </ClCompile>
     <ClCompile Include="AppConfig.cpp">
       <Filter>Config</Filter>
     </ClCompile>
@@ -117,6 +120,9 @@
       <Filter>Boot</Filter>
     </ClInclude>
     <ClInclude Include="ReplicatedWorldView.h">
+      <Filter>Boot</Filter>
+    </ClInclude>
+    <ClInclude Include="HullIcons.h">
       <Filter>Boot</Filter>
     </ClInclude>
     <ClInclude Include="AppConfig.h">

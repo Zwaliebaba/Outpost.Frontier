@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EntityRecord.h"
+#include "IconSystem.h" // IconSlot and StandingColour -- the two icon channels below.
 
 #include <DirectXMath.h>
 
@@ -71,6 +72,51 @@ struct SceneEntity
    * nothing here and the one after that costs nothing either.
    */
   std::uint8_t statusBits = 0;
+
+  /*
+   * Which glyph this entity wears (`tactical-icon-system.png` §1, 07b).
+   *
+   * An index into the table the composition root supplies, exactly as
+   * `InstanceRecord::classId` is an index into the mesh table -- the engine
+   * draws slot six without learning that slot six is a Battleship (ADR-014,
+   * ADR-018 D14's reading). `INVALID_ICON_SLOT` draws no glyph, which is the
+   * same answer `BuildScene` already gives a hull class with no mesh.
+   *
+   * **Not `InstanceRecord::classId` reused.** That is the *render* class -- the
+   * order of the mesh list in `Outpost.json` -- and a mesh list may hold two
+   * files for one hull class or a file for none. The icon taxonomy is closed at
+   * eleven plus the gate and is a different question, which is why it is a
+   * different index.
+   */
+  IconSlot iconSlot = INVALID_ICON_SLOT;
+
+  /*
+   * The icon sheet's colour channel (§3), as a **class** and not a colour.
+   *
+   * ADR-022 §8b's two relationship bits arrive in `statusBits`, and it is the
+   * game that knows which bits those are -- so the game resolves them and hands
+   * over the class, and this library resolves the class through the player's own
+   * `HudPalette`. That is the correction U5a had to make on the map: a colour
+   * baked on the game's side is a colour that ignores the colour-vision setting,
+   * on the channel whose whole subject is telling parties apart.
+   */
+  StandingColour standing = StandingColour::Neutral;
+
+  /*
+   * How big this hull is on the plane, in metres -- the icon sheet's *size*
+   * channel (§1: *"size carries tonnage"*).
+   *
+   * `Game::SilhouetteRadiusMetres`, the same presentation-only number the
+   * composition root already scales meshes by. It is here rather than derived
+   * from `pickRadiusMetres` because that one is deliberately **larger** than the
+   * hull so a moving ship stays clickable, and an icon sized by it would be a
+   * picking tolerance wearing a shape.
+   *
+   * Zero for a hull with no stated size, which `IconTierFor` reads as the
+   * strategic rung: a glyph nobody can size is merged into a count rather than
+   * drawn at a guess.
+   */
+  float silhouetteRadiusMetres = 0.0f;
 };
 
 /// Per-instance data, matching ADR-006 §6 field for field.

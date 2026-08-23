@@ -29,6 +29,15 @@
  * are about the connection rather than about the world (`StaleMarker`'s
  * reasoning, one level up).
  *
+ * > **The rung this one stood in for was built at 07b, and the two stay
+ * > separate** (`IconDensity.h`). That file is the merge the print actually
+ * > describes -- an extent and a count over hulls the client *has* -- and this
+ * > one is the feed's. A player can see both at once and they say different
+ * > things: *"there are more ships here than you are being shown"* against
+ * > *"these are the ships you are being shown, drawn as one"*. The paragraph
+ * > above is what kept them from being merged into one type when the second
+ * > arrived.
+ *
  * **It never says "empty".** That is the whole rule ADR-022 §5d states: *"The
  * player is never told a grid is empty when it is not; they are told how many
  * they are not being shown."* A zero count draws nothing, because nothing is

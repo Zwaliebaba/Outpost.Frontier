@@ -222,6 +222,14 @@ is the honest version of the same sentence.
 > this clause also cited the wrong section) is unbuilt, so there was nothing to render through;
 > `NeuronClient/CountedChip.h` is that rung, built here and waiting for its second caller.
 >
+> > **The ladder was built later the same day (07b, `NeuronClient/IconDensity.h`), and it is not
+> > this rung's second caller.** It never could be: the paragraph below is what kept the two
+> > apart when the second one arrived, and it held. `IconCluster` merges hulls the client
+> > **has** and is entitled to state an extent; `CountedChip` counts hulls the server did not
+> > send and has nothing but a number. A player can see both at once and they say different
+> > things. What changes with 07b is only that the struck sentence's *"existing rung"* now
+> > exists — a fortnight after it was cited, and still not the one it meant.
+>
 > **And it could not have been that rung anyway**, which is the part worth keeping. A density
 > merge knows where its group is and draws *"an extent outline plus a count"*. A **culled**
 > entity is one the server did not send, so the client holds a number and nothing else — no

@@ -290,6 +290,18 @@
     <ClCompile Include="CountedChip.cpp">
       <Filter>Hud</Filter>
     </ClCompile>
+    <ClInclude Include="IconSystem.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClCompile Include="IconSystem.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
+    <ClInclude Include="IconDensity.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClCompile Include="IconDensity.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
     <ClInclude Include="MapView.h">
       <Filter>Hud</Filter>
     </ClInclude>

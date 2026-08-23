@@ -996,6 +996,10 @@ real `culledCount` on a grid over budget.
 > density ladder (`tactical-icon-system.png` §6) is not built, so there was no rung to reuse and
 > `NeuronClient/CountedChip.h` is it, built here and waiting for its second caller.
 >
+> > **The ladder landed later the same day at 07b** (`NeuronClient/IconDensity.h`) and is a
+> > *different* rung, not this one's second caller — see the paragraph below, which is what
+> > kept them apart when it arrived.
+>
 > **And it could not have been that rung anyway**, which is the finding rather than the
 > inconvenience. A density merge knows where its group is and draws *"an extent outline plus a
 > count"*; a **culled** entity is one the server did not send, so the client holds a number and
