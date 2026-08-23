@@ -397,7 +397,7 @@ no declared rule for a zone is not finished.
 | Surface | Rule | Why |
 |---|---|---|
 | `Tactical` | **drop** | verbs drop rather than reflow; the world rect absorbs the rest, and reflow is a layout engine |
-| `Map` | **scroll** the panels; the graph is a viewport | the graph already pans and zooms — that *is* its overflow answer |
+| `Map` | **scroll** the panels; the graph is a viewport | the graph already pans and zooms — that *is* its overflow answer. **Built at U5a (2026-08-23)**: the legend and the route scroll through `BuildMapRows`' first-row argument, the graph pans and pinches, and the one departure is named — the five-entry overlay *switch* drops rather than scrolls, on `CommandRow`'s rule, because a switch you have to scroll to find an entry of is worse than one that has visibly run out of room |
 | `Station` | **scroll** the wing columns; **letterbox** the parking diagram | the print calls the diagram a readout, not a control, so holding its aspect is the honest degradation |
 | `Settings` | **scroll** the section body; **letterbox** the live preview | the preview is a proof about proportion and colour; distorting it breaks the proof |
 
@@ -428,12 +428,34 @@ and it is the one part of D15.4 the reversal keeps, because it was always a touc
 > it, and `ClientApp` re-runs `ApplyPalette` on a change so a swap is total.
 >
 > **The 48 px floor is enforced by a function rather than by discipline.** Every target
-> is sized through `SettingsRowHeightPixels`, so at 0.8× the print's 46 px header is
+> is sized through `TargetHeightPixels`, so at 0.8× the print's 46 px header is
 > *raised* to 48 rather than scaled to 36.8. The first draft floored the word and took
 > the height from the bar, which read correctly and put the only way off the screen
 > below the floor the screen exists to enforce; a test caught it, and the tests now
 > sweep the whole 0.8–1.6× range on every target.
 >
+> **The floor moved out on 2026-08-23, and the map is why.** It was written in
+> `SettingsScreen.h` because that was its only caller; U5's strategic map became the second,
+> and it could not simply be copied — two engine headers declaring the same namespace-scope
+> constant is a build failure by design (ADR-013 §3's guard), which is exactly right, because
+> two floors is two floors and they drift. It is `TARGET_FLOOR_PIXELS` and `TargetHeightPixels`
+> in `UiLayout.h` now, unchanged, which is where a rule about *every interactive widget*
+> belongs.
+>
+> **And U5 found what the floor is for.** `strategic-map.png` was authored 2026-08-08 — two
+> weeks before this amendment — with ~24 px overlay rows and ~20 px checkboxes. So the *prints*
+> predate the reversal too, and this clause is what corrects them rather than something they
+> already satisfy. At 1.6× on a 900-pixel window the corrected rail then wants more height than
+> exists, which is a real consequence rather than a rounding: the map's ruling is that the
+> legend gives way, because it is a readout *of* the overlay switch and the switch is the
+> rail's reason for existing.
+>
+> **The floor also reaches the world, not only the chrome.** A system on the map draws as a
+> 6 px pip and a finger is eight times that, so two adjacent systems can have overlapping
+> targets — which is why `HitMapNode` resolves to the **nearest** rather than the first found.
+> Without that, bake order decides which of two systems a tap selects, and bake order is not
+> something a player can see.
+
 > **The contrast floor is a glyph-against-*ground* rule, and that is a correction rather
 > than a reading.** `settings.png` §1 says *"4.5:1 on every glyph pair"*, and taken
 > literally that is unsatisfiable: clearing the floor against a void at 0.0037 forces

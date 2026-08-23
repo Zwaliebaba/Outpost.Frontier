@@ -103,9 +103,41 @@ inline constexpr std::uint32_t MAX_OVERLAY_MARKS =
  * shard that retunes the config rather than one that rebuilds the client.
  */
 inline constexpr std::uint32_t MAX_MAP_NODES = 2500;
+
+/*
+ * And the gate graph over them, which is the same statement about the seam.
+ *
+ * **Here rather than beside the graph type, so the two cannot disagree.** The
+ * cap the client will *accept* across the seam and the quads it has *room* for
+ * are one number; declaring it twice is exactly the drift ADR-013 §3's
+ * duplicate-constant guard exists to stop, and that guard would not have caught
+ * it -- one of the two was an unnamed `3000u` in an arithmetic expression.
+ *
+ * **Measured, and it is exactly what the corpus produces** (U5, 2026-08-23):
+ * the full 2,500-system bake makes 6,000 directed gates, which is 3,000 links
+ * stored once. So there is no headroom at all, and that is the same bargain
+ * `MAX_MAP_NODES` states one line up -- a bake that grows past it is a config
+ * retune rather than a rebuild. What makes it safe to leave tight is that the
+ * builder reports what it wrote: a truncated graph is a graph missing its tail
+ * and saying so, never a graph that quietly lost a gate.
+ */
+inline constexpr std::uint32_t MAX_MAP_LINKS = 3000;
+
+/*
+ * And the constellation hulls over those, which the map draws at its two
+ * coarsest levels.
+ *
+ * 512 where the corpus produces 250, and the looser bargain is deliberate: a
+ * constellation count is `regionCount × constellationsPerRegion` -- *two* config
+ * numbers multiplied -- so the tight cap `MAX_MAP_NODES` takes would be tripped
+ * by a change to either. It costs nothing to hold: a hull is a centre and a
+ * radius, and they are not instanced.
+ */
+inline constexpr std::uint32_t MAX_MAP_GROUPS = 512;
+
 inline constexpr std::uint32_t MAX_UI_INSTANCES = MAX_MAP_NODES        // A quad per system.
                                                   + MAX_MAP_NODES * 6u // Its label, at six glyphs.
-                                                  + 3000u              // Gate links, one oriented quad each.
+                                                  + MAX_MAP_LINKS      // One oriented quad each.
                                                   + 2048u;             // The HUD over the top of it all.
 
 /*

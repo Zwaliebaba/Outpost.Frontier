@@ -1,6 +1,6 @@
 #pragma once
 
-#include "UiDrawList.h"
+#include "UiLayout.h"
 
 #include <cstdint>
 #include <span>
@@ -218,8 +218,8 @@ struct SettingsScreenTuning
    *
    * The floor is *enforced and not scaled*, which is the one part of D15.4 the
    * touch reversal kept -- so this is the number that has to survive the
-   * smallest UI scale the slider offers. `SettingsRowHeightPixels` below is
-   * where that promise is actually kept.
+   * smallest UI scale the slider offers. `TargetHeightPixels` (`UiLayout.h`)
+   * is where that promise is actually kept.
    */
   float rowHeight = 56.0f;
   float rowGap = 10.0f;
@@ -248,25 +248,15 @@ struct SettingsScreenTuning
 };
 
 /*
- * The 48 px target floor, in real pixels, whatever the scale (ADR-020 §8).
+ * The 48 px target floor moved out on 2026-08-23, to `UiLayout.h`.
  *
- * The print states it as a promise -- *"Touch targets never drop below 48 px at
- * any scale -- the floor is enforced, not scaled"* -- and this is the function
- * that keeps it. Every pressable row on this screen is sized through here, so a
- * player who drags the UI scale to 0.8x gets a smaller *typeface* and a target
- * that has not moved.
- *
- * Which is also why the scale can go below 1.0 at all. Without the floor, 0.8x
- * would take a 56 px row to 45 px and quietly break the one rule this screen
- * exists to enforce, on the very control that sets it.
+ * It was written here, for `settings.png`, and the strategic map became its
+ * second caller -- which is the moment a rule stops being one screen's. It is
+ * `TARGET_FLOOR_PIXELS` and `TargetHeightPixels` there, unchanged in value and
+ * in behaviour, and the print's promise is still what it keeps: *"Touch targets
+ * never drop below 48 px at any scale -- the floor is enforced, not scaled"*.
+ * Every pressable row on this screen is still sized through it.
  */
-inline constexpr float TARGET_FLOOR_PIXELS = 48.0f;
-
-[[nodiscard]] constexpr float SettingsRowHeightPixels(float _designHeight, float _scale) noexcept
-{
-  const float scaled = _designHeight * _scale;
-  return scaled < TARGET_FLOOR_PIXELS ? TARGET_FLOOR_PIXELS : scaled;
-}
 
 /// The screen's zones, resolved for one viewport at one scale.
 struct SettingsScreenLayout

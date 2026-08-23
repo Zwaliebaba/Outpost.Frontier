@@ -7,14 +7,18 @@ across all three phases and the work that belongs to none of them. The paragraph
 state of this phase, not a claim about what happens next.
 
 **Status:** Session output 2026-08-19 · **U1, U2, U3a, U3b's sim and wire halves, U4's sim
-half, U5's pure half, U3c and U3d-a/U3d-b built** (U3c 2026-08-21; U3d-a and U3d-b 2026-08-22).
+half, U5's pure half and U5a, U3c and U3d-a/U3d-b built** (U3c 2026-08-21; U3d-a and U3d-b 2026-08-22).
 **U3d — interest and delta — was added 2026-08-22**: ADR-018 A14 scheduled it for "after U3c"
 and no build order had absorbed it, so it is specified below. **Its first two sub-slices are
 built and R19 is closed**; ~~what is left of it is U3d-c's counted chip, which is screen work and
 sits behind the input model with the rest~~ **and U3d-c landed 2026-08-23, so U3d is built** —
 the counted chip's *visual checkpoint* is what is left of it, and that is an R1 item rather than
 a slice. What is left after it is **screen work**:
-U3b's client half, U4's route feeder and icons, U5's map itself and U6 need a GPU and a person —
+~~U3b's client half, U4's route feeder and icons, U5's map itself and U6~~ **U5a landed
+2026-08-23** — the strategic map's seam, camera, cull, layout and hit tests, all device-free and
+verified over the real 2,500-system bake, with the surface drawn and navigable. What is left of
+U5 is **U5b**: the visual checkpoint against the print and the frame-budget measurement, which
+need a GPU. U3b's client half, U4's route feeder and icons, and U6 need a GPU and a person —
 ~~with no exceptions left~~ **and, as of 2026-08-22, behind the input model the plan of record
 establishes**, since a screen built against the mouse adaptation would be retrofitted for touch
 afterwards. **U5 also grew a fifth overlay it does not yet mention** — the RESOURCES site layer,
@@ -325,11 +329,14 @@ reads and `NotAtStation` would name a different problem with a different action.
 > **Both examined 2026-08-23, and neither is buildable here — for different reasons, which is
 > why they should stop being one line.**
 >
-> **A16's presence edges have no destination.** Both rules route to the map — *"presence lost
-> under a pinned camera → the map"*, *"every fleet in transit → the map"* — and `SurfaceId::Map`
-> is an enumerator nothing pushes and nothing draws. The map screen is U5's and U6's. So A16 is
-> blocked on a surface rather than on effort, and building the edge detection now would produce
-> two code paths whose only exit is a screen that does not exist.
+> ~~**A16's presence edges have no destination.**~~ **Unblocked 2026-08-23 by U5a.** Both rules
+> route to the map — *"presence lost under a pinned camera → the map"*, *"every fleet in
+> transit → the map"* — and `SurfaceId::Map` was an enumerator nothing pushed and nothing drew.
+> It is a screen now: the tactical bar's location breadcrumb pushes it, `BuildMapSurface` draws
+> it, and the shared `◀ TACTICAL` chip pops it. So A16 is back to being blocked on *effort* --
+> and on the half of U3b that owns the view-switch path -- rather than on a surface. What it
+> still needs before it can be accepted is a fleet marker to lose presence *of*, which is U3b's
+> client half and not U5's.
 >
 > **A15 is an acceptance procedure, not a feature**, and it is half-answerable. The *settle* is
 > built and named: `ClientApp::VIEW_SETTLE_SECONDS` is 200 ms, which is ADR-002's
@@ -1128,12 +1135,80 @@ Seven tests, including "every system reaches every other", which is U1's connect
 invariant asked from the planner's side rather than the generator's, and "every step of a
 route is a gate that exists", because a plan the fleet cannot fly is worse than no plan.
 
-**Still owed by U5, and it is most of it:** the screen. Region/constellation/system pinch
-levels, gate links, labels, the security overlay, the selected-system panel, fleet markers,
-the route line, TACTICAL ⇄ MAP — all engine surface work, and its acceptance is a *visual*
-checkpoint against the print plus a frame-budget measurement, neither of which can be done
-without a GPU. The neutral topology that crosses the seam at boot (D14) is not built either:
-it is an engine type, and it should land with the surface that consumes it.
+~~**Still owed by U5, and it is most of it:** the screen.~~
+
+**Built 2026-08-23 as U5a — the seam and the device-free half.** `NeuronClient/MapView.h` is
+D14's neutral graph and the row types the panels print; `NeuronClient/MapScreen.h/.cpp` is the
+screen — zones, camera, cull, layout and six hit tests; `Outpost/ReplicatedWorldView` fills all
+five seam calls from the committed bake; `ClientApp` draws it and the TACTICAL ⇄ MAP handoff
+runs. Thirty-eight tests over the layout, the camera, the graph and the hit tests, plus a
+device-free run of the whole seam over a **real 2,500-system bake**.
+
+**Five calls in three shapes**, which is ADR-020 §6's contract spent the way the station
+surface already spends it: two asked-once builders (the graph, the overlay list), one at
+summary rate (the legend), two pure query functions (a system's facts, a route). The route
+call takes only a *destination* — the origin is the game's, because the client holds a grid id
+and "which system is that grid in" is a fact about the universe.
+
+**The map is the first surface with a camera rather than a zone table**, which is ADR-020 §7's
+declared overflow rule for it (*"scroll the panels; the graph is a viewport"*) taken literally:
+pan and pinch are arithmetic on three floats, the pinch holds the point under the fingers, and
+a node off screen emits nothing. It is also the **first and only consumer of
+`GestureState::pinchScale`** — I1 built the pinch and nothing had a use for a zoom until now.
+The gesture's ratio is measured from where the pinch *began*, so the camera takes the change
+since last frame rather than the state itself; feeding the state in directly compounds it into
+an exponential zoom, which is the kind of defect a screenshot does not catch.
+
+**Three findings came out of building it.**
+
+*The print predates the input reversal.* `strategic-map.png` was authored 2026-08-08 with ~24 px
+overlay rows and ~20 px checkboxes — mouse sizes — and ADR-020's 2026-08-22 amendment made touch
+primary while keeping the 48 px floor for *every* interactive widget. So every pressable thing
+here is sized through the floor and the print's own heights are a floor away from what ships.
+At 1.6× on a 900-pixel window the rail then wants more height than there is, and the ruling is
+that the **legend** gives way — it is a readout *of* the overlay, where an overlay list missing
+SECURITY BAND is a control the player cannot reach. The floor also meets a 6 px system pip in
+the graph, which is why `HitMapNode` resolves to the **nearest** target rather than the first:
+two adjacent systems can both be under one finger, and first-found would let bake order decide.
+
+*Colour had to become a class.* The first draft carried a packed `tintRgba` across the seam,
+on D14's *"colours arrive as data"*. That is a colour which ignores the player's colour-vision
+palette — on the one screen whose whole subject is a coloured overlay. It is a `StandingColour`
+now, resolved by the client through its own palette, and the set is closed at four because
+those are the four `ContrastAudit` proves clear the floor in every palette. The security
+gradient becomes three bands and the exact number still reaches the player in the badge, which
+is `strategic-map.png` §2's own argument about categorical and continuous fills.
+
+*The gate-link budget has no headroom, exactly.* `MAX_MAP_LINKS` is 3,000 and the committed
+2,500-system bake produces **exactly** 3,000 undirected links — measured, not estimated. It is
+now declared once, in `UploadBudget.h` beside `MAX_MAP_NODES`, so the number the seam accepts
+and the quads the renderer has room for cannot drift; and the builder logs when it drops one,
+because a map quietly missing a gate is a map a player plans a route around.
+
+**What U5a deliberately did not build, named rather than left to be discovered.** The search
+box is drawn dead: `TextEditState` exists and is wired to no surface, and a box that took focus
+and then swallowed keys would be worse than one that visibly cannot. SET DESTINATION and ADD
+WAYPOINT are drawn and refused — the map plans and the client feeds the queue one jump at a
+time (§3, ADR-016 §9a.1), and that feeder is U4's; sending the first hop as a bare warp would be
+a different promise from the one the button makes. Fleet markers and VIEW-on-presence need
+U3b's client half. Label de-confliction — the print's four-candidate placement — is a budget
+spent in visible-node order instead, because de-confliction needs a glyph metric and a look.
+
+**Still owed: U5b, and it is the two accepts that need a GPU** — the visual checkpoint against
+the print at region level over the real bake, and the frame-budget measurement with the `Ui`
+span proving it.
+
+**Both are further along than "owed" suggests.** The clustering half of the checkpoint is
+already mechanical: the device-free run asserts that **no two constellation discs overlap on
+screen** at the fit over all 250 of the corpus's constellations, which is U1's invariant
+asserted in pixels rather than in metres. And the CPU half of the frame budget is measured:
+projecting and culling the whole 2,500-system graph — 3,000 links, 250 hulls, 200 labels —
+takes **0.03–0.04 ms per frame** at 1440×900, which is about half a percent of a 16.6 ms frame.
+What U5b's measurement still owes is the *GPU* half: whether 17,548 `UiInstance` quads through
+one upload and one draw hold the same budget. Two things in the projection had to be rewritten
+to get there and both are recorded in the file: the hulls accumulate in one pass over the nodes
+rather than one pass per constellation (600,000 comparisons a frame, at the cap), and the route
+line finds its endpoints by binary search over a run the builder already leaves sorted.
 
 ### U6 — System view and focus polish
 **Prerequisite: the system-view print (D1) — drawn 2026-08-21.** The source is in the corpus and

@@ -295,6 +295,28 @@ closes, not here.
   activity heat, intel pings and the history scrubber remain **stubs** — their content does
   not exist yet, which the print itself anticipates ("depends on content that does not
   exist").
+
+  > **Built 2026-08-23 as U5a — the seam and the device-free half.**
+  >
+  > `MapView.h` is D14's neutral graph and the rows the panels print; `MapScreen.h/.cpp` is the
+  > screen — zones, camera, cull, layout and six hit tests; `ReplicatedWorldView` answers all
+  > five seam calls from the committed bake. The subset landed as this section scopes it, with
+  > the stubs *visible* rather than hidden: four of the five overlays are drawn, disabled, and
+  > carry the game's own word for why, and the history rail is drawn, inert and labelled per
+  > §9a.2. What is deferred is named on the slice rather than discovered — search (no
+  > text-entry surface), SET DESTINATION (U4's feeder), fleet markers and VIEW-on-presence
+  > (U3b's client half).
+  >
+  > **One thing in this list turned out to be stated slightly wrong, and it is worth correcting
+  > here rather than in a build order.** *"The security overlay (its content exists from the
+  > bake)"* is true of the content, and the first draft took it to mean the *colour* could be
+  > baked too — the game computing a gradient and handing over a packed value, on D14's
+  > "colours arrive as data". A packed colour is a colour that ignores the player's
+  > colour-vision palette, on the one screen whose whole subject is a coloured overlay. So what
+  > crosses is D14's other word — a **badge class** — and the client resolves it through its own
+  > palette. The gradient becomes three bands, the exact per-system number still reaches the
+  > player in the badge beside it, and both halves of §4's *"two security values that must stay
+  > distinguishable"* survive: the band is a badge and the number is per-system.
 - **System view** — the screen the corpus names (pinch level: SYSTEM) **and drew on
   2026-08-21** as D1 in the build order. *(Its source is no longer in `ScreenPrints/`; D1 is
   tracked upstream, where the plate is still owed. That costs this section nothing, because the

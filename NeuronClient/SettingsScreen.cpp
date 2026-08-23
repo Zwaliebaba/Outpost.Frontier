@@ -117,14 +117,14 @@ constexpr SettingsItem ACCOUNT_ITEMS[] = {
   switch (_kind)
   {
   case SettingsControlKind::Choice:
-    return SettingsRowHeightPixels(_tuning.choiceRowHeight, _scale);
+    return TargetHeightPixels(_tuning.choiceRowHeight, _scale);
   case SettingsControlKind::Slider:
-    return SettingsRowHeightPixels(_tuning.sliderRowHeight, _scale);
+    return TargetHeightPixels(_tuning.sliderRowHeight, _scale);
   case SettingsControlKind::Toggle:
   case SettingsControlKind::Readout:
   case SettingsControlKind::Placeholder:
   default:
-    return SettingsRowHeightPixels(_tuning.rowHeight, _scale);
+    return TargetHeightPixels(_tuning.rowHeight, _scale);
   }
 }
 
@@ -269,12 +269,12 @@ SettingsScreenLayout ResolveSettingsScreen(std::uint32_t _viewportWidth, std::ui
    * word's width and took the height from the bar, which read correctly and was
    * 36.8 px tall.
    */
-  const float headerHeight = std::min(SettingsRowHeightPixels(_tuning.headerHeight, scale), height);
+  const float headerHeight = std::min(TargetHeightPixels(_tuning.headerHeight, scale), height);
   layout.header = UiRect{0.0f, 0.0f, width, headerHeight};
 
   // BACK is a word at the left of the header, sized to the floor rather than to
   // its own text.
-  const float backWidth = std::min(SettingsRowHeightPixels(_tuning.headerHeight, scale) * 2.0f, width);
+  const float backWidth = std::min(TargetHeightPixels(_tuning.headerHeight, scale) * 2.0f, width);
   layout.back = UiRect{0.0f, 0.0f, backWidth, headerHeight};
 
   const float contentTop = headerHeight;
@@ -327,7 +327,7 @@ SettingsScreenLayout ResolveSettingsScreen(std::uint32_t _viewportWidth, std::ui
   layout.audit = UiRect{innerX, pen, innerWidth, auditHeight};
   pen += auditHeight + pad;
 
-  const float resetHeight = SettingsRowHeightPixels(_tuning.resetHeight, scale);
+  const float resetHeight = TargetHeightPixels(_tuning.resetHeight, scale);
   const float resetGap = _tuning.resetGap * scale;
   const float resetTop = contentTop + contentHeight - pad - resetHeight;
   const float resetWidth = std::max(0.0f, (innerWidth - resetGap) * 0.5f);
@@ -345,7 +345,7 @@ std::uint32_t BuildSettingsNav(const UiRect& _nav, float _scale, const SettingsS
   const float scale = SafeScale(_scale);
   const float padX = _tuning.navPaddingX * scale;
   const float padY = _tuning.navPaddingY * scale;
-  const float rowHeight = SettingsRowHeightPixels(_tuning.navRowHeight, scale);
+  const float rowHeight = TargetHeightPixels(_tuning.navRowHeight, scale);
   const float gap = _tuning.navRowGap * scale;
   const float rowWidth = std::max(0.0f, _nav.width - 2.0f * padX);
 

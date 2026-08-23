@@ -69,42 +69,14 @@ namespace Neuron
 inline constexpr float CONTRAST_FLOOR = 4.5f;
 
 /*
- * The colours a standing glyph can be drawn in.
+ * `StandingColour` and `StandingColourOf` moved out on 2026-08-23, to
+ * `HudPalette.h`.
  *
- * Four, and not by coincidence: the wire spends exactly two bits on the
- * relationship channel (ADR-022 §8b), so four is what a viewer can ever be told
- * about a hull. These are palette entries rather than a second copy of that
- * enum -- `HudPalette` already carries the words -- and the mapping lives in
- * `StandingColourOf` so a palette swap moves all of them together.
+ * They were written here because the audit was their only caller; the strategic
+ * map became the second (U5), and a seam header pulling in an *audit* to name a
+ * colour is a smell. They are palette vocabulary, so they live with the palette,
+ * unchanged. What this file keeps is what it is for: measuring them.
  */
-enum class StandingColour : std::uint8_t
-{
-  Own = 0,
-  Allied = 1,
-  Neutral = 2,
-  Hostile = 3
-};
-
-inline constexpr std::uint32_t STANDING_COLOUR_COUNT = 4;
-
-/// The palette entry a standing is drawn in. `Own` is the phosphor rather than
-/// an entry of its own, which is the same statement `OverlayTuning` makes when
-/// it takes its ring colour from there: own-fleet *is* the chrome's accent.
-[[nodiscard]] constexpr std::uint32_t StandingColourOf(const HudPalette& _palette, StandingColour _standing) noexcept
-{
-  switch (_standing)
-  {
-  case StandingColour::Allied:
-    return _palette.allied;
-  case StandingColour::Neutral:
-    return _palette.neutral;
-  case StandingColour::Hostile:
-    return _palette.hostile;
-  case StandingColour::Own:
-  default:
-    return _palette.phosphor;
-  }
-}
 
 /// What to call one on the screen. Never null, for the same reason
 /// `OrderReasonText` is not.

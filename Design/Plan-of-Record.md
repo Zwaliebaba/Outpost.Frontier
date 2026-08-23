@@ -1,7 +1,7 @@
 # Plan of Record
 
 **Status:** standing document, **revised in place** · opened 2026-08-22 · current as of
-2026-08-23 (U3d-a, U3d-b, N2, N5, N4, N6's sizing half and I1 built). **This is the only document that says what is built next.** The three build orders
+2026-08-23 (U3d-a, U3d-b, N2, N5, N4, N6's sizing half, I1, I2, N3, U3d-c and U5a built). **This is the only document that says what is built next.** The three build orders
 say what a slice *contains* and record what happened when it landed; this one says which slice,
 and when. Where it and an ADR disagree the ADR wins on *what*, which is the rule the build
 orders already run under.
@@ -315,8 +315,40 @@ question is whether to procure a touch display or to take N3 and the screen slic
 **Then the screens, unchanged in content but re-based on the input model:** ~~N3 (settings, which
 I3 needs for handedness and the Auto toggle)~~ **built 2026-08-23 — handedness is settable, so
 I3's wheel has its prerequisite**, ~~**U3d-c's counted chip**~~ **built 2026-08-23, which closes
-U3d**, ~~U3b's remainder~~ **examined and blocked — A16 needs the map surface, A15 needs a
-transport shim and a stopwatch on a real client**, U4's client half, U5 **including N7**, U6, E5.
+U3d**, ~~U3b's remainder~~ **examined and blocked — ~~A16 needs the map surface~~ **A16 is
+unblocked as of U5a: the map is a screen now, and what it still needs is U3b's own client half
+to have a fleet marker to lose presence of** — A15 needs a transport shim and a stopwatch on a
+real client**, U4's client half, ~~U5 **including N7**~~ **U5a built 2026-08-23; U5b (the visual
+checkpoint and the frame-budget measurement) and N7's site layer remain**, U6, E5.
+
+> **U5a, 2026-08-23 — the strategic map's seam and device-free half.**
+>
+> The largest screen in the corpus, built as ADR-018 D14 says a screen should be: `MapView.h`
+> is the neutral graph, `MapScreen.h/.cpp` is the zones, the camera, the cull and six hit
+> tests, and `ReplicatedWorldView` answers five seam calls from the committed bake. Thirty-eight
+> tests, plus a device-free run of the whole seam over a **real 2,500-system universe** — which
+> is where the useful result is: at the fit, **no two of the 250 constellation discs overlap on
+> screen**. That is U1's clustering invariant, asserted in pixels rather than in metres, and it
+> is the mechanical half of a checkpoint that was supposed to need a person looking at a
+> screen.
+>
+> **It is the first surface with a camera**, and the first and only consumer of
+> `GestureState::pinchScale` — I1 built the pinch and nothing had a use for a zoom until now.
+>
+> **Three findings, and two of them are corrections to documents rather than to code.**
+> `strategic-map.png` predates the touch reversal by two weeks and draws mouse-sized rows, so
+> the 48 px floor is what corrects the *print* rather than something the print satisfies.
+> D14's "colours arrive as data" had to become "badge classes arrive as data" — a baked colour
+> ignores the colour-vision palette, on the one screen whose whole subject is a coloured
+> overlay. And the gate-link budget turned out to have no headroom at all: the corpus's bake
+> produces **exactly** the 3,000 links the client is built for, so the number is now declared
+> once and the builder says when it drops one.
+>
+> **What it did not build, named rather than left to be discovered:** search (`TextEditState`
+> exists and is wired to no surface), SET DESTINATION (U4's route feeder — the map plans and
+> the client feeds, and sending the first hop as a bare warp would be a different promise from
+> the one the button makes), fleet markers and VIEW-on-presence (U3b's client half), and label
+> de-confliction (a look decision that belongs with the visual checkpoint).
 
 **What moved and why:** every screen slice now sits behind the input model rather than beside it.
 Building a screen against the mouse adaptation and re-fitting it for touch afterwards is the
@@ -372,6 +404,30 @@ named.
 ---
 
 ## Revision log
+
+- **2026-08-23 — U5a: the strategic map's seam and device-free half.** The largest screen in the
+  corpus, and the first with a camera rather than a zone table. Three things came out of it that
+  belong in a plan rather than in a slice note.
+
+  **A print can be stale in the same way a document can.** `strategic-map.png` was authored
+  2026-08-08 and ADR-020 reversed D15.4 on 2026-08-22, so the print draws mouse-sized rows on a
+  surface whose primary input is now a finger. The floor corrected them silently — which is the
+  right outcome and the wrong *process*: nothing in this corpus re-reads a print when a decision
+  under it moves. Worth watching, because six more screen slices are queued behind prints of the
+  same vintage.
+
+  **The seam's colour rule needed one word changed.** ADR-018 D14 says labels, badge classes and
+  colours arrive as data; the map took the third and baked a security colour, which is a colour
+  that ignores the player's colour-vision palette. It crosses as a class now. The general form is
+  worth keeping: *the game says which class, the engine owns what a class looks like* — because a
+  screen that needed the game to pick a pixel value would be a screen whose accessibility
+  settings the game has to know about.
+
+  **And a budget with no headroom is a budget nobody measured.** `MAX_MAP_LINKS` was 3,000 and
+  the corpus's bake produces exactly 3,000. It was chosen from ADR-016 §3's "~2.4 gates per
+  system" and it is right — but it was right by arithmetic rather than by measurement, and the
+  first thing that measured it was this slice. It is declared once now, beside the GPU budget it
+  has to agree with, and the builder is audible when it drops one.
 
 - **2026-08-23 — a documentation sweep across the corpus, and it found a risk that had never
   reached the register.** Every slice this session updated its own documents as it landed; this

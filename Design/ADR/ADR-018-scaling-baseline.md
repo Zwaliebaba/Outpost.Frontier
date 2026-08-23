@@ -222,6 +222,22 @@ semantics in engine code — labels, badge classes and colours arrive as data.**
 fifth-project idea remains a named revisit trigger, now with a tripwire: if a screen needs
 a game *rule* (not game *data*) to render, the question reopens. *(UI-5.)*
 
+> **Exercised end to end 2026-08-23 by U5a, the slice this decision was written for.**
+> `MapView.h` is the asked-once graph, `BuildMapLegend` the summary-rate rows, and
+> `BuildMapFacts` / `SolveMapRoute` the pure functions — five calls in the three shapes, filled
+> from the committed 2,500-system bake and verified against it device-free.
+>
+> **The tripwire did not fire, and one clause bent to keep it from firing.** *"Labels, badge
+> classes and colours arrive as data"* offers two ways to send a colour, and the first draft
+> took the second: the game computed a security gradient and handed over a packed value. That
+> passes the leak test and fails the *player* — a baked colour ignores the colour-vision
+> palette, which is a client setting the game cannot see. So the tint crosses as a **badge
+> class** the client resolves through its own palette. Worth recording as a reading of this
+> decision rather than a change to it: **the game says which class; the engine owns what a
+> class looks like.** A screen that needed the game to pick a pixel value would be a screen
+> whose accessibility settings the game has to know about, which is the same kind of coupling
+> the leak test exists to prevent, pointing the other way.
+
 ### D15 — The UI baseline package
 
 Adopted as stated, unblocking the **UI-architecture ADR** (a named deliverable that blocks

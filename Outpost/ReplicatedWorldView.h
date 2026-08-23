@@ -8,6 +8,8 @@
 #include "Validate.h"
 #include "FleetSummary.h"
 #include "Station.h"
+#include "Universe.h"
+#include "UniverseRoute.h"
 
 #include <cstdint>
 #include <span>
@@ -171,6 +173,21 @@ public:
      * somebody retuned the real one (ADR-024 7).
      */
     const Game::EconomyDef* economy = nullptr;
+
+    /*
+     * The parsed universe, or null for a client with none.
+     *
+     * Borrowed rather than copied, like `economy` and for its reason: the
+     * composition root loads it once and outlives every view. It is here
+     * because the strategic map's seam needs two different things from it --
+     * a graph to hand over once at boot, and a route solved on demand
+     * (ADR-018 D14) -- and the second cannot be pre-derived into a `Desc`
+     * field because nobody knows yet where the player will point.
+     *
+     * A view with none answers the map calls with nothing, and the surface
+     * opens on an empty viewport rather than refusing.
+     */
+    const Game::UniverseDef* universe = nullptr;
   };
 
   static constexpr std::uint16_t INVALID_RENDER_CLASS = 0xffffu;
@@ -213,6 +230,28 @@ public:
   [[nodiscard]] Neuron::OrderVerdict PreCheckStation(const Neuron::StationIntent& _intent) override;
   [[nodiscard]] bool EncodeStationCommand(const Neuron::StationIntent& _intent, Neuron::ByteWriter& _writer) override;
   [[nodiscard]] std::uint32_t ShipsPerStationCommand() const override;
+
+  /*
+   * --- the strategic map (ADR-018 D14, ADR-016 §9, U5) ---------------------
+   *
+   * The composition root doing what ADR-014 §6 says it is for: reading the
+   * universe and handing over neutral data. Every game word on that screen --
+   * a system's name, its security badge, an overlay's name and why it is off,
+   * a route's ETA -- is written here, and the engine draws it without learning
+   * what any of it means.
+   */
+  [[nodiscard]] bool BuildMapTopology(Neuron::MapTopology& _outTopology) const override;
+  [[nodiscard]] std::uint32_t BuildMapOverlays(std::span<Neuron::MapOverlayOption> _outOverlays) const override;
+  [[nodiscard]] std::uint32_t BuildMapLegend(std::uint16_t _overlay,
+                                             std::span<Neuron::MapLegendRow> _outRows) const override;
+  [[nodiscard]] std::uint32_t BuildMapFacts(std::uint16_t _systemId,
+                                            std::span<Neuron::MapFactRow> _outRows) const override;
+  [[nodiscard]] std::uint32_t SolveMapRoute(std::uint16_t _toSystem, std::span<Neuron::MapRouteHop> _outHops,
+                                            Neuron::MapRouteSummary& _outSummary) const override;
+
+  /// Which system this client's view is standing in, for the route's origin and
+  /// for the top bar's region line. `INVALID_ID` before a world has arrived.
+  [[nodiscard]] Game::SystemId MapOriginSystem() const noexcept;
   [[nodiscard]] std::uint32_t PollNotices(std::span<Neuron::Notice> _outNotices) override;
   void PollOrderFeedback(Neuron::OrderFeedback& _outFeedback) override;
   [[nodiscard]] const char* ReasonText(std::uint16_t _reasonCode) const override;
@@ -319,6 +358,49 @@ private:
    * leaves empty, and the validator's optional-field rules turn that into "the
    * authority decides" rather than into a wrong answer.
    */
+  /*
+   * The strategic map's graph, built once in the constructor.
+   *
+   * **Built rather than derived per call**, because `MapTopology` hands over
+   * spans into storage the game owns and promises they stay valid for the
+   * session -- so the vectors are filled once and never touched again. The
+   * `const char*` in a node points either into the universe's own `std::string`
+   * (a system's name, which the bake owns and the composition root outlives) or
+   * into `m_mapBadges`, which is why that one is sized and filled *before* the
+   * nodes that point into it.
+   *
+   * Empty for a client with no universe, which `BuildMapTopology` reports as
+   * false and the screen draws as an empty viewport.
+   */
+  std::vector<Neuron::MapNode> m_mapNodes;
+  std::vector<Neuron::MapLink> m_mapLinks;
+  std::vector<Neuron::MapGroup> m_mapGroups;
+  std::vector<Neuron::MapRegion> m_mapRegions;
+
+  /// `SystemId` to node index, so a route's hops can be reported as indices --
+  /// which is what `MapRouteHop` takes, for `MapLink`'s reason. `0xffff` for a
+  /// system with no node, which authored content cannot produce.
+  std::vector<std::uint16_t> m_mapNodeBySystem;
+
+  /// Backing storage for the badges the nodes and regions point at -- `SEC 0.2`
+  /// and `FRONTIER`. Filled before the records that borrow from it, and never
+  /// resized after, which is `m_playerWingNames`' invariant one file along.
+  std::vector<std::string> m_mapBadges;
+
+  /// And for the route panel, which is rebuilt on each solve rather than at
+  /// boot: a route is a question about where the player pointed.
+  mutable std::vector<std::string> m_routeBadges;
+  mutable std::string m_routeNote;
+  mutable std::string m_routeEta;
+
+  /// The selected system's facts, same arrangement: rebuilt per query, and the
+  /// span handed out points into it until the next one.
+  mutable std::vector<std::string> m_factValues;
+
+  /// Turns the parsed universe into the neutral graph. Called once, from the
+  /// constructor, for the lifetime reason above.
+  void BuildMapGraph();
+
   /// This grid's station, or `INVALID_ID` before one has been drawn. One
   /// function because the validation view, the submit and the command row's
   /// availability must all mean the same station or none.

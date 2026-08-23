@@ -1694,6 +1694,17 @@ Outpost::ReplicatedWorldView::Desc MakeWorldViewDesc(const Outpost::AppConfig& _
   desc.economy = &_economy;
 
   /*
+   * And the universe itself, for the strategic map (ADR-018 D14, U5).
+   *
+   * Borrowed for `economy`'s reason -- it is loaded once here and outlives every
+   * view -- and it is a pointer rather than pre-derived `Desc` fields because
+   * the map asks two different questions of it: a graph handed over once at
+   * boot, which could have been baked into a field, and a route solved wherever
+   * the player points, which could not.
+   */
+  desc.universe = &_universe.universe;
+
+  /*
    * What each anchor is called (ADR-017 1, ADR-016 9).
    *
    * **Every kind, because a fleet can stand on any of them.** The table held

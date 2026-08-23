@@ -8,6 +8,8 @@
 #include "OrderMessages.h"
 #include "SchemaHash.h"
 #include "SiteEpoch.h"
+#include "SiteField.h"
+#include "Transfer.h"
 #include "ShipClass.h"
 #include "Snapshot.h"
 #include "StationMessages.h"
@@ -15,7 +17,9 @@
 #include "Validate.h"
 
 #include "EntityRecord.h"
+#include "Log.h"
 #include "SignalLamp.h"
+#include "UploadBudget.h"
 
 #include <algorithm>
 #include <array>
@@ -315,6 +319,20 @@ ReplicatedWorldView::ReplicatedWorldView(Desc _desc)
       m_desc.spareWingNames.erase(spare);
     }
   }
+
+  /*
+   * And the strategic map's graph, once, here (ADR-018 D14).
+   *
+   * In the constructor rather than on first use because `MapTopology` hands out
+   * spans into these vectors and promises they stay valid for the session --
+   * building lazily would mean the first `BuildMapTopology` could invalidate a
+   * span an earlier one had handed over, which is a bug that needs two visits to
+   * the surface to show itself.
+   *
+   * A client with no universe builds nothing and reports nothing, and the screen
+   * opens on an empty viewport.
+   */
+  BuildMapGraph();
 }
 
 bool ReplicatedWorldView::ApplyFrame(const Neuron::ReplicatedFrame& _frame)
@@ -2365,6 +2383,617 @@ std::uint64_t ReplicatedWorldView::SchemaHash() const
   // Asking the game for it rather than passing it in is what makes a content
   // mismatch detectable at all (ADR-004 §2).
   return Game::GameSchemaHash();
+}
+
+/*
+ * --- the strategic map (ADR-018 D14, ADR-016 §9, U5) -----------------------
+ *
+ * The composition root doing exactly what ADR-014 §6 says it is for: reading
+ * the universe and handing over neutral data. Every game word on that screen is
+ * written in this section, and the engine draws all of it without learning what
+ * any of it means.
+ */
+namespace
+{
+
+/*
+ * How wide the map's own space is.
+ *
+ * Arbitrary, which is what `MapNode::x` means by "map units" -- the screen fits
+ * whatever it is given. It exists because universe coordinates are `std::int64_t`
+ * **metres** over roughly a thousand light years, and a float32 handed one of
+ * those directly keeps about seven significant digits -- so a graph converted
+ * without recentring would quantise every system in a constellation onto the
+ * same point, which is the map's whole subject collapsing. The conversion
+ * therefore recentres first and scales second, and a thousand units across is a
+ * range float32 holds exactly enough of to draw.
+ */
+constexpr double MAP_UNITS_ACROSS = 1000.0;
+
+/// The bands a per-system security number is drawn in.
+///
+/// Three, over `StandingColour`'s four, because a system has no "own" -- that is
+/// the sovereignty overlay's word and sovereignty does not exist yet. The exact
+/// number still reaches the player, in the badge beside it, which is what
+/// `settings.png` means by colour never being the only carrier.
+constexpr std::uint8_t SECURE_AT_LEAST = 60;
+constexpr std::uint8_t CONTESTED_AT_LEAST = 30;
+
+[[nodiscard]] Neuron::StandingColour SecurityTint(std::uint8_t _security) noexcept
+{
+  if (_security >= SECURE_AT_LEAST)
+  {
+    return Neuron::StandingColour::Allied;
+  }
+  if (_security >= CONTESTED_AT_LEAST)
+  {
+    return Neuron::StandingColour::Neutral;
+  }
+  return Neuron::StandingColour::Hostile;
+}
+
+/// `SEC 0.2`, the print's own spelling of a 0..100 byte.
+[[nodiscard]] std::string SecurityBadge(std::uint8_t _security)
+{
+  char buffer[16] = {};
+  std::snprintf(buffer, sizeof buffer, "SEC %u.%u", static_cast<unsigned>(_security) / 100u,
+                (static_cast<unsigned>(_security) % 100u) / 10u);
+  return buffer;
+}
+
+/// A region's band badge -- the print's `FRONTIER`, from the ceiling of the
+/// range its systems vary inside. Two numbers become one word, which is the
+/// distinction `strategic-map.png` §4 asks to keep visible: the band is a badge
+/// and the number is per-system.
+[[nodiscard]] const char* BandName(std::uint8_t _ceiling) noexcept
+{
+  if (_ceiling >= SECURE_AT_LEAST)
+  {
+    return "CORE";
+  }
+  if (_ceiling >= CONTESTED_AT_LEAST)
+  {
+    return "MARCH";
+  }
+  return "FRONTIER";
+}
+
+/// `4m 10s`, or `40s`. Minutes are dropped when there are none rather than
+/// written as zero, because `0m 40s` reads like a placeholder.
+[[nodiscard]] std::string EtaText(std::uint32_t _seconds)
+{
+  char buffer[24] = {};
+  if (_seconds >= 60u)
+  {
+    std::snprintf(buffer, sizeof buffer, "ETA %um %02us", _seconds / 60u, _seconds % 60u);
+  }
+  else
+  {
+    std::snprintf(buffer, sizeof buffer, "ETA %us", _seconds);
+  }
+  return buffer;
+}
+
+/// An index lookup by id, sized to the largest id rather than to the count --
+/// ids are not promised dense and a hand-written universe need not make them so.
+[[nodiscard]] std::vector<std::uint16_t> MakeIndexTable(std::size_t _size)
+{
+  return std::vector<std::uint16_t>(_size, 0xffffu);
+}
+
+} // namespace
+
+void ReplicatedWorldView::BuildMapGraph()
+{
+  const Game::UniverseDef* universe = m_desc.universe;
+  if (universe == nullptr || universe->systems.empty())
+  {
+    return;
+  }
+
+  /*
+   * The bounding box, in universe centimetres, over the systems *and* the
+   * constellation centres.
+   *
+   * Both, because a constellation's centre is placed rather than derived
+   * (`Constellation::centre`) and can therefore sit outside the hull of its own
+   * members -- and a box that excluded it would let a hull's centre fall off the
+   * side of a fitted map.
+   */
+  std::int64_t minX = universe->systems.front().centre.x;
+  std::int64_t maxX = minX;
+  std::int64_t minY = universe->systems.front().centre.y;
+  std::int64_t maxY = minY;
+  const auto stretch = [&](const Game::UniversePos& _pos) noexcept {
+    minX = std::min(minX, _pos.x);
+    maxX = std::max(maxX, _pos.x);
+    minY = std::min(minY, _pos.y);
+    maxY = std::max(maxY, _pos.y);
+  };
+  for (const Game::SolarSystem& system : universe->systems)
+  {
+    stretch(system.centre);
+  }
+  for (const Game::Constellation& constellation : universe->constellations)
+  {
+    stretch(constellation.centre);
+  }
+
+  // Midpoints written as `min + span/2` rather than `(min + max)/2`: the sum of
+  // two galaxy-scale coordinates is where an int64 would overflow, and the
+  // difference is not.
+  const std::int64_t spanX = maxX - minX;
+  const std::int64_t spanY = maxY - minY;
+  const double originX = static_cast<double>(minX) + static_cast<double>(spanX) * 0.5;
+  const double originY = static_cast<double>(minY) + static_cast<double>(spanY) * 0.5;
+  const double widest = std::max({static_cast<double>(spanX), static_cast<double>(spanY), 1.0});
+  const double perUnit = widest / MAP_UNITS_ACROSS;
+
+  const auto toMap = [&](std::int64_t _value, double _origin) noexcept {
+    return static_cast<float>((static_cast<double>(_value) - _origin) / perUnit);
+  };
+
+  /*
+   * The badges first, and the records that borrow from them second.
+   *
+   * `MapNode::badge` is a borrowed `const char*` into a short `std::string`, so
+   * a `push_back` that reallocated after the nodes were filled would leave every
+   * badge already handed out pointing at freed storage. Filling this vector to
+   * its final size before anything points into it removes the hazard rather than
+   * racing it -- `m_playerWingNames`' reserve, one file along, for one reason.
+   */
+  m_mapBadges.clear();
+  m_mapBadges.reserve(universe->systems.size());
+  for (const Game::SolarSystem& system : universe->systems)
+  {
+    m_mapBadges.push_back(SecurityBadge(system.security));
+  }
+
+  std::vector<std::uint16_t> constellationIndex = MakeIndexTable(universe->constellations.size() + 1u);
+  std::vector<std::uint16_t> regionIndex = MakeIndexTable(universe->regions.size() + 1u);
+
+  m_mapRegions.clear();
+  m_mapRegions.reserve(universe->regions.size());
+  for (const Game::Region& region : universe->regions)
+  {
+    if (region.id < regionIndex.size())
+    {
+      regionIndex[region.id] = static_cast<std::uint16_t>(m_mapRegions.size());
+    }
+    Neuron::MapRegion out;
+    out.id = region.id;
+    out.label = region.name.c_str();
+    out.badge = BandName(region.securityCeiling);
+    out.tint = SecurityTint(region.securityCeiling);
+    m_mapRegions.push_back(out);
+  }
+
+  m_mapGroups.clear();
+  m_mapGroups.reserve(universe->constellations.size());
+  for (const Game::Constellation& constellation : universe->constellations)
+  {
+    if (constellation.id < constellationIndex.size())
+    {
+      constellationIndex[constellation.id] = static_cast<std::uint16_t>(m_mapGroups.size());
+    }
+    Neuron::MapGroup out;
+    out.id = constellation.id;
+    out.region = constellation.region < regionIndex.size() ? regionIndex[constellation.region] : 0u;
+    out.x = toMap(constellation.centre.x, originX);
+    out.y = toMap(constellation.centre.y, originY);
+    out.label = constellation.name.c_str();
+    m_mapGroups.push_back(out);
+  }
+
+  /*
+   * A region has no placed centre in the bake -- ADR-009 §4 gives it a name and
+   * a security band and nothing spatial -- so the map derives one from its
+   * constellations. Derived rather than authored is exactly what `Constellation`
+   * refuses for itself, and the difference is that a constellation's centre is
+   * load-bearing (U1's clustering invariant is stated against it) while a
+   * region's is a label's anchor.
+   */
+  for (std::size_t index = 0; index < m_mapRegions.size(); ++index)
+  {
+    double sumX = 0.0;
+    double sumY = 0.0;
+    std::uint32_t members = 0;
+    for (const Neuron::MapGroup& group : m_mapGroups)
+    {
+      if (group.region != index)
+      {
+        continue;
+      }
+      sumX += static_cast<double>(group.x);
+      sumY += static_cast<double>(group.y);
+      ++members;
+    }
+    if (members > 0)
+    {
+      m_mapRegions[index].x = static_cast<float>(sumX / members);
+      m_mapRegions[index].y = static_cast<float>(sumY / members);
+    }
+  }
+
+  m_mapNodeBySystem = MakeIndexTable(universe->systems.size() + 1u);
+  m_mapNodes.clear();
+  m_mapNodes.reserve(universe->systems.size());
+  for (std::size_t index = 0; index < universe->systems.size(); ++index)
+  {
+    const Game::SolarSystem& system = universe->systems[index];
+    if (system.id < m_mapNodeBySystem.size())
+    {
+      m_mapNodeBySystem[system.id] = static_cast<std::uint16_t>(m_mapNodes.size());
+    }
+    Neuron::MapNode out;
+    out.id = system.id;
+    out.group = system.constellation < constellationIndex.size() ? constellationIndex[system.constellation] : 0u;
+    out.x = toMap(system.centre.x, originX);
+    out.y = toMap(system.centre.y, originY);
+    out.label = system.name.c_str();
+    out.badge = m_mapBadges[index].c_str();
+    out.tint = SecurityTint(system.security);
+    m_mapNodes.push_back(out);
+  }
+
+  /*
+   * The gate graph, **stored once per pair**.
+   *
+   * The bake authors gates as symmetric pairs, so walking every system's gate
+   * list would produce each link twice -- two lines over each other at double
+   * the alpha, which reads as a deliberate highlight. Keeping only the edge that
+   * runs from the lower node index is the cheapest way to pick one of the two,
+   * and it does not depend on which end the walk reached first.
+   */
+  m_mapLinks.clear();
+  std::size_t dropped = 0;
+  for (const Game::SolarSystem& system : universe->systems)
+  {
+    const std::uint16_t from = system.id < m_mapNodeBySystem.size() ? m_mapNodeBySystem[system.id] : 0xffffu;
+    if (from == 0xffffu)
+    {
+      continue;
+    }
+    for (const Game::Gate& gate : system.gates)
+    {
+      const std::uint16_t to = gate.toSystem < m_mapNodeBySystem.size() ? m_mapNodeBySystem[gate.toSystem] : 0xffffu;
+      if (to == 0xffffu || to <= from)
+      {
+        continue;
+      }
+      if (m_mapLinks.size() >= Neuron::MAX_MAP_LINKS)
+      {
+        ++dropped;
+        continue;
+      }
+      m_mapLinks.push_back(Neuron::MapLink{from, to});
+    }
+  }
+
+  /*
+   * And it says so when it drops one.
+   *
+   * `MAX_MAP_LINKS` is 3,000 and the committed 2,500-system bake produces
+   * **exactly** 3,000 -- measured, not estimated -- so there is no headroom and
+   * the next content pass that adds an edge lands here. That is the same bargain
+   * `MAX_MAP_NODES` states (a shard that outgrows the client retunes the config),
+   * and what makes it safe to leave tight is that outgrowing it is *audible*.
+   * A map quietly missing a gate is a map a player plans a route around.
+   */
+  if (dropped > 0)
+  {
+    NEURON_LOG_WARNING("strategic map: %zu gate links past the %u the client is built for", dropped,
+                       Neuron::MAX_MAP_LINKS);
+  }
+}
+
+bool ReplicatedWorldView::BuildMapTopology(Neuron::MapTopology& _outTopology) const
+{
+  if (m_mapNodes.empty())
+  {
+    _outTopology = Neuron::MapTopology{};
+    return false;
+  }
+
+  // Spans into storage this view owns, valid for the session -- which is what
+  // "asked once at boot" means on this side of the seam.
+  _outTopology.nodes = m_mapNodes;
+  _outTopology.links = m_mapLinks;
+  _outTopology.groups = m_mapGroups;
+  _outTopology.regions = m_mapRegions;
+  return true;
+}
+
+std::uint32_t ReplicatedWorldView::BuildMapOverlays(std::span<Neuron::MapOverlayOption> _outOverlays) const
+{
+  /*
+   * The print's five, in the print's order, and four of them are stubs
+   * (ADR-016 §9, §9a.3) -- *drawn, disabled, and carrying the reason*, which is
+   * `BuildStationTabs`' treatment of a service that has not shipped.
+   *
+   * The reasons differ in kind and the words say which: three wait on content
+   * that does not exist at all, and RESOURCES waits on a *layer* whose content
+   * does exist in the bake (ADR-024 splits archetype and grade as public) but
+   * whose presence-gated half needs the site receipts U-phase economy work
+   * carries. Only SECURITY BAND can be drawn from what is committed today.
+   */
+  struct Entry
+  {
+    const char* name;
+    const char* tag;
+    bool enabled;
+  };
+  static constexpr Entry ENTRIES[] = {
+      {"SOVEREIGNTY", "NO CONTENT", false}, {"ACTIVITY HEAT", "NO STREAM", false},
+      {"INTEL PINGS", "NO INTEL", false},   {"SECURITY BAND", nullptr, true},
+      {"RESOURCES", "NO RECEIPTS", false},
+  };
+
+  std::uint32_t written = 0;
+  for (const Entry& entry : ENTRIES)
+  {
+    if (written >= _outOverlays.size())
+    {
+      break;
+    }
+    Neuron::MapOverlayOption& out = _outOverlays[written];
+    out.name = entry.name;
+    out.tag = entry.tag;
+    out.id = static_cast<std::uint16_t>(written + 1u);
+    out.enabled = entry.enabled;
+    ++written;
+  }
+  return written;
+}
+
+std::uint32_t ReplicatedWorldView::BuildMapLegend(std::uint16_t _overlay, std::span<Neuron::MapLegendRow> _outRows) const
+{
+  /*
+   * The one overlay with content gets a real key, and the four stubs get
+   * nothing -- which is what a visible stub looks like from this side: a heading
+   * with no rows under it rather than a block that vanishes.
+   *
+   * **The counting is here rather than in the client**, which is the whole
+   * reason this is a seam call: the engine has the nodes and their tints and
+   * could tally them in four lines, and would thereby have decided that a legend
+   * counts *systems* -- rather than jumps, or hulls, or days held.
+   */
+  constexpr std::uint16_t SECURITY_OVERLAY = 4;
+  if (_overlay != SECURITY_OVERLAY || m_desc.universe == nullptr)
+  {
+    return 0;
+  }
+
+  struct Band
+  {
+    const char* name;
+    Neuron::StandingColour tint;
+  };
+  static constexpr Band BANDS[] = {{"SECURE", Neuron::StandingColour::Allied},
+                                   {"CONTESTED", Neuron::StandingColour::Neutral},
+                                   {"LAWLESS", Neuron::StandingColour::Hostile}};
+
+  std::uint32_t written = 0;
+  for (const Band& band : BANDS)
+  {
+    if (written >= _outRows.size())
+    {
+      break;
+    }
+    std::uint32_t count = 0;
+    for (const Game::SolarSystem& system : m_desc.universe->systems)
+    {
+      if (SecurityTint(system.security) == band.tint)
+      {
+        ++count;
+      }
+    }
+    Neuron::MapLegendRow& out = _outRows[written];
+    out.name = band.name;
+    out.count = count;
+    out.tint = band.tint;
+    ++written;
+  }
+  return written;
+}
+
+std::uint32_t ReplicatedWorldView::BuildMapFacts(std::uint16_t _systemId, std::span<Neuron::MapFactRow> _outRows) const
+{
+  if (m_desc.universe == nullptr)
+  {
+    return 0;
+  }
+  const Game::SolarSystem* system = m_desc.universe->FindSystem(static_cast<Game::SystemId>(_systemId));
+  if (system == nullptr)
+  {
+    return 0;
+  }
+
+  /*
+   * Five rows, and they are **not** the print's five.
+   *
+   * `strategic-map.png` draws SOVEREIGNTY, HELD SINCE, VULNERABLE, STATIONS and
+   * GATES; the first three are about a system nobody has built (ADR-016 §9's
+   * stub list), and the rule `MapFactRow` states is that a game reports only the
+   * facts it has. A label with an empty value beside it is a promise this game
+   * has not kept; a missing row is a fact it does not have -- and the panel is
+   * shorter, visibly, which is the honest shape.
+   *
+   * What replaces them is what the bake does know, and it is not filler: the
+   * constellation and the region are the two levels above this system, which is
+   * the hierarchy the whole screen is organised around.
+   */
+  m_factValues.clear();
+  m_factValues.reserve(3);
+
+  const Game::Constellation* constellation = nullptr;
+  for (const Game::Constellation& candidate : m_desc.universe->constellations)
+  {
+    if (candidate.id == system->constellation)
+    {
+      constellation = &candidate;
+      break;
+    }
+  }
+  const Game::Region* region = nullptr;
+  for (const Game::Region& candidate : m_desc.universe->regions)
+  {
+    if (candidate.id == system->region)
+    {
+      region = &candidate;
+      break;
+    }
+  }
+
+  m_factValues.push_back(SecurityBadge(system->security));
+  {
+    char buffer[16] = {};
+    std::snprintf(buffer, sizeof buffer, "%zu", system->stations.size());
+    m_factValues.push_back(buffer);
+  }
+  {
+    char buffer[16] = {};
+    std::snprintf(buffer, sizeof buffer, "%zu", system->gates.size());
+    m_factValues.push_back(buffer);
+  }
+
+  const Neuron::MapFactRow rows[] = {
+      {"CONSTELLATION", constellation != nullptr ? constellation->name.c_str() : nullptr},
+      {"REGION", region != nullptr ? region->name.c_str() : nullptr},
+      {"SECURITY", m_factValues[0].c_str()},
+      {"STATIONS", m_factValues[1].c_str()},
+      {"GATES", m_factValues[2].c_str()},
+  };
+
+  std::uint32_t written = 0;
+  for (const Neuron::MapFactRow& row : rows)
+  {
+    if (written >= _outRows.size())
+    {
+      break;
+    }
+    if (row.value == nullptr)
+    {
+      continue; // The rule above: a fact this game does not have is a row that
+                // is not reported, never a label with nothing beside it.
+    }
+    _outRows[written] = row;
+    ++written;
+  }
+  return written;
+}
+
+std::uint32_t ReplicatedWorldView::SolveMapRoute(std::uint16_t _toSystem, std::span<Neuron::MapRouteHop> _outHops,
+                                                 Neuron::MapRouteSummary& _outSummary) const
+{
+  _outSummary = Neuron::MapRouteSummary{};
+  if (m_desc.universe == nullptr)
+  {
+    return 0;
+  }
+
+  // The origin is this view's, not the caller's: the client holds a grid id,
+  // and which system that grid is in is a fact about the universe.
+  const Game::SystemId from = MapOriginSystem();
+  if (from == Game::INVALID_ID)
+  {
+    return 0; // No world yet, so no route -- rather than a route from nowhere.
+  }
+
+  /*
+   * Straight through to the shared planner, which is D14's whole point: *"search
+   * and route-solve are GameLogic pure functions reached through seam calls"*. A
+   * route solved in the client would be a route that cannot be replayed, and a
+   * second solver the day one is planned from anywhere else.
+   *
+   * **One route, where the print offers three.** `strategic-map.png` §3 asks for
+   * fastest, safest and hostile-avoiding, on the argument that presenting one
+   * hides the only interesting decision on the screen. `SolveRoute` is
+   * breadth-first because a gate is a gate today; when jumps stop being equal it
+   * becomes Dijkstra over the same graph and the signature does not move, and
+   * the second and third routes arrive then. The note below says which one this
+   * is rather than implying it is the only one.
+   */
+  const Game::Route route = Game::SolveRoute(*m_desc.universe, from, static_cast<Game::SystemId>(_toSystem));
+  if (route.systems.empty())
+  {
+    return 0;
+  }
+
+  m_routeBadges.clear();
+  m_routeBadges.reserve(route.systems.size());
+  for (const Game::SystemId id : route.systems)
+  {
+    const Game::SolarSystem* system = m_desc.universe->FindSystem(id);
+    m_routeBadges.push_back(SecurityBadge(system != nullptr ? system->security : 0u));
+  }
+
+  std::uint32_t written = 0;
+  for (std::size_t index = 0; index < route.systems.size(); ++index)
+  {
+    if (written >= _outHops.size())
+    {
+      break;
+    }
+    const Game::SystemId id = route.systems[index];
+    const Game::SolarSystem* system = m_desc.universe->FindSystem(id);
+    Neuron::MapRouteHop& out = _outHops[written];
+    out.node = id < m_mapNodeBySystem.size() ? m_mapNodeBySystem[id] : 0u;
+    out.name = system != nullptr ? system->name.c_str() : nullptr;
+    out.badge = m_routeBadges[index].c_str();
+    out.tint = SecurityTint(system != nullptr ? system->security : 0u);
+    ++written;
+  }
+
+  {
+    char buffer[40] = {};
+    std::snprintf(buffer, sizeof buffer, "FASTEST · %zu JUMPS", route.Jumps());
+    m_routeNote = buffer;
+  }
+
+  /*
+   * The ETA, from the game's own constants rather than from a number chosen to
+   * look like the print's.
+   *
+   * `GATE_JUMP_TICKS` at `TICKS_PER_SECOND` is what a jump costs by design
+   * (ADR-016 §5), and this is that times the hops. **It does not count the
+   * flight between gates inside each system**, which is a real omission rather
+   * than a rounding: that is the tactical view's spool-and-transit arithmetic
+   * and it needs a hull class to answer. Stating the jump time alone makes the
+   * number a floor, which is the direction an ETA should be wrong in.
+   */
+  const auto seconds =
+      static_cast<std::uint32_t>(route.Jumps() * Game::GATE_JUMP_TICKS / Game::TICKS_PER_SECOND);
+  m_routeEta = EtaText(seconds);
+
+  _outSummary.note = m_routeNote.c_str();
+  _outSummary.eta = m_routeEta.c_str();
+  return written;
+}
+
+Game::SystemId ReplicatedWorldView::MapOriginSystem() const noexcept
+{
+  if (m_desc.universe == nullptr)
+  {
+    return Game::INVALID_ID;
+  }
+  /*
+   * The live grid if frames have said one, and the configured one before they
+   * have.
+   *
+   * The fallback is not a guess: `Desc::gridAnchor` is where this client was
+   * told to watch, and a strategic map that could not plan a route until a
+   * datagram landed would be blank for the first second of every session -- on
+   * the one screen whose whole content is `F15`'s complete universe copy, which
+   * needs no connection at all to be true.
+   *
+   * Through the *anchor* either way, because a grid is a place inside a system
+   * rather than the system itself -- the same indirection a warp order takes,
+   * and the reason `Anchor` carries its system at all.
+   */
+  const Game::AnchorId grid = m_view.Grid() != Game::INVALID_ID ? m_view.Grid() : m_desc.gridAnchor;
+  const Game::Anchor* anchor = m_desc.universe->FindAnchor(grid);
+  return anchor != nullptr ? anchor->system : Game::INVALID_ID;
 }
 
 } // namespace Outpost

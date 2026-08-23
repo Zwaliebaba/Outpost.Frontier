@@ -3,6 +3,7 @@
 #include "ByteWriter.h"
 #include "DeltaReceiver.h"
 #include "HudRoster.h"
+#include "MapView.h"
 #include "OrderIntent.h"
 #include "StationIntent.h"
 #include "StationView.h"
@@ -489,6 +490,125 @@ public:
    * sent" rather than as "no limit".
    */
   [[nodiscard]] virtual std::uint32_t ShipsPerStationCommand() const { return 0; }
+
+  /*
+   * --- the strategic map (ADR-018 D14, ADR-016 §9, ADR-020 §6) --------------
+   *
+   * Five calls in three shapes, which is §6's screen-data contract spent the
+   * way the station surface already spends it: two **asked-once** builders (the
+   * graph and the overlay list), one at **summary rate** (the legend), and two
+   * **pure query functions** (a system's facts and a route). A screen wanting a
+   * fourth *shape* is that section's tripwire; a fifth method of an existing
+   * shape is not.
+   *
+   * All five carry defaults, so a view with no universe -- `NullWorldView`, a
+   * test's stub -- inherits an honest nothing. The screen opens on that and
+   * draws its chrome around an empty viewport, which is `MapTopology::Empty`'s
+   * promise.
+   */
+
+  /*
+   * The whole graph, once.
+   *
+   * **Asked at boot rather than per frame**, because a bake is generated, hashed
+   * and fixed before a session starts -- asking every frame would be asking a
+   * question whose answer is compiled in, and asking per node would put 2,500
+   * seam calls in a frame. What changes per frame is where the camera is, and
+   * that is the client's own state.
+   *
+   * The spans point at storage the *game* owns and are valid for the session,
+   * which is what "asked once" means on this side of it. False from a view with
+   * no universe, which is not a failure: the surface opens either way.
+   */
+  [[nodiscard]] virtual bool BuildMapTopology(MapTopology& _outTopology) const
+  {
+    (void)_outTopology;
+    return false;
+  }
+
+  /*
+   * Which overlays this game offers, in the order the rail should show them.
+   *
+   * `BuildStationTabs` exactly, and for the same reason: a fixed list where some
+   * entries have nothing behind them yet, drawn and disabled with the game's own
+   * word for why. Four of the five are stubs today (ADR-016 §9, §9a.3) and the
+   * engine learns only that they are off -- never that "intel" is a thing this
+   * game has not built, which would be the leak test failing on the first screen
+   * it was written for.
+   *
+   * Returns how many were written, never more than the span holds.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildMapOverlays(std::span<MapOverlayOption> _outOverlays) const
+  {
+    (void)_outOverlays;
+    return 0;
+  }
+
+  /*
+   * The active overlay's key: a swatch, a word and a count per line.
+   *
+   * At summary rate rather than per frame, because what it counts changes when a
+   * summary lands. **The game counts**, including the count, for `BuildRoster`'s
+   * reason: the engine has the nodes and could tally them by tint in four lines,
+   * and would thereby have decided that a legend counts systems rather than
+   * jumps, or hulls, or days held.
+   *
+   * Zero is the common answer today and is not a failure -- see `MapLegendRow`.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildMapLegend(std::uint16_t _overlay, std::span<MapLegendRow> _outRows) const
+  {
+    (void)_overlay;
+    (void)_outRows;
+    return 0;
+  }
+
+  /*
+   * What the panel says about the selected system.
+   *
+   * A pure query asked on the selection rather than per frame, which is §6's
+   * third shape. `_systemId` is the opaque `MapNode::id` the client echoed back;
+   * it never learned what the number means, which is the whole of the handle
+   * pattern `RosterRow::groupId` established.
+   *
+   * A game that can answer only some of the print's five rows reports only
+   * those. It does not report a row with an empty value: a label with nothing
+   * beside it is a promise the game has not kept, where a missing row is a fact
+   * this game does not have.
+   */
+  [[nodiscard]] virtual std::uint32_t BuildMapFacts(std::uint16_t _systemId, std::span<MapFactRow> _outRows) const
+  {
+    (void)_systemId;
+    (void)_outRows;
+    return 0;
+  }
+
+  /*
+   * How to get there, as hops and a sentence.
+   *
+   * The other pure query, and D14 puts it here in as many words: *"search and
+   * route-solve are GameLogic pure functions reached through seam calls"*. A
+   * route solved in the client would be a route that cannot be replayed, and a
+   * second solver the day one is planned from anywhere else.
+   *
+   * The hops come back as **indices** into the topology this same view built,
+   * which is asked once and lives for the session -- so there is no moment when
+   * one refers to a graph that has moved. Zero means no route, which is a real
+   * answer and the honest one for a SET DESTINATION on a system nothing reaches.
+   *
+   * **Only the destination crosses.** The origin is the game's to know: the
+   * client holds a grid id and "which system is that grid in" is a fact about
+   * the universe, so a client that supplied a start would either be reading the
+   * bake or guessing. It is the same split `ContextActionFor` makes -- the
+   * client says what the player pointed at and the game says what it means.
+   */
+  [[nodiscard]] virtual std::uint32_t SolveMapRoute(std::uint16_t _toSystem, std::span<MapRouteHop> _outHops,
+                                                    MapRouteSummary& _outSummary) const
+  {
+    (void)_toSystem;
+    (void)_outHops;
+    (void)_outSummary;
+    return 0;
+  }
 
   /*
    * The diagnostic text for a reason code.

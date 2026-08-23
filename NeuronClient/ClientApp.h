@@ -28,6 +28,7 @@
 #include "Gesture.h"
 #include "InputRouter.h"
 #include "IsoCamera.h"
+#include "MapScreen.h"
 #include "OrderGhost.h"
 #include "OrderPuck.h"
 #include "OverlayMark.h"
@@ -213,6 +214,17 @@ private:
   void UpdateSettingsSurface();
 
   /*
+   * `UpdateHud`'s map half, and the only surface whose update moves a *camera*
+   * (ADR-020 §7: "the graph is a viewport").
+   *
+   * Split out for `UpdateSettingsSurface`'s reason -- each surface handles what
+   * it drew -- and it is the first consumer of `GestureState::pinchScale`
+   * anywhere in this client. I1 built the pinch and nothing had a use for a
+   * zoom until this screen.
+   */
+  void UpdateMapSurface();
+
+  /*
    * What one row is currently set to, 0..1 along its control.
    *
    * The one place that knows a row index means a config field. The screen lays
@@ -326,6 +338,11 @@ private:
   /// The settings surface's draw (N3, `settings.png` §1): the rail, the section
   /// body, and the right column's preview, audit and handedness panels.
   void BuildSettingsSurface();
+
+  /// Reads `m_mapLayout` and the runs `UpdateMapSurface` projected, and adds
+  /// nothing to them: the rule that makes a hit test on this screen mean
+  /// anything is that the draw takes the same rects (ADR-020 §5.1).
+  void BuildMapSurface();
 
   /*
    * The Tier-1 strip's collection and build (S14). Runs inside `BuildHud`'s
@@ -637,6 +654,98 @@ private:
   /// the chip is the icon ladder's rung rather than a piece of one screen -- the
   /// density ladder is its second caller when it lands.
   CountedChipTuning m_countedChipTuning;
+
+  /*
+   * --- the strategic map (U5, `strategic-map.png`, ADR-018 D14) ------------
+   *
+   * The one surface with a *camera* rather than only a zone table, so it keeps
+   * three kinds of state: what the game said (asked once at boot, and on a
+   * selection), where the player is looking, and what this frame projected.
+   */
+  MapScreenTuning m_mapTuning;
+  MapScreenLayout m_mapLayout;
+  MapRailZones m_mapRail;
+  MapPanelZones m_mapPanel;
+
+  /// The graph, asked once and held for the session -- `MapTopology`'s own
+  /// lifetime rule, which is why this is a member and not a local.
+  MapTopology m_mapTopology;
+  MapExtent m_mapExtent;
+  bool m_mapAsked = false;
+
+  MapCamera m_mapCamera;
+
+  /*
+   * Whether the camera still owes itself a fit.
+   *
+   * Set on entry and spent in `UpdateMapSurface`, rather than fitting on entry
+   * directly -- a caught defect: `OnSurfaceChanged` runs *before* the surface
+   * has ever resolved its layout, so the first fit would be against a zero-sized
+   * graph rect and produce the degenerate fallback camera. The flag moves the
+   * fit to the first frame that knows how big the viewport is.
+   */
+  bool m_mapNeedsFit = true;
+
+  MapPinchLevel m_mapLevel = MapPinchLevel::Region;
+  MapShowFlags m_mapShow;
+
+  /*
+   * The pinch's ratio as of the last frame that applied it.
+   *
+   * `GestureState::pinchScale` is measured against the separation when the
+   * pinch *began*, not against the last frame -- so applying it directly every
+   * frame would compound it into an exponential zoom. What the camera wants is
+   * this frame's ratio, which is the state's over this.
+   */
+  float m_mapPinchApplied = 1.0f;
+
+  /// What the game said. All asked-once or on-a-press, never per frame.
+  MapOverlayOption m_mapOverlays[MAX_MAP_OVERLAYS];
+  std::uint32_t m_mapOverlayCount = 0;
+  std::uint16_t m_mapOverlay = 0;
+  MapLegendRow m_mapLegend[MAX_MAP_LEGEND_ROWS];
+  std::uint32_t m_mapLegendCount = 0;
+  MapFactRow m_mapFacts[MAX_MAP_FACT_ROWS];
+  std::uint32_t m_mapFactCount = 0;
+  MapRouteHop m_mapHops[MAX_MAP_ROUTE_HOPS];
+  std::uint32_t m_mapHopCount = 0;
+  MapRouteSummary m_mapRouteSummary;
+
+  /// Which system the panel is about. An opaque id echoed back to the game, and
+  /// a separate flag rather than a sentinel because zero is a legal id.
+  std::uint16_t m_mapSelected = 0;
+  bool m_mapHasSelection = false;
+
+  /// The rail's two pressable runs, laid out each frame.
+  MapOverlayRowRect m_mapOverlayRows[MAX_MAP_OVERLAYS];
+  std::uint32_t m_mapOverlayRowCount = 0;
+  MapShowRowRect m_mapShowRows[MAP_SHOW_TOGGLE_COUNT];
+  std::uint32_t m_mapShowRowCount = 0;
+
+  /// §7's declared overflow answer for this surface: the panels scroll.
+  UiScrollState m_mapLegendScroll;
+  UiScrollState m_mapFactScroll;
+  UiScrollState m_mapRouteScroll;
+
+  /*
+   * This frame's projected graph.
+   *
+   * `std::vector` where every other run on this client is a fixed array, and
+   * the reason is size rather than taste: at the corpus's cap these are about
+   * two hundred kilobytes, and `ClientApp` is a local in the composition root.
+   * They are reserved **once**, on the first entry to the surface, so a session
+   * that never opens the map never pays for it and one that does allocates on a
+   * screen the player asked for rather than in a frame.
+   */
+  std::vector<MapNodeRect> m_mapNodeRects;
+  std::vector<MapLinkSegment> m_mapLinkRects;
+  std::vector<MapGroupDisc> m_mapGroupRects;
+  MapGraphCounts m_mapCounts;
+
+  /// The tactical top bar's location breadcrumb, which is the way *up* to the
+  /// map -- `tactical-hud.png` draws it as `◈ VESTA-3 ▸ FRONTIER 0.4` with a
+  /// drill-up chevron, and this is that chevron made real.
+  UiRect m_locationChipRect;
 
   SettingsScreenTuning m_settingsTuning;
   SettingsScreenLayout m_settingsLayout;

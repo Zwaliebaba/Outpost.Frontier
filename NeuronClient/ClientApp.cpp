@@ -754,6 +754,26 @@ void ClientApp::UpdateHud()
     const float chipWidth = static_cast<float>(TextCellCount(BACK_CHIP_LABEL)) * cell + 2.0f * cell;
     m_backChipRect = UiRect{m_uiLayout.viewport.x + pad, m_uiLayout.viewport.y + pad, chipWidth,
                             m_uiTuning.topBarHeight * scale - pad};
+
+    /*
+     * And the way *up*, from the same numbers the bar draws the breadcrumb with
+     * (U5). Resolved here rather than in the draw so the press and the pixels
+     * are one rect -- ADR-020 §5.1's rule, which the top bar had never needed
+     * before because nothing on it was pressable except MENU.
+     *
+     * Sized to the two words plus their separator, and it takes the **bar's**
+     * height rather than the 48 px floor -- which is a deliberate exception and
+     * worth saying why. The tactical bar is 46 px design and 36.8 at 0.8x, so a
+     * floored control inside it would overhang into the world by eleven pixels
+     * and take presses meant for the fleet. The bar being under the floor at all
+     * is R30's finding -- the tactical chrome still answers a mouse -- and
+     * raising it is I3's job, where the whole chrome converts at once. Widening
+     * this target sideways is free and is what is done instead.
+     */
+    const std::size_t systemCells = TextCellCount(m_connection.WorldName());
+    const std::size_t regionCells = TextCellCount(m_connection.WorldDetail());
+    const float breadcrumbWidth = static_cast<float>(systemCells + regionCells + 6u) * cell;
+    m_locationChipRect = UiRect{pad, m_uiLayout.topBar.y, breadcrumbWidth, m_uiLayout.topBar.height};
   }
 
   // The diagnostics toggle, before anything can consume the frame's edges. A
@@ -860,6 +880,10 @@ void ClientApp::UpdateHud()
     {
       UpdateSettingsSurface();
     }
+    else if (m_surfaces.Active() == SurfaceId::Map)
+    {
+      UpdateMapSurface();
+    }
     else
     {
       UpdateStationSurface();
@@ -906,6 +930,25 @@ void ClientApp::UpdateHud()
   if (m_router.ClaimPointerIn(m_menuButtonRect))
   {
     m_menuOpen = true;
+    return;
+  }
+
+  /*
+   * The way up to the strategic map (U5, ADR-016 §9's TACTICAL <-> MAP handoff).
+   *
+   * The location breadcrumb, not a new button. `tactical-hud.png` draws it as
+   * `<> VESTA-3 > FRONTIER 0.4` with a drill-up chevron between the system and
+   * the region it is in, and that chevron is the affordance -- the print put a
+   * navigation control on this bar and it has been a readout ever since. Adding
+   * a MAP button beside MENU would be a second answer to a question the print
+   * already answered, on the one bar that has no room for one.
+   *
+   * The map's own way back is the shared `< TACTICAL` chip, so the pair is one
+   * mechanism (`SurfaceStack`) reached from two places rather than two.
+   */
+  if (m_router.ClaimPointerIn(m_locationChipRect))
+  {
+    OnSurfaceChanged(m_surfaces.Push(SurfaceId::Map));
     return;
   }
 
@@ -1527,6 +1570,57 @@ void ClientApp::OnSurfaceChanged(const SurfaceChange& _change)
   // completed against the screen behind it is an order nobody gave.
   m_gestures.Cancel();
   m_puck.Cancel();
+
+  if (_change.entered == SurfaceId::Map)
+  {
+    /*
+     * The asked-once half, asked once (ADR-018 D14).
+     *
+     * On entry rather than at `Initialise` because a client that never opens the
+     * map should not pay for two hundred kilobytes of projected graph -- and on
+     * *first* entry rather than every entry because `MapTopology`'s spans are
+     * promised for the session, so re-asking would be asking a question whose
+     * answer is compiled in.
+     */
+    if (!m_mapAsked)
+    {
+      m_mapAsked = true;
+      m_mapNodeRects.resize(MAX_MAP_NODES);
+      m_mapLinkRects.resize(MAX_MAP_LINKS);
+      m_mapGroupRects.resize(MAX_MAP_GROUPS);
+
+      if (m_worldView != nullptr)
+      {
+        (void)m_worldView->BuildMapTopology(m_mapTopology);
+        m_mapOverlayCount = m_worldView->BuildMapOverlays(m_mapOverlays);
+      }
+      m_mapExtent = MapExtentOf(m_mapTopology);
+
+      // The first overlay with content behind it, so the screen opens showing
+      // something rather than showing the first stub in the print's order.
+      for (std::uint32_t index = 0; index < m_mapOverlayCount; ++index)
+      {
+        if (m_mapOverlays[index].enabled)
+        {
+          m_mapOverlay = m_mapOverlays[index].id;
+          break;
+        }
+      }
+    }
+
+    /*
+     * And the camera is refitted on every entry, which is the opposite call.
+     *
+     * A scroll offset is kept across a visit (`UiScrollState`'s session
+     * lifetime) because a list is the same list; a camera is not the same
+     * question. A player who left the map zoomed onto one constellation and
+     * came back after a fight in another system would open on a view of
+     * somewhere they are no longer standing -- and the fit is the one view that
+     * is never wrong.
+     */
+    m_mapNeedsFit = true;
+    m_mapPinchApplied = 1.0f;
+  }
 
   if (_change.entered == SurfaceId::Station)
   {
@@ -2377,6 +2471,10 @@ void ClientApp::BuildHud()
   {
     BuildSettingsSurface();
   }
+  else if (m_surfaces.Active() == SurfaceId::Map)
+  {
+    BuildMapSurface();
+  }
   else
   {
     BuildStationSurface();
@@ -2656,6 +2754,16 @@ void ClientApp::BuildTacticalHud(double _nowSeconds)
    */
   m_ui.AddQuad(layout.topBar, m_palette.panel);
   m_ui.AddQuad(UiRect{0.0f, layout.topBar.Bottom() - 1.0f, layout.topBar.width, 1.0f}, m_palette.borderStrong);
+
+  /*
+   * The breadcrumb's frame, which is what makes it look pressable (U5).
+   *
+   * The print draws the chevron and nothing else, and a chevron alone is a
+   * separator on every other screen in the corpus -- so the target gets the same
+   * faint outline MENU has, and the two controls on this bar look like the same
+   * kind of thing because they now are.
+   */
+  m_ui.AddBorder(m_locationChipRect, 1.0f, AtHalfAlpha(m_palette.border));
 
   const bool joined = m_connection.State() == ClientLinkState::Joined;
   const float textY = layout.topBar.y + (layout.topBar.height - bodyPx) * 0.5f;
@@ -3800,7 +3908,7 @@ void ClientApp::UpdateSettingsSurface()
    * of short rows and is the safe direction: it scrolls a little further than it
    * strictly must rather than hiding a row the player cannot reach.
    */
-  const float tallestRow = SettingsRowHeightPixels(m_settingsTuning.sliderRowHeight, scale);
+  const float tallestRow = TargetHeightPixels(m_settingsTuning.sliderRowHeight, scale);
   m_settingsScroll.SetExtent(static_cast<std::uint32_t>(items.size()),
                              VisibleRowCount(m_settingsLayout.body.height, tallestRow));
   if (m_settingsLayout.body.Contains(m_router.CursorX(), m_router.CursorY()) && m_router.WheelAvailable())
@@ -3862,6 +3970,588 @@ void ClientApp::UpdateSettingsSurface()
       break;
     }
   }
+}
+
+/*
+ * The strategic map's frame (`strategic-map.png` §1, ADR-020 §5.1, §7, U5).
+ *
+ * The same order every full-screen surface runs in -- lay out, project, then
+ * take the gesture -- with one thing none of the others has: a **camera**. §7's
+ * declared overflow rule for this surface is *"scroll the panels; the graph is a
+ * viewport"*, so the panels are lists and the graph is pan and pinch, and this
+ * is the only place in the client where `GestureState::pinchScale` is spent.
+ *
+ * Every rect a press is tested against below is one this function put in a
+ * member, and `BuildMapSurface` draws from the same members.
+ */
+void ClientApp::UpdateMapSurface()
+{
+  const float scale = m_uiLayout.scale;
+  m_mapLayout = ResolveMapScreen(m_input.viewportWidth, m_input.viewportHeight, scale, m_mapTuning);
+
+  /*
+   * The legend, at summary rate rather than per frame -- it is asked when the
+   * overlay changes and when the surface is entered, both of which land here as
+   * "the count is not what the overlay says". Cheap and correct beats a dirty
+   * flag that some future overlay switch forgets to set.
+   */
+  if (m_worldView != nullptr)
+  {
+    m_mapLegendCount = m_worldView->BuildMapLegend(m_mapOverlay, m_mapLegend);
+  }
+
+  /*
+   * The fit, on the first frame that knows how big the graph is.
+   *
+   * Not on entry: `OnSurfaceChanged` runs before this surface has ever resolved
+   * a layout, so fitting there would fit against a zero-sized rect and hand the
+   * player the degenerate one-pixel-per-unit camera.
+   */
+  if (m_mapNeedsFit)
+  {
+    m_mapNeedsFit = false;
+    m_mapCamera = FitMapCamera(m_mapExtent, m_mapLayout.graph, m_mapTuning);
+  }
+
+  m_mapRail = SplitMapRail(m_mapLayout.rail, m_mapOverlayCount, m_mapLegendCount, scale, m_mapTuning);
+  m_mapPanel = SplitMapPanel(m_mapLayout.panelBody, m_mapFactCount, m_mapHopCount, scale, m_mapTuning);
+
+  m_mapOverlayRowCount = BuildMapOverlayRows({m_mapOverlays, m_mapOverlayCount}, m_mapRail.overlayRows, scale,
+                                             m_mapTuning, m_mapOverlayRows);
+  m_mapShowRowCount = BuildMapShowRows(m_mapRail.showRows, scale, m_mapTuning, m_mapShowRows);
+
+  // The way off, before anything else can take the press -- on this screen the
+  // shared back chip is the top bar's `< TACTICAL`.
+  if (m_router.ClaimPointerIn(m_mapLayout.back))
+  {
+    OnSurfaceChanged(m_surfaces.Back());
+    return;
+  }
+
+  /*
+   * The camera, before the graph is projected, so a press this frame is tested
+   * against the view the player is looking at rather than the one before it.
+   */
+  const GestureState& gesture = m_router.Gesture();
+  const bool overGraph = m_mapLayout.graph.Contains(gesture.x, gesture.y);
+
+  if (gesture.phase == GesturePhase::Pinching)
+  {
+    /*
+     * This frame's ratio, not the gesture's.
+     *
+     * `pinchScale` is measured against the separation when the pinch *began*,
+     * so feeding it to the camera every frame would compound it -- a steady
+     * two-finger spread would zoom exponentially and hit the ceiling in about a
+     * second. What the camera wants is the change since the last frame.
+     */
+    const float applied = m_mapPinchApplied > 0.0f ? m_mapPinchApplied : 1.0f;
+    const float frameFactor = gesture.pinchScale / applied;
+    m_mapPinchApplied = gesture.pinchScale;
+    m_mapCamera = PinchMapCamera(m_mapCamera, frameFactor, gesture.pinchCentreX, gesture.pinchCentreY, m_mapExtent,
+                                 m_mapLayout.graph, m_mapTuning);
+  }
+  else
+  {
+    m_mapPinchApplied = 1.0f;
+    if (gesture.phase == GesturePhase::Dragging && overGraph)
+    {
+      m_mapCamera =
+          PanMapCamera(m_mapCamera, gesture.deltaX, gesture.deltaY, m_mapExtent, m_mapLayout.graph, m_mapTuning);
+    }
+  }
+
+  /*
+   * The wheel is the mouse's pinch, and it is a development convenience rather
+   * than a second design (ADR-020's 2026-08-22 amendment made touch primary).
+   * It goes through the same `PinchMapCamera` so the two inputs cannot end up
+   * with different zoom behaviour, which is what a separate wheel path would
+   * eventually produce.
+   */
+  if (overGraph && m_router.WheelAvailable())
+  {
+    const float steps = m_router.WheelSteps();
+    if (steps != 0.0f)
+    {
+      m_mapCamera = PinchMapCamera(m_mapCamera, std::pow(MAP_WHEEL_ZOOM_PER_NOTCH, steps), m_router.CursorX(),
+                                   m_router.CursorY(), m_mapExtent, m_mapLayout.graph, m_mapTuning);
+    }
+  }
+
+  m_mapLevel = MapLevelOf(m_mapCamera, m_mapExtent, m_mapLayout.graph, m_mapTuning);
+  m_mapCounts = BuildMapGraph(m_mapTopology, m_mapCamera, m_mapLayout.graph, m_mapLevel, m_mapShow, 8.0f * scale,
+                              scale, m_mapTuning, m_mapNodeRects, m_mapLinkRects, m_mapGroupRects);
+
+  // The panels' scroll extents, from the data as it is now -- `UiScrollState`'s
+  // clamp is a correction rather than a check, and this is what corrects it.
+  m_mapLegendScroll.SetExtent(m_mapLegendCount,
+                              VisibleRowCount(m_mapRail.legendRows.height, m_mapTuning.legendRowHeight * scale));
+  m_mapFactScroll.SetExtent(m_mapFactCount,
+                            VisibleRowCount(m_mapPanel.facts.height, m_mapTuning.factRowHeight * scale));
+  m_mapRouteScroll.SetExtent(m_mapHopCount,
+                             VisibleRowCount(m_mapPanel.routeHops.height, m_mapTuning.routeHopHeight * scale));
+  if (m_mapPanel.routeHops.Contains(m_router.CursorX(), m_router.CursorY()) && m_router.WheelAvailable())
+  {
+    m_mapRouteScroll.ScrollByWheel(m_router.WheelSteps());
+  }
+
+  // --- the press ----------------------------------------------------------
+  if (!gesture.tapped)
+  {
+    return;
+  }
+  const float tapX = gesture.tapX;
+  const float tapY = gesture.tapY;
+  (void)m_router.ClaimPointer();
+
+  if (const MapOverlayRowRect* row = HitMapOverlayRow({m_mapOverlayRows, m_mapOverlayRowCount}, tapX, tapY);
+      row != nullptr)
+  {
+    /*
+     * Exclusive, which is `strategic-map.png` §2's ruling and a real one:
+     * sovereignty is a categorical fill and activity is a continuous one, and
+     * stacking them makes a contested busy system indistinguishable from a quiet
+     * one under a different owner. So the rail holds one selection, not a set.
+     */
+    m_mapOverlay = m_mapOverlays[row->overlay].id;
+    m_mapLegendScroll.Reset();
+    return;
+  }
+
+  if (const MapShowRowRect* row = HitMapShowRow({m_mapShowRows, m_mapShowRowCount}, tapX, tapY); row != nullptr)
+  {
+    m_mapShow.Set(row->toggle, !m_mapShow.Get(row->toggle));
+    return;
+  }
+
+  if (HitMapAction(m_mapLayout, m_mapHasSelection, tapX, tapY) != MapActionHit::None)
+  {
+    /*
+     * Drawn and refused rather than acted on, and this is the honest end of U5a.
+     *
+     * SET DESTINATION drives the U4 route feeder -- the map plans and the client
+     * feeds the queue one jump at a time (`strategic-map.png` §3, ADR-016 §9a.1)
+     * -- and that feeder is not built. Sending the first hop as a bare warp
+     * would be a different promise from the one the button makes, so the route
+     * is *shown* and the order is not sent. The route line is what this screen
+     * gives the player today, and it is real.
+     */
+    return;
+  }
+
+  if (m_mapLayout.graph.Contains(tapX, tapY))
+  {
+    if (const MapNodeRect* node =
+            HitMapNode({m_mapNodeRects.data(), m_mapCounts.nodes}, tapX, tapY, scale, m_mapTuning);
+        node != nullptr)
+    {
+      m_mapSelected = m_mapTopology.nodes[node->node].id;
+      m_mapHasSelection = true;
+      m_mapFactScroll.Reset();
+      m_mapRouteScroll.Reset();
+      if (m_worldView != nullptr)
+      {
+        m_mapFactCount = m_worldView->BuildMapFacts(m_mapSelected, m_mapFacts);
+
+        /*
+         * And the route, from where the fleet is standing to where the player
+         * pointed -- solved on the press rather than per frame, which is
+         * ADR-020 §6's third shape and the reason it is a seam call at all.
+         */
+        m_mapHopCount = m_worldView->SolveMapRoute(m_mapSelected, m_mapHops, m_mapRouteSummary);
+      }
+    }
+    else
+    {
+      // A tap on the void clears, which is the tactical surface's rule for the
+      // same gesture: the map's selection is a selection.
+      m_mapHasSelection = false;
+      m_mapFactCount = 0;
+      m_mapHopCount = 0;
+      m_mapRouteSummary = MapRouteSummary{};
+    }
+  }
+}
+
+/*
+ * The strategic map's draw.
+ *
+ * Reads `m_mapLayout`, `m_mapRail`, `m_mapPanel` and the three runs
+ * `UpdateMapSurface` projected, and resolves nothing of its own -- which is
+ * ADR-020 §5.1's rule and the reason a hit test on this screen means anything.
+ */
+void ClientApp::BuildMapSurface()
+{
+  const MapScreenLayout& screen = m_mapLayout;
+  const float scale = screen.scale;
+  const float cell = 8.0f * scale;
+  const float pad = m_uiTuning.padding * scale;
+  const float line = 1.0f * scale;
+  const float smallPx = BASE_FONT_SIZES_PIXELS[m_uiTuning.smallSizeIndex] * scale;
+
+  char buffer[160] = {};
+
+  const auto centred = [&](const UiRect& _rect, std::uint8_t _size, std::uint32_t _colour, const char* _text) {
+    const float width = static_cast<float>(TextCellCount(_text)) * cell;
+    const float height = BASE_FONT_SIZES_PIXELS[_size] * scale;
+    m_ui.AddText(_rect.x + (_rect.width - width) * 0.5f, _rect.y + (_rect.height - height) * 0.5f, _size, _colour,
+                 _text);
+  };
+  const auto leftIn = [&](const UiRect& _rect, std::uint8_t _size, std::uint32_t _colour, const char* _text) {
+    const float height = BASE_FONT_SIZES_PIXELS[_size] * scale;
+    m_ui.AddText(_rect.x + pad, _rect.y + (_rect.height - height) * 0.5f, _size, _colour, _text);
+  };
+  const auto rightIn = [&](const UiRect& _rect, std::uint8_t _size, std::uint32_t _colour, const char* _text) {
+    const float width = static_cast<float>(TextCellCount(_text)) * cell;
+    const float height = BASE_FONT_SIZES_PIXELS[_size] * scale;
+    m_ui.AddText(_rect.Right() - pad - width, _rect.y + (_rect.height - height) * 0.5f, _size, _colour, _text);
+  };
+
+  // The ground, opaque: there is no world behind a full-screen surface.
+  m_ui.AddQuad(screen.viewport, WithAlpha(m_palette.panel, 0xFF));
+
+  // --- the top bar --------------------------------------------------------
+  m_ui.AddBorder(screen.back, line, m_palette.border);
+  centred(screen.back, m_uiTuning.bodySizeIndex, m_palette.phosphor, BACK_CHIP_LABEL);
+
+  /*
+   * The region line, which is the one part of this bar that is data: the game's
+   * word for where the player is looking, its band badge, and the two counts the
+   * print draws. Every one of them comes from the topology.
+   */
+  if (!m_mapTopology.regions.empty())
+  {
+    const MapRegion& region = m_mapTopology.regions.front();
+    const char* name = region.label != nullptr ? region.label : "";
+    leftIn(screen.title, m_uiTuning.bodySizeIndex, m_palette.phosphorHot, name);
+
+    const float titlePen = screen.title.x + pad + static_cast<float>(TextCellCount(name)) * cell + cell * 2.0f;
+    std::snprintf(buffer, sizeof(buffer), "%s - %zu CONSTELLATIONS - %zu SYSTEMS", MapPinchLevelName(m_mapLevel),
+                  m_mapTopology.groups.size(), m_mapTopology.nodes.size());
+    m_ui.AddText(titlePen, screen.title.y + (screen.title.height - smallPx) * 0.5f, m_uiTuning.smallSizeIndex,
+                 m_palette.phosphorBody, buffer);
+
+    if (region.badge != nullptr)
+    {
+      rightIn(screen.title, m_uiTuning.smallSizeIndex, StandingColourOf(m_palette, region.tint), region.badge);
+    }
+  }
+  else
+  {
+    leftIn(screen.title, m_uiTuning.bodySizeIndex, AtHalfAlpha(m_palette.neutral), "NO UNIVERSE");
+  }
+
+  /*
+   * SEARCH is drawn dead, and it says so.
+   *
+   * `TextEditState` exists and is wired to nothing; a box that took focus and
+   * then swallowed keys would be worse than one that visibly cannot. The chip
+   * stays so it does not appear from nowhere the day it works, which is MENU's
+   * own treatment before N3 and `StationTab`'s for a service that has not
+   * shipped.
+   */
+  m_ui.AddBorder(screen.search, line, m_palette.borderStrong);
+  centred(screen.search, m_uiTuning.smallSizeIndex, m_palette.phosphorDead, "SEARCH");
+  m_ui.AddBorder(screen.menu, line, m_palette.border);
+  centred(screen.menu, m_uiTuning.smallSizeIndex, m_palette.phosphorDim, "MENU");
+  m_ui.AddQuad(UiRect{0.0f, screen.topBar.Bottom() - line, screen.viewport.width, line}, m_palette.rule);
+
+  // --- the graph ----------------------------------------------------------
+  //
+  // Links under hulls under nodes under labels, which is the order they occlude
+  // in: a gate line over a system dot would read as a link *to* nothing.
+  const std::uint32_t linkColour = AtHalfAlpha(m_palette.phosphorGhost);
+  for (std::uint32_t index = 0; index < m_mapCounts.links; ++index)
+  {
+    const MapLinkSegment& link = m_mapLinkRects[index];
+    m_ui.AddSegment(link.from.x, link.from.y, link.to.x, link.to.y, line, linkColour);
+  }
+
+  for (std::uint32_t index = 0; index < m_mapCounts.groups; ++index)
+  {
+    const MapGroupDisc& disc = m_mapGroupRects[index];
+
+    /*
+     * A hull as a ring of segments, because there is no circle primitive and
+     * there should not be: `UiDrawList` is quads and text, and a filled disc
+     * would be a third shape bought for one screen. Sixteen sides reads as a
+     * circle at any radius this map draws, and costs sixteen quads.
+     */
+    constexpr std::uint32_t HULL_SIDES = 16;
+    constexpr float TWO_PI = 6.2831853f;
+    for (std::uint32_t side = 0; side < HULL_SIDES; ++side)
+    {
+      const float a0 = TWO_PI * static_cast<float>(side) / static_cast<float>(HULL_SIDES);
+      const float a1 = TWO_PI * static_cast<float>(side + 1u) / static_cast<float>(HULL_SIDES);
+      m_ui.AddSegment(disc.centre.x + std::cos(a0) * disc.radiusPixels,
+                      disc.centre.y + std::sin(a0) * disc.radiusPixels,
+                      disc.centre.x + std::cos(a1) * disc.radiusPixels,
+                      disc.centre.y + std::sin(a1) * disc.radiusPixels, line, AtHalfAlpha(m_palette.phosphorLabel));
+    }
+    if (disc.label.width > 0.0f && m_mapTopology.groups[disc.group].label != nullptr)
+    {
+      m_ui.AddText(disc.label.x, disc.label.y, m_uiTuning.smallSizeIndex, m_palette.phosphorDim,
+                   m_mapTopology.groups[disc.group].label);
+    }
+  }
+
+  for (std::uint32_t index = 0; index < m_mapCounts.nodes; ++index)
+  {
+    const MapNodeRect& rect = m_mapNodeRects[index];
+    const MapNode& node = m_mapTopology.nodes[rect.node];
+    const bool selected = m_mapHasSelection && node.id == m_mapSelected;
+
+    /*
+     * The tint through the palette rather than as a packed colour off the seam,
+     * which is what `MapNode::tint` being a *class* buys: the map answers the
+     * colour-vision setting N3 built, on the one screen whose whole subject is a
+     * coloured overlay.
+     */
+    m_ui.AddQuad(rect.dot, selected ? m_palette.phosphorHot : StandingColourOf(m_palette, node.tint));
+    if (selected)
+    {
+      m_ui.AddBorder(rect.dot.Inset(-4.0f * scale), line, m_palette.phosphorHot);
+    }
+    if (rect.labelled && node.label != nullptr)
+    {
+      m_ui.AddText(rect.label.x, rect.label.y, m_uiTuning.smallSizeIndex,
+                   selected ? m_palette.phosphorHot : m_palette.phosphorBody, node.label);
+    }
+  }
+
+  /*
+   * The route line, over the graph.
+   *
+   * Drawn from the *same* projected nodes the graph drew, found by index --
+   * which is why `MapRouteHop::node` is an index rather than an id. A route
+   * drawn from a second projection could disagree with the map under it by a
+   * pixel, and a plan that does not land on the systems it names is a plan a
+   * player will not trust twice.
+   */
+  {
+    /*
+     * Found by binary search rather than by scanning, because `BuildMapGraph`
+     * emits in topology order and therefore leaves this run sorted by `node`.
+     * A linear scan per hop is 64 x 2,500 at the corpus's cap -- a hundred and
+     * sixty thousand comparisons in a frame, to draw at most 63 lines.
+     */
+    const auto find = [this](std::uint32_t _node) -> const MapNodeRect* {
+      const auto begin = m_mapNodeRects.begin();
+      const auto end = begin + m_mapCounts.nodes;
+      const auto found = std::lower_bound(begin, end, _node, [](const MapNodeRect& _rect, std::uint32_t _value) {
+        return _rect.node < _value;
+      });
+      return found != end && found->node == _node ? &*found : nullptr;
+    };
+
+    for (std::uint32_t index = 0; index + 1u < m_mapHopCount; ++index)
+    {
+      const MapNodeRect* from = find(m_mapHops[index].node);
+      const MapNodeRect* to = find(m_mapHops[index + 1u].node);
+      if (from != nullptr && to != nullptr)
+      {
+        m_ui.AddSegment(from->point.x, from->point.y, to->point.x, to->point.y, line * 2.0f, m_palette.caution);
+      }
+    }
+  }
+
+  // The pinch hint, and the count line under the viewport.
+  m_ui.AddQuad(screen.hint, WithAlpha(m_palette.panel, 0xE0));
+  m_ui.AddBorder(screen.hint, line, m_palette.border);
+  leftIn(UiRect{screen.hint.x, screen.hint.y, screen.hint.width, screen.hint.height * 0.5f}, m_uiTuning.smallSizeIndex,
+         m_palette.phosphor, MapPinchLevelName(m_mapLevel));
+  leftIn(UiRect{screen.hint.x, screen.hint.y + screen.hint.height * 0.5f, screen.hint.width,
+                screen.hint.height * 0.5f},
+         m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, "PINCH IN > CONSTELLATION > SYSTEM");
+
+  std::snprintf(buffer, sizeof(buffer), "%u SYSTEMS - %u GATE LINKS - COMPLETE DEFINITION", m_mapCounts.nodes,
+                m_mapCounts.links);
+  leftIn(screen.graphFooter, m_uiTuning.smallSizeIndex, m_palette.phosphorGhost, buffer);
+
+  // --- the rail -----------------------------------------------------------
+  m_ui.AddQuad(screen.rail, WithAlpha(m_palette.panel, 0xFF));
+  m_ui.AddQuad(UiRect{screen.rail.Right() - line, screen.rail.y, line, screen.rail.height}, m_palette.rule);
+  leftIn(m_mapRail.overlayHeading, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, "OVERLAY");
+
+  for (std::uint32_t index = 0; index < m_mapOverlayRowCount; ++index)
+  {
+    const MapOverlayRowRect& row = m_mapOverlayRows[index];
+    const MapOverlayOption& overlay = m_mapOverlays[row.overlay];
+    const bool active = row.enabled && overlay.id == m_mapOverlay;
+    if (active)
+    {
+      m_ui.AddQuad(row.rect, AtHalfAlpha(m_palette.phosphorGhost));
+    }
+    leftIn(row.rect, m_uiTuning.bodySizeIndex,
+           row.enabled ? (active ? m_palette.phosphorHot : m_palette.phosphor) : m_palette.phosphorDead,
+           overlay.name != nullptr ? overlay.name : "");
+
+    // The stub's reason, in the game's own word. A disabled row that did not say
+    // why would be a feature the player concludes is broken.
+    if (!row.enabled && overlay.tag != nullptr)
+    {
+      rightIn(row.rect, m_uiTuning.smallSizeIndex, m_palette.phosphorDead, overlay.tag);
+    }
+  }
+
+  leftIn(m_mapRail.legendHeading, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, "KEY");
+  {
+    UiRect rows[MAX_MAP_LEGEND_ROWS] = {};
+    const std::uint32_t drawn = BuildMapRows(m_mapLegendCount, m_mapRail.legendRows,
+                                             m_mapTuning.legendRowHeight * scale, m_mapLegendScroll.Offset(), rows);
+    for (std::uint32_t index = 0; index < drawn; ++index)
+    {
+      const MapLegendRow& entry = m_mapLegend[m_mapLegendScroll.Offset() + index];
+      const float swatch = rows[index].height * 0.5f;
+      m_ui.AddQuad(UiRect{rows[index].x, rows[index].y + swatch * 0.5f, swatch, swatch},
+                   StandingColourOf(m_palette, entry.tint));
+      m_ui.AddText(rows[index].x + swatch * 2.0f, rows[index].y, m_uiTuning.smallSizeIndex, m_palette.phosphorBody,
+                   entry.name != nullptr ? entry.name : "");
+      std::snprintf(buffer, sizeof(buffer), "%u", entry.count);
+      rightIn(rows[index], m_uiTuning.smallSizeIndex, m_palette.phosphorDim, buffer);
+    }
+  }
+
+  leftIn(m_mapRail.showHeading, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, "SHOW");
+  for (std::uint32_t index = 0; index < m_mapShowRowCount; ++index)
+  {
+    const MapShowRowRect& row = m_mapShowRows[index];
+    const bool on = m_mapShow.Get(row.toggle);
+    const float box = smallPx;
+    const UiRect tick{row.rect.x, row.rect.y + (row.rect.height - box) * 0.5f, box, box};
+    m_ui.AddBorder(tick, line, on ? m_palette.phosphor : m_palette.phosphorDead);
+    if (on)
+    {
+      m_ui.AddQuad(tick.Inset(2.0f * scale), m_palette.phosphor);
+    }
+    m_ui.AddText(tick.Right() + cell, row.rect.y + (row.rect.height - smallPx) * 0.5f, m_uiTuning.smallSizeIndex,
+                 on ? m_palette.phosphorBody : m_palette.phosphorDim, MapShowToggleName(row.toggle));
+  }
+
+  // --- the panel ----------------------------------------------------------
+  m_ui.AddQuad(screen.panel, WithAlpha(m_palette.panel, 0xFF));
+  m_ui.AddQuad(UiRect{screen.panel.x, screen.panel.y, line, screen.panel.height}, m_palette.rule);
+  m_ui.AddText(screen.panelHead.x, screen.panelHead.y, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel,
+               "SELECTED SYSTEM");
+
+  if (m_mapHasSelection)
+  {
+    const MapNode* selected = nullptr;
+    for (const MapNode& node : m_mapTopology.nodes)
+    {
+      if (node.id == m_mapSelected)
+      {
+        selected = &node;
+        break;
+      }
+    }
+    if (selected != nullptr)
+    {
+      m_ui.AddText(screen.panelHead.x, screen.panelHead.y + smallPx * 1.6f, m_uiTuning.headSizeIndex,
+                   m_palette.phosphorHot, selected->label != nullptr ? selected->label : "");
+      if (selected->badge != nullptr)
+      {
+        m_ui.AddText(screen.panelHead.x, screen.panelHead.Bottom() - smallPx, m_uiTuning.smallSizeIndex,
+                     StandingColourOf(m_palette, selected->tint), selected->badge);
+      }
+    }
+  }
+  else
+  {
+    m_ui.AddText(screen.panelHead.x, screen.panelHead.y + smallPx * 1.6f, m_uiTuning.bodySizeIndex,
+                 AtHalfAlpha(m_palette.neutral), "TAP A SYSTEM");
+  }
+
+  {
+    UiRect rows[MAX_MAP_FACT_ROWS] = {};
+    const std::uint32_t drawn = BuildMapRows(m_mapFactCount, m_mapPanel.facts, m_mapTuning.factRowHeight * scale,
+                                             m_mapFactScroll.Offset(), rows);
+    for (std::uint32_t index = 0; index < drawn; ++index)
+    {
+      const MapFactRow& fact = m_mapFacts[m_mapFactScroll.Offset() + index];
+      m_ui.AddText(rows[index].x, rows[index].y, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel,
+                   fact.label != nullptr ? fact.label : "");
+      rightIn(rows[index], m_uiTuning.smallSizeIndex, m_palette.phosphorBody, fact.value != nullptr ? fact.value : "");
+    }
+  }
+
+  if (m_mapHopCount > 0)
+  {
+    std::snprintf(buffer, sizeof(buffer), "ROUTE - %u JUMPS", m_mapHopCount - 1u);
+    leftIn(m_mapPanel.routeHeading, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, buffer);
+
+    UiRect rows[MAX_MAP_ROUTE_HOPS] = {};
+    const std::uint32_t drawn = BuildMapRows(m_mapHopCount, m_mapPanel.routeHops, m_mapTuning.routeHopHeight * scale,
+                                             m_mapRouteScroll.Offset(), rows);
+    for (std::uint32_t index = 0; index < drawn; ++index)
+    {
+      const MapRouteHop& hop = m_mapHops[m_mapRouteScroll.Offset() + index];
+      m_ui.AddText(rows[index].x, rows[index].y, m_uiTuning.smallSizeIndex, m_palette.phosphorBody,
+                   hop.name != nullptr ? hop.name : "");
+
+      // Per leg, never averaged: §3 is emphatic that "a single 0.1 system in an
+      // otherwise safe chain is the whole risk, and an average erases it".
+      rightIn(rows[index], m_uiTuning.smallSizeIndex, StandingColourOf(m_palette, hop.tint),
+              hop.badge != nullptr ? hop.badge : "");
+    }
+
+    if (m_mapRouteSummary.note != nullptr)
+    {
+      leftIn(m_mapPanel.routeSummary, m_uiTuning.smallSizeIndex, m_palette.phosphorDim, m_mapRouteSummary.note);
+    }
+    if (m_mapRouteSummary.eta != nullptr)
+    {
+      rightIn(m_mapPanel.routeSummary, m_uiTuning.smallSizeIndex, m_palette.phosphor, m_mapRouteSummary.eta);
+    }
+  }
+
+  /*
+   * The two actions, drawn either way and refused without a selection --
+   * `station-screen.png` §2's "disabled with a reason rather than hidden", which
+   * is also what stops the panel reshuffling under the player's finger the
+   * moment they pick a system.
+   */
+  {
+    const bool live = m_mapHasSelection;
+    m_ui.AddQuad(screen.setDestination, live ? AtHalfAlpha(m_palette.phosphorGhost) : m_palette.trackHull);
+    m_ui.AddBorder(screen.setDestination, line, live ? m_palette.phosphor : m_palette.phosphorDead);
+    centred(screen.setDestination, m_uiTuning.bodySizeIndex, live ? m_palette.phosphorHot : m_palette.phosphorDead,
+            "SET DESTINATION");
+    m_ui.AddBorder(screen.addWaypoint, line, live ? m_palette.border : m_palette.phosphorDead);
+    centred(screen.addWaypoint, m_uiTuning.smallSizeIndex, live ? m_palette.phosphor : m_palette.phosphorDead,
+            "ADD WAYPOINT");
+  }
+
+  /*
+   * --- the history rail: drawn, inert and labelled (ADR-016 §9a.2) ---------
+   *
+   * The rail keeps its space because the irreversible thing here is the
+   * *layout* rather than the feature: adding a bottom rail to a finished screen
+   * re-lays the screen out, while removing a reserved one reclaims its space
+   * cleanly. Build-or-cut is decided when the strategic stream exists, and not
+   * by U5 -- so this draws the shape, promises nothing, and no hit test above
+   * reaches it.
+   */
+  m_ui.AddQuad(screen.history, WithAlpha(m_palette.panel, 0xFF));
+  m_ui.AddQuad(UiRect{0.0f, screen.history.y, screen.viewport.width, line}, m_palette.rule);
+  leftIn(screen.historyHeading, m_uiTuning.smallSizeIndex, m_palette.phosphorLabel, "HISTORY");
+  {
+    UiRect spans[MAP_HISTORY_SPAN_COUNT] = {};
+    const std::uint32_t drawn = BuildMapHistorySpans(screen.historySpans, scale, m_mapTuning, spans);
+    for (std::uint32_t index = 0; index < drawn; ++index)
+    {
+      centred(spans[index], m_uiTuning.smallSizeIndex, m_palette.phosphorDead, MapHistorySpanName(index));
+    }
+  }
+  m_ui.AddBorder(screen.historyTrack, line, m_palette.phosphorDead);
+  centred(screen.historyTrack, m_uiTuning.smallSizeIndex, m_palette.phosphorDead, "NO STRATEGIC STREAM YET");
+
+  // The playhead, parked at NOW and visually inert, which the print asks for in
+  // as many words: "parked at NOW it must be visually inert, or a live map looks
+  // like a replay".
+  m_ui.AddQuad(UiRect{screen.historyTrack.Right() - line * 2.0f, screen.historyTrack.y, line * 2.0f,
+                      screen.historyTrack.height},
+               m_palette.phosphorGhost);
 }
 
 /*
@@ -4153,7 +4843,7 @@ void ClientApp::BuildSettingsSurface()
     m_ui.AddText(screen.handedness.x + pad, screen.handedness.y + pad, m_uiTuning.smallSizeIndex, m_palette.caution,
                  "HANDEDNESS - THE WHEEL DEPENDS ON THIS");
     const float buttonTop = screen.handedness.y + m_settingsTuning.auditHeadingHeight * scale;
-    const float buttonHeight = SettingsRowHeightPixels(m_settingsTuning.resetHeight, scale);
+    const float buttonHeight = TargetHeightPixels(m_settingsTuning.resetHeight, scale);
     if (buttonTop + buttonHeight <= screen.handedness.Bottom())
     {
       const float half = std::max(0.0f, (screen.handedness.width - pad * 3.0f) * 0.5f);

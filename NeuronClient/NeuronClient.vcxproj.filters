@@ -290,6 +290,15 @@
     <ClCompile Include="CountedChip.cpp">
       <Filter>Hud</Filter>
     </ClCompile>
+    <ClInclude Include="MapView.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClInclude Include="MapScreen.h">
+      <Filter>Hud</Filter>
+    </ClInclude>
+    <ClCompile Include="MapScreen.cpp">
+      <Filter>Hud</Filter>
+    </ClCompile>
     <ClInclude Include="RosterSelection.h">
       <Filter>Input</Filter>
     </ClInclude>
