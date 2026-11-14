@@ -13,7 +13,7 @@ C++ simulation gives the original's per-tick checksums (see [Verification.md](Ve
 | What | Where (default) | Made by |
 |---|---|---|
 | The original game | anywhere: `gameDir` in `local.json` | the GOG release |
-| Decompiled game code, one C# project per assembly | `..\DoK-Decompiled\` | `Tools\Extract\Extract.ps1` (ILSpy 11.2) |
+| Decompiled game code, one C# project per assembly; the middleware in `Middleware\` | `..\DoK-Decompiled\` | `Tools\Extract\Extract.ps1` (ILSpy 11.2) |
 | Every asset and object, arranged per scene, with `manifest.json` | `..\DoK-Assets\` | `Tools\Extract\Extract.ps1` (AssetStudioModCLI 0.20.0 and our scripts) |
 | Animated models (FBX with skeletons and clips) | `..\DoK-Assets\Models\` | the same |
 
@@ -31,7 +31,8 @@ phase 2).
 - **Shaders in HLSL, compiled with `dxc` at Shader Model 6.**
 - **Strict library policy**: the C++ standard library and the Windows SDK by default. Any other
   library is an exception that is decided and recorded in [Decisions.md](Decisions.md), with
-  the reason it cannot be avoided (the Steamworks and GOG Galaxy SDKs are the first ones).
+  the reason it cannot be avoided. There are none today; cook-time tools (ffmpeg, an xWMA
+  encoder) are listed there too.
 
 ## Documents
 
@@ -43,10 +44,10 @@ phase 2).
 | [Plan.md](Plan.md) | **the phases and actions, in order, with deliverables and exit criteria** |
 | [Verification.md](Verification.md) | how "the same as the original" is proved, per layer |
 | [Risks.md](Risks.md) | what can sink or stretch the rebuild, and the mitigation for each |
-| [Decisions.md](Decisions.md) | open decisions for the owner, each with a recommendation |
+| [Decisions.md](Decisions.md) | the owner's rulings (standards and D1–D14, 2026-11-14) and the cook-time tools |
 
-Order of authority: Decisions (once ruled) over Architecture and Asset-Pipeline on *what*; Plan
-on *when*.
+Order of authority: Decisions over Architecture and Asset-Pipeline on *what*; Plan on *when*.
+How code is written: [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Legal position
 

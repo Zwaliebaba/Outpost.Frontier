@@ -74,5 +74,5 @@ font rendering) are reviewed by eye, layout and content must match.
 | Check | CI (no original data) | Local (with the corpus and the install) |
 |---|---|---|
 | unit tests of `Core`, `Data`, `Sim` with synthetic inputs | yes | yes |
-| Core arithmetic against the Recorder's vectors | vectors are numbers, not content: committed if Decisions D14 says so | yes |
+| Core arithmetic against the Recorder's vectors | yes: the vectors are committed (Decisions D14) | yes |
 | golden traces, load captures, content checks, reference shots, event logs | no | yes, per milestone and before merging work on the area |

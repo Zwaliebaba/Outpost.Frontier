@@ -17,7 +17,7 @@ completes the game.
 | **M3** | a skirmish against the AI is playable on one map: the C++ simulation, near-parity visuals, basic HUD | phase 6.2 |
 | **M4** | campaign mission M01 plays end to end: script, dialogue, cinematics, UI | phase 9.3 |
 | **M5** | the whole campaign (Tutorial, M01–M13) | phase 9.3 |
-| **M6** | multiplayer and skirmish on every map, saves and replays | phase 10 |
+| **M6** | LAN multiplayer and skirmish on every map, saves and replays | phase 10 |
 | **M7** | complete: every original feature, every language, performance targets | phase 11 |
 
 Each action: **deliverable** → **exit** (how it is known done). Sizes are relative (S < M < L < XL).
@@ -26,11 +26,11 @@ Each action: **deliverable** → **exit** (how it is known done). Sizes are rela
 
 | # | Action | Deliverable → exit | Size |
 |---|---|---|---|
-| 0.1 | Rule on the open decisions D1–D14 ([Decisions.md](Decisions.md)) | rulings recorded → no phase-1/2 action waits on a decision | S |
-| 0.2 | Solution and projects as in [Architecture.md §2](Architecture.md), empty; coding conventions (D10) | `Outpost.Frontier.sln`, `CONTRIBUTING.md` → builds in Debug and Release | S |
-| 0.3 | CI on a Windows runner: build, unit tests | workflow → green on every push. CI never sees original code or data: golden-trace and content checks run locally | S |
-| 0.4 | Local inputs configuration: paths of the install, `DoK-Decompiled`, `DoK-Assets`, cooked content, golden corpus | a git-ignored JSON file, read by every tool → each tool reports a clear error when an input is missing. **Started 2026-11-14:** `local.json` exists and `Tools/Extract/Extract.ps1` reads it and rebuilds `DoK-Decompiled` and `DoK-Assets` from the install | S |
-| 0.5 | Decompile the middleware the game's behaviour depends on, as specification: NGUI, `Fabric.*`, CinemaDirector, Cinemachine, PlayMaker, `uScriptRuntime`, LeanTween (only the game's own assemblies are in `DoK-Decompiled` so far) | C# projects beside the others → every runtime in phases 5–9 has its reference | S |
+| 0.1 | Rule on the open decisions D1–D14 ([Decisions.md](Decisions.md)) | rulings recorded → no phase-1/2 action waits on a decision. **Done 2026-11-14** | S |
+| 0.2 | Solution and projects as in [Architecture.md §2](Architecture.md), empty; coding conventions (D10) | `Outpost.Frontier.sln`, `CONTRIBUTING.md` → builds in Debug and Release. **Done 2026-11-14:** 16 projects under `Source/`, warning level 4 as errors, `Tests.exe` checks that all 12 libraries link | S |
+| 0.3 | CI on a Windows runner: build, unit tests | workflow → green on every push. CI never sees original code or data: golden-trace and content checks run locally. **Done 2026-11-14:** `.github/workflows/build.yml` (Debug and Release, tests, no platform headers in `Core`/`Data`/`Sim`, extraction scripts parse) | S |
+| 0.4 | Local inputs configuration: paths of the install, `DoK-Decompiled`, `DoK-Assets`, cooked content, golden corpus | a git-ignored JSON file, read by every tool → each tool reports a clear error when an input is missing. **Done 2026-11-14:** `local.json` (`gameDir`, `decompiledDir`, `assetsDir`, `toolsDir`, `contentDir`, `corpusDir`); `Tools/Extract/Extract.ps1` reads it and rebuilds `DoK-Decompiled` and `DoK-Assets` from the install | S |
+| 0.5 | Decompile the middleware the game's behaviour depends on, as specification: NGUI, `Fabric.*`, CinemaDirector, Cinemachine, PlayMaker, `uScriptRuntime`, LeanTween | C# projects beside the others → every runtime in phases 5–9 has its reference. **Done 2026-11-14:** 13 assemblies (also `UnityEngine.UI`, `UnityScript.Lang`, `Boo.Lang`), 872 files in `DoK-Decompiled\Middleware\` (`Extract.ps1 -Steps middleware`) | S |
 
 ## Phase 1: ground truth from the original (Track A)
 
@@ -39,7 +39,7 @@ after it is checked against.
 
 | # | Action | Deliverable → exit | Size |
 |---|---|---|---|
-| 1.1 | **Recorder**: a BepInEx 5 + HarmonyX plugin for the original game (Mono, Unity 5.2): per tick, the commands applied and the checksum (`Checksum`, exported as JSON per state component); on demand, full state frames | plugin + format spec → a recorded skirmish replays in the original with identical checksums | M |
+| 1.1 | **Recorder**: a BepInEx 5 + HarmonyX plugin for the original game (Mono, Unity 5.2), installed into a copy of the game folder: per tick, the commands applied and the checksum (`Checksum`, exported as JSON per state component); on demand, full state frames. Hook points: `CommandRouter.ApplyEndOfFrameState(currentFrame, stateCollectionList, simChecksum)`, called once per tick with the frame's state and checksum (the one the original's desync check compares), and `CommandBuffer.ScheduleCommandForFrame(command, frame)` | plugin + format spec → a recorded skirmish replays in the original twice with identical checksum streams | M |
 | 1.2 | **Golden corpus**: replays with traces for every campaign mission (recorded playthroughs) and for every skirmish/MP map (AI-vs-AI skirmishes run unattended) | corpus on the owner's machine → every mission and map covered at least once | M |
 | 1.3 | **Load captures**: every attribute's loaded `Fixed64` raw value; the simulation descriptors built from each design scene; the sim's height map and nav mesh after load | captures → the inputs of the C++ loaders can be compared value by value | S |
 | 1.4 | **Presentation references**: screenshots at scripted camera positions per scene; the Fabric events fired per tick in golden replays; every UI screen per language | reference set → phases 5, 7 and 8 have something to compare against | M |
@@ -54,7 +54,7 @@ Per [Asset-Pipeline.md](Asset-Pipeline.md), stage 2a (reading `DoK-Assets`).
 | 2.2 | Lossless converters: textures (DDS), meshes, string tables, fonts, sim height maps and nav meshes | converters + checks → all pass on the whole install | M |
 | 2.3 | **Schema generator**: C++ structs and loaders from the decompiled C# class definitions of the component and attribute classes; then the scene and prefab converter | generator, `Cook scene` → every scene converts; counts match `manifest.json`; all references resolve | L |
 | 2.4 | Materials, particle systems, UI atlases, skeletons, animation clips and controllers, audio events, cutscenes, PlayMaker FSMs | converters + **usage reports** (particle modules, Fabric component types, PlayMaker actions, component types per scene) → the runtimes' scope is measured, not guessed | L |
-| 2.5 | Re-encoders: audio (D5), video (D6) | converters → durations match; quality threshold met | S |
+| 2.5 | Re-encoders: streamed audio to xWMA (D5, T2), video to H.264 MP4 (D6, T1) | converters → durations match; quality threshold met | S |
 | 2.6 | **Mission script recovery**: the uScript graphs from the generated C# (D4) | `Cook script` + node-type report → all 82 graph components recover to `.graph` with every node type listed | L |
 | 2.7 | Stage 2b (D3): `Cook` reads the installation itself | Unity 5.2 serialized-file reader → cooks from the install equal cooks from `DoK-Assets` | L |
 
@@ -73,7 +73,7 @@ coverage that `SimRunner` checks.
 | 3.6 | Combat: weapons, projectiles, damage, sensors and detection | → combat replays bit-exact | XL |
 | 3.7 | Abilities, buffs, production, research, resources and harvesting, the commander system | → skirmish replays bit-exact up to the first AI decision | XL |
 | 3.8 | AI: the managers (economy, combat, intel, production, needs, targets) and jobs | → AI-vs-AI replays bit-exact | XL |
-| 3.9 | Commands and router, replay, save/load (state), network protocol (lockstep messages) | → **M1**: the whole golden corpus bit-exact | L |
+| 3.9 | Commands and router, replay, network protocol (lockstep messages) | → **M1**: the whole golden corpus bit-exact | L |
 
 ## Phase 4: engine foundations (Track B)
 
@@ -130,9 +130,9 @@ coverage that `SimRunner` checks.
 
 | # | Action | Deliverable → exit | Size |
 |---|---|---|---|
-| 10.1 | Lockstep sessions over LAN, then Steam and GOG Galaxy (`Net`) | → a 2-player game over each transport | L |
-| 10.2 | Save/load and replays (D8); cross-play with the original (D9) | → saves round-trip; recorded replays play back | M |
-| 10.3 | Platform services the original has (achievements, stats, cloud saves), as decided | → as the original | M |
+| 10.1 | Lockstep sessions over LAN (`Net`); Steam and GOG Galaxy are out of scope for now (D11) | → a 2-player and an 8-player LAN game | L |
+| 10.2 | Save/load in our own format (D8) over the `Sim` state; replays | → saves round-trip bit-exact (the checksum after load equals the checksum at save); recorded replays play back | M |
+| 10.3 | Platform services (achievements, stats, cloud saves): only if D11 is revisited | → as decided then | — |
 | 10.4 | Every skirmish and multiplayer map | → **M6** | M |
 
 ## Phase 11: completion

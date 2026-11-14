@@ -8,7 +8,8 @@
     tools      install the pinned tools into toolsDir: ilspycmd 11.2.0.10050 and
                AssetStudioModCLI 0.20.0 (download checked against its SHA-256)
     decompile  the game's assemblies to C# projects in decompiledDir         (~1 min)
-    export     every asset and every object, grouped by source file           (~10 min)
+    middleware the middleware the game builds on, into decompiledDir\Middleware (Decisions D13)
+    export    every asset and every object, grouped by source file           (~10 min)
     organize   arranged per scene, with manifest.json                          (~8 min)
     fbx        the animated objects as FBX models under Models\                (~8 min)
 
@@ -20,13 +21,17 @@
   pwsh Tools\Extract\Extract.ps1 -Steps fbx
 #>
 param(
-  [ValidateSet('all', 'tools', 'decompile', 'export', 'organize', 'fbx')]
   [string[]] $Steps = @('all'),
   [string] $Config,
   [switch] $Force
 )
 
 $ErrorActionPreference = 'Stop'
+# "-Steps a,b" arrives as one string under pwsh -File: split it here, then validate.
+$Steps = @($Steps | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$known = 'all', 'tools', 'decompile', 'middleware', 'export', 'organize', 'fbx'
+$unknown = $Steps | Where-Object { $_ -notin $known }
+if ($unknown) { Write-Host "ERROR: unknown step(s) $($unknown -join ', '); known: $($known -join ', ')" -ForegroundColor Red; exit 1 }
 $here = $PSScriptRoot
 $repo = (Resolve-Path (Join-Path $here '..\..')).Path
 if (-not $Config) { $Config = Join-Path $repo 'local.json' }
@@ -37,10 +42,15 @@ $ASSETSTUDIO_URL = "https://github.com/aelurum/AssetStudio/releases/download/v$A
 $ASSETSTUDIO_SHA256 = '0CAFF1E9D381083324F65241F55171768CD08EFFE626B0125B63497CD2510CC7'
 $BUILD_NAME = 'DisjointedFalafel'
 
-# The game's own assemblies; the middleware ones are Plan action 0.5.
+# The game's own assemblies.
 $ASSEMBLIES = @('Assembly-CSharp-firstpass', 'Assembly-UnityScript', 'BBI.Core', 'BBI.Debugger', 'BBI.Game.Data',
                 'BBI.Game', 'BBI.Platform', 'BBI.Spark', 'BBI.Steam', 'BBI.Unity.Core.Data', 'BBI.Unity.Core',
                 'BBI.Unity.Game.Data', 'BBI.Unity.Game', 'GOG.GalaxyWrapper', 'Assembly-CSharp')
+# The middleware whose behaviour the rebuilt runtimes must reproduce (Decisions D13, Plan 0.5):
+# UI, audio, cutscenes and cameras, state machines, mission scripts, tweens, UnityScript's runtime.
+$MIDDLEWARE = @('NGUI', 'Fabric.Core', 'Fabric.AudioSpline', 'Fabric.LoudnessMeter', 'Fabric.ModularSynth',
+                'CinemaDirector', 'Cinemachine', 'PlayMaker', 'uScriptRuntime', 'LeanTween', 'UnityEngine.UI',
+                'UnityScript.Lang', 'Boo.Lang')
 
 function Step([string] $name) { $Steps -contains 'all' -or $Steps -contains $name }
 function Say([string] $text) { Write-Host "== $text" -ForegroundColor Cyan }
@@ -55,6 +65,8 @@ if (-not (Test-Path $Config)) {
     decompiledDir = (Join-Path $parent 'DoK-Decompiled')
     assetsDir     = (Join-Path $parent 'DoK-Assets')
     toolsDir      = (Join-Path $env:LOCALAPPDATA 'Outpost.Frontier\Tools')
+    contentDir    = (Join-Path $parent 'Outpost-Content')   # cooked content (Cook, Plan phase 2)
+    corpusDir     = (Join-Path $parent 'Outpost-Corpus')    # golden corpus (Recorder, Plan phase 1)
   } | ConvertTo-Json | Set-Content -Encoding utf8 $Config
   Write-Host "Wrote $Config with defaults."
 }
@@ -125,14 +137,13 @@ if (-not (Test-Path $ilspy) -or -not (Test-Path $cli)) { Fail 'tools missing: ru
 
 # --- decompile -----------------------------------------------------------------------------------
 
-if (Step 'decompile') {
-  Say "decompile -> $decompiled"
-  if ((Test-Path $decompiled) -and (Get-ChildItem $decompiled -Force | Select-Object -First 1) -and -not $Force) {
-    Fail "$decompiled is not empty (use -Force to decompile over it)"
-  }
-  New-Item -ItemType Directory -Force $decompiled | Out-Null
-  $jobs = foreach ($n in $ASSEMBLIES) {
-    Start-Job -ArgumentList $ilspy, $managed, $decompiled, $n -ScriptBlock {
+function Decompile([string[]] $names, [string] $out, [string] $label) {
+  Say "$label -> $out"
+  $existing = Get-ChildItem $out -Force -ErrorAction SilentlyContinue | Where-Object Name -ne 'Middleware' | Select-Object -First 1
+  if ($existing -and -not $Force) { Fail "$out is not empty (use -Force to decompile over it)" }
+  New-Item -ItemType Directory -Force $out | Out-Null
+  $jobs = foreach ($n in $names) {
+    Start-Job -ArgumentList $ilspy, $managed, $out, $n -ScriptBlock {
       param($ilspy, $managed, $out, $n)
       $dir = Join-Path $out $n
       $o = & $ilspy -p -o $dir -r $managed (Join-Path $managed "$n.dll") 2>&1
@@ -142,8 +153,11 @@ if (Step 'decompile') {
   $results = $jobs | Wait-Job | Receive-Job
   $jobs | Remove-Job
   $results | Sort-Object Name | Format-Table Name, Exit, Files -AutoSize | Out-Host
-  if ($results | Where-Object { $_.Exit -ne 0 }) { Fail 'a decompilation failed' }
+  if ($results | Where-Object { $_.Exit -ne 0 }) { Fail "a decompilation failed ($label)" }
 }
+
+if (Step 'decompile') { Decompile $ASSEMBLIES $decompiled 'decompile' }
+if (Step 'middleware') { Decompile $MIDDLEWARE (Join-Path $decompiled 'Middleware') 'middleware' }
 
 # --- export --------------------------------------------------------------------------------------
 

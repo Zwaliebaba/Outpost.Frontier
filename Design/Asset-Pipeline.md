@@ -23,7 +23,7 @@ holds only the tool.
 | Stage | Input | Status |
 |---|---|---|
 | **2a** (now) | `..\DoK-Assets`: AssetStudioModCLI's exports and JSON dumps, `manifest.json`, `Models\` | done, 2026-11-14 |
-| **2b** (Decisions D3) | the installation directly: a Unity 5.2 serialized-file reader in `Cook` (headers are already read by `DoK-Assets\tools\unity_externals.py`) | later, so a cook does not depend on a third-party tool |
+| **2b** (Decisions D3: after M2) | the installation directly: a Unity 5.2 serialized-file reader in `Cook` (headers are already read by `DoK-Assets\tools\unity_externals.py`) | later, so a cook does not depend on a third-party tool |
 
 Stage 2a is enough to start every converter. Raw bulk data (texture blocks, audio, mesh streams)
 is always read from the installation by offset, using the offsets the dumps give
@@ -41,9 +41,9 @@ is always read from the installation by offset, using the offsets the dumps give
 | Scenes and prefabs | 81 scenes, 128,029 GameObjects | GameObject/Transform hierarchies with components | **`.scene`**: entities, transforms, and one record per component type the rebuild supports; references as stable IDs | `Cook scene` | yes |
 | Component data (MonoBehaviour) | 91,123 of 2,468 script classes | Unity serialization of C# fields | typed records: **C++ structs and loaders generated from the decompiled C# class definitions** (field order and types), for the classes the rebuild uses | `Cook schema` + `Cook scene` | yes |
 | Particle systems | 18,748 | Shuriken modules (curves, gradients, emission, shape, ...) | **`.fx`**: module records for the modules used | `Cook fx` (it also reports module usage, which scopes the runtime) | yes |
-| Audio | 1,632 clips (270 streamed); 6.0 GB as PCM, ~1 GB as Vorbis | Vorbis (FSB5) | **WAV PCM** for short clips (XAudio2 plays it natively); streamed music and dialogue compressed (Decisions D5) | `Cook audio` | short clips yes; streamed per D5 |
+| Audio | 1,632 clips (270 streamed); 6.0 GB as PCM, ~1 GB as Vorbis | Vorbis (FSB5) | **WAV PCM** for short clips (XAudio2 plays it natively); streamed music and dialogue as **xWMA**, re-encoded offline (Decisions D5, tool T2) | `Cook audio` | short clips yes; streamed clips re-encoded once |
 | Audio events | Fabric components (~13,000) | Fabric component trees in scenes and prefabs | **`.audio`**: event → component tree (random, blend, sequence, switch, 3D source, parameters) | `Cook audio-events` | yes |
-| Video | 27 | Theora + Vorbis (`.ogv`), 0.5 GB | **MP4: H.264 + AAC**, which Media Foundation plays natively; transcoded offline (Decisions D6) | `Cook video` (calls the offline transcoder) | re-encoded |
+| Video | 27 | Theora + Vorbis (`.ogv`), 0.5 GB | **MP4: H.264 + AAC**, which Media Foundation plays natively; transcoded offline with ffmpeg (Decisions D6, tool T1) | `Cook video` (calls the offline transcoder) | re-encoded |
 | String tables | 7 languages | CSV `NumberId,StringId,Text,CharacterId,FabricEventString,FabricFilePath` | **UTF-8 table per language**, keyed by `StringId`, with the dialogue columns kept | `Cook text` | yes |
 | Fonts | 4 | Unity Font with embedded font data | **TTF/OTF** as embedded; rendered through DirectWrite into atlases at runtime | `Cook font` | yes |
 | UI atlases | NGUI `UIAtlas` and sprites | atlas texture + sprite rects, borders, padding | **`.atlas`** + its DDS | `Cook ui` | yes |

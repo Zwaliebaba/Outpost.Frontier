@@ -25,7 +25,7 @@ keeps that seam exactly where Blackbird put it:
 | Project | Kind | Ports / replaces | Depends on |
 |---|---|---|---|
 | `Core` | lib | the non-Unity half of `BBI.Core`: `Fixed64`, `Vector2r`/`Vector3r`, `Random64`, `Checksum`, ID types, the .NET-compatible collections (§4), events, JSON, logging, file I/O | C++ std |
-| `Sim` | lib | `BBI.Game` (simulation, AI, commands, network protocol, replay, save/load) | Core, Data |
+| `Sim` | lib | `BBI.Game` (simulation, AI, commands, network protocol, replay); save/load in our own format (D8) | Core, Data |
 | `Data` | lib | `BBI.Game.Data` attribute types, generated from a schema; loaders for cooked data | Core |
 | `Platform` | lib | Win32 window, input (keyboard, mouse, gamepad via Windows SDK), timing, file system | Windows SDK |
 | `Render` | lib | Unity's renderer for this game: D3D12 device, frame, materials and the rewritten shaders, meshes, skinning, terrain, deferred decals, particles, post-processing, lighting | Platform, DirectXMath, `dxc` |
@@ -35,7 +35,7 @@ keeps that seam exactly where Blackbird put it:
 | `Ui` | lib | NGUI: atlases, sprites, labels, widgets, buttons, localisation hooks; text through DirectWrite | Render, Platform |
 | `Scene` | lib | the runtime scene: cooked hierarchies, components, prefab instancing, LOD, the scene entities the sim consumes | Render, Anim, Audio |
 | `Script` | lib | uScript and PlayMaker runtimes for the mission graphs and FSMs; CinemaDirector cutscene runtime | Scene, Sim (commands, queries) |
-| `Net` | lib | lockstep transport and sessions: Steam, GOG Galaxy, LAN | Sim, Steamworks/Galaxy SDKs |
+| `Net` | lib | lockstep transport and sessions over LAN (no Steam or GOG Galaxy for now: D11; no cross-play with the original: D9) | Sim, Windows SDK (Winsock) |
 | `Game` | exe | the port of `BBI.Unity.Game`: unit views, FX layer, HUD, front end, camera, input mapping, audio controllers, scenario flow | everything above |
 | `Cook` | exe | the asset pipeline: original install → native content ([Asset-Pipeline.md](Asset-Pipeline.md)) | Core, Data |
 | `SimRunner` | exe | headless: runs replays and command logs through `Sim`, compares checksums with golden traces | Sim |
@@ -80,13 +80,13 @@ The presentation layer is large (`BBI.Unity.Game` alone is 115k lines) because i
 Unity's systems. The engine provides the subset of them that the content measurably uses
 ([Inventory.md §3](Inventory.md)), not Unity in general:
 
-- **Rendering:** forward or deferred is decided by the shaders' rewrite (Decisions D2); deferred
-  decals (28,742 instances) are a first-class pass either way. Materials are the 217 shaders'
+- **Rendering:** deferred shading, as the original (D2), on Direct3D 12 feature level 12_1 (D7);
+  deferred decals (28,742 instances) are a first-class pass. Materials are the 217 shaders'
   properties as cooked parameter blocks; LOD groups; layer sorting (`FX_SCRP_LayerSorting`).
 - **Particles:** a Shuriken-compatible runtime for the modules the 18,748 systems actually use
   (measured during conversion), plus Blackbird's FX layer over it (`FXElement`, `FXLOD*`,
   `FXNLIPS*`, despawn timers, proxy volumes).
-- **Lighting:** real-time lights and the WorldArt scenes' global illumination (Risks R3).
+- **Lighting:** real-time lights, and our own offline GI bake for the WorldArt scenes (D2, Risks R3).
 - **Animation:** clips, the 56 Animator state machines, skinning, suspension.
 - **Audio:** Fabric's model (events → component trees: random, blend, sequence, 3D sources),
   with the dialogue, drama and dynamic-music controllers on top.
@@ -100,4 +100,4 @@ Unity's systems. The engine provides the subset of them that the content measura
 Modules are not used (tooling); `std::expected` for fallible loading, `std::span`/`std::mdspan`
 for buffers, `std::flat_map` only where order does not matter, `std::print`/`std::format` for
 logging. No exceptions across library boundaries; no RTTI in `Sim`. Naming and layout
-conventions are in Decisions D10.
+conventions are in [CONTRIBUTING.md](../CONTRIBUTING.md) (D10).
