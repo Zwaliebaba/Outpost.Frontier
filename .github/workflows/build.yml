@@ -14,7 +14,7 @@ permissions:
 jobs:
   rules:
     name: Repository rules
-    runs-on: windows-2025
+    runs-on: windows-2025-vs2026
     steps:
       - uses: actions/checkout@v5
       - name: Core, Data and Sim include no platform headers (CONTRIBUTING.md rule 3)
@@ -35,7 +35,7 @@ jobs:
 
   build:
     name: Build and test (${{ matrix.configuration }})
-    runs-on: windows-2025
+    runs-on: windows-2025-vs2026
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +43,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: microsoft/setup-msbuild@v2
+      - name: Toolset (Visual Studio 2026, v145; Directory.Build.props picks it)
+        run: |
+          msbuild -version -nologo
+          $toolset = msbuild Source\Core\Core.vcxproj -nologo -getProperty:PlatformToolset /p:Configuration=${{ matrix.configuration }} /p:Platform=x64
+          Write-Host "PlatformToolset: $toolset"
+          if ($toolset -ne 'v145') { Write-Host "::error::expected toolset v145, got $toolset"; exit 1 }
       - name: Build
         run: msbuild Outpost.Frontier.sln /m /nologo /verbosity:minimal /p:Configuration=${{ matrix.configuration }} /p:Platform=x64
       - name: Test

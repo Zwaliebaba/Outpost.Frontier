@@ -57,8 +57,9 @@ wins on what and this file on how.
 
 ## 4. Building
 
-Visual Studio 2022 (toolset v143) or Visual Studio 18 (v145) with the Windows SDK 10.0.26100.0;
-`Directory.Build.props` picks the toolset.
+Visual Studio 2026 (toolset v145) with the Windows SDK 10.0.26100.0, as CI (`windows-2025-vs2026`).
+`Directory.Build.props` picks v145 under Visual Studio 2026 and falls back to v143 under Visual
+Studio 2022.
 
 ```powershell
 msbuild Outpost.Frontier.sln /m /p:Configuration=Release /p:Platform=x64
