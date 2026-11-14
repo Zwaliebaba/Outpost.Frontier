@@ -4,3 +4,5 @@ __pycache__/
 Build/
 .vs/
 *.user
+Tools/Recorder/bin/
+Tools/Recorder/obj/

@@ -32,7 +32,7 @@ so, because the documents were first written to the recommendation.
 | D13 | Middleware decompiled as specification | **Yes**, locally (`DoK-Decompiled\Middleware\`), never committed | Plan 0.5 |
 | D14 | Test vectors computed in the original, in CI | **Yes, committed**: they are numbers the original produced, not its code or data | CI tests `Core` against them |
 
-## Cook-time tools (run by `Cook`, not linked, not shipped)
+## Tools (run, not linked into the product, not shipped)
 
 | # | Tool | For | Decided by |
 |---|---|---|---|
@@ -40,3 +40,4 @@ so, because the documents were first written to the recommendation.
 | T2 | an xWMA encoder (Microsoft's `xWMAEncode`, from the DirectX SDK) | streamed audio → xWMA | D5 |
 | T3 | `dxc` | HLSL → DXIL | S4 (part of the Windows SDK / build) |
 | T4 | ilspycmd 11.2, AssetStudioModCLI 0.20.0 | the inputs (`Tools/Extract`) | 2026-11-14 |
+| T5 | BepInEx 5.4.23.6 with HarmonyX, in a copy of the original game | the Recorder (`Tools/Recorder`, C# for the game's .NET 3.5 Mono): ground truth from the original | 2026-11-14 |
