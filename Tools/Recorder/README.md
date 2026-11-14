@@ -12,7 +12,11 @@ recorded, and compares it when the replay is played back: a difference is a `Syn
 `.dokreplay` (compressed LitJson: a header, then frames with commands and checksums; saved in the
 installation's `out\replays\`) is itself a golden trace. The Recorder makes that visible, per
 tick, in a form the C++ side can read. **Skirmish and multiplayer games record replays; the
-campaign does not.**
+campaign does not.** And a replay stores checksums **only in frames with commands** (11 of 998 in
+the first test), so the game's own check is sparse; the Recorder's traces have every tick.
+
+First result (2026-11-14): a skirmish on MP_05-Teeth, 998 ticks, and two playbacks of its replay:
+identical checksums at every tick, no `SyncError`.
 
 ## Install
 
@@ -51,7 +55,8 @@ py -3 Tools\Recorder\compare_traces.py <live.tsv> <replay.tsv> [<replay2.tsv> ..
 ```
 
 reports every frame where a replay's computed checksum differs from the recorded one (or the game
-reported `SyncError`), and the first frame where two traces differ.
+reported `SyncError`), and the first frame where two traces differ. It ignores `NoOpCommand`, the
+end marker a replay carries at its last frame.
 
 ## Trace format
 

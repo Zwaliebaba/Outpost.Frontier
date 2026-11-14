@@ -9,6 +9,10 @@ frames, mode and any SyncError or computed-versus-expected difference (in a repl
 expected checksums are the ones recorded when the game was played); then, between the first
 trace and each other one, the first frame whose checksum or commands differ.
 
+A NoOpCommand is left out of the command comparison: the game writes one into the replay at the
+final frame when it closes the recording (ReplayManager.FinalizeGameSession), so a replay's last
+frame carries it and the live game's does not.
+
 Exit 0 when every trace agrees with itself and with the first; 1 otherwise.
 """
 
@@ -26,6 +30,7 @@ def read(path):
     if len(cols) < 6:
       continue
     frame, checksum, expected, result, mode, commands = cols[:6]
+    commands = ';'.join(c for c in commands.split(';') if c != '-' and not c.startswith('NoOpCommand:')) or '-'
     frames[int(frame)] = {'checksum': int(checksum), 'expected': None if expected == '-' else int(expected),
                           'result': result, 'mode': mode, 'commands': commands}
   return frames, meta

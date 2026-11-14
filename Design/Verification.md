@@ -11,7 +11,10 @@ The strongest check, and the one the rest of the game stands on.
 
 - **Golden traces.** For each recorded game: the command stream (what was applied at which tick)
   and the checksum after every tick, as the original computes it (`Checksum`, combined from every
-  state object's `GetChecksum()`), broken down per state component.
+  state object's `GetChecksum()`), broken down per state component. The commands come from the
+  game's own `.dokreplay`; the checksums from the Recorder, because a replay stores them only in
+  frames with commands (11 of 998 in the first test). Proven 2026-11-14: a skirmish's live game and
+  two playbacks of its replay gave identical checksums at every tick.
 - **`SimRunner`** feeds the command stream to the C++ simulation and compares the checksum at
   every tick. **Pass means equal at every tick of every trace.** There is no tolerance.
 - **On a divergence** it reports the first tick and the first component whose checksum differs;
