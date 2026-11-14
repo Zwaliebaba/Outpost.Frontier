@@ -30,6 +30,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Fixed64Tests.cpp" />
     <ClCompile Include="ModuleTests.cpp" />
     <ClCompile Include="Test.cpp" />
   </ItemGroup>

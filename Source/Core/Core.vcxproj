@@ -30,6 +30,9 @@
     <ClCompile Include="Core.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Arithmetic.h" />
+    <ClInclude Include="Checksum.h" />
+    <ClInclude Include="Fixed64.h" />
     <ClInclude Include="Core.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
