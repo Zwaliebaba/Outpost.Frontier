@@ -29,7 +29,7 @@ Each action: **deliverable** → **exit** (how it is known done). Sizes are rela
 | 0.1 | Rule on the open decisions D1–D14 ([Decisions.md](Decisions.md)) | rulings recorded → no phase-1/2 action waits on a decision | S |
 | 0.2 | Solution and projects as in [Architecture.md §2](Architecture.md), empty; coding conventions (D10) | `Outpost.Frontier.sln`, `CONTRIBUTING.md` → builds in Debug and Release | S |
 | 0.3 | CI on a Windows runner: build, unit tests | workflow → green on every push. CI never sees original code or data: golden-trace and content checks run locally | S |
-| 0.4 | Local inputs configuration: paths of the install, `DoK-Decompiled`, `DoK-Assets`, cooked content, golden corpus | a git-ignored JSON file, read by every tool → each tool reports a clear error when an input is missing | S |
+| 0.4 | Local inputs configuration: paths of the install, `DoK-Decompiled`, `DoK-Assets`, cooked content, golden corpus | a git-ignored JSON file, read by every tool → each tool reports a clear error when an input is missing. **Started 2026-11-14:** `local.json` exists and `Tools/Extract/Extract.ps1` reads it and rebuilds `DoK-Decompiled` and `DoK-Assets` from the install | S |
 | 0.5 | Decompile the middleware the game's behaviour depends on, as specification: NGUI, `Fabric.*`, CinemaDirector, Cinemachine, PlayMaker, `uScriptRuntime`, LeanTween (only the game's own assemblies are in `DoK-Decompiled` so far) | C# projects beside the others → every runtime in phases 5–9 has its reference | S |
 
 ## Phase 1: ground truth from the original (Track A)

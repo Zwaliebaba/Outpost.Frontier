@@ -10,16 +10,18 @@ C++ simulation gives the original's per-tick checksums (see [Verification.md](Ve
 
 ## The inputs
 
-| What | Where | Made by |
+| What | Where (default) | Made by |
 |---|---|---|
-| The original game | `..\BaldursGate\HW\` (`DesertsOfKharak.exe`, `DesertsOfKharak_Data\`) | the GOG release |
-| Decompiled game code, one C# project per assembly | `..\DoK-Decompiled\` | ILSpy 11.2 (`ilspycmd -p`) |
-| Every asset and object, arranged per scene, with `manifest.json` | `..\DoK-Assets\` | AssetStudioModCLI 0.20.0 and the scripts in its `tools\` |
-| Animated models (FBX with skeletons and clips) | `..\DoK-Assets\Models\` | the same, animator mode |
+| The original game | anywhere: `gameDir` in `local.json` | the GOG release |
+| Decompiled game code, one C# project per assembly | `..\DoK-Decompiled\` | `Tools\Extract\Extract.ps1` (ILSpy 11.2) |
+| Every asset and object, arranged per scene, with `manifest.json` | `..\DoK-Assets\` | `Tools\Extract\Extract.ps1` (AssetStudioModCLI 0.20.0 and our scripts) |
+| Animated models (FBX with skeletons and clips) | `..\DoK-Assets\Models\` | the same |
 
 None of these go into this repository or into CI: they are the original's code and data. The
-repository holds our code, our converters and our documents; converted content is produced
-locally from the inputs (Plan, phase 2).
+repository holds our code, our converters and our documents. On any machine with the game
+installed, [`Tools/Extract`](../Tools/Extract/README.md) rebuilds the decompiled code and the
+extracted assets in about 30 minutes; converted content is produced locally from them (Plan,
+phase 2).
 
 ## Standards (owner-confirmed, 2026-11-14)
 

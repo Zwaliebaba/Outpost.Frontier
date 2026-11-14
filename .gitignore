@@ -1,0 +1,3 @@
+# Local paths to the game installation and the extracted inputs (Tools/Extract)
+local.json
+__pycache__/
