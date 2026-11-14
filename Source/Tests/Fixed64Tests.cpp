@@ -188,6 +188,8 @@ TEST(Fixed64MatchesTheOriginal)
     int unknown = 0;
     while (std::getline(file, line))
     {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();   // a checkout with CRLF line endings
         if (line.empty() || line[0] == '#')
             continue;
         const std::vector<std::string_view> parts = Split(line);

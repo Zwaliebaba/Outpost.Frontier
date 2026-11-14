@@ -1,0 +1,2 @@
+# The test vectors are read line by line; keep them byte-identical on every checkout.
+Source/Tests/Vectors/*.tsv text eol=lf
