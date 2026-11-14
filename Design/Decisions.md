@@ -32,6 +32,12 @@ so, because the documents were first written to the recommendation.
 | D13 | Middleware decompiled as specification | **Yes**, locally (`DoK-Decompiled\Middleware\`), never committed | Plan 0.5 |
 | D14 | Test vectors computed in the original, in CI | **Yes, committed**: they are numbers the original produced, not its code or data | CI tests `Core` against them |
 
+## Open
+
+| # | Question | Options | Recommendation |
+|---|---|---|---|
+| D15 | **The licensed fonts** in `encrypted/font` (an AES-encrypted bundle the game decrypts at runtime, `LegalFonts`): they were encrypted to protect their licence, so they are not extracted | (a) substitute fonts of our own choice; (b) decrypt them at runtime from the owner's installation, as the original does; (c) license the fonts | **(a)** for now: the UI (Plan phase 8) is the first to need them; revisit then |
+
 ## Tools (run, not linked into the product, not shipped)
 
 | # | Tool | For | Decided by |

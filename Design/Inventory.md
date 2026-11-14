@@ -74,7 +74,11 @@ WorldArt scene and one or more design scenes. 36 groups in all (`manifest.json` 
 | AnimationClip / AnimatorController | 443 / 56 | Mecanim state machines |
 | TextAsset | 63 | **string tables** in 7 languages (CSV: `NumberId,StringId,Text,CharacterId,FabricEventString,FabricFilePath`), **per-map simulation height maps and nav meshes** (Blackbird binary formats, read by `NavMeshData`, `HeightMapAttributesData`, `ManeuverUpdater`) |
 | MovieTexture | 27 | Theora video with Vorbis audio (`.ogv`): the NIS cinematics and UI backgrounds |
-| Font | 4 | |
+| Font | 4 | plus the licensed fonts of `encrypted/font`: an AES-encrypted bundle stored as a TextAsset in `resources.assets`, decrypted by the game at runtime (`LegalFonts`) |
+
+Asset bundles (`Bundles\`, 48, 488 MB): front end and credits, loading screens, voice-over per faction and
+mission (the bulk: `vo/coalition`, `vo/gaalsi`, `vo/khaaneph`, `vo/soban`, about 16,000 assets each), and the
+two DLCs: 73,001 assets, 187,039 objects, with their original project paths.
 
 Most common component scripts, which name the presentation subsystems to rebuild:
 

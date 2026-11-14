@@ -6,3 +6,5 @@ Build/
 *.user
 Tools/Recorder/bin/
 Tools/Recorder/obj/
+Tools/Vectors/bin/
+Tools/Vectors/obj/

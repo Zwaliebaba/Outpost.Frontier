@@ -11,6 +11,8 @@
     middleware the middleware the game builds on, into decompiledDir\Middleware (Decisions D13)
     export    every asset and every object, grouped by source file           (~10 min)
     organize   arranged per scene, with manifest.json                          (~8 min)
+    bundles    the asset bundles (Bundles\: front end, loading screens, voice-over, DLC)
+               into Bundles\, added to manifest.json                          (~3 min)
     fbx        the animated objects as FBX models under Models\                (~8 min)
 
   Paths come from local.json at the repository root (git-ignored); the first run writes it with
@@ -29,7 +31,7 @@ param(
 $ErrorActionPreference = 'Stop'
 # "-Steps a,b" arrives as one string under pwsh -File: split it here, then validate.
 $Steps = @($Steps | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-$known = 'all', 'tools', 'decompile', 'middleware', 'export', 'organize', 'fbx'
+$known = 'all', 'tools', 'decompile', 'middleware', 'export', 'organize', 'bundles', 'fbx'
 $unknown = $Steps | Where-Object { $_ -notin $known }
 if ($unknown) { Write-Host "ERROR: unknown step(s) $($unknown -join ', '); known: $($known -join ', ')" -ForegroundColor Red; exit 1 }
 $here = $PSScriptRoot
@@ -187,6 +189,38 @@ if (Step 'organize') {
   Move-Item -Force (Join-Path $raw 'objects\assets.xml') (Join-Path $logs 'objects-assets.xml')
   Remove-Item -Recurse -Force $raw
   Copy-Item -Force (Join-Path $here 'AssetsReadme.md') (Join-Path $assets 'README.md')
+}
+
+# --- bundles -------------------------------------------------------------------------------------
+
+if (Step 'bundles') {
+  Say 'bundles'
+  $bundles = Join-Path $game 'Bundles'
+  if (-not (Test-Path (Join-Path $bundles 'Bundles.manifest'))) { Fail "no Bundles\Bundles.manifest under $game" }
+  if (-not (Test-Path (Join-Path $assets 'manifest.json'))) { Fail 'run -Steps export,organize first' }
+  if (Test-Path (Join-Path $assets 'Bundles')) {
+    if (-not $Force) { Fail "$assets\Bundles exists (use -Force to redo it)" }
+    Remove-Item -Recurse -Force (Join-Path $assets 'Bundles')
+  }
+  $rawBundles = Join-Path $assets '_raw_bundles'
+  if (Test-Path $rawBundles) { Remove-Item -Recurse -Force $rawBundles }
+  # Every bundle the manifest names that exists as a file (encrypted/font lives in resources.assets
+  # as an encrypted TextAsset and is not extracted: organize_bundles.py records why).
+  $names = Select-String -Path (Join-Path $bundles 'Bundles.manifest') -Pattern '^\s+Name:\s*(.+)$' |
+    ForEach-Object { $_.Matches[0].Groups[1].Value.Trim() } | Where-Object { Test-Path (Join-Path $bundles $_) }
+  $bundleLog = Join-Path $logs 'bundles.log'
+  Set-Content -Path $bundleLog -Value "bundles $(Get-Date -Format s)"
+  foreach ($name in $names) {
+    $file = Join-Path $bundles $name
+    $out = Join-Path $rawBundles $name
+    & $cli $file -m export @common -o (Join-Path $out 'content') *>> $bundleLog
+    if ($LASTEXITCODE) { Fail "exporting bundle $name (see _logs\bundles.log)" }
+    & $cli $file -m jsonDump --load-all @common -o (Join-Path $out 'objects') *>> $bundleLog
+    if ($LASTEXITCODE) { Fail "dumping bundle $name (see _logs\bundles.log)" }
+    Write-Host "  $name"
+  }
+  Python (Join-Path $here 'organize_bundles.py') $bundles $assets *>&1 | Tee-Object (Join-Path $logs 'organize_bundles.log') | Out-Host
+  Remove-Item -Recurse -Force $rawBundles
 }
 
 # --- fbx -----------------------------------------------------------------------------------------

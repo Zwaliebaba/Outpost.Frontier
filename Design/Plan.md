@@ -65,7 +65,7 @@ coverage that `SimRunner` checks.
 
 | # | Action | Deliverable → exit | Size |
 |---|---|---|---|
-| 3.1 | `Core`: `Fixed64`, `Vector2r`/`Vector3r`, `Random64`, `Checksum`, ID types, and the .NET-compatible pieces of [Architecture.md §4](Architecture.md) (Mono's Dictionary/HashSet, sort and string hash) | library + tests against values computed in the original (via the recorder) → every operation bit-equal, including overflow cases | M |
+| 3.1 | `Core`: `Fixed64`, `Vector2r`/`Vector3r`, `Random64`, `Checksum`, ID types, and the .NET-compatible pieces of [Architecture.md §4](Architecture.md) (Mono's Dictionary/HashSet, sort and string hash) | library + tests against values computed in the original (via the recorder) → every operation bit-equal, including overflow cases. **Started 2026-11-14:** `Fixed64` and `Checksum` ported (`Source/Core`); all 28,319 vectors of `Tools/Vectors` (the original's C#, run on .NET Framework x64) equal, and the tests shown to catch planted faults. Next: `Vector2r`/`Vector3r`, `Random64`, ID types, the Mono collections and hashes; cross-check the vectors inside the game via the Recorder | M |
 | 3.2 | `Data`: attribute types (generated, 2.3) and their loaders | → loaded values equal the load captures (1.3) | M |
 | 3.3 | `SimRunner`: replay a command log, compare per-tick checksums, and on divergence report the first tick and the first component whose checksum differs | tool → used by every step below | M |
 | 3.4 | Port the entity/component model and the simulation core (`SimController`, state frames, events) | → empty-map replay ticks with matching checksums | L |

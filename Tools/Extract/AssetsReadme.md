@@ -16,6 +16,8 @@ Scenes\<path of the scene>\   one folder per scene of the build (81), e.g. Campa
                               its audio), Shader, TextAsset, MonoBehaviour\<script class>\ (json)
     objects\<Type>.jsonl      every object of the file, one per line: {pathID, name, data}
   GI\                         baked lighting (WorldArt scenes only), copied as is
+Bundles\<bundle>\              the asset bundles (fe\, fe\loading\, vo\, dlc\): <Type>\, objects\<Type>.jsonl,
+                              containers.json (each asset's path in the original Unity project)
 Models\<name>\                the animated objects as FBX (skeleton, skinning, animation clips) with
                               their textures; Models\index.json gives each one's source file,
                               PathID, kind (prefab / scene object) and animation controller
@@ -52,6 +54,17 @@ File names end in ` @<pathID>`, the object's id inside its file.
 the audio tracks of the 27 movies (inside the .ogv files) and 4 dynamic font textures (made at
 runtime). 33 MonoBehaviours could not be matched to their script class
 (`MonoBehaviour\_unknown script\`).
+
+## Bundles
+
+The 48 asset bundles the game loads from `Bundles\` (`manifest.json` -> `bundles`: dependencies,
+size, the files inside each, counts): the front end and credits (`fe\`), the loading screens
+(`fe\loading\`), the voice-over per faction and mission (`vo\`) and the two DLCs (`dlc\`): 73,001
+assets, 187,039 objects. Unlike the scenes they keep their **container paths**, the assets' paths in
+Blackbird's Unity project (`assets/content/audio/bundled/audio/vo/english/missions/m01/...`); voice
+lines end in the `NumberId` of the string tables (`..._16522.ogg`). Not extracted: `encrypted/font`,
+an AES-encrypted TextAsset in `resources.assets` holding licensed fonts, which the game decrypts at
+runtime; it is left as it is.
 
 ## Models
 
