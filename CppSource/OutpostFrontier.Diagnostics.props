@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Shared by Common and OutpostFrontier; edit this sheet through VS Property Manager. -->
+  <PropertyGroup Label="UserMacros">
+    <OutpostFrontierEnableTickProfile>0</OutpostFrontierEnableTickProfile>
+    <OutpostFrontierBetaLabel>0</OutpostFrontierBetaLabel>
+    <OutpostFrontierWidescreenSupport>1</OutpostFrontierWidescreenSupport>
+    <OutpostFrontierRp9>0</OutpostFrontierRp9>
+    <OutpostFrontierWalkMode>1</OutpostFrontierWalkMode>
+  </PropertyGroup>
+</Project>
